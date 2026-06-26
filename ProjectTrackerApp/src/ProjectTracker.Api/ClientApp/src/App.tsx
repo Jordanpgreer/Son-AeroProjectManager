@@ -23,6 +23,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Search,
   Trash2,
   Unlock,
   UploadCloud,
@@ -58,6 +59,7 @@ type ProjectSummary = {
   id: number
   programName: string
   programManager: string | null
+  salesOrderNumber: string | null
   currentTask: string | null
   progress: number
   targetDelivery: string | null
@@ -177,9 +179,7 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [taskForm, setTaskForm] = useState<TaskForm | null>(null)
   const [editMode, setEditMode] = useState(false)
-  const [newProjectName, setNewProjectName] = useState('')
-  const [newHoliday, setNewHoliday] = useState({ date: '', name: '' })
-  const [newWorkCenter, setNewWorkCenter] = useState('')
+  const [dashboardSearch, setDashboardSearch] = useState('')
   const [importMessage, setImportMessage] = useState('')
 
   const projectPayload = (
@@ -279,18 +279,6 @@ function App() {
     } finally {
       setProjectLoading(false)
     }
-  }
-
-  async function createProject(event: FormEvent) {
-    event.preventDefault()
-    if (!newProjectName.trim()) return
-    const project = await api<ProjectDetail>('/api/projects', {
-      method: 'POST',
-      body: JSON.stringify({ programName: newProjectName, programManager: user?.displayName ?? '', customerName: null, salesOrderNumber: null }),
-    })
-    setNewProjectName('')
-    await loadDashboard()
-    await openProject(project.id)
   }
 
   async function saveTask(event: FormEvent) {
@@ -406,15 +394,28 @@ function App() {
     setEditMode(!editMode)
   }
 
-  async function addHoliday(event: FormEvent) {
-    event.preventDefault()
-    if (!newHoliday.date || !newHoliday.name.trim()) return
-    await api<Holiday>('/api/holidays', {
-      method: 'POST',
-      body: JSON.stringify(newHoliday),
-    })
-    setNewHoliday({ date: '', name: '' })
+  async function addHolidayRange(startDate: string, endDate: string, name: string) {
+    if (!startDate || !name.trim()) return
+    const dates = enumerateIsoDates(startDate, endDate || startDate)
+    const existing = new Set(holidays.map((holiday) => holiday.date))
+    for (const date of dates) {
+      if (existing.has(date)) continue
+      await api<Holiday>('/api/holidays', {
+        method: 'POST',
+        body: JSON.stringify({ date, name: name.trim() }),
+      })
+    }
     setHolidays(await api<Holiday[]>('/api/holidays'))
+    await loadDashboard()
+  }
+
+  async function updateHoliday(id: number, date: string, name: string) {
+    if (!date || !name.trim()) return
+    const updated = await api<Holiday>(`/api/holidays/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ date, name: name.trim() }),
+    })
+    setHolidays((current) => current.map((holiday) => (holiday.id === id ? updated : holiday)))
     await loadDashboard()
   }
 
@@ -424,14 +425,12 @@ function App() {
     await loadDashboard()
   }
 
-  async function addWorkCenter(event: FormEvent) {
-    event.preventDefault()
-    if (!newWorkCenter.trim()) return
+  async function addWorkCenter(name: string) {
+    if (!name.trim()) return
     await api<WorkCenter>('/api/work-centers', {
       method: 'POST',
-      body: JSON.stringify({ name: newWorkCenter }),
+      body: JSON.stringify({ name: name.trim() }),
     })
-    setNewWorkCenter('')
     setWorkCenters(await api<WorkCenter[]>('/api/work-centers'))
   }
 
@@ -497,9 +496,8 @@ function App() {
           canEdit={canEdit}
           editMode={editMode}
           onToggleEdit={toggleEditMode}
-          newProjectName={newProjectName}
-          setNewProjectName={setNewProjectName}
-          createProject={createProject}
+          dashboardSearch={dashboardSearch}
+          setDashboardSearch={setDashboardSearch}
           refresh={refreshCurrent}
         />
 
@@ -510,7 +508,7 @@ function App() {
           {!loading && !error && !projectLoading && (
             <>
               {screen === 'dashboard' && (
-                <DashboardView dashboard={dashboard} onOpenProject={openProject} />
+                <DashboardView dashboard={dashboard} search={dashboardSearch} onOpenProject={openProject} />
               )}
               {isProjectScreen && selectedProject && (
                 <ProjectView
@@ -538,9 +536,8 @@ function App() {
                 <HolidayView
                   holidays={holidays}
                   canEdit={canEdit}
-                  newHoliday={newHoliday}
-                  setNewHoliday={setNewHoliday}
-                  addHoliday={addHoliday}
+                  addHolidayRange={addHolidayRange}
+                  updateHoliday={updateHoliday}
                   deleteHoliday={deleteHoliday}
                 />
               )}
@@ -548,8 +545,6 @@ function App() {
                 <WorkCenterView
                   workCenters={workCenters}
                   canEdit={canEdit}
-                  newWorkCenter={newWorkCenter}
-                  setNewWorkCenter={setNewWorkCenter}
                   addWorkCenter={addWorkCenter}
                   updateWorkCenter={updateWorkCenter}
                   deleteWorkCenter={deleteWorkCenter}
@@ -643,9 +638,8 @@ function PageHeader({
   canEdit,
   editMode,
   onToggleEdit,
-  newProjectName,
-  setNewProjectName,
-  createProject,
+  dashboardSearch,
+  setDashboardSearch,
   refresh,
 }: {
   screen: Screen
@@ -653,9 +647,8 @@ function PageHeader({
   canEdit: boolean
   editMode: boolean
   onToggleEdit: () => void
-  newProjectName: string
-  setNewProjectName: (value: string) => void
-  createProject: (event: FormEvent) => Promise<void>
+  dashboardSearch: string
+  setDashboardSearch: (value: string) => void
   refresh: () => Promise<void>
 }) {
   const portfolioExports = screen === 'dashboard'
@@ -692,13 +685,15 @@ function PageHeader({
             </div>
           </details>
         )}
-        {screen === 'dashboard' && canEdit && (
-          <form className="quick-add" onSubmit={createProject}>
-            <input value={newProjectName} onChange={(event) => setNewProjectName(event.target.value)} placeholder="Part / program number" />
-            <button className="button primary" type="submit">
-              <Plus size={15} /> Add Program
-            </button>
-          </form>
+        {screen === 'dashboard' && (
+          <label className="topbar-search" aria-label="Search dashboard programs">
+            <Search size={15} />
+            <input
+              value={dashboardSearch}
+              onChange={(event) => setDashboardSearch(event.target.value)}
+              placeholder="Search part or sales order"
+            />
+          </label>
         )}
       </div>
     </header>
@@ -711,18 +706,26 @@ function PageHeader({
 
 function DashboardView({
   dashboard,
+  search,
   onOpenProject,
 }: {
   dashboard: Dashboard
+  search: string
   onOpenProject: (projectId: number) => Promise<void>
 }) {
   // Completed programs live on the Past Projects page, not here.
   const active = dashboard.projects.filter((project) => project.status !== 'Complete')
-  const total = active.length
-  const onTrack = active.filter((project) => project.status === 'OnTrack').length
-  const behind = active.filter((project) => project.status === 'Behind').length
-  const notStarted = active.filter((project) => project.status === 'NotStarted').length
-  const avgCompletion = total === 0 ? 0 : active.reduce((sum, project) => sum + project.progress, 0) / total
+  const query = search.trim().toLowerCase()
+  const visible = query
+    ? active.filter((project) =>
+        project.programName.toLowerCase().includes(query) ||
+        (project.salesOrderNumber ?? '').toLowerCase().includes(query))
+    : active
+  const total = visible.length
+  const onTrack = visible.filter((project) => project.status === 'OnTrack').length
+  const behind = visible.filter((project) => project.status === 'Behind').length
+  const notStarted = visible.filter((project) => project.status === 'NotStarted').length
+  const avgCompletion = total === 0 ? 0 : visible.reduce((sum, project) => sum + project.progress, 0) / total
 
   return (
     <section className="view dashboard-view">
@@ -748,9 +751,12 @@ function DashboardView({
           )}
         </header>
         {total === 0 ? (
-          <EmptyState title="No active programs" body="Add a program number to begin tracking schedule progress." />
+          <EmptyState
+            title={query ? 'No matching programs' : 'No active programs'}
+            body={query ? 'Try another part number or sales order number.' : 'Import or add programs to begin tracking schedule progress.'}
+          />
         ) : (
-          <PortfolioTable projects={active} onOpenProject={onOpenProject} />
+          <PortfolioTable projects={visible} onOpenProject={onOpenProject} />
         )}
       </section>
     </section>
@@ -1244,7 +1250,7 @@ function OpsEditGrid({
                       {hasConflict && <ConflictIcon />}
                     </div>
                   </td>
-                  <td><input className="cell-input" list="ops-edit-stations" value={row.workStation ?? ''} placeholder="Select work center" onChange={(event) => update(row.id, { workStation: event.target.value })} onBlur={() => commit(row.id)} /></td>
+                  <td><input className="cell-input" list="ops-edit-stations" value={row.workStation ?? ''} placeholder="Search work center" onChange={(event) => update(row.id, { workStation: event.target.value })} onBlur={() => commit(row.id)} /></td>
                   <td className="col-lock">
                     <button
                       className={`icon-button lock-button ${row.startDateLocked ? 'active' : ''}`}
@@ -1486,18 +1492,18 @@ function ShadeLayer({ shades, pct }: { shades: { start: number; end: number; hol
 function HolidayView({
   holidays,
   canEdit,
-  newHoliday,
-  setNewHoliday,
-  addHoliday,
+  addHolidayRange,
+  updateHoliday,
   deleteHoliday,
 }: {
   holidays: Holiday[]
   canEdit: boolean
-  newHoliday: { date: string; name: string }
-  setNewHoliday: (value: { date: string; name: string }) => void
-  addHoliday: (event: FormEvent) => Promise<void>
+  addHolidayRange: (startDate: string, endDate: string, name: string) => Promise<void>
+  updateHoliday: (id: number, date: string, name: string) => Promise<void>
   deleteHoliday: (id: number) => Promise<void>
 }) {
+  const [dialog, setDialog] = useState<HolidayDialogState | null>(null)
+  const [saving, setSaving] = useState(false)
   const groups = useMemo(() => {
     const map = new Map<string, Holiday[]>()
     for (const holiday of holidays) {
@@ -1509,6 +1515,25 @@ function HolidayView({
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   }, [holidays])
 
+  const openAdd = () => setDialog({ mode: 'add', startDate: '', endDate: '', name: '' })
+  const openEdit = (holiday: Holiday) => setDialog({ mode: 'edit', id: holiday.id, startDate: holiday.date, endDate: holiday.date, name: holiday.name })
+
+  const submitDialog = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!dialog || !dialog.startDate || !dialog.name.trim() || saving) return
+    setSaving(true)
+    try {
+      if (dialog.mode === 'edit' && dialog.id) {
+        await updateHoliday(dialog.id, dialog.startDate, dialog.name)
+      } else {
+        await addHolidayRange(dialog.startDate, dialog.endDate || dialog.startDate, dialog.name)
+      }
+      setDialog(null)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <section className="view">
       <section className="panel">
@@ -1519,11 +1544,7 @@ function HolidayView({
             <p>Dates excluded from operation schedule calculations.</p>
           </div>
           {canEdit && (
-            <form className="inline-form" onSubmit={addHoliday}>
-              <input type="date" value={newHoliday.date} onChange={(event) => setNewHoliday({ ...newHoliday, date: event.target.value })} />
-              <input value={newHoliday.name} onChange={(event) => setNewHoliday({ ...newHoliday, name: event.target.value })} placeholder="Holiday name" />
-              <button className="button primary" type="submit"><Save size={15} /> Save</button>
-            </form>
+            <button className="button primary" type="button" onClick={openAdd}><Plus size={15} /> Add Holiday</button>
           )}
         </header>
         {holidays.length === 0 ? (
@@ -1544,9 +1565,14 @@ function HolidayView({
                       <span>{new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(new Date(`${holiday.date}T00:00:00`))}</span>
                     </div>
                     {canEdit && (
-                      <button className="icon-button danger" onClick={() => deleteHoliday(holiday.id)} aria-label={`Delete ${holiday.name}`}>
-                        <Trash2 size={14} />
-                      </button>
+                      <div className="holiday-actions">
+                        <button className="icon-button" onClick={() => openEdit(holiday)} aria-label={`Rename ${holiday.name}`} title="Rename">
+                          <Pencil size={14} />
+                        </button>
+                        <button className="icon-button danger" onClick={() => deleteHoliday(holiday.id)} aria-label={`Delete ${holiday.name}`} title="Delete">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     )}
                   </div>
                 ))}
@@ -1555,9 +1581,49 @@ function HolidayView({
           ))
         )}
       </section>
+
+      {dialog && (
+        <div className="modal-backdrop" onClick={() => setDialog(null)}>
+          <form className="modal compact-modal" onSubmit={submitDialog} onClick={(event) => event.stopPropagation()}>
+            <header className="modal-head">
+              <div className="panel-head-text">
+                <span className="kicker">Non-working Dates</span>
+                <h2>{dialog.mode === 'edit' ? 'Rename Holiday' : 'Add Holiday Range'}</h2>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setDialog(null)} aria-label="Close"><X size={16} /></button>
+            </header>
+            <div className="modal-body">
+              <section className="form-section">
+                <label className="field"><span>Holiday Name</span>
+                  <input value={dialog.name} onChange={(event) => setDialog({ ...dialog, name: event.target.value })} placeholder="Company holiday" autoFocus required />
+                </label>
+                <div className="field-row">
+                  <label className="field"><span>{dialog.mode === 'edit' ? 'Date' : 'Start Date'}</span>
+                    <input type="date" value={dialog.startDate} onChange={(event) => setDialog({ ...dialog, startDate: event.target.value, endDate: dialog.mode === 'edit' ? event.target.value : dialog.endDate })} required />
+                  </label>
+                  {dialog.mode === 'add' && (
+                    <label className="field"><span>End Date</span>
+                      <input type="date" value={dialog.endDate} min={dialog.startDate || undefined} onChange={(event) => setDialog({ ...dialog, endDate: event.target.value })} />
+                    </label>
+                  )}
+                </div>
+                {dialog.mode === 'add' && <p className="field-hint">Leave end date blank for a single-day holiday. Every date in the range will be skipped by schedule calculations.</p>}
+              </section>
+            </div>
+            <div className="modal-actions">
+              <button className="button ghost" type="button" onClick={() => setDialog(null)}>Cancel</button>
+              <button className="button primary" type="submit" disabled={saving}><Save size={15} /> {saving ? 'Saving...' : 'Save'}</button>
+            </div>
+          </form>
+        </div>
+      )}
     </section>
   )
 }
+
+type HolidayDialogState =
+  | { mode: 'add'; startDate: string; endDate: string; name: string }
+  | { mode: 'edit'; id: number; startDate: string; endDate: string; name: string }
 
 function ImportView({ isAdmin, message, onUpload }: { isAdmin: boolean; message: string; onUpload: (file: File) => Promise<void> }) {
   const [file, setFile] = useState<File | null>(null)
@@ -1612,25 +1678,43 @@ function ImportView({ isAdmin, message, onUpload }: { isAdmin: boolean; message:
 function WorkCenterView({
   workCenters,
   canEdit,
-  newWorkCenter,
-  setNewWorkCenter,
   addWorkCenter,
   updateWorkCenter,
   deleteWorkCenter,
 }: {
   workCenters: WorkCenter[]
   canEdit: boolean
-  newWorkCenter: string
-  setNewWorkCenter: (value: string) => void
-  addWorkCenter: (event: FormEvent) => Promise<void>
+  addWorkCenter: (name: string) => Promise<void>
   updateWorkCenter: (id: number, name: string) => Promise<void>
   deleteWorkCenter: (id: number) => Promise<void>
 }) {
-  const [drafts, setDrafts] = useState<Record<number, string>>({})
+  const [query, setQuery] = useState('')
+  const [dialog, setDialog] = useState<WorkCenterDialogState | null>(null)
+  const [saving, setSaving] = useState(false)
+  const filtered = useMemo(() => {
+    const value = query.trim().toLowerCase()
+    if (!value) return workCenters
+    return workCenters.filter((workCenter) => workCenter.name.toLowerCase().includes(value))
+  }, [query, workCenters])
 
-  useEffect(() => {
-    setDrafts(Object.fromEntries(workCenters.map((workCenter) => [workCenter.id, workCenter.name])))
-  }, [workCenters])
+  const openAdd = () => setDialog({ mode: 'add', name: '' })
+  const openEdit = (workCenter: WorkCenter) => setDialog({ mode: 'edit', id: workCenter.id, name: workCenter.name })
+
+  const submitDialog = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!dialog || !dialog.name.trim() || saving) return
+    setSaving(true)
+    try {
+      if (dialog.mode === 'edit') {
+        await updateWorkCenter(dialog.id, dialog.name)
+      } else {
+        await addWorkCenter(dialog.name)
+      }
+      setDialog(null)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <section className="view">
@@ -1640,40 +1724,72 @@ function WorkCenterView({
             <span className="kicker">Company Routing</span>
             <h2>Work Centers / Machines</h2>
           </div>
-          {canEdit && (
-            <form className="inline-form" onSubmit={addWorkCenter}>
-              <input value={newWorkCenter} onChange={(event) => setNewWorkCenter(event.target.value)} placeholder="New work center" />
-              <button className="button primary" type="submit"><Plus size={15} /> Add</button>
-            </form>
-          )}
+          <div className="toolbar-inline">
+            <label className="search-field">
+              <Search size={15} />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search work centers" />
+            </label>
+            {canEdit && <button className="button primary" type="button" onClick={openAdd}><Plus size={15} /> Add Work Center</button>}
+          </div>
         </header>
 
         {workCenters.length === 0 ? (
           <EmptyState title="No work centers recorded" body="Add machines or work centers so operations can be assigned consistently." />
+        ) : filtered.length === 0 ? (
+          <EmptyState title="No matching work centers" body="Try another machine or work center name." />
         ) : (
           <div className="workcenter-list">
-            {workCenters.map((workCenter) => (
+            {filtered.map((workCenter) => (
               <div className="workcenter-row" key={workCenter.id}>
                 <Factory size={16} />
-                <input
-                  value={drafts[workCenter.id] ?? workCenter.name}
-                  disabled={!canEdit}
-                  onChange={(event) => setDrafts((current) => ({ ...current, [workCenter.id]: event.target.value }))}
-                  onBlur={() => updateWorkCenter(workCenter.id, drafts[workCenter.id] ?? workCenter.name)}
-                />
+                <strong>{workCenter.name}</strong>
                 {canEdit && (
-                  <button className="icon-button danger" onClick={() => deleteWorkCenter(workCenter.id)} aria-label={`Delete ${workCenter.name}`} title="Delete">
-                    <Trash2 size={14} />
-                  </button>
+                  <div className="workcenter-actions">
+                    <button className="icon-button" onClick={() => openEdit(workCenter)} aria-label={`Rename ${workCenter.name}`} title="Rename">
+                      <Pencil size={14} />
+                    </button>
+                    <button className="icon-button danger" onClick={() => deleteWorkCenter(workCenter.id)} aria-label={`Delete ${workCenter.name}`} title="Delete">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
           </div>
         )}
       </section>
+
+      {dialog && (
+        <div className="modal-backdrop" onClick={() => setDialog(null)}>
+          <form className="modal compact-modal" onSubmit={submitDialog} onClick={(event) => event.stopPropagation()}>
+            <header className="modal-head">
+              <div className="panel-head-text">
+                <span className="kicker">Company Routing</span>
+                <h2>{dialog.mode === 'edit' ? 'Rename Work Center' : 'Add Work Center'}</h2>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setDialog(null)} aria-label="Close"><X size={16} /></button>
+            </header>
+            <div className="modal-body">
+              <section className="form-section">
+                <label className="field"><span>Work Center Name</span>
+                  <input value={dialog.name} onChange={(event) => setDialog({ ...dialog, name: event.target.value })} placeholder="CNC Mill" autoFocus required />
+                </label>
+              </section>
+            </div>
+            <div className="modal-actions">
+              <button className="button ghost" type="button" onClick={() => setDialog(null)}>Cancel</button>
+              <button className="button primary" type="submit" disabled={saving}><Save size={15} /> {saving ? 'Saving...' : 'Save'}</button>
+            </div>
+          </form>
+        </div>
+      )}
     </section>
   )
 }
+
+type WorkCenterDialogState =
+  | { mode: 'add'; name: string }
+  | { mode: 'edit'; id: number; name: string }
 
 /* ---------------------------------------------------------------------- */
 /* Calendar                                                               */
@@ -1977,7 +2093,7 @@ function TaskModal({
               <input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="e.g. CNC Production" required autoFocus />
             </label>
             <label className="field"><span>Work Station</span>
-              <input list="work-stations" value={form.workStation} onChange={(event) => setForm({ ...form, workStation: event.target.value })} placeholder="Assign a machine / station" />
+              <input list="work-stations" value={form.workStation} onChange={(event) => setForm({ ...form, workStation: event.target.value })} placeholder="Search or select work center" />
               <datalist id="work-stations">{workStations.map((station) => <option key={station} value={station} />)}</datalist>
             </label>
           </section>
@@ -2565,6 +2681,18 @@ function dateToMs(value: string) {
 
 function addDays(value: number, days: number) {
   return value + days * dayMs
+}
+
+function enumerateIsoDates(startDate: string, endDate: string) {
+  const start = dateToMs(startDate)
+  const end = dateToMs(endDate)
+  const from = Math.min(start, end)
+  const to = Math.max(start, end)
+  const dates: string[] = []
+  for (let cursor = from; cursor <= to; cursor = addDays(cursor, 1)) {
+    dates.push(msToIso(cursor))
+  }
+  return dates
 }
 
 function startOfTodayMs() {

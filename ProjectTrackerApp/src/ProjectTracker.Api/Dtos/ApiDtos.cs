@@ -16,6 +16,7 @@ public sealed record ProjectSummaryDto(
     int Id,
     string ProgramName,
     string? ProgramManager,
+    string? SalesOrderNumber,
     string? CurrentTask,
     decimal Progress,
     DateOnly? TargetDelivery,

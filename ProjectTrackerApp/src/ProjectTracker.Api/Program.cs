@@ -463,6 +463,7 @@ static ProjectSummaryDto ToSummaryDto(Project project)
         project.Id,
         project.ProgramName,
         project.ProgramManager,
+        project.SalesOrderNumber,
         project.CurrentTask,
         project.Progress,
         project.TargetDelivery,

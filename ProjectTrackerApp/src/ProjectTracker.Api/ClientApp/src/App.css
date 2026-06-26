@@ -245,8 +245,33 @@ nav { display: grid; gap: 3px; }
 }
 .export-menu-list a:hover { background: var(--surface-2); color: var(--steel-700); }
 
-.quick-add { display: inline-flex; align-items: center; gap: 8px; }
-.quick-add input { width: 188px; }
+.topbar-search,
+.search-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+}
+.topbar-search input,
+.search-field input {
+  width: 230px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.topbar-search input:focus,
+.search-field input:focus {
+  outline: none;
+  box-shadow: none;
+}
+.toolbar-inline { display: flex; align-items: center; justify-content: flex-end; gap: 9px; flex-wrap: wrap; }
 
 .main-scroll {
   flex: 1;
@@ -829,7 +854,8 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .holiday-meta { display: grid; gap: 2px; }
 .holiday-meta strong { font-size: 13px; color: var(--ink); font-weight: 600; }
 .holiday-meta span { font-size: 11px; color: var(--muted); }
-.holiday-card .icon-button { position: absolute; top: 8px; right: 8px; min-height: 24px; padding: 0 6px; }
+.holiday-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; }
+.holiday-actions .icon-button { min-height: 26px; padding: 0 7px; }
 
 .workcenter-panel { max-width: 760px; }
 .workcenter-list { display: grid; gap: 8px; padding: 0 18px 18px; }
@@ -838,11 +864,14 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
   grid-template-columns: 28px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  border-top: 1px solid var(--line);
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
 }
 .workcenter-row svg { color: var(--steel); }
-.workcenter-row input:disabled { color: var(--ink); background: var(--surface-2); }
+.workcenter-row strong { min-width: 0; overflow: hidden; color: var(--ink); font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.workcenter-actions { display: inline-flex; align-items: center; gap: 5px; }
 
 /* ---------------------------------------------------------------------- */
 /* Import                                                                 */
@@ -891,6 +920,7 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 
 .modal-backdrop { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 24px; background: rgba(11, 17, 24, 0.55); backdrop-filter: blur(5px); }
 .modal { width: min(660px, 100%); max-height: calc(100vh - 48px); overflow: auto; padding: 22px 22px 18px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-pop); }
+.compact-modal { width: min(520px, 100%); }
 .modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 
 .modal-body { display: grid; gap: 16px; margin-top: 14px; }
