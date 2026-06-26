@@ -1,0 +1,138 @@
+:root {
+  /* ---- Type ------------------------------------------------------------ */
+  --font-display: 'Archivo', 'IBM Plex Sans', system-ui, sans-serif;
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
+  --font-id: Arial, 'Helvetica Neue', Helvetica, system-ui, sans-serif;
+
+  /* ---- Canvas & surfaces ---------------------------------------------- */
+  --bg: #e9edf1;
+  --bg-deep: #dfe4ea;
+  --grid-line: rgba(16, 24, 33, 0.045);
+  --surface: #ffffff;
+  --surface-2: #f5f7f9;
+  --surface-3: #eceff3;
+
+  /* ---- Ink ------------------------------------------------------------- */
+  --ink: #101822;
+  --ink-2: #3a4654;
+  --muted: #67727f;
+  --faint: #98a3af;
+
+  /* ---- Lines ----------------------------------------------------------- */
+  --line: #e3e7ec;
+  --line-2: #d0d7df;
+  --line-3: #bcc5ce;
+
+  /* ---- Brand red ------------------------------------------------------- */
+  --red: #e23b2c;
+  --red-600: #cf3122;
+  --red-700: #a92317;
+  --red-tint: #fceeec;
+  --red-tint-2: #f6d6d1;
+
+  /* ---- Steel (secondary accent / data) -------------------------------- */
+  --steel: #2f6195;
+  --steel-700: #1f486f;
+  --steel-tint: #e8eff6;
+
+  /* ---- Status ---------------------------------------------------------- */
+  --ok: #1f7a4d;
+  --ok-700: #155c39;
+  --ok-tint: #e5f2ea;
+  --risk: #e23b2c;
+  --risk-700: #a92317;
+  --risk-tint: #fcebe8;
+  --done: #46586b;
+  --done-700: #33424f;
+  --done-tint: #e9edf1;
+  --idle: #7d8893;
+  --idle-tint: #edf0f3;
+  --warn: #b5731a;
+  --warn-700: #8a560f;
+  --warn-tint: #fbf1de;
+
+  /* ---- Dark navigation rail ------------------------------------------- */
+  --nav-1: #0d1218;
+  --nav-2: #141d26;
+  --nav-3: #0a0e13;
+  --nav-text: #c9d2db;
+  --nav-strong: #ffffff;
+  --nav-muted: #79868f;
+  --nav-line: rgba(255, 255, 255, 0.08);
+
+  /* ---- Radii ----------------------------------------------------------- */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 11px;
+  --r-pill: 999px;
+
+  /* ---- Elevation ------------------------------------------------------- */
+  --shadow-1: 0 1px 1px rgba(16, 24, 33, 0.04), 0 1px 2px rgba(16, 24, 33, 0.05);
+  --shadow-2: 0 1px 2px rgba(16, 24, 33, 0.05), 0 10px 22px -14px rgba(16, 24, 33, 0.30);
+  --shadow-pop: 0 28px 80px -24px rgba(11, 17, 24, 0.50);
+
+  /* ---- Spacing --------------------------------------------------------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 44px;
+
+  color: var(--ink);
+  background: var(--bg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 360px;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+::selection {
+  background: var(--red-tint-2);
+  color: var(--red-700);
+}
+
+/* Refined scrollbars for the instrument-panel feel */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-3) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--line-3);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--r-pill);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--faint);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}

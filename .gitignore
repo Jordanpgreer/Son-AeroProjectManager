@@ -1,0 +1,42 @@
+# Build output
+bin/
+obj/
+publish/
+dist/
+wwwroot/
+
+# Frontend dependencies and generated output
+node_modules/
+ProjectTrackerApp/src/ProjectTracker.Api/ClientApp/dist/
+ProjectTrackerApp/src/ProjectTracker.Api/wwwroot/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+
+# Local test/browser artifacts
+.playwright-cli/
+.playwright-mcp/
+output/
+test-results/
+playwright-report/
+
+# User/local machine files
+*.user
+*.suo
+.vs/
+.vscode/
+.idea/
+*.log
+
+# Generated/exported reports
+*.xlsx
+*.pdf
+!Project Tracker.xlsm
+
+# Workbook backups/intermediate repair copies
+Project Tracker.backup-*.xlsm
+Project Tracker - *.xlsm
