@@ -171,6 +171,7 @@ function App() {
     if (selectedProject) {
       const refreshed = await api<ProjectDetail>(`/api/projects/${selectedProject.id}`)
       setSelectedProject(refreshed)
+      storeSelectedProjectId(refreshed.id)
     }
   }
 
@@ -187,7 +188,11 @@ function App() {
       setDashboard(data)
       setHolidays(holidayData)
       if (data.projects.length > 0) {
-        await openProject(data.projects[0].id, false)
+        const storedProjectId = readStoredProjectId()
+        const projectId = storedProjectId && data.projects.some((project) => project.id === storedProjectId)
+          ? storedProjectId
+          : data.projects[0].id
+        await openProject(projectId, false)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load tracker data.')
@@ -209,10 +214,13 @@ function App() {
       setDashboard(data)
       setHolidays(holidayData)
 
-      const projectId = selectedProject?.id ?? data.projects[0]?.id
+      const storedProjectId = readStoredProjectId()
+      const projectId = selectedProject?.id
+        ?? (storedProjectId && data.projects.some((project) => project.id === storedProjectId) ? storedProjectId : data.projects[0]?.id)
       if (projectId) {
         const project = await api<ProjectDetail>(`/api/projects/${projectId}`)
         setSelectedProject(project)
+        storeSelectedProjectId(project.id)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to refresh tracker data.')
@@ -230,6 +238,7 @@ function App() {
     try {
       const project = await api<ProjectDetail>(`/api/projects/${projectId}`)
       setSelectedProject(project)
+      storeSelectedProjectId(project.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load program data.')
     } finally {
@@ -1953,6 +1962,15 @@ function screenSubtitle(screen: Screen) {
 function readStoredScreen(): Screen {
   const stored = window.localStorage.getItem('project-tracker-screen')
   return screens.includes(stored as Screen) ? (stored as Screen) : 'dashboard'
+}
+
+function readStoredProjectId() {
+  const value = Number(window.localStorage.getItem('project-tracker-selected-project-id'))
+  return Number.isInteger(value) && value > 0 ? value : null
+}
+
+function storeSelectedProjectId(projectId: number) {
+  window.localStorage.setItem('project-tracker-selected-project-id', String(projectId))
 }
 
 function statusClass(status: ProjectStatus | TaskStatus) {
