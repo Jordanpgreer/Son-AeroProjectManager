@@ -14,16 +14,30 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
 
     public void RefreshProject(Project project, IReadOnlySet<DateOnly> holidays, DateOnly today)
     {
+        DateOnly? nextStart = null;
         foreach (var task in project.Tasks.OrderBy(task => task.Sequence))
         {
-            if (task.StartDate is not null && task.EstimatedDuration is > 0)
+            if (!task.StartDateLocked && nextStart is not null)
+            {
+                task.StartDate = NextWorkingDay(nextStart.Value, holidays);
+            }
+
+            if (task.StartDate is not null && task.EndDate is not null)
+            {
+                task.EstimatedDuration = scheduleCalculator.CountWorkingDays(task.StartDate.Value, task.EndDate.Value, holidays);
+            }
+            else if (task.StartDate is not null && task.EstimatedDuration is > 0)
             {
                 task.EndDate = scheduleCalculator.AddWorkingDaysInclusive(task.StartDate.Value, task.EstimatedDuration.Value, holidays);
             }
 
-            task.PercentComplete = Math.Clamp(task.PercentComplete, 0m, 1m);
+            task.PercentComplete = task.PercentCompleteManual
+                ? Math.Clamp(task.PercentComplete, 0m, 1m)
+                : CalculateAutomaticPercent(task, holidays, today);
             task.Status = scheduleCalculator.CalculateTaskStatus(task, holidays, today);
             task.UpdatedAt = DateTimeOffset.UtcNow;
+
+            nextStart = task.EndDate?.AddDays(1);
         }
 
         var activeTasks = project.Tasks.Where(task => !string.IsNullOrWhiteSpace(task.Title)).OrderBy(task => task.Sequence).ToList();
@@ -33,6 +47,44 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
         project.CurrentTask = activeTasks.FirstOrDefault(task => task.Status != TaskScheduleStatus.Complete)?.Title ?? "Program Complete";
         project.Status = CalculateProjectStatus(activeTasks, project.Progress);
         project.UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    private decimal CalculateAutomaticPercent(ProjectTask task, IReadOnlySet<DateOnly> holidays, DateOnly today)
+    {
+        if (task.StartDate is null || task.EndDate is null)
+        {
+            return 0m;
+        }
+
+        if (today < task.StartDate.Value)
+        {
+            return 0m;
+        }
+
+        if (today >= task.EndDate.Value)
+        {
+            return 1m;
+        }
+
+        var total = scheduleCalculator.CountWorkingDays(task.StartDate.Value, task.EndDate.Value, holidays);
+        if (total <= 0)
+        {
+            return 0m;
+        }
+
+        var elapsed = scheduleCalculator.CountWorkingDays(task.StartDate.Value, today, holidays);
+        return Math.Clamp((decimal)elapsed / total, 0m, 1m);
+    }
+
+    private DateOnly NextWorkingDay(DateOnly date, IReadOnlySet<DateOnly> holidays)
+    {
+        var next = date;
+        while (!scheduleCalculator.IsWorkingDay(next, holidays))
+        {
+            next = next.AddDays(1);
+        }
+
+        return next;
     }
 
     private static decimal CalculateWeightedProgress(IReadOnlyCollection<ProjectTask> tasks)

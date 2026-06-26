@@ -440,6 +440,7 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 
 .portfolio-table { min-width: 900px; }
 .ops-table { min-width: 720px; }
+.ops-panel .table-wrap { max-height: min(640px, calc(100vh - 320px)); overflow: auto; }
 .program-workspace.is-open .ops-table { min-width: 440px; }
 .col-seq { width: 40px; text-align: right; color: var(--muted); }
 .op-id { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
@@ -451,6 +452,19 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .rail-not-started td:first-child { box-shadow: inset 3px 0 0 var(--idle); }
 
 .clickable-row { cursor: pointer; }
+.expandable-row { cursor: pointer; }
+.operation-notes-row td { padding: 0 14px 12px 54px; background: var(--surface-2); }
+.operation-notes {
+  display: grid;
+  gap: 9px;
+  padding: 12px 14px;
+  color: var(--ink-2);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.operation-notes textarea { min-height: 74px; font-size: 12.5px; line-height: 1.5; }
+.operation-notes-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .data-table td .mono-id { display: block; font-size: 13px; white-space: nowrap; }
 .data-table td.cell-mono { white-space: nowrap; }
 .data-table td small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
@@ -465,6 +479,15 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .col-id { width: 96px; }
 
 .op-title { display: block; color: var(--ink); font-weight: 500; }
+.op-title,
+.cell-with-warning,
+.day-op-task {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.conflict-icon { flex: none; color: var(--warn-700); fill: #f7b955; stroke: var(--red-700); }
+.cal-conflict { position: absolute; top: 30px; right: 8px; }
 .op-note { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .phase-tag {
@@ -531,6 +554,9 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 
 .edit-table .col-num { width: 104px; }
 .edit-table .col-slider { width: 184px; }
+.edit-table .col-lock { width: 58px; text-align: center; }
+.lock-button { min-width: 32px; justify-content: center; }
+.lock-button.active { color: var(--steel-700); background: var(--steel-tint); border-color: var(--steel-tint-2); }
 .cell-slider { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 8px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
 .cell-slider .slider.tiny { height: 6px; }
 .cell-slider .slider.tiny::-webkit-slider-thumb { width: 15px; height: 15px; }
@@ -799,6 +825,19 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .holiday-meta span { font-size: 11px; color: var(--muted); }
 .holiday-card .icon-button { position: absolute; top: 8px; right: 8px; min-height: 24px; padding: 0 6px; }
 
+.workcenter-panel { max-width: 760px; }
+.workcenter-list { display: grid; gap: 8px; padding: 0 18px 18px; }
+.workcenter-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+}
+.workcenter-row svg { color: var(--steel); }
+.workcenter-row input:disabled { color: var(--ink); background: var(--surface-2); }
+
 /* ---------------------------------------------------------------------- */
 /* Import                                                                 */
 /* ---------------------------------------------------------------------- */
@@ -830,7 +869,8 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .field > span { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
 .field-note { font-style: normal; font-size: 10.5px; color: var(--faint); }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.schedule-row { grid-template-columns: 1.1fr 0.9fr 1.1fr; }
+.schedule-row { grid-template-columns: 1.1fr 0.6fr 0.9fr 1.1fr; }
+.lock-field .lock-button { min-height: 36px; width: 100%; }
 .field-hint { color: var(--muted); font-size: 11.5px; line-height: 1.45; }
 
 .input-suffix { position: relative; display: flex; align-items: center; }

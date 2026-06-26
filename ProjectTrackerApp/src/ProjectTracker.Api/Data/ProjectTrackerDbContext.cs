@@ -9,6 +9,7 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
     public DbSet<ProjectTask> Tasks => Set<ProjectTask>();
     public DbSet<Phase> Phases => Set<Phase>();
     public DbSet<Holiday> Holidays => Set<Holiday>();
+    public DbSet<WorkCenter> WorkCenters => Set<WorkCenter>();
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<StatusHistory> StatusHistory => Set<StatusHistory>();
 
@@ -50,6 +51,12 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
         {
             entity.HasIndex(holiday => holiday.Date).IsUnique();
             entity.Property(holiday => holiday.Name).HasMaxLength(160);
+        });
+
+        modelBuilder.Entity<WorkCenter>(entity =>
+        {
+            entity.HasIndex(workCenter => workCenter.Name).IsUnique();
+            entity.Property(workCenter => workCenter.Name).HasMaxLength(120);
         });
 
         modelBuilder.Entity<AppUser>(entity =>

@@ -104,6 +104,33 @@ namespace ProjectTracker.Api.Data.Migrations
                     b.ToTable("Phases");
                 });
 
+            modelBuilder.Entity("ProjectTracker.Api.Models.WorkCenter", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("WorkCenters");
+                });
+
             modelBuilder.Entity("ProjectTracker.Api.Models.Project", b =>
                 {
                     b.Property<int>("Id")
@@ -192,6 +219,9 @@ namespace ProjectTracker.Api.Data.Migrations
                         .HasPrecision(5, 4)
                         .HasColumnType("decimal(5,4)");
 
+                    b.Property<bool>("PercentCompleteManual")
+                        .HasColumnType("bit");
+
                     b.Property<string>("Phase")
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)");
@@ -204,6 +234,9 @@ namespace ProjectTracker.Api.Data.Migrations
 
                     b.Property<DateOnly?>("StartDate")
                         .HasColumnType("date");
+
+                    b.Property<bool>("StartDateLocked")
+                        .HasColumnType("bit");
 
                     b.Property<string>("Status")
                         .IsRequired()

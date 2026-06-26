@@ -11,12 +11,14 @@ public sealed class ProjectTask
     public string? Phase { get; set; }
     public string? WorkStation { get; set; }
     public DateOnly? StartDate { get; set; }
+    public bool StartDateLocked { get; set; }
     public DateOnly? OriginalStartDate { get; set; }
     public DateOnly? EndDate { get; set; }
     public DateOnly? OriginalEndDate { get; set; }
     public int? EstimatedDuration { get; set; }
     public int? ActualDuration { get; set; }
     public decimal PercentComplete { get; set; }
+    public bool PercentCompleteManual { get; set; }
     public TaskScheduleStatus Status { get; set; } = TaskScheduleStatus.NotStarted;
     public string? Notes { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

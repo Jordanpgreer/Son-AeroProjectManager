@@ -284,6 +284,60 @@ api.MapDelete("/holidays/{id:int}", async (int id, ProjectTrackerDbContext db, P
     return Results.NoContent();
 }).RequireAuthorization("CanEdit");
 
+api.MapGet("/work-centers", async (ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
+{
+    return await db.WorkCenters.OrderBy(workCenter => workCenter.Name)
+        .Select(workCenter => new WorkCenterDto(workCenter.Id, workCenter.Name))
+        .ToListAsync(cancellationToken);
+});
+
+api.MapPost("/work-centers", async (WorkCenterUpsertDto dto, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
+{
+    var name = dto.Name.Trim();
+    if (string.IsNullOrWhiteSpace(name))
+    {
+        throw new BadHttpRequestException("Work center name is required.");
+    }
+
+    var workCenter = new WorkCenter { Name = name };
+    db.WorkCenters.Add(workCenter);
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Created($"/api/work-centers/{workCenter.Id}", new WorkCenterDto(workCenter.Id, workCenter.Name));
+}).RequireAuthorization("CanEdit");
+
+api.MapPut("/work-centers/{id:int}", async (int id, WorkCenterUpsertDto dto, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
+{
+    var workCenter = await db.WorkCenters.FindAsync([id], cancellationToken);
+    if (workCenter is null)
+    {
+        return Results.NotFound();
+    }
+
+    var name = dto.Name.Trim();
+    if (string.IsNullOrWhiteSpace(name))
+    {
+        throw new BadHttpRequestException("Work center name is required.");
+    }
+
+    workCenter.Name = name;
+    workCenter.UpdatedAt = DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Ok(new WorkCenterDto(workCenter.Id, workCenter.Name));
+}).RequireAuthorization("CanEdit");
+
+api.MapDelete("/work-centers/{id:int}", async (int id, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
+{
+    var workCenter = await db.WorkCenters.FindAsync([id], cancellationToken);
+    if (workCenter is null)
+    {
+        return Results.NotFound();
+    }
+
+    db.WorkCenters.Remove(workCenter);
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.NoContent();
+}).RequireAuthorization("CanEdit");
+
 api.MapPost("/import/workbook", async (ImportWorkbookRequest request, IConfiguration configuration, IWebHostEnvironment env, ProjectTrackerDbContext db, WorkbookImportService importer, CancellationToken cancellationToken) =>
 {
     var path = ResolveWorkbookPath(request.Path, configuration, env);
@@ -375,12 +429,14 @@ static ProjectTaskDto ToTaskDto(ProjectTask task)
         task.Phase,
         task.WorkStation,
         task.StartDate,
+        task.StartDateLocked,
         task.OriginalStartDate,
         task.EndDate,
         task.OriginalEndDate,
         task.EstimatedDuration,
         task.ActualDuration,
         task.PercentComplete,
+        task.PercentCompleteManual,
         task.Status,
         task.Notes);
 }
@@ -398,12 +454,14 @@ static ProjectTask ApplyTaskDto(ProjectTask task, TaskUpsertDto dto)
     task.Phase = string.IsNullOrWhiteSpace(dto.Phase) ? null : dto.Phase.Trim();
     task.WorkStation = string.IsNullOrWhiteSpace(dto.WorkStation) ? null : dto.WorkStation.Trim();
     task.StartDate = dto.StartDate;
+    task.StartDateLocked = dto.StartDateLocked;
     task.OriginalStartDate = dto.OriginalStartDate;
     task.EndDate = dto.EndDate;
     task.OriginalEndDate = dto.OriginalEndDate;
     task.EstimatedDuration = dto.EstimatedDuration;
     task.ActualDuration = dto.ActualDuration;
     task.PercentComplete = Math.Clamp(dto.PercentComplete, 0m, 1m);
+    task.PercentCompleteManual = dto.PercentCompleteManual;
     task.Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
     task.UpdatedAt = DateTimeOffset.UtcNow;
     return task;
@@ -487,6 +545,12 @@ static async Task InitializeDatabaseAsync(WebApplication app)
     else
     {
         await db.Database.EnsureCreatedAsync();
+        if (string.Equals(provider, "Sqlite", StringComparison.OrdinalIgnoreCase))
+        {
+            await EnsureSqliteBooleanColumnAsync(db, "StartDateLocked", cancellationToken: default);
+            await EnsureSqliteBooleanColumnAsync(db, "PercentCompleteManual", cancellationToken: default);
+            await EnsureSqliteWorkCentersTableAsync(db, cancellationToken: default);
+        }
     }
 
     var autoImport = configuration.GetValue("Import:AutoImportOnEmpty", app.Environment.IsDevelopment());
@@ -499,6 +563,75 @@ static async Task InitializeDatabaseAsync(WebApplication app)
             await importer.ImportAsync(db, workbookPath, replaceExisting: true);
         }
     }
+
+    await SeedWorkCentersFromTasksAsync(db, cancellationToken: default);
+}
+
+static async Task EnsureSqliteBooleanColumnAsync(ProjectTrackerDbContext db, string columnName, CancellationToken cancellationToken)
+{
+    var connection = db.Database.GetDbConnection();
+    await connection.OpenAsync(cancellationToken);
+    try
+    {
+        await using var checkCommand = connection.CreateCommand();
+        checkCommand.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('Tasks') WHERE name = '{columnName}';";
+        var exists = Convert.ToInt32(await checkCommand.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (exists)
+        {
+            return;
+        }
+
+        await using var alterCommand = connection.CreateCommand();
+        alterCommand.CommandText = $"ALTER TABLE \"Tasks\" ADD COLUMN \"{columnName}\" INTEGER NOT NULL DEFAULT 0;";
+        await alterCommand.ExecuteNonQueryAsync(cancellationToken);
+    }
+    finally
+    {
+        await connection.CloseAsync();
+    }
+}
+
+static async Task EnsureSqliteWorkCentersTableAsync(ProjectTrackerDbContext db, CancellationToken cancellationToken)
+{
+    var connection = db.Database.GetDbConnection();
+    await connection.OpenAsync(cancellationToken);
+    try
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS "WorkCenters" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_WorkCenters" PRIMARY KEY AUTOINCREMENT,
+                "Name" TEXT NOT NULL,
+                "CreatedAt" TEXT NOT NULL,
+                "UpdatedAt" TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_WorkCenters_Name" ON "WorkCenters" ("Name");
+            """;
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+    finally
+    {
+        await connection.CloseAsync();
+    }
+}
+
+static async Task SeedWorkCentersFromTasksAsync(ProjectTrackerDbContext db, CancellationToken cancellationToken)
+{
+    var existing = await db.WorkCenters.Select(workCenter => workCenter.Name).ToListAsync(cancellationToken);
+    var known = existing.ToHashSet(StringComparer.OrdinalIgnoreCase);
+    var names = await db.Tasks
+        .Where(task => task.WorkStation != null && task.WorkStation != "")
+        .Select(task => task.WorkStation!)
+        .Distinct()
+        .ToListAsync(cancellationToken);
+
+    foreach (var name in names.Select(name => name.Trim()).Where(name => name.Length > 0 && !known.Contains(name)))
+    {
+        db.WorkCenters.Add(new WorkCenter { Name = name });
+        known.Add(name);
+    }
+
+    await db.SaveChangesAsync(cancellationToken);
 }
 
 public partial class Program;

@@ -17,22 +17,24 @@ import {
   GripVertical,
   LayoutDashboard,
   ListChecks,
+  Lock,
   Pencil,
   Plus,
   RefreshCw,
   Save,
   Trash2,
+  Unlock,
   UploadCloud,
   X,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import './App.css'
 
 type ProjectStatus = 'NotStarted' | 'OnTrack' | 'Behind' | 'Complete'
 type TaskStatus = 'NotStarted' | 'OnTrack' | 'Behind' | 'Complete'
-type Screen = 'dashboard' | 'project' | 'calendar' | 'holidays' | 'import'
-const screens: Screen[] = ['dashboard', 'project', 'calendar', 'holidays', 'import']
+type Screen = 'dashboard' | 'project' | 'calendar' | 'holidays' | 'workCenters' | 'import'
+const screens: Screen[] = ['dashboard', 'project', 'calendar', 'holidays', 'workCenters', 'import']
 
 type User = {
   accountName: string
@@ -85,12 +87,14 @@ type ProjectTask = {
   phase: string | null
   workStation: string | null
   startDate: string | null
+  startDateLocked: boolean
   originalStartDate: string | null
   endDate: string | null
   originalEndDate: string | null
   estimatedDuration: number | null
   actualDuration: number | null
   percentComplete: number
+  percentCompleteManual: boolean
   status: TaskStatus
   notes: string | null
 }
@@ -98,6 +102,11 @@ type ProjectTask = {
 type Holiday = {
   id: number
   date: string
+  name: string
+}
+
+type WorkCenter = {
+  id: number
   name: string
 }
 
@@ -109,12 +118,14 @@ type TaskForm = {
   phase: string
   workStation: string
   startDate: string
+  startDateLocked: boolean
   originalStartDate: string
   endDate: string
   originalEndDate: string
   estimatedDuration: string
   actualDuration: string
   percentComplete: string
+  percentCompleteManual: boolean
   notes: string
 }
 
@@ -154,7 +165,9 @@ function App() {
   const [user, setUser] = useState<User | null>(null)
   const [dashboard, setDashboard] = useState<Dashboard>(emptyDashboard)
   const [selectedProject, setSelectedProject] = useState<ProjectDetail | null>(null)
+  const [scheduleProjects, setScheduleProjects] = useState<ProjectDetail[]>([])
   const [holidays, setHolidays] = useState<Holiday[]>([])
+  const [workCenters, setWorkCenters] = useState<WorkCenter[]>([])
   const [screen, setScreen] = useState<Screen>(() => readStoredScreen())
   const [loading, setLoading] = useState(true)
   const [projectLoading, setProjectLoading] = useState(false)
@@ -163,6 +176,7 @@ function App() {
   const [editMode, setEditMode] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
   const [newHoliday, setNewHoliday] = useState({ date: '', name: '' })
+  const [newWorkCenter, setNewWorkCenter] = useState('')
   const [importMessage, setImportMessage] = useState('')
 
   async function loadDashboard() {
@@ -179,14 +193,18 @@ function App() {
     setLoading(true)
     setError(null)
     try {
-      const [me, data, holidayData] = await Promise.all([
+      const [me, data, holidayData, workCenterData, calendarData] = await Promise.all([
         api<User>('/api/me'),
         api<Dashboard>('/api/dashboard'),
         api<Holiday[]>('/api/holidays'),
+        api<WorkCenter[]>('/api/work-centers'),
+        api<ProjectDetail[]>('/api/calendar'),
       ])
       setUser(me)
       setDashboard(data)
       setHolidays(holidayData)
+      setWorkCenters(workCenterData)
+      setScheduleProjects(calendarData)
       if (data.projects.length > 0) {
         const storedProjectId = readStoredProjectId()
         const projectId = storedProjectId && data.projects.some((project) => project.id === storedProjectId)
@@ -205,14 +223,18 @@ function App() {
     setLoading(true)
     setError(null)
     try {
-      const [me, data, holidayData] = await Promise.all([
+      const [me, data, holidayData, workCenterData, calendarData] = await Promise.all([
         api<User>('/api/me'),
         api<Dashboard>('/api/dashboard'),
         api<Holiday[]>('/api/holidays'),
+        api<WorkCenter[]>('/api/work-centers'),
+        api<ProjectDetail[]>('/api/calendar'),
       ])
       setUser(me)
       setDashboard(data)
       setHolidays(holidayData)
+      setWorkCenters(workCenterData)
+      setScheduleProjects(calendarData)
 
       const storedProjectId = readStoredProjectId()
       const projectId = selectedProject?.id
@@ -268,12 +290,14 @@ function App() {
       phase: taskForm.phase || null,
       workStation: taskForm.workStation || null,
       startDate: taskForm.startDate || null,
+      startDateLocked: taskForm.startDateLocked,
       originalStartDate: taskForm.originalStartDate || null,
       endDate: taskForm.endDate || null,
       originalEndDate: taskForm.originalEndDate || null,
       estimatedDuration: taskForm.estimatedDuration ? Number(taskForm.estimatedDuration) : null,
       actualDuration: taskForm.actualDuration ? Number(taskForm.actualDuration) : null,
       percentComplete: Number(taskForm.percentComplete || 0) / 100,
+      percentCompleteManual: taskForm.percentCompleteManual,
       notes: taskForm.notes || null,
     }
     const url = taskForm.id ? `/api/tasks/${taskForm.id}` : `/api/projects/${selectedProject.id}/tasks`
@@ -298,20 +322,24 @@ function App() {
       phase: task.phase,
       workStation: task.workStation,
       startDate: task.startDate,
+      startDateLocked: task.startDateLocked,
       originalStartDate: task.originalStartDate,
       endDate: task.endDate,
       originalEndDate: task.originalEndDate,
       estimatedDuration: task.estimatedDuration,
       actualDuration: task.actualDuration,
       percentComplete: task.percentComplete,
+      percentCompleteManual: task.percentCompleteManual,
       notes: task.notes,
     }
   }
 
   async function saveTaskRow(row: ProjectTask): Promise<ProjectTask> {
     const updated = await api<ProjectTask>(`/api/tasks/${row.id}`, { method: 'PUT', body: JSON.stringify(taskToPayload(row)) })
-    setSelectedProject((prev) => (prev ? { ...prev, tasks: prev.tasks.map((task) => (task.id === updated.id ? updated : task)) } : prev))
-    return updated
+    const project = await api<ProjectDetail>(`/api/projects/${updated.projectId}`)
+    setSelectedProject(project)
+    setScheduleProjects((current) => current.map((item) => (item.id === project.id ? project : item)))
+    return project.tasks.find((task) => task.id === updated.id) ?? updated
   }
 
   async function reorderTaskRow(row: ProjectTask, position: number): Promise<void> {
@@ -343,6 +371,31 @@ function App() {
     await loadDashboard()
   }
 
+  async function addWorkCenter(event: FormEvent) {
+    event.preventDefault()
+    if (!newWorkCenter.trim()) return
+    await api<WorkCenter>('/api/work-centers', {
+      method: 'POST',
+      body: JSON.stringify({ name: newWorkCenter }),
+    })
+    setNewWorkCenter('')
+    setWorkCenters(await api<WorkCenter[]>('/api/work-centers'))
+  }
+
+  async function updateWorkCenter(id: number, name: string) {
+    if (!name.trim()) return
+    const updated = await api<WorkCenter>(`/api/work-centers/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    })
+    setWorkCenters((current) => current.map((item) => (item.id === id ? updated : item)))
+  }
+
+  async function deleteWorkCenter(id: number) {
+    await api<void>(`/api/work-centers/${id}`, { method: 'DELETE' })
+    setWorkCenters(await api<WorkCenter[]>('/api/work-centers'))
+  }
+
   async function importWorkbook() {
     setImportMessage('Importing workbook...')
     const result = await api<{ projectCount: number; taskCount: number; holidayCount: number }>('/api/import/workbook', {
@@ -369,13 +422,8 @@ function App() {
   const canEdit = Boolean(user?.canEdit)
   const isProjectScreen = screen === 'project'
   const holidaySet = useMemo(() => new Set(holidays.map((holiday) => holiday.date)), [holidays])
-  const knownWorkStations = useMemo(() => {
-    const set = new Set<string>()
-    for (const task of selectedProject?.tasks ?? []) {
-      if (task.workStation) set.add(task.workStation)
-    }
-    return [...set].sort((a, b) => a.localeCompare(b))
-  }, [selectedProject])
+  const knownWorkStations = useMemo(() => workCenters.map((workCenter) => workCenter.name), [workCenters])
+  const workCenterConflicts = useMemo(() => buildWorkCenterConflictSet(scheduleProjects, holidaySet), [scheduleProjects, holidaySet])
 
   return (
     <div className="app-shell">
@@ -415,6 +463,8 @@ function App() {
                   project={selectedProject}
                   projects={dashboard.projects}
                   holidaySet={holidaySet}
+                  workStations={knownWorkStations}
+                  conflictKeys={workCenterConflicts}
                   canEdit={canEdit}
                   editMode={editMode}
                   onSelectProject={openProject}
@@ -434,6 +484,17 @@ function App() {
                   setNewHoliday={setNewHoliday}
                   addHoliday={addHoliday}
                   deleteHoliday={deleteHoliday}
+                />
+              )}
+              {screen === 'workCenters' && (
+                <WorkCenterView
+                  workCenters={workCenters}
+                  canEdit={canEdit}
+                  newWorkCenter={newWorkCenter}
+                  setNewWorkCenter={setNewWorkCenter}
+                  addWorkCenter={addWorkCenter}
+                  updateWorkCenter={updateWorkCenter}
+                  deleteWorkCenter={deleteWorkCenter}
                 />
               )}
               {screen === 'import' && (
@@ -511,6 +572,7 @@ function Sidebar({
       <div className="sidebar-foot">
         <nav className="foot-nav" aria-label="Secondary">
           <NavButton active={screen === 'holidays'} onClick={() => setScreen('holidays')} icon={<CalendarDays size={17} />} label="Holidays" />
+          <NavButton active={screen === 'workCenters'} onClick={() => setScreen('workCenters')} icon={<Factory size={17} />} label="Work Centers" />
           <NavButton active={screen === 'import'} onClick={() => setScreen('import')} icon={<UploadCloud size={17} />} label="Imports / Admin" disabled={!user?.isAdmin} />
         </nav>
       </div>
@@ -537,6 +599,10 @@ function NavButton({
       {label}
     </button>
   )
+}
+
+function ConflictIcon({ className = '' }: { className?: string }) {
+  return <AlertTriangle className={`conflict-icon ${className}`.trim()} size={14} aria-label="Work center date conflict" />
 }
 
 function PageHeader({
@@ -704,6 +770,8 @@ function ProjectView({
   project,
   projects,
   holidaySet,
+  workStations,
+  conflictKeys,
   canEdit,
   editMode,
   onSelectProject,
@@ -716,6 +784,8 @@ function ProjectView({
   project: ProjectDetail
   projects: ProjectSummary[]
   holidaySet: Set<string>
+  workStations: string[]
+  conflictKeys: Set<string>
   canEdit: boolean
   editMode: boolean
   onSelectProject: (projectId: number) => Promise<void>
@@ -726,9 +796,33 @@ function ProjectView({
   onReorder: (row: ProjectTask, position: number) => Promise<void>
 }) {
   const [ganttOpen, setGanttOpen] = useState(false)
+  const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null)
+  const [noteDraft, setNoteDraft] = useState('')
+  const [savingNoteId, setSavingNoteId] = useState<number | null>(null)
   const daysLeft = calculateDaysLeft(project.targetDelivery)
   const total = project.tasks.length
   const overdue = daysLeft !== null && daysLeft < 0
+  const operationColSpan = canEdit ? 9 : 8
+
+  const toggleTaskNotes = (task: ProjectTask) => {
+    if (expandedTaskId === task.id) {
+      setExpandedTaskId(null)
+      return
+    }
+
+    setExpandedTaskId(task.id)
+    setNoteDraft(task.notes ?? '')
+  }
+
+  const saveTaskNote = async (task: ProjectTask) => {
+    setSavingNoteId(task.id)
+    try {
+      const updated = await onSaveRow({ ...task, notes: noteDraft.trim() || null })
+      setNoteDraft(updated.notes ?? '')
+    } finally {
+      setSavingNoteId(null)
+    }
+  }
 
   return (
     <section className="view project-view">
@@ -756,7 +850,7 @@ function ProjectView({
       </header>
 
       {editMode ? (
-        <OpsEditGrid project={project} onSaveRow={onSaveRow} onReorder={onReorder} onDeleteTask={onDeleteTask} onAddTask={onAddTask} />
+        <OpsEditGrid project={project} holidaySet={holidaySet} workStations={workStations} conflictKeys={conflictKeys} onSaveRow={onSaveRow} onReorder={onReorder} onDeleteTask={onDeleteTask} onAddTask={onAddTask} />
       ) : (
         <div className={`program-workspace ${ganttOpen ? 'is-open' : ''}`}>
           <section className="panel table-panel ops-panel">
@@ -783,26 +877,68 @@ function ProjectView({
                   </tr>
                 </thead>
                 <tbody>
-                  {project.tasks.map((task, index) => (
-                    <tr key={task.id} className={`rail-${statusClass(task.status)}`}>
-                      <td className="cell-mono col-seq">{index + 1}</td>
-                      <td><span className="op-title">{task.title}</span></td>
-                      <td>{task.workStation ? <span className="station-tag">{task.workStation}</span> : <span className="cell-muted">Unassigned</span>}</td>
-                      <td className="cell-mono opt-col">{compactDate(task.startDate)}</td>
-                      <td className="cell-mono opt-col">{compactDate(task.endDate)}</td>
-                      <td className="col-num cell-mono opt-col">{task.estimatedDuration ?? '—'}</td>
-                      <td className="col-progress"><Progress value={task.percentComplete} status={task.status} compact /></td>
-                      <td className="col-status"><StatusBadge status={task.status} /></td>
-                      {canEdit && (
-                        <td className="row-actions">
-                          <button className="icon-button" onClick={() => onEditTask(task)} title="Edit operation">Edit</button>
-                          <button className="icon-button danger" onClick={() => onDeleteTask(task.id)} aria-label={`Delete ${task.title}`} title="Delete">
-                            <Trash2 size={14} />
-                          </button>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
+                  {project.tasks.map((task, index) => {
+                    const isExpanded = expandedTaskId === task.id
+                    const hasConflict = conflictKeys.has(taskConflictKey(project.id, task.id))
+
+                    return (
+                      <Fragment key={task.id}>
+                        <tr
+                          className={`rail-${statusClass(task.status)} expandable-row`}
+                          onClick={() => toggleTaskNotes(task)}
+                        >
+                          <td className="cell-mono col-seq">{index + 1}</td>
+                          <td>
+                            <span className="op-title">
+                              {task.title}
+                              {hasConflict && <ConflictIcon />}
+                            </span>
+                          </td>
+                          <td>{task.workStation ? <span className="station-tag">{task.workStation}</span> : <span className="cell-muted">Unassigned</span>}</td>
+                          <td className="cell-mono opt-col">{compactDate(task.startDate)}</td>
+                          <td className="cell-mono opt-col">{compactDate(task.endDate)}</td>
+                          <td className="col-num cell-mono opt-col">{task.estimatedDuration ?? '—'}</td>
+                          <td className="col-progress"><Progress value={task.percentComplete} status={task.status} compact /></td>
+                          <td className="col-status"><StatusBadge status={task.status} /></td>
+                          {canEdit && (
+                            <td className="row-actions">
+                              <button className="icon-button" onClick={(event) => { event.stopPropagation(); onEditTask(task) }} title="Edit operation">Edit</button>
+                              <button className="icon-button danger" onClick={(event) => { event.stopPropagation(); onDeleteTask(task.id) }} aria-label={`Delete ${task.title}`} title="Delete">
+                                <Trash2 size={14} />
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                        {isExpanded && (
+                          <tr className="operation-notes-row">
+                            <td colSpan={operationColSpan}>
+                              <form
+                                className="operation-notes"
+                                onClick={(event) => event.stopPropagation()}
+                                onSubmit={(event) => {
+                                  event.preventDefault()
+                                  saveTaskNote(task)
+                                }}
+                              >
+                                <span className="kicker">Notes</span>
+                                <textarea
+                                  value={noteDraft}
+                                  onChange={(event) => setNoteDraft(event.target.value)}
+                                  placeholder="Add notes for this operation"
+                                />
+                                <div className="operation-notes-actions">
+                                  <button className="button primary" type="submit" disabled={savingNoteId === task.id}>
+                                    {savingNoteId === task.id ? 'Saving...' : 'Save Note'}
+                                  </button>
+                                  <button className="button ghost" type="button" onClick={() => setExpandedTaskId(null)}>Cancel</button>
+                                </div>
+                              </form>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -825,12 +961,18 @@ function ProjectView({
 
 function OpsEditGrid({
   project,
+  holidaySet,
+  workStations,
+  conflictKeys,
   onSaveRow,
   onReorder,
   onDeleteTask,
   onAddTask,
 }: {
   project: ProjectDetail
+  holidaySet: Set<string>
+  workStations: string[]
+  conflictKeys: Set<string>
   onSaveRow: (row: ProjectTask) => Promise<ProjectTask>
   onReorder: (row: ProjectTask, position: number) => Promise<void>
   onDeleteTask: (taskId: number) => Promise<void>
@@ -842,12 +984,74 @@ function OpsEditGrid({
   const rowsRef = useRef(rows)
   rowsRef.current = rows
 
-  // Re-sync from server only when switching to a different program.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { setRows(project.tasks) }, [project.id])
+  useEffect(() => { setRows(project.tasks) }, [project.tasks])
 
   const update = (id: number, patch: Partial<ProjectTask>) =>
     setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)))
+
+  const buildScheduledRows = (current: ProjectTask[], id: number, patch: Partial<ProjectTask>) => {
+      const patched = current.map((row) => (row.id === id ? { ...row, ...patch } : row))
+      const durationChanged = Object.prototype.hasOwnProperty.call(patch, 'estimatedDuration')
+      let cursor = project.programStart
+        ? dateToMs(project.programStart)
+        : startOfTodayMs()
+      cursor = nextWorkday(cursor, holidaySet)
+
+      return patched.map((row) => {
+        const next = { ...row }
+        const duration = next.estimatedDuration && next.estimatedDuration > 0 ? next.estimatedDuration : null
+
+        if (!next.startDateLocked) {
+          next.startDate = msToIso(cursor)
+        }
+
+        if (row.id === id && durationChanged && duration) {
+          next.endDate = calculateEndDate(next.startDate, duration, holidaySet)
+        } else if (next.startDate && next.endDate) {
+          next.estimatedDuration = calculateDuration(next.startDate, next.endDate, holidaySet)
+        } else if (next.startDate && duration) {
+          next.endDate = calculateEndDate(next.startDate, duration, holidaySet)
+        }
+
+        if (next.endDate) {
+          cursor = nextWorkday(addDays(dateToMs(next.endDate), 1), holidaySet)
+        }
+
+        return next
+      })
+  }
+
+  const updateScheduleField = (id: number, patch: Partial<ProjectTask>) =>
+    setRows((current) => buildScheduledRows(current, id, patch))
+
+  const toggleStartLock = (row: ProjectTask) => {
+    const nextRows = buildScheduledRows(rowsRef.current, row.id, { startDateLocked: !row.startDateLocked })
+    setRows(nextRows)
+    const updated = nextRows.find((item) => item.id === row.id)
+    if (updated) {
+      onSaveRow(updated)
+        .then((saved) => setRows((current) => current.map((item) => (item.id === saved.id ? saved : item))))
+        .catch(() => undefined)
+    }
+  }
+
+  const completeRow = (row: ProjectTask) => {
+    const today = todayIso()
+    const nextRows = buildScheduledRows(rowsRef.current, row.id, {
+      startDate: row.startDate ?? today,
+      startDateLocked: true,
+      endDate: today,
+      percentComplete: 1,
+      percentCompleteManual: true,
+    })
+    setRows(nextRows)
+    const updated = nextRows.find((item) => item.id === row.id)
+    if (updated) {
+      onSaveRow(updated)
+        .then((saved) => setRows((current) => current.map((item) => (item.id === saved.id ? saved : item))))
+        .catch(() => undefined)
+    }
+  }
 
   const renumber = (list: ProjectTask[]) => list.map((row, index) => ({ ...row, sequence: index + 1, externalTaskId: String(index + 1) }))
 
@@ -875,7 +1079,7 @@ function OpsEditGrid({
     onDeleteTask(row.id).catch(() => undefined)
   }
 
-  const stations = [...new Set(rows.map((row) => row.workStation).filter((value): value is string => Boolean(value)))].sort()
+  const stations = [...new Set(workStations)].sort()
 
   return (
     <section className="panel table-panel ops-panel ops-edit">
@@ -893,6 +1097,7 @@ function OpsEditGrid({
               <th className="col-drag">#</th>
               <th>Operation</th>
               <th>Work Station</th>
+              <th className="col-lock">Lock</th>
               <th>Start</th>
               <th>End</th>
               <th>Original Start</th>
@@ -906,6 +1111,7 @@ function OpsEditGrid({
           <tbody>
             {rows.map((row, index) => {
               const pct = Math.round(clamp(row.percentComplete, 0, 1) * 100)
+              const hasConflict = conflictKeys.has(taskConflictKey(project.id, row.id))
               return (
                 <tr
                   key={row.id}
@@ -925,13 +1131,29 @@ function OpsEditGrid({
                     </span>
                     <span className="seq-num">{index + 1}</span>
                   </td>
-                  <td><input className="cell-input" value={row.title} onChange={(event) => update(row.id, { title: event.target.value })} onBlur={() => commit(row.id)} /></td>
-                  <td><input className="cell-input" list="ops-edit-stations" value={row.workStation ?? ''} placeholder="Unassigned" onChange={(event) => update(row.id, { workStation: event.target.value })} onBlur={() => commit(row.id)} /></td>
-                  <td><input className="cell-input" type="date" value={row.startDate ?? ''} onChange={(event) => update(row.id, { startDate: event.target.value || null })} onBlur={() => commit(row.id)} /></td>
-                  <td><input className="cell-input" type="date" value={row.endDate ?? ''} onChange={(event) => update(row.id, { endDate: event.target.value || null })} onBlur={() => commit(row.id)} /></td>
+                  <td>
+                    <div className="cell-with-warning">
+                      <input className="cell-input" value={row.title} onChange={(event) => update(row.id, { title: event.target.value })} onBlur={() => commit(row.id)} />
+                      {hasConflict && <ConflictIcon />}
+                    </div>
+                  </td>
+                  <td><input className="cell-input" list="ops-edit-stations" value={row.workStation ?? ''} placeholder="Select work center" onChange={(event) => update(row.id, { workStation: event.target.value })} onBlur={() => commit(row.id)} /></td>
+                  <td className="col-lock">
+                    <button
+                      className={`icon-button lock-button ${row.startDateLocked ? 'active' : ''}`}
+                      type="button"
+                      onClick={() => toggleStartLock(row)}
+                      title={row.startDateLocked ? 'Unlock start date' : 'Lock start date'}
+                      aria-label={row.startDateLocked ? `Unlock start date for ${row.title}` : `Lock start date for ${row.title}`}
+                    >
+                      {row.startDateLocked ? <Lock size={14} /> : <Unlock size={14} />}
+                    </button>
+                  </td>
+                  <td><input className="cell-input" type="date" value={row.startDate ?? ''} onChange={(event) => updateScheduleField(row.id, { startDate: event.target.value || null, startDateLocked: Boolean(event.target.value) })} onBlur={() => commit(row.id)} /></td>
+                  <td><input className="cell-input" type="date" value={row.endDate ?? ''} onChange={(event) => updateScheduleField(row.id, { endDate: event.target.value || null })} onBlur={() => commit(row.id)} /></td>
                   <td><input className="cell-input" type="date" value={row.originalStartDate ?? ''} onChange={(event) => update(row.id, { originalStartDate: event.target.value || null })} onBlur={() => commit(row.id)} /></td>
                   <td><input className="cell-input" type="date" value={row.originalEndDate ?? ''} onChange={(event) => update(row.id, { originalEndDate: event.target.value || null })} onBlur={() => commit(row.id)} /></td>
-                  <td className="col-num"><input className="cell-input num" type="number" min="0" value={row.estimatedDuration ?? ''} onChange={(event) => update(row.id, { estimatedDuration: event.target.value === '' ? null : Number(event.target.value) })} onBlur={() => commit(row.id)} /></td>
+                  <td className="col-num"><input className="cell-input num" type="number" min="0" value={row.estimatedDuration ?? ''} onChange={(event) => updateScheduleField(row.id, { estimatedDuration: event.target.value === '' ? null : Number(event.target.value) })} onBlur={() => commit(row.id)} /></td>
                   <td className="col-num"><input className="cell-input num" type="number" min="0" value={row.actualDuration ?? ''} onChange={(event) => update(row.id, { actualDuration: event.target.value === '' ? null : Number(event.target.value) })} onBlur={() => commit(row.id)} /></td>
                   <td className="col-slider">
                     <div className="cell-slider">
@@ -941,7 +1163,7 @@ function OpsEditGrid({
                         min="0"
                         max="100"
                         value={pct}
-                        onChange={(event) => update(row.id, { percentComplete: Number(event.target.value) / 100 })}
+                        onChange={(event) => update(row.id, { percentComplete: Number(event.target.value) / 100, percentCompleteManual: true })}
                         onMouseUp={() => commit(row.id)}
                         onBlur={() => commit(row.id)}
                         style={{ background: `linear-gradient(to right, var(--ok) ${pct}%, var(--surface-3) ${pct}%)` }}
@@ -950,6 +1172,8 @@ function OpsEditGrid({
                     </div>
                   </td>
                   <td className="row-actions">
+                    <button className="icon-button" onClick={() => { update(row.id, { percentCompleteManual: false }); onSaveRow({ ...row, percentCompleteManual: false }).catch(() => undefined) }} title="Use automatic percent">Auto</button>
+                    <button className="icon-button" onClick={() => completeRow(row)} title="Complete operation"><CheckCircle2 size={14} /></button>
                     <button className="icon-button danger" onClick={() => removeRow(row)} aria-label={`Delete ${row.title}`} title="Delete step"><Trash2 size={14} /></button>
                   </td>
                 </tr>
@@ -1246,11 +1470,77 @@ function ImportView({ isAdmin, message, importWorkbook }: { isAdmin: boolean; me
   )
 }
 
+function WorkCenterView({
+  workCenters,
+  canEdit,
+  newWorkCenter,
+  setNewWorkCenter,
+  addWorkCenter,
+  updateWorkCenter,
+  deleteWorkCenter,
+}: {
+  workCenters: WorkCenter[]
+  canEdit: boolean
+  newWorkCenter: string
+  setNewWorkCenter: (value: string) => void
+  addWorkCenter: (event: FormEvent) => Promise<void>
+  updateWorkCenter: (id: number, name: string) => Promise<void>
+  deleteWorkCenter: (id: number) => Promise<void>
+}) {
+  const [drafts, setDrafts] = useState<Record<number, string>>({})
+
+  useEffect(() => {
+    setDrafts(Object.fromEntries(workCenters.map((workCenter) => [workCenter.id, workCenter.name])))
+  }, [workCenters])
+
+  return (
+    <section className="view">
+      <section className="panel table-panel workcenter-panel">
+        <header className="panel-head">
+          <div className="panel-head-text">
+            <span className="kicker">Company Routing</span>
+            <h2>Work Centers / Machines</h2>
+          </div>
+          {canEdit && (
+            <form className="inline-form" onSubmit={addWorkCenter}>
+              <input value={newWorkCenter} onChange={(event) => setNewWorkCenter(event.target.value)} placeholder="New work center" />
+              <button className="button primary" type="submit"><Plus size={15} /> Add</button>
+            </form>
+          )}
+        </header>
+
+        {workCenters.length === 0 ? (
+          <EmptyState title="No work centers recorded" body="Add machines or work centers so operations can be assigned consistently." />
+        ) : (
+          <div className="workcenter-list">
+            {workCenters.map((workCenter) => (
+              <div className="workcenter-row" key={workCenter.id}>
+                <Factory size={16} />
+                <input
+                  value={drafts[workCenter.id] ?? workCenter.name}
+                  disabled={!canEdit}
+                  onChange={(event) => setDrafts((current) => ({ ...current, [workCenter.id]: event.target.value }))}
+                  onBlur={() => updateWorkCenter(workCenter.id, drafts[workCenter.id] ?? workCenter.name)}
+                />
+                {canEdit && (
+                  <button className="icon-button danger" onClick={() => deleteWorkCenter(workCenter.id)} aria-label={`Delete ${workCenter.name}`} title="Delete">
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </section>
+  )
+}
+
 /* ---------------------------------------------------------------------- */
 /* Calendar                                                               */
 /* ---------------------------------------------------------------------- */
 
-type CalOp = { projectId: number; programName: string; workStation: string | null; taskTitle: string; status: TaskStatus; projected: boolean }
+type CalOp = { projectId: number; taskId: number; programName: string; workStation: string | null; taskTitle: string; status: TaskStatus; projected: boolean; conflict: boolean }
 
 function CalendarView({ holidaySet, onOpenProject }: { holidaySet: Set<string>; onOpenProject: (projectId: number) => Promise<void> }) {
   const [data, setData] = useState<ProjectDetail[] | null>(null)
@@ -1280,11 +1570,13 @@ function CalendarView({ holidaySet, onOpenProject }: { holidaySet: Set<string>; 
             const list = map.get(iso) ?? []
             list.push({
               projectId: project.id,
+              taskId: item.task.id,
               programName: project.programName,
               workStation: item.task.workStation,
               taskTitle: item.task.title,
               status: item.task.status,
               projected: item.projected,
+              conflict: false,
             })
             map.set(iso, list)
           }
@@ -1294,6 +1586,7 @@ function CalendarView({ holidaySet, onOpenProject }: { holidaySet: Set<string>; 
       }
     }
     for (const list of map.values()) {
+      markCalendarConflicts(list)
       list.sort((a, b) => (a.workStation ?? 'zzz').localeCompare(b.workStation ?? 'zzz') || a.programName.localeCompare(b.programName))
     }
     return map
@@ -1359,6 +1652,7 @@ function CalendarView({ holidaySet, onOpenProject }: { holidaySet: Set<string>; 
             {cells.map((cell) => {
               const ops = dayMap.get(cell.iso) ?? []
               const stations = stationsForDay(ops)
+              const hasConflict = ops.some((op) => op.conflict)
               const classes = [
                 'cal-cell',
                 cell.inMonth ? '' : 'out',
@@ -1371,6 +1665,7 @@ function CalendarView({ holidaySet, onOpenProject }: { holidaySet: Set<string>; 
                 <button key={cell.iso} className={classes} onClick={() => setSelectedDay(cell.iso)}>
                   <span className="cal-date">{new Date(cell.ms).getDate()}</span>
                   {ops.length > 0 && <span className="cal-count">{ops.length}</span>}
+                  {hasConflict && <ConflictIcon className="cal-conflict" />}
                   <span className="cal-ops">
                     {stations.slice(0, 3).map((entry) => (
                       <span className={`cal-op ${statusClass(entry.status)} ${entry.unassigned ? 'unassigned' : ''}`} key={entry.station}>{entry.station}</span>
@@ -1402,7 +1697,7 @@ function CalendarView({ holidaySet, onOpenProject }: { holidaySet: Set<string>; 
               {groupByStation(selectedOps).map((group) => (
                 <div className="day-group" key={group.station}>
                   <div className="day-group-head">
-                    <span className={`day-station ${group.unassigned ? 'unset' : ''}`}>{group.station}</span>
+                    <span className={`day-station ${group.unassigned ? 'unset' : ''}`}>{group.station}{group.conflict && <ConflictIcon />}</span>
                     <span className="day-group-count">{group.ops.length}</span>
                   </div>
                   <div className="day-group-ops">
@@ -1452,8 +1747,24 @@ function groupByStation(ops: CalOp[]) {
     map.set(key, list)
   }
   return [...map.entries()]
-    .map(([station, list]) => ({ station, ops: list, unassigned: station === 'Unassigned' }))
+    .map(([station, list]) => ({ station, ops: list, unassigned: station === 'Unassigned', conflict: list.some((op) => op.conflict) }))
     .sort((a, b) => (a.unassigned ? 1 : 0) - (b.unassigned ? 1 : 0) || a.station.localeCompare(b.station))
+}
+
+function markCalendarConflicts(ops: CalOp[]) {
+  const byStation = new Map<string, CalOp[]>()
+  for (const op of ops) {
+    if (!op.workStation) continue
+    const list = byStation.get(op.workStation) ?? []
+    list.push(op)
+    byStation.set(op.workStation, list)
+  }
+
+  for (const list of byStation.values()) {
+    if (new Set(list.map((op) => op.projectId)).size > 1) {
+      list.forEach((op) => { op.conflict = true })
+    }
+  }
 }
 
 function buildMonthCells(monthAnchorMs: number) {
@@ -1493,9 +1804,22 @@ function TaskModal({
     Boolean(form.actualDuration || form.originalStartDate || form.originalEndDate),
   )
   const pct = Math.round(clamp(Number(form.percentComplete) || 0, 0, 100))
-  const durNum = form.estimatedDuration ? Number(form.estimatedDuration) : 0
-  const hasDuration = Boolean(form.startDate) && durNum > 0
-  const computedEnd = hasDuration ? msToIso(addWorkdays(dateToMs(form.startDate), durNum - 1, holidaySet)) : null
+
+  const updateSchedule = (patch: Partial<TaskForm>) => {
+    const next = { ...form, ...patch }
+    const duration = next.estimatedDuration ? Number(next.estimatedDuration) : null
+    const durationChanged = Object.prototype.hasOwnProperty.call(patch, 'estimatedDuration')
+
+    if (durationChanged && next.startDate && duration && duration > 0) {
+      next.endDate = calculateEndDate(next.startDate, duration, holidaySet) ?? ''
+    } else if (next.startDate && next.endDate) {
+      next.estimatedDuration = String(calculateDuration(next.startDate, next.endDate, holidaySet))
+    } else if (next.startDate && duration && duration > 0) {
+      next.endDate = calculateEndDate(next.startDate, duration, holidaySet) ?? ''
+    }
+
+    setForm(next)
+  }
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -1523,25 +1847,28 @@ function TaskModal({
             <span className="section-label">Schedule</span>
             <div className="field-row schedule-row">
               <label className="field"><span>Start Date</span>
-                <input type="date" value={form.startDate} onChange={(event) => setForm({ ...form, startDate: event.target.value })} />
+                <input type="date" value={form.startDate} onChange={(event) => updateSchedule({ startDate: event.target.value, startDateLocked: Boolean(event.target.value) })} />
+              </label>
+              <label className="field lock-field"><span>Start Lock</span>
+                <button
+                  className={`icon-button lock-button ${form.startDateLocked ? 'active' : ''}`}
+                  type="button"
+                  onClick={() => setForm({ ...form, startDateLocked: !form.startDateLocked })}
+                  title={form.startDateLocked ? 'Unlock start date' : 'Lock start date'}
+                >
+                  {form.startDateLocked ? <Lock size={14} /> : <Unlock size={14} />}
+                  {form.startDateLocked ? 'Locked' : 'Unlocked'}
+                </button>
               </label>
               <label className="field"><span>Duration</span>
                 <div className="input-suffix">
-                  <input type="number" min="0" value={form.estimatedDuration} onChange={(event) => setForm({ ...form, estimatedDuration: event.target.value })} placeholder="0" />
+                  <input type="number" min="0" value={form.estimatedDuration} onChange={(event) => updateSchedule({ estimatedDuration: event.target.value })} placeholder="0" />
                   <span>days</span>
                 </div>
               </label>
-              {hasDuration ? (
-                <div className="field"><span>End Date</span>
-                  <div className="computed-field" title="Calculated from start date + duration">
-                    {compactDate(computedEnd)}<em>auto</em>
-                  </div>
-                </div>
-              ) : (
-                <label className="field"><span>End Date</span>
-                  <input type="date" value={form.endDate} onChange={(event) => setForm({ ...form, endDate: event.target.value })} />
-                </label>
-              )}
+              <label className="field"><span>End Date</span>
+                <input type="date" value={form.endDate} onChange={(event) => updateSchedule({ endDate: event.target.value })} />
+              </label>
             </div>
             <p className="field-hint">End date is calculated from the start date and duration using the Monday–Thursday work week and company holidays.</p>
           </section>
@@ -1557,13 +1884,30 @@ function TaskModal({
               min="0"
               max="100"
               value={pct}
-              onChange={(event) => setForm({ ...form, percentComplete: event.target.value })}
+              onChange={(event) => setForm({ ...form, percentComplete: event.target.value, percentCompleteManual: true })}
               style={{ background: `linear-gradient(to right, var(--ok) ${pct}%, var(--surface-3) ${pct}%)` }}
             />
             <div className="progress-presets">
               {[0, 25, 50, 75, 100].map((value) => (
-                <button type="button" key={value} className={pct === value ? 'active' : ''} onClick={() => setForm({ ...form, percentComplete: String(value) })}>{value}%</button>
+                <button type="button" key={value} className={pct === value ? 'active' : ''} onClick={() => setForm({ ...form, percentComplete: String(value), percentCompleteManual: true })}>{value}%</button>
               ))}
+              <button type="button" className={!form.percentCompleteManual ? 'active' : ''} onClick={() => setForm({ ...form, percentCompleteManual: false })}>Auto</button>
+              <button
+                type="button"
+                onClick={() => {
+                  const today = todayIso()
+                  setForm({
+                    ...form,
+                    startDate: form.startDate || today,
+                    startDateLocked: true,
+                    endDate: today,
+                    percentComplete: '100',
+                    percentCompleteManual: true,
+                  })
+                }}
+              >
+                Complete
+              </button>
             </div>
           </section>
 
@@ -1717,7 +2061,7 @@ function LoadingSkeleton({ screen }: { screen: Screen }) {
   if (screen === 'project') {
     return <ProjectSkeleton />
   }
-  if (screen === 'holidays' || screen === 'import' || screen === 'calendar') {
+  if (screen === 'holidays' || screen === 'workCenters' || screen === 'import' || screen === 'calendar') {
     return (
       <section className="view skeleton-view">
         <div className="panel skeleton-panel">
@@ -1832,6 +2176,55 @@ function workdaysBetween(startMs: number, endMs: number, holidaySet: Set<string>
   return Math.max(1, count)
 }
 
+function calculateEndDate(startDate: string | null, duration: number | null, holidaySet: Set<string>) {
+  if (!startDate || !duration || duration <= 0) return null
+  return msToIso(addWorkdays(dateToMs(startDate), duration - 1, holidaySet))
+}
+
+function calculateDuration(startDate: string | null, endDate: string | null, holidaySet: Set<string>) {
+  if (!startDate || !endDate) return null
+  return workdaysBetween(dateToMs(startDate), dateToMs(endDate), holidaySet)
+}
+
+function todayIso() {
+  return msToIso(startOfTodayMs())
+}
+
+function taskConflictKey(projectId: number, taskId: number) {
+  return `${projectId}:${taskId}`
+}
+
+function buildWorkCenterConflictSet(projects: ProjectDetail[], holidaySet: Set<string>) {
+  const byDayStation = new Map<string, { key: string; projectId: number }[]>()
+
+  for (const project of projects) {
+    const { items } = buildSchedule(project.tasks, project.programStart, holidaySet)
+    for (const item of items) {
+      if (!item.task.workStation) continue
+      let day = item.startMs
+      let guard = 0
+      while (day <= item.endMs && guard < 400) {
+        if (isWorkday(day, holidaySet)) {
+          const bucket = `${item.task.workStation}::${msToIso(day)}`
+          const list = byDayStation.get(bucket) ?? []
+          list.push({ key: taskConflictKey(project.id, item.task.id), projectId: project.id })
+          byDayStation.set(bucket, list)
+        }
+        day = addDays(day, 1)
+        guard += 1
+      }
+    }
+  }
+
+  const conflicts = new Set<string>()
+  for (const list of byDayStation.values()) {
+    if (new Set(list.map((item) => item.projectId)).size > 1) {
+      list.forEach((item) => conflicts.add(item.key))
+    }
+  }
+  return conflicts
+}
+
 function buildSchedule(tasks: ProjectTask[], programStart: string | null, holidaySet: Set<string>) {
   const ordered = [...tasks].sort((a, b) => a.sequence - b.sequence || a.id - b.id)
 
@@ -1937,6 +2330,7 @@ function buildSchedule(tasks: ProjectTask[], programStart: string | null, holida
 
 function screenEyebrow(screen: Screen) {
   if (screen === 'holidays') return 'Calendar'
+  if (screen === 'workCenters') return 'Capacity'
   if (screen === 'import') return 'Administration'
   if (screen === 'project') return 'Part No.'
   if (screen === 'calendar') return 'Schedule'
@@ -1947,6 +2341,7 @@ function screenTitle(screen: Screen, project: ProjectDetail | null) {
   if (screen === 'project') return project?.programName ?? 'Program Detail'
   if (screen === 'calendar') return 'Work Station Calendar'
   if (screen === 'holidays') return 'Holiday Calendar'
+  if (screen === 'workCenters') return 'Work Centers / Machines'
   if (screen === 'import') return 'Imports / Admin'
   return 'Dashboard'
 }
@@ -1955,6 +2350,7 @@ function screenSubtitle(screen: Screen) {
   if (screen === 'project') return ''
   if (screen === 'calendar') return 'Pick a day to see every part in production and its assigned work station.'
   if (screen === 'holidays') return 'Non-working days used by the schedule calculator.'
+  if (screen === 'workCenters') return 'Maintain the company machines and work centers used when assigning operations.'
   if (screen === 'import') return 'Controlled workbook migration and local data refresh.'
   return 'Active development programs, target dates, and schedule risk across the work queue.'
 }
@@ -2048,12 +2444,14 @@ function formFromTask(task: ProjectTask): TaskForm {
     phase: task.phase ?? '',
     workStation: task.workStation ?? '',
     startDate: task.startDate ?? '',
+    startDateLocked: task.startDateLocked,
     originalStartDate: task.originalStartDate ?? '',
     endDate: task.endDate ?? '',
     originalEndDate: task.originalEndDate ?? '',
     estimatedDuration: task.estimatedDuration?.toString() ?? '',
     actualDuration: task.actualDuration?.toString() ?? '',
     percentComplete: Math.round(task.percentComplete * 100).toString(),
+    percentCompleteManual: task.percentCompleteManual,
     notes: task.notes ?? '',
   }
 }
@@ -2067,12 +2465,14 @@ function emptyTaskForm(project: ProjectDetail): TaskForm {
     phase: last?.phase ?? '',
     workStation: last?.workStation ?? '',
     startDate: '',
+    startDateLocked: false,
     originalStartDate: '',
     endDate: '',
     originalEndDate: '',
     estimatedDuration: '',
     actualDuration: '',
     percentComplete: '0',
+    percentCompleteManual: false,
     notes: '',
   }
 }

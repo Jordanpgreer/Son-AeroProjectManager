@@ -44,12 +44,14 @@ public sealed record ProjectTaskDto(
     string? Phase,
     string? WorkStation,
     DateOnly? StartDate,
+    bool StartDateLocked,
     DateOnly? OriginalStartDate,
     DateOnly? EndDate,
     DateOnly? OriginalEndDate,
     int? EstimatedDuration,
     int? ActualDuration,
     decimal PercentComplete,
+    bool PercentCompleteManual,
     TaskScheduleStatus Status,
     string? Notes);
 
@@ -62,17 +64,23 @@ public sealed record TaskUpsertDto(
     string? Phase,
     string? WorkStation,
     DateOnly? StartDate,
+    bool StartDateLocked,
     DateOnly? OriginalStartDate,
     DateOnly? EndDate,
     DateOnly? OriginalEndDate,
     int? EstimatedDuration,
     int? ActualDuration,
     decimal PercentComplete,
+    bool PercentCompleteManual,
     string? Notes);
 
 public sealed record HolidayDto(int Id, DateOnly Date, string Name);
 
 public sealed record HolidayUpsertDto(DateOnly Date, string Name);
+
+public sealed record WorkCenterDto(int Id, string Name);
+
+public sealed record WorkCenterUpsertDto(string Name);
 
 public sealed record ImportWorkbookRequest(string? Path, bool ReplaceExisting = true);
 
