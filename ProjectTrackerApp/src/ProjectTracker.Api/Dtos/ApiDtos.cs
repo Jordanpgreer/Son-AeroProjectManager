@@ -28,6 +28,8 @@ public sealed record ProjectDetailDto(
     int Id,
     string ProgramName,
     string? ProgramManager,
+    string? CustomerName,
+    string? SalesOrderNumber,
     string? CurrentTask,
     DateOnly? ProgramStart,
     DateOnly? TargetDelivery,
@@ -55,7 +57,11 @@ public sealed record ProjectTaskDto(
     TaskScheduleStatus Status,
     string? Notes);
 
-public sealed record ProjectUpsertDto(string ProgramName, string? ProgramManager);
+public sealed record ProjectUpsertDto(
+    string ProgramName,
+    string? ProgramManager,
+    string? CustomerName,
+    string? SalesOrderNumber);
 
 public sealed record TaskUpsertDto(
     int Sequence,

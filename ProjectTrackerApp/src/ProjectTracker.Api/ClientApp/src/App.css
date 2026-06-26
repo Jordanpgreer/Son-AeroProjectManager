@@ -299,6 +299,8 @@ nav { display: grid; gap: 3px; }
 
 .button.ghost { color: var(--ink-2); background: var(--surface); border-color: var(--line-2); }
 .button.ghost:hover { color: var(--ink); border-color: var(--line-3); box-shadow: var(--shadow-1); }
+.button.danger { color: var(--red-700); background: var(--surface); border-color: var(--red-tint-2); }
+.button.danger:hover { background: var(--red-tint); border-color: var(--red); box-shadow: var(--shadow-1); }
 
 input, select, textarea {
   min-height: 36px;
@@ -623,8 +625,12 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .program-facts > span { font-size: 12px; color: var(--ink-2); }
 .program-facts i { font-style: normal; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-right: 5px; }
 .program-facts b { font-weight: 600; color: var(--ink); }
+.program-meta-grid { display: grid; grid-template-columns: minmax(180px, 260px) minmax(160px, 220px) auto; align-items: end; gap: 10px; max-width: 720px; }
+.program-meta-grid label { display: grid; gap: 5px; }
+.program-meta-grid label span { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 
 .stat-strip { display: flex; gap: 8px; flex-wrap: wrap; }
+.project-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .stat-chip {
   display: grid; gap: 6px; align-content: center;
   min-width: 94px; padding: 9px 13px;
@@ -846,7 +852,35 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .import-icon { display: inline-flex; align-items: center; justify-content: center; width: 46px; height: 46px; border-radius: var(--r-md); background: var(--steel-tint); color: var(--steel); }
 .import-panel p { color: var(--ink-2); font-size: 13px; max-width: 56ch; }
 .import-panel code { font-family: var(--font-mono); font-size: 12px; padding: 1px 5px; background: var(--surface-3); border-radius: 4px; color: var(--ink); }
-.import-panel .button { justify-self: start; margin-top: 4px; }
+.import-panel .button { justify-self: start; }
+.import-form { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 4px; }
+.file-input {
+  flex: 1 1 280px;
+  min-height: 44px;
+  padding: 9px 12px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px dashed var(--line-3);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.file-input::file-selector-button {
+  margin-right: 12px;
+  padding: 7px 13px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.file-input::file-selector-button:hover { border-color: var(--steel); color: var(--steel-700); }
+.file-input:disabled { opacity: 0.5; cursor: not-allowed; }
+.import-form .button { margin-top: 0; }
 .inline-note { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500; }
 .inline-note.warning { color: var(--warn-700); }
 .inline-note.success { color: var(--ok-700); }

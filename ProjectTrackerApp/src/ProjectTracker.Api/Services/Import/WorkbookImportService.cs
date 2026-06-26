@@ -61,30 +61,27 @@ public sealed class WorkbookImportService(ProjectMetricsService metricsService)
                 continue;
             }
 
-            var existing = await db.Projects
-                .Include(project => project.Tasks)
-                .FirstOrDefaultAsync(project => project.ProgramName == programName, cancellationToken);
+            // Only add programs that don't already exist — never delete or override an existing one.
+            var alreadyExists = await db.Projects.AnyAsync(project => project.ProgramName == programName, cancellationToken);
+            if (alreadyExists)
+            {
+                continue;
+            }
 
-            var project = existing ?? new Project
+            var project = new Project
             {
                 ProgramName = programName,
                 ProgramManager = "Josh Greer"
             };
 
-            project.Tasks.Clear();
             foreach (var task in tasks)
             {
                 project.Tasks.Add(task);
             }
 
             metricsService.RefreshProject(project, holidays.Select(holiday => holiday.Date).ToHashSet(), DateOnly.FromDateTime(DateTime.Today));
-
-            if (existing is null)
-            {
-                db.Projects.Add(project);
-                projectCount++;
-            }
-
+            db.Projects.Add(project);
+            projectCount++;
             taskCount += tasks.Count;
         }
 
@@ -111,11 +108,13 @@ public sealed class WorkbookImportService(ProjectMetricsService metricsService)
         }
 
         var rows = workbook.ReadRows(sheet);
+        var seenDates = db.Holidays.Select(holiday => holiday.Date).ToHashSet();
         var holidays = new List<Holiday>();
         for (var row = 1; row <= 200; row++)
         {
             var date = ParseExcelDate(rows.GetValue(row, "C"));
-            if (date is null)
+            // Skip blanks and any date already present (so appending a workbook never duplicates holidays).
+            if (date is null || !seenDates.Add(date.Value))
             {
                 continue;
             }

@@ -153,7 +153,9 @@ api.MapPost("/projects", async (ProjectUpsertDto dto, ProjectTrackerDbContext db
     var project = new Project
     {
         ProgramName = dto.ProgramName.Trim(),
-        ProgramManager = string.IsNullOrWhiteSpace(dto.ProgramManager) ? null : dto.ProgramManager.Trim()
+        ProgramManager = Clean(dto.ProgramManager),
+        CustomerName = Clean(dto.CustomerName),
+        SalesOrderNumber = Clean(dto.SalesOrderNumber)
     };
     db.Projects.Add(project);
     await db.SaveChangesAsync(cancellationToken);
@@ -168,9 +170,40 @@ api.MapPut("/projects/{id:int}", async (int id, ProjectUpsertDto dto, ProjectTra
         return Results.NotFound();
     }
 
-    project.ProgramName = dto.ProgramName.Trim();
-    project.ProgramManager = string.IsNullOrWhiteSpace(dto.ProgramManager) ? null : dto.ProgramManager.Trim();
+    ApplyProjectDto(project, dto);
     await metrics.RefreshProjectAsync(db, project, cancellationToken);
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Ok(ToDetailDto(project));
+}).RequireAuthorization("CanEdit");
+
+api.MapPost("/projects/{id:int}/complete", async (int id, ProjectTrackerDbContext db, ProjectMetricsService metrics, CancellationToken cancellationToken) =>
+{
+    var project = await db.Projects.Include(project => project.Tasks).FirstOrDefaultAsync(project => project.Id == id, cancellationToken);
+    if (project is null)
+    {
+        return Results.NotFound();
+    }
+
+    foreach (var task in project.Tasks)
+    {
+        task.PercentComplete = 1m;
+        task.PercentCompleteManual = true;
+        task.Status = TaskScheduleStatus.Complete;
+        task.UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    if (project.Tasks.Count == 0)
+    {
+        project.Progress = 1m;
+        project.Status = ProjectStatus.Complete;
+        project.CurrentTask = "Program Complete";
+        project.UpdatedAt = DateTimeOffset.UtcNow;
+    }
+    else
+    {
+        await metrics.RefreshProjectAsync(db, project, cancellationToken);
+    }
+
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(ToDetailDto(project));
 }).RequireAuthorization("CanEdit");
@@ -345,6 +378,41 @@ api.MapPost("/import/workbook", async (ImportWorkbookRequest request, IConfigura
     return Results.Ok(result);
 }).RequireAuthorization("AdminOnly");
 
+// Upload a workbook from the browser and ADD its programs (never deletes existing ones).
+api.MapPost("/import/upload", async (IFormFile file, ProjectTrackerDbContext db, WorkbookImportService importer, CancellationToken cancellationToken) =>
+{
+    if (file is null || file.Length == 0)
+    {
+        return Results.BadRequest("Please choose a workbook file to upload.");
+    }
+
+    var extension = Path.GetExtension(file.FileName);
+    if (!string.Equals(extension, ".xlsx", StringComparison.OrdinalIgnoreCase)
+        && !string.Equals(extension, ".xlsm", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest("Upload a .xlsx or .xlsm workbook.");
+    }
+
+    var tempPath = Path.Combine(Path.GetTempPath(), $"pt-upload-{Guid.NewGuid():N}{extension}");
+    try
+    {
+        await using (var stream = File.Create(tempPath))
+        {
+            await file.CopyToAsync(stream, cancellationToken);
+        }
+
+        var result = await importer.ImportAsync(db, tempPath, replaceExisting: false, cancellationToken);
+        return Results.Ok(result);
+    }
+    finally
+    {
+        if (File.Exists(tempPath))
+        {
+            File.Delete(tempPath);
+        }
+    }
+}).RequireAuthorization("AdminOnly").DisableAntiforgery();
+
 api.MapGet("/reports/portfolio.xlsx", async (ReportService reports, CancellationToken cancellationToken) =>
 {
     var report = await reports.PortfolioExcelAsync(cancellationToken);
@@ -410,6 +478,8 @@ static ProjectDetailDto ToDetailDto(Project project)
         project.Id,
         project.ProgramName,
         project.ProgramManager,
+        project.CustomerName,
+        project.SalesOrderNumber,
         project.CurrentTask,
         project.ProgramStart,
         project.TargetDelivery,
@@ -441,6 +511,20 @@ static ProjectTaskDto ToTaskDto(ProjectTask task)
         task.Notes);
 }
 
+static void ApplyProjectDto(Project project, ProjectUpsertDto dto)
+{
+    if (string.IsNullOrWhiteSpace(dto.ProgramName))
+    {
+        throw new BadHttpRequestException("Program name is required.");
+    }
+
+    project.ProgramName = dto.ProgramName.Trim();
+    project.ProgramManager = Clean(dto.ProgramManager);
+    project.CustomerName = Clean(dto.CustomerName);
+    project.SalesOrderNumber = Clean(dto.SalesOrderNumber);
+    project.UpdatedAt = DateTimeOffset.UtcNow;
+}
+
 static ProjectTask ApplyTaskDto(ProjectTask task, TaskUpsertDto dto)
 {
     if (string.IsNullOrWhiteSpace(dto.Title))
@@ -466,6 +550,8 @@ static ProjectTask ApplyTaskDto(ProjectTask task, TaskUpsertDto dto)
     task.UpdatedAt = DateTimeOffset.UtcNow;
     return task;
 }
+
+static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
 // Steps are numbered 1..N by position. "Step Order" is the desired position; moving a step
 // renumbers every step's Sequence (and ExternalTaskId, which is the same value) to stay 1..N.
@@ -549,6 +635,8 @@ static async Task InitializeDatabaseAsync(WebApplication app)
         {
             await EnsureSqliteBooleanColumnAsync(db, "StartDateLocked", cancellationToken: default);
             await EnsureSqliteBooleanColumnAsync(db, "PercentCompleteManual", cancellationToken: default);
+            await EnsureSqliteTextColumnAsync(db, "Projects", "CustomerName", cancellationToken: default);
+            await EnsureSqliteTextColumnAsync(db, "Projects", "SalesOrderNumber", cancellationToken: default);
             await EnsureSqliteWorkCentersTableAsync(db, cancellationToken: default);
         }
     }
@@ -565,6 +653,30 @@ static async Task InitializeDatabaseAsync(WebApplication app)
     }
 
     await SeedWorkCentersFromTasksAsync(db, cancellationToken: default);
+}
+
+static async Task EnsureSqliteTextColumnAsync(ProjectTrackerDbContext db, string tableName, string columnName, CancellationToken cancellationToken)
+{
+    var connection = db.Database.GetDbConnection();
+    await connection.OpenAsync(cancellationToken);
+    try
+    {
+        await using var checkCommand = connection.CreateCommand();
+        checkCommand.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{tableName}') WHERE name = '{columnName}';";
+        var exists = Convert.ToInt32(await checkCommand.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (exists)
+        {
+            return;
+        }
+
+        await using var alterCommand = connection.CreateCommand();
+        alterCommand.CommandText = $"ALTER TABLE \"{tableName}\" ADD COLUMN \"{columnName}\" TEXT NULL;";
+        await alterCommand.ExecuteNonQueryAsync(cancellationToken);
+    }
+    finally
+    {
+        await connection.CloseAsync();
+    }
 }
 
 static async Task EnsureSqliteBooleanColumnAsync(ProjectTrackerDbContext db, string columnName, CancellationToken cancellationToken)

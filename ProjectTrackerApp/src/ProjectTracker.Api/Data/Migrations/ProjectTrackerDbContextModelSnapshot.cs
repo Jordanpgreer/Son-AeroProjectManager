@@ -146,6 +146,10 @@ namespace ProjectTracker.Api.Data.Migrations
                         .HasMaxLength(240)
                         .HasColumnType("nvarchar(240)");
 
+                    b.Property<string>("CustomerName")
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
                     b.Property<string>("ProgramManager")
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)");
@@ -157,6 +161,10 @@ namespace ProjectTracker.Api.Data.Migrations
 
                     b.Property<DateOnly?>("ProgramStart")
                         .HasColumnType("date");
+
+                    b.Property<string>("SalesOrderNumber")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
 
                     b.Property<decimal>("Progress")
                         .HasPrecision(5, 4)

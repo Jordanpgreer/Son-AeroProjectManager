@@ -5,6 +5,8 @@ public sealed class Project
     public int Id { get; set; }
     public string ProgramName { get; set; } = string.Empty;
     public string? ProgramManager { get; set; }
+    public string? CustomerName { get; set; }
+    public string? SalesOrderNumber { get; set; }
     public DateOnly? ProgramStart { get; set; }
     public DateOnly? TargetDelivery { get; set; }
     public decimal Progress { get; set; }
@@ -15,4 +17,3 @@ public sealed class Project
 
     public List<ProjectTask> Tasks { get; set; } = [];
 }
-

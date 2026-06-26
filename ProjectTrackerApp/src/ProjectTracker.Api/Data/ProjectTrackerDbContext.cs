@@ -20,6 +20,8 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
             entity.HasIndex(project => project.ProgramName).IsUnique();
             entity.Property(project => project.ProgramName).HasMaxLength(160);
             entity.Property(project => project.ProgramManager).HasMaxLength(120);
+            entity.Property(project => project.CustomerName).HasMaxLength(160);
+            entity.Property(project => project.SalesOrderNumber).HasMaxLength(80);
             entity.Property(project => project.Progress).HasPrecision(5, 4);
             entity.Property(project => project.Status).HasConversion<string>().HasMaxLength(24);
             entity.Property(project => project.CurrentTask).HasMaxLength(240);

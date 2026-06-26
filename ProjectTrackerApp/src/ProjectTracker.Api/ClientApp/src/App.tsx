@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Archive,
   ArrowRight,
   CalendarDays,
   CalendarRange,
@@ -33,8 +34,8 @@ import './App.css'
 
 type ProjectStatus = 'NotStarted' | 'OnTrack' | 'Behind' | 'Complete'
 type TaskStatus = 'NotStarted' | 'OnTrack' | 'Behind' | 'Complete'
-type Screen = 'dashboard' | 'project' | 'calendar' | 'holidays' | 'workCenters' | 'import'
-const screens: Screen[] = ['dashboard', 'project', 'calendar', 'holidays', 'workCenters', 'import']
+type Screen = 'dashboard' | 'project' | 'calendar' | 'pastProjects' | 'holidays' | 'workCenters' | 'import'
+const screens: Screen[] = ['dashboard', 'project', 'calendar', 'pastProjects', 'holidays', 'workCenters', 'import']
 
 type User = {
   accountName: string
@@ -70,6 +71,8 @@ type ProjectDetail = {
   id: number
   programName: string
   programManager: string | null
+  customerName: string | null
+  salesOrderNumber: string | null
   currentTask: string | null
   programStart: string | null
   targetDelivery: string | null
@@ -179,6 +182,16 @@ function App() {
   const [newWorkCenter, setNewWorkCenter] = useState('')
   const [importMessage, setImportMessage] = useState('')
 
+  const projectPayload = (
+    project: ProjectDetail,
+    patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'customerName' | 'salesOrderNumber'>> = {},
+  ) => ({
+    programName: patch.programName ?? project.programName,
+    programManager: patch.programManager ?? project.programManager,
+    customerName: patch.customerName ?? project.customerName,
+    salesOrderNumber: patch.salesOrderNumber ?? project.salesOrderNumber,
+  })
+
   async function loadDashboard() {
     const data = await api<Dashboard>('/api/dashboard')
     setDashboard(data)
@@ -273,7 +286,7 @@ function App() {
     if (!newProjectName.trim()) return
     const project = await api<ProjectDetail>('/api/projects', {
       method: 'POST',
-      body: JSON.stringify({ programName: newProjectName, programManager: user?.displayName ?? '' }),
+      body: JSON.stringify({ programName: newProjectName, programManager: user?.displayName ?? '', customerName: null, salesOrderNumber: null }),
     })
     setNewProjectName('')
     await loadDashboard()
@@ -312,6 +325,46 @@ function App() {
   async function deleteTask(taskId: number) {
     await api<void>(`/api/tasks/${taskId}`, { method: 'DELETE' })
     await loadDashboard()
+  }
+
+  async function updateProject(patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'customerName' | 'salesOrderNumber'>>) {
+    if (!selectedProject) return
+    const project = await api<ProjectDetail>(`/api/projects/${selectedProject.id}`, {
+      method: 'PUT',
+      body: JSON.stringify(projectPayload(selectedProject, patch)),
+    })
+    setSelectedProject(project)
+    storeSelectedProjectId(project.id)
+    await loadDashboard()
+  }
+
+  async function completeProject() {
+    if (!selectedProject) return
+    const confirmed = window.confirm(`Mark ${selectedProject.programName} complete? This will mark every step as 100% complete.`)
+    if (!confirmed) return
+    const project = await api<ProjectDetail>(`/api/projects/${selectedProject.id}/complete`, { method: 'POST' })
+    setSelectedProject(project)
+    setScheduleProjects((current) => current.map((item) => (item.id === project.id ? project : item)))
+    storeSelectedProjectId(project.id)
+    await loadDashboard()
+  }
+
+  async function deleteProject() {
+    if (!selectedProject) return
+    const confirmed = window.confirm(`Delete ${selectedProject.programName} and all of its steps? This cannot be undone.`)
+    if (!confirmed) return
+    await api<void>(`/api/projects/${selectedProject.id}`, { method: 'DELETE' })
+    const data = await api<Dashboard>('/api/dashboard')
+    setDashboard(data)
+    setScheduleProjects((current) => current.filter((item) => item.id !== selectedProject.id))
+    const nextProject = data.projects[0]
+    if (nextProject) {
+      await openProject(nextProject.id, false)
+    } else {
+      clearStoredProjectId()
+      setSelectedProject(null)
+      setScreen('dashboard')
+    }
   }
 
   function taskToPayload(task: ProjectTask) {
@@ -396,13 +449,16 @@ function App() {
     setWorkCenters(await api<WorkCenter[]>('/api/work-centers'))
   }
 
-  async function importWorkbook() {
-    setImportMessage('Importing workbook...')
-    const result = await api<{ projectCount: number; taskCount: number; holidayCount: number }>('/api/import/workbook', {
-      method: 'POST',
-      body: JSON.stringify({ replaceExisting: true }),
-    })
-    setImportMessage(`Imported ${result.projectCount} programs, ${result.taskCount} operations, and ${result.holidayCount} holidays.`)
+  async function importUpload(file: File) {
+    setImportMessage('')
+    const form = new FormData()
+    form.append('file', file)
+    const response = await fetch('/api/import/upload', { method: 'POST', body: form, credentials: 'same-origin' })
+    if (!response.ok) {
+      throw new Error((await response.text()) || `Import failed (${response.status})`)
+    }
+    const result = (await response.json()) as { projectCount: number; taskCount: number; holidayCount: number }
+    setImportMessage(`Added ${result.projectCount} program${result.projectCount === 1 ? '' : 's'} and ${result.taskCount} operations from “${file.name}”.`)
     await loadInitial()
   }
 
@@ -431,8 +487,6 @@ function App() {
         screen={screen}
         setScreen={setScreen}
         selectedProject={selectedProject}
-        projects={dashboard.projects}
-        onSelectProject={openProject}
         user={user}
       />
 
@@ -471,11 +525,15 @@ function App() {
                   onEditTask={(task) => setTaskForm(formFromTask(task))}
                   onAddTask={() => setTaskForm(emptyTaskForm(selectedProject))}
                   onDeleteTask={deleteTask}
+                  onUpdateProject={updateProject}
+                  onCompleteProject={completeProject}
+                  onDeleteProject={deleteProject}
                   onSaveRow={saveTaskRow}
                   onReorder={reorderTaskRow}
                 />
               )}
               {screen === 'calendar' && <CalendarView holidaySet={holidaySet} onOpenProject={openProject} />}
+              {screen === 'pastProjects' && <PastProjectsView projects={dashboard.projects} onOpenProject={openProject} />}
               {screen === 'holidays' && (
                 <HolidayView
                   holidays={holidays}
@@ -498,7 +556,7 @@ function App() {
                 />
               )}
               {screen === 'import' && (
-                <ImportView isAdmin={Boolean(user?.isAdmin)} message={importMessage} importWorkbook={importWorkbook} />
+                <ImportView isAdmin={Boolean(user?.isAdmin)} message={importMessage} onUpload={importUpload} />
               )}
             </>
           )}
@@ -520,19 +578,13 @@ function Sidebar({
   screen,
   setScreen,
   selectedProject,
-  projects,
-  onSelectProject,
   user,
 }: {
   screen: Screen
   setScreen: (screen: Screen) => void
   selectedProject: ProjectDetail | null
-  projects: ProjectSummary[]
-  onSelectProject: (projectId: number) => Promise<void>
   user: User | null
 }) {
-  const behindCount = projects.filter((project) => project.status === 'Behind').length
-
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -543,31 +595,11 @@ function Sidebar({
         <span className="nav-heading">Program Control</span>
         <nav aria-label="Primary">
           <NavButton active={screen === 'dashboard'} onClick={() => setScreen('dashboard')} icon={<LayoutDashboard size={17} />} label="Dashboard" />
-          <NavButton active={screen === 'project'} onClick={() => setScreen('project')} icon={<ListChecks size={17} />} label="Program Detail" disabled={!selectedProject} />
+          <NavButton active={screen === 'project'} onClick={() => setScreen('project')} icon={<ListChecks size={17} />} label="Project Detail" disabled={!selectedProject} />
           <NavButton active={screen === 'calendar'} onClick={() => setScreen('calendar')} icon={<CalendarRange size={17} />} label="Calendar" />
+          <NavButton active={screen === 'pastProjects'} onClick={() => setScreen('pastProjects')} icon={<Archive size={17} />} label="Past Projects" />
         </nav>
       </div>
-
-      {projects.length > 0 && (
-        <div className="nav-section program-switcher">
-          <span className="nav-heading">
-            Programs
-            {behindCount > 0 && <em className="nav-flag">{behindCount} behind</em>}
-          </span>
-          <div className="switch-list">
-            {projects.slice(0, 6).map((project) => (
-              <button
-                key={project.id}
-                className={`switch-item ${selectedProject?.id === project.id ? 'active' : ''}`}
-                onClick={() => onSelectProject(project.id)}
-              >
-                <i className={`dot ${statusClass(project.status)}`} />
-                <span>{project.programName}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div className="sidebar-foot">
         <nav className="foot-nav" aria-label="Secondary">
@@ -684,20 +716,21 @@ function DashboardView({
   dashboard: Dashboard
   onOpenProject: (projectId: number) => Promise<void>
 }) {
-  const { projects } = dashboard
-  const total = projects.length
-  const complete = projects.filter((project) => project.status === 'Complete').length
-  const onTrack = projects.filter((project) => project.status === 'OnTrack').length
-  const behind = projects.filter((project) => project.status === 'Behind').length
-  const notStarted = projects.filter((project) => project.status === 'NotStarted').length
+  // Completed programs live on the Past Projects page, not here.
+  const active = dashboard.projects.filter((project) => project.status !== 'Complete')
+  const total = active.length
+  const onTrack = active.filter((project) => project.status === 'OnTrack').length
+  const behind = active.filter((project) => project.status === 'Behind').length
+  const notStarted = active.filter((project) => project.status === 'NotStarted').length
+  const avgCompletion = total === 0 ? 0 : active.reduce((sum, project) => sum + project.progress, 0) / total
 
   return (
     <section className="view dashboard-view">
       <div className="kpi-row">
-        <Kpi label="Active Programs" value={dashboard.activeProjects.toString()} hint={`${total} total in tracker`} tone="ink" icon={<Factory size={17} />} />
-        <Kpi label="On Track" value={(onTrack + complete).toString()} hint={`${complete} complete`} tone="ok" icon={<CheckCircle2 size={17} />} />
+        <Kpi label="Active Programs" value={total.toString()} hint="in the development queue" tone="ink" icon={<Factory size={17} />} />
+        <Kpi label="On Track" value={onTrack.toString()} hint={behind > 0 ? 'some need attention' : 'all clear'} tone="ok" icon={<CheckCircle2 size={17} />} />
         <Kpi label="Behind Schedule" value={behind.toString()} hint={behind > 0 ? 'needs attention' : 'all clear'} tone="risk" icon={<AlertTriangle size={17} />} />
-        <Kpi label="Avg Completion" value={formatPercent(dashboard.averageProgress)} tone="steel" icon={<Gauge size={17} />} bar={dashboard.averageProgress} />
+        <Kpi label="Avg Completion" value={formatPercent(avgCompletion)} tone="steel" icon={<Gauge size={17} />} bar={avgCompletion} />
       </div>
 
       <section className="panel table-panel">
@@ -710,7 +743,6 @@ function DashboardView({
             <StatusBar segments={[
               { key: 'behind', count: behind, label: 'Behind' },
               { key: 'on-track', count: onTrack, label: 'On track' },
-              { key: 'complete', count: complete, label: 'Complete' },
               { key: 'not-started', count: notStarted, label: 'Not started' },
             ]} total={total} />
           )}
@@ -718,7 +750,29 @@ function DashboardView({
         {total === 0 ? (
           <EmptyState title="No active programs" body="Add a program number to begin tracking schedule progress." />
         ) : (
-          <PortfolioTable projects={projects} onOpenProject={onOpenProject} />
+          <PortfolioTable projects={active} onOpenProject={onOpenProject} />
+        )}
+      </section>
+    </section>
+  )
+}
+
+function PastProjectsView({ projects, onOpenProject }: { projects: ProjectSummary[]; onOpenProject: (projectId: number) => Promise<void> }) {
+  const completed = projects.filter((project) => project.status === 'Complete')
+  return (
+    <section className="view">
+      <section className="panel table-panel">
+        <header className="panel-head">
+          <div className="panel-head-text">
+            <span className="kicker">Archive</span>
+            <h2>Past Projects · {completed.length}</h2>
+            <p>Programs whose operations are all complete. They no longer appear on the dashboard.</p>
+          </div>
+        </header>
+        {completed.length === 0 ? (
+          <EmptyState title="No completed programs yet" body="A program moves here automatically once every operation is marked complete." />
+        ) : (
+          <PortfolioTable projects={completed} onOpenProject={onOpenProject} />
         )}
       </section>
     </section>
@@ -778,6 +832,9 @@ function ProjectView({
   onEditTask,
   onAddTask,
   onDeleteTask,
+  onUpdateProject,
+  onCompleteProject,
+  onDeleteProject,
   onSaveRow,
   onReorder,
 }: {
@@ -792,6 +849,9 @@ function ProjectView({
   onEditTask: (task: ProjectTask) => void
   onAddTask: () => void
   onDeleteTask: (taskId: number) => Promise<void>
+  onUpdateProject: (patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'customerName' | 'salesOrderNumber'>>) => Promise<void>
+  onCompleteProject: () => Promise<void>
+  onDeleteProject: () => Promise<void>
   onSaveRow: (row: ProjectTask) => Promise<ProjectTask>
   onReorder: (row: ProjectTask, position: number) => Promise<void>
 }) {
@@ -799,10 +859,21 @@ function ProjectView({
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null)
   const [noteDraft, setNoteDraft] = useState('')
   const [savingNoteId, setSavingNoteId] = useState<number | null>(null)
+  const [projectMeta, setProjectMeta] = useState({
+    customerName: project.customerName ?? '',
+    salesOrderNumber: project.salesOrderNumber ?? '',
+  })
   const daysLeft = calculateDaysLeft(project.targetDelivery)
   const total = project.tasks.length
   const overdue = daysLeft !== null && daysLeft < 0
   const operationColSpan = canEdit ? 9 : 8
+
+  useEffect(() => {
+    setProjectMeta({
+      customerName: project.customerName ?? '',
+      salesOrderNumber: project.salesOrderNumber ?? '',
+    })
+  }, [project.id, project.customerName, project.salesOrderNumber])
 
   const toggleTaskNotes = (task: ProjectTask) => {
     if (expandedTaskId === task.id) {
@@ -824,6 +895,11 @@ function ProjectView({
     }
   }
 
+  const saveProjectMeta = () => onUpdateProject({
+    customerName: projectMeta.customerName.trim() || null,
+    salesOrderNumber: projectMeta.salesOrderNumber.trim() || null,
+  })
+
   return (
     <section className="view project-view">
       <header className="program-topbar">
@@ -838,14 +914,45 @@ function ProjectView({
             <span className="program-current-inline"><span className="dot active" />{project.currentTask ?? 'No current operation'}</span>
             <span className="program-facts">
               <span><i>Mgr</i> {project.programManager ?? 'Unassigned'}</span>
+              {!editMode && <span><i>Customer</i> {project.customerName || 'Not set'}</span>}
+              {!editMode && <span><i>SO</i> {project.salesOrderNumber || 'Not set'}</span>}
               <span><i>Target</i> <b className="cell-mono">{compactDate(project.targetDelivery)}</b></span>
             </span>
           </div>
+          {editMode && (
+            <div className="program-meta-grid">
+              <label>
+                <span>Customer Name</span>
+                <input
+                  className="cell-input"
+                  value={projectMeta.customerName}
+                  onChange={(event) => setProjectMeta((current) => ({ ...current, customerName: event.target.value }))}
+                  placeholder="Customer name"
+                />
+              </label>
+              <label>
+                <span>Sales Order #</span>
+                <input
+                  className="cell-input"
+                  value={projectMeta.salesOrderNumber}
+                  onChange={(event) => setProjectMeta((current) => ({ ...current, salesOrderNumber: event.target.value }))}
+                  placeholder="Sales order number"
+                />
+              </label>
+              <button className="button ghost" onClick={saveProjectMeta}><Save size={14} /> Save Details</button>
+            </div>
+          )}
         </div>
         <div className="stat-strip">
           <div className="stat-chip"><span className="kicker">Status</span><StatusBadge status={project.status} /></div>
           <div className={`stat-chip ${overdue ? 'is-risk' : ''}`}><span className="kicker">Schedule</span><strong>{formatDays(daysLeft)}</strong></div>
           <div className="stat-chip wide"><span className="kicker">Completion</span><Progress value={project.progress} status={project.status} /></div>
+          {canEdit && (
+            <div className="project-actions">
+              <button className="button ghost" onClick={onCompleteProject} disabled={project.status === 'Complete'}><CheckCircle2 size={15} /> Complete Project</button>
+              <button className="button danger" onClick={onDeleteProject}><Trash2 size={15} /> Delete Project</button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -1452,18 +1559,50 @@ function HolidayView({
   )
 }
 
-function ImportView({ isAdmin, message, importWorkbook }: { isAdmin: boolean; message: string; importWorkbook: () => Promise<void> }) {
+function ImportView({ isAdmin, message, onUpload }: { isAdmin: boolean; message: string; onUpload: (file: File) => Promise<void> }) {
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!file || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await onUpload(file)
+      setFile(null)
+      if (inputRef.current) inputRef.current.value = ''
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Import failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <section className="view">
       <section className="panel import-panel">
-        <div className="import-icon"><Database size={22} /></div>
-        <span className="kicker">Controlled Data Load</span>
-        <h2>Workbook Import</h2>
-        <p>Replace the local database with the current <code>Project Tracker.xlsm</code> workbook data. This overwrites existing programs, operations, and holidays.</p>
-        <button className="button primary lg" disabled={!isAdmin} onClick={importWorkbook}>
-          <FileSpreadsheet size={16} /> Import Current Workbook
-        </button>
+        <div className="import-icon"><UploadCloud size={22} /></div>
+        <span className="kicker">Add Programs</span>
+        <h2>Import a Workbook</h2>
+        <p>Upload a <code>.xlsx</code> or <code>.xlsm</code> tracker workbook to <strong>add its programs</strong> to the tracker. Existing programs are kept — nothing is deleted or overwritten.</p>
+        <form className="import-form" onSubmit={submit}>
+          <input
+            ref={inputRef}
+            type="file"
+            className="file-input"
+            accept=".xlsx,.xlsm"
+            disabled={!isAdmin || busy}
+            onChange={(event) => { setFile(event.target.files?.[0] ?? null); setError(null) }}
+          />
+          <button className="button primary lg" type="submit" disabled={!isAdmin || !file || busy}>
+            <UploadCloud size={16} /> {busy ? 'Importing…' : 'Import Workbook'}
+          </button>
+        </form>
         {!isAdmin && <p className="inline-note warning"><AlertTriangle size={14} /> Admin role required to run imports.</p>}
+        {error && <p className="inline-note warning"><AlertTriangle size={14} /> {error}</p>}
         {message && <p className="inline-note success"><CheckCircle2 size={14} /> {message}</p>}
       </section>
     </section>
@@ -2061,7 +2200,7 @@ function LoadingSkeleton({ screen }: { screen: Screen }) {
   if (screen === 'project') {
     return <ProjectSkeleton />
   }
-  if (screen === 'holidays' || screen === 'workCenters' || screen === 'import' || screen === 'calendar') {
+  if (screen === 'holidays' || screen === 'workCenters' || screen === 'import' || screen === 'calendar' || screen === 'pastProjects') {
     return (
       <section className="view skeleton-view">
         <div className="panel skeleton-panel">
@@ -2334,12 +2473,14 @@ function screenEyebrow(screen: Screen) {
   if (screen === 'import') return 'Administration'
   if (screen === 'project') return 'Part No.'
   if (screen === 'calendar') return 'Schedule'
+  if (screen === 'pastProjects') return 'Archive'
   return 'Internal Program Control'
 }
 
 function screenTitle(screen: Screen, project: ProjectDetail | null) {
-  if (screen === 'project') return project?.programName ?? 'Program Detail'
+  if (screen === 'project') return project?.programName ?? 'Project Detail'
   if (screen === 'calendar') return 'Work Station Calendar'
+  if (screen === 'pastProjects') return 'Past Projects'
   if (screen === 'holidays') return 'Holiday Calendar'
   if (screen === 'workCenters') return 'Work Centers / Machines'
   if (screen === 'import') return 'Imports / Admin'
@@ -2349,9 +2490,10 @@ function screenTitle(screen: Screen, project: ProjectDetail | null) {
 function screenSubtitle(screen: Screen) {
   if (screen === 'project') return ''
   if (screen === 'calendar') return 'Pick a day to see every part in production and its assigned work station.'
+  if (screen === 'pastProjects') return 'Completed programs, archived out of the active development queue.'
   if (screen === 'holidays') return 'Non-working days used by the schedule calculator.'
   if (screen === 'workCenters') return 'Maintain the company machines and work centers used when assigning operations.'
-  if (screen === 'import') return 'Controlled workbook migration and local data refresh.'
+  if (screen === 'import') return 'Upload a workbook to add its programs to the tracker.'
   return 'Active development programs, target dates, and schedule risk across the work queue.'
 }
 
@@ -2367,6 +2509,10 @@ function readStoredProjectId() {
 
 function storeSelectedProjectId(projectId: number) {
   window.localStorage.setItem('project-tracker-selected-project-id', String(projectId))
+}
+
+function clearStoredProjectId() {
+  window.localStorage.removeItem('project-tracker-selected-project-id')
 }
 
 function statusClass(status: ProjectStatus | TaskStatus) {
