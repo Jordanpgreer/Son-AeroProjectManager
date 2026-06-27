@@ -30,6 +30,7 @@ import {
   X,
 } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { FormEvent, ReactNode } from 'react'
 import './App.css'
 
@@ -59,6 +60,7 @@ type ProjectSummary = {
   id: number
   programName: string
   programManager: string | null
+  customerName: string | null
   salesOrderNumber: string | null
   currentTask: string | null
   progress: number
@@ -134,6 +136,8 @@ type TaskForm = {
   notes: string
 }
 
+type ProjectConfirmation = 'complete' | 'delete'
+
 const emptyDashboard: Dashboard = {
   activeProjects: 0,
   onTrackProjects: 0,
@@ -181,6 +185,8 @@ function App() {
   const [editMode, setEditMode] = useState(false)
   const [dashboardSearch, setDashboardSearch] = useState('')
   const [importMessage, setImportMessage] = useState('')
+  const [projectConfirmation, setProjectConfirmation] = useState<ProjectConfirmation | null>(null)
+  const [projectActionPending, setProjectActionPending] = useState(false)
 
   const projectPayload = (
     project: ProjectDetail,
@@ -328,8 +334,6 @@ function App() {
 
   async function completeProject() {
     if (!selectedProject) return
-    const confirmed = window.confirm(`Mark ${selectedProject.programName} complete? This will mark every step as 100% complete.`)
-    if (!confirmed) return
     const project = await api<ProjectDetail>(`/api/projects/${selectedProject.id}/complete`, { method: 'POST' })
     setSelectedProject(project)
     setScheduleProjects((current) => current.map((item) => (item.id === project.id ? project : item)))
@@ -339,8 +343,6 @@ function App() {
 
   async function deleteProject() {
     if (!selectedProject) return
-    const confirmed = window.confirm(`Delete ${selectedProject.programName} and all of its steps? This cannot be undone.`)
-    if (!confirmed) return
     await api<void>(`/api/projects/${selectedProject.id}`, { method: 'DELETE' })
     const data = await api<Dashboard>('/api/dashboard')
     setDashboard(data)
@@ -352,6 +354,24 @@ function App() {
       clearStoredProjectId()
       setSelectedProject(null)
       setScreen('dashboard')
+    }
+  }
+
+  async function confirmProjectAction() {
+    if (!projectConfirmation || projectActionPending) return
+    setProjectActionPending(true)
+    setError(null)
+    try {
+      if (projectConfirmation === 'complete') {
+        await completeProject()
+      } else {
+        await deleteProject()
+      }
+      setProjectConfirmation(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to update the project.')
+    } finally {
+      setProjectActionPending(false)
     }
   }
 
@@ -524,8 +544,8 @@ function App() {
                   onAddTask={() => setTaskForm(emptyTaskForm(selectedProject))}
                   onDeleteTask={deleteTask}
                   onUpdateProject={updateProject}
-                  onCompleteProject={completeProject}
-                  onDeleteProject={deleteProject}
+                  onCompleteProject={() => setProjectConfirmation('complete')}
+                  onDeleteProject={() => setProjectConfirmation('delete')}
                   onSaveRow={saveTaskRow}
                   onReorder={reorderTaskRow}
                 />
@@ -560,6 +580,15 @@ function App() {
 
       {taskForm && (
         <TaskModal form={taskForm} setForm={setTaskForm} saveTask={saveTask} onClose={() => setTaskForm(null)} workStations={knownWorkStations} holidaySet={holidaySet} />
+      )}
+      {projectConfirmation && selectedProject && (
+        <ProjectConfirmationDialog
+          action={projectConfirmation}
+          projectName={selectedProject.programName}
+          pending={projectActionPending}
+          onCancel={() => setProjectConfirmation(null)}
+          onConfirm={confirmProjectAction}
+        />
       )}
     </div>
   )
@@ -691,7 +720,7 @@ function PageHeader({
             <input
               value={dashboardSearch}
               onChange={(event) => setDashboardSearch(event.target.value)}
-              placeholder="Search part or sales order"
+              placeholder="Search part, sales order, or customer"
             />
           </label>
         )}
@@ -717,8 +746,9 @@ function DashboardView({
   const active = dashboard.projects.filter((project) => project.status !== 'Complete')
   const query = search.trim().toLowerCase()
   const visible = query
-    ? active.filter((project) =>
+      ? active.filter((project) =>
         project.programName.toLowerCase().includes(query) ||
+        (project.customerName ?? '').toLowerCase().includes(query) ||
         (project.salesOrderNumber ?? '').toLowerCase().includes(query))
     : active
   const total = visible.length
@@ -753,7 +783,7 @@ function DashboardView({
         {total === 0 ? (
           <EmptyState
             title={query ? 'No matching programs' : 'No active programs'}
-            body={query ? 'Try another part number or sales order number.' : 'Import or add programs to begin tracking schedule progress.'}
+            body={query ? 'Try another part number, sales order number, or customer name.' : 'Import or add programs to begin tracking schedule progress.'}
           />
         ) : (
           <PortfolioTable projects={visible} onOpenProject={onOpenProject} />
@@ -826,6 +856,157 @@ function PortfolioTable({ projects, onOpenProject }: { projects: ProjectSummary[
 /* Program detail                                                         */
 /* ---------------------------------------------------------------------- */
 
+function ProjectPicker({
+  project,
+  projects,
+  onSelectProject,
+}: {
+  project: ProjectDetail
+  projects: ProjectSummary[]
+  onSelectProject: (projectId: number) => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const rootRef = useRef<HTMLDivElement>(null)
+  const activeProjects = useMemo(
+    () => projects.filter((item) => item.status !== 'Complete'),
+    [projects],
+  )
+  const filteredProjects = useMemo(() => {
+    const value = query.trim().toLowerCase()
+    if (!value) return activeProjects
+    return activeProjects.filter((item) =>
+      item.programName.toLowerCase().includes(value) ||
+      (item.customerName ?? '').toLowerCase().includes(value) ||
+      (item.salesOrderNumber ?? '').toLowerCase().includes(value))
+  }, [activeProjects, query])
+
+  useEffect(() => {
+    if (!open) return
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', closeOnOutsideClick)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [open])
+
+  const selectProject = async (projectId: number) => {
+    setOpen(false)
+    setQuery('')
+    if (projectId !== project.id) await onSelectProject(projectId)
+  }
+
+  return (
+    <div className="program-pick" ref={rootRef}>
+      <span className="kicker">Program Package</span>
+      <button
+        type="button"
+        className="project-picker-trigger"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span>
+          <strong>{project.programName}</strong>
+          <small>{project.status === 'Complete' ? 'Completed project' : `${activeProjects.length} active project${activeProjects.length === 1 ? '' : 's'}`}</small>
+        </span>
+        <ChevronDown size={16} />
+      </button>
+      {open && (
+        <div className="project-picker-menu">
+          <label className="project-picker-search">
+            <Search size={15} />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search active projects"
+              autoFocus
+            />
+          </label>
+          <div className="project-picker-results" role="listbox" aria-label="Active projects">
+            {filteredProjects.length === 0 ? (
+              <div className="project-picker-empty">No active projects match your search.</div>
+            ) : filteredProjects.map((item) => (
+              <button
+                type="button"
+                role="option"
+                aria-selected={item.id === project.id}
+                className={`project-picker-option ${item.id === project.id ? 'selected' : ''}`}
+                key={item.id}
+                onClick={() => selectProject(item.id)}
+              >
+                <span className={`dot ${statusClass(item.status)}`} />
+                <span className="project-picker-copy">
+                  <strong>{item.programName}</strong>
+                  <small>{[item.customerName, item.salesOrderNumber && `SO ${item.salesOrderNumber}`].filter(Boolean).join(' / ') || 'No customer or sales order'}</small>
+                </span>
+                {item.id === project.id && <Check size={15} />}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ProjectConfirmationDialog({
+  action,
+  projectName,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  action: ProjectConfirmation
+  projectName: string
+  pending: boolean
+  onCancel: () => void
+  onConfirm: () => Promise<void>
+}) {
+  const deleting = action === 'delete'
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !pending) onCancel()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [onCancel, pending])
+
+  return (
+    <div className="modal-backdrop" onClick={() => !pending && onCancel()}>
+      <section className="modal confirmation-modal" role="alertdialog" aria-modal="true" aria-labelledby="project-confirmation-title" onClick={(event) => event.stopPropagation()}>
+        <div className={`confirmation-icon ${deleting ? 'danger' : 'complete'}`}>
+          {deleting ? <AlertTriangle size={22} /> : <CheckCircle2 size={22} />}
+        </div>
+        <div className="confirmation-copy">
+          <span className="kicker">{deleting ? 'Permanent Action' : 'Project Status'}</span>
+          <h2 id="project-confirmation-title">{deleting ? 'Delete this project?' : 'Complete this project?'}</h2>
+          <p>
+            {deleting
+              ? <><strong>{projectName}</strong> and all of its operations will be permanently deleted. This cannot be undone.</>
+              : <><strong>{projectName}</strong> will move to Past Projects and every operation will be marked 100% complete.</>}
+          </p>
+        </div>
+        <div className="modal-actions confirmation-actions">
+          <button className="button ghost" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
+          <button className={`button ${deleting ? 'danger-solid' : 'complete-solid'}`} type="button" onClick={onConfirm} disabled={pending} autoFocus>
+            {deleting ? <Trash2 size={15} /> : <CheckCircle2 size={15} />}
+            {pending ? 'Working...' : deleting ? 'Delete Project' : 'Complete Project'}
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function ProjectView({
   project,
   projects,
@@ -856,8 +1037,8 @@ function ProjectView({
   onAddTask: () => void
   onDeleteTask: (taskId: number) => Promise<void>
   onUpdateProject: (patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'customerName' | 'salesOrderNumber'>>) => Promise<void>
-  onCompleteProject: () => Promise<void>
-  onDeleteProject: () => Promise<void>
+  onCompleteProject: () => void
+  onDeleteProject: () => void
   onSaveRow: (row: ProjectTask) => Promise<ProjectTask>
   onReorder: (row: ProjectTask, position: number) => Promise<void>
 }) {
@@ -910,12 +1091,7 @@ function ProjectView({
     <section className="view project-view">
       <header className="program-topbar">
         <div className="program-lead">
-          <label className="program-pick">
-            <span className="kicker">Program Package</span>
-            <select value={project.id} onChange={(event) => onSelectProject(Number(event.target.value))}>
-              {projects.map((item) => <option key={item.id} value={item.id}>{item.programName}</option>)}
-            </select>
-          </label>
+          <ProjectPicker project={project} projects={projects} onSelectProject={onSelectProject} />
           <div className="program-sub">
             <span className="program-current-inline"><span className="dot active" />{project.currentTask ?? 'No current operation'}</span>
             <span className="program-facts">
@@ -1192,8 +1368,6 @@ function OpsEditGrid({
     onDeleteTask(row.id).catch(() => undefined)
   }
 
-  const stations = [...new Set(workStations)].sort()
-
   return (
     <section className="panel table-panel ops-panel ops-edit">
       <header className="panel-head">
@@ -1250,7 +1424,7 @@ function OpsEditGrid({
                       {hasConflict && <ConflictIcon />}
                     </div>
                   </td>
-                  <td><input className="cell-input" list="ops-edit-stations" value={row.workStation ?? ''} placeholder="Search work center" onChange={(event) => update(row.id, { workStation: event.target.value })} onBlur={() => commit(row.id)} /></td>
+                  <td className="col-station"><WorkStationPicker value={row.workStation ?? ''} options={workStations} onChange={(workStation) => update(row.id, { workStation })} onCommit={() => commit(row.id)} /></td>
                   <td className="col-lock">
                     <button
                       className={`icon-button lock-button ${row.startDateLocked ? 'active' : ''}`}
@@ -1294,7 +1468,6 @@ function OpsEditGrid({
             })}
           </tbody>
         </table>
-        <datalist id="ops-edit-stations">{stations.map((station) => <option key={station} value={station} />)}</datalist>
       </div>
     </section>
   )
@@ -2040,6 +2213,105 @@ function buildMonthCells(monthAnchorMs: number) {
 /* Task modal                                                             */
 /* ---------------------------------------------------------------------- */
 
+function WorkStationPicker({
+  value,
+  options,
+  onChange,
+  onCommit,
+}: {
+  value: string
+  options: string[]
+  onChange: (value: string) => void
+  onCommit?: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const controlRef = useRef<HTMLDivElement>(null)
+  const [menuRect, setMenuRect] = useState<{ top: number; left: number; width: number } | null>(null)
+  const stations = useMemo(() => [...new Set(options)].sort(), [options])
+  const filtered = useMemo(() => {
+    const query = value.trim().toLowerCase()
+    if (!query) return stations
+    return stations.filter((station) => station.toLowerCase().includes(query))
+  }, [stations, value])
+
+  useEffect(() => {
+    if (!open) return
+    const reposition = () => {
+      const rect = controlRef.current?.getBoundingClientRect()
+      if (rect) setMenuRect({ top: rect.bottom + 6, left: rect.left, width: rect.width })
+    }
+    reposition()
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Element
+      if (!rootRef.current?.contains(target) && !target.closest?.('.work-station-menu')) {
+        setOpen(false)
+      }
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('scroll', reposition, true)
+    window.addEventListener('resize', reposition)
+    document.addEventListener('mousedown', closeOnOutsideClick)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      window.removeEventListener('scroll', reposition, true)
+      window.removeEventListener('resize', reposition)
+      document.removeEventListener('mousedown', closeOnOutsideClick)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [open])
+
+  return (
+    <div className="work-station-picker" ref={rootRef}>
+      <div className="work-station-control" ref={controlRef}>
+        <Search size={15} />
+        <input
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={open}
+          value={value}
+          onChange={(event) => { onChange(event.target.value); setOpen(true) }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => onCommit?.()}
+          onKeyDown={(event) => { if (event.key === 'Enter') setOpen(false) }}
+          placeholder="Search or select work center"
+        />
+        <button type="button" aria-label="Show work centers" tabIndex={-1} onMouseDown={(event) => { event.preventDefault(); setOpen((current) => !current) }}>
+          <ChevronDown size={15} />
+        </button>
+      </div>
+      {open && menuRect && createPortal(
+        <div
+          className="work-station-menu"
+          role="listbox"
+          aria-label="Work centers"
+          style={{ position: 'fixed', top: menuRect.top, left: menuRect.left, width: menuRect.width, right: 'auto' }}
+        >
+          {filtered.length === 0 ? (
+            <div className="work-station-empty">{value.trim() ? `Use “${value.trim()}”` : 'No work centers yet'}</div>
+          ) : filtered.map((station) => (
+            <button
+              type="button"
+              role="option"
+              aria-selected={station === value}
+              className={station === value ? 'selected' : ''}
+              key={station}
+              onMouseDown={(event) => { event.preventDefault(); onChange(station); setOpen(false) }}
+            >
+              <Factory size={15} />
+              <span>{station}</span>
+              {station === value && <Check size={15} />}
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </div>
+  )
+}
+
 function TaskModal({
   form,
   setForm,
@@ -2092,10 +2364,9 @@ function TaskModal({
             <label className="field"><span>Operation Name</span>
               <input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="e.g. CNC Production" required autoFocus />
             </label>
-            <label className="field"><span>Work Station</span>
-              <input list="work-stations" value={form.workStation} onChange={(event) => setForm({ ...form, workStation: event.target.value })} placeholder="Search or select work center" />
-              <datalist id="work-stations">{workStations.map((station) => <option key={station} value={station} />)}</datalist>
-            </label>
+            <div className="field"><span>Work Station</span>
+              <WorkStationPicker value={form.workStation} options={workStations} onChange={(workStation) => setForm({ ...form, workStation })} />
+            </div>
           </section>
 
           <section className="form-section">
