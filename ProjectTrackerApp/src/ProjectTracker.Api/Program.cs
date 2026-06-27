@@ -309,7 +309,7 @@ api.MapDelete("/tasks/{taskId:int}", async (int taskId, ProjectTrackerDbContext 
     project.Tasks.Remove(task);
     db.Tasks.Remove(task);
     RenumberTasks(project);
-    await metrics.RefreshProjectAsync(db, project, cancellationToken);
+    await metrics.RefreshProjectAsync(db, project, cancellationToken, recalculateDates: true);
     await db.SaveChangesAsync(cancellationToken);
     return Results.NoContent();
 }).RequireAuthorization("CanEdit");

@@ -3180,6 +3180,7 @@ function addWorkdays(startMs: number, count: number, holidaySet: Set<string>, wo
 }
 
 function workdaysBetween(startMs: number, endMs: number, holidaySet: Set<string>, workingDaySet = WORKDAYS, overtimeDates: Set<string> = new Set()) {
+  if (endMs < startMs) return 0
   let count = 0
   let cur = startMs
   let guard = 0
@@ -3188,7 +3189,7 @@ function workdaysBetween(startMs: number, endMs: number, holidaySet: Set<string>
     cur = addDays(cur, 1)
     guard += 1
   }
-  return Math.max(1, count)
+  return count
 }
 
 function calculateEndDate(startDate: string | null, duration: number | null, holidaySet: Set<string>, workingDaySet = WORKDAYS, overtimeDates: Set<string> = new Set()) {
@@ -3442,7 +3443,9 @@ function dateToMs(value: string) {
 }
 
 function addDays(value: number, days: number) {
-  return value + days * dayMs
+  const date = new Date(value)
+  date.setDate(date.getDate() + days)
+  return date.getTime()
 }
 
 function enumerateIsoDates(startDate: string, endDate: string) {

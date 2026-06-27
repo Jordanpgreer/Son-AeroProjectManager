@@ -81,4 +81,26 @@ public sealed class ScheduleCalculatorTests
 
         Assert.Equal(new DateOnly(2026, 6, 26), result);
     }
+
+    [Fact]
+    public void CountWorkingDays_ReturnsZeroWhenEndPrecedesStart()
+    {
+        var result = calculator.CountWorkingDays(
+            new DateOnly(2026, 6, 25),
+            new DateOnly(2026, 6, 24),
+            ScheduleCalendar.Default);
+
+        Assert.Equal(0, result);
+    }
+
+    [Fact]
+    public void CountWorkingDays_ReturnsZeroForNonWorkingOnlyRange()
+    {
+        var result = calculator.CountWorkingDays(
+            new DateOnly(2026, 6, 26),
+            new DateOnly(2026, 6, 28),
+            ScheduleCalendar.Default);
+
+        Assert.Equal(0, result);
+    }
 }
