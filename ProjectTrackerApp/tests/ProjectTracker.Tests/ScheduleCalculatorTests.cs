@@ -11,7 +11,7 @@ public sealed class ScheduleCalculatorTests
     public void AddWorkingDaysInclusive_SkipsFridayThroughSunday()
     {
         var start = new DateOnly(2026, 6, 25); // Thursday
-        var result = calculator.AddWorkingDaysInclusive(start, 2, new HashSet<DateOnly>());
+        var result = calculator.AddWorkingDaysInclusive(start, 2, ScheduleCalendar.Default);
 
         Assert.Equal(new DateOnly(2026, 6, 29), result); // Monday
     }
@@ -22,7 +22,8 @@ public sealed class ScheduleCalculatorTests
         var start = new DateOnly(2026, 6, 25); // Thursday
         var holidays = new HashSet<DateOnly> { new(2026, 6, 29) };
 
-        var result = calculator.AddWorkingDaysInclusive(start, 2, holidays);
+        var calendar = new ScheduleCalendar(ScheduleCalendar.Default.WorkingDays, holidays);
+        var result = calculator.AddWorkingDaysInclusive(start, 2, calendar);
 
         Assert.Equal(new DateOnly(2026, 6, 30), result);
     }
@@ -38,7 +39,7 @@ public sealed class ScheduleCalculatorTests
             PercentComplete = 0.25m
         };
 
-        var status = calculator.CalculateTaskStatus(task, new HashSet<DateOnly>(), new DateOnly(2026, 6, 25));
+        var status = calculator.CalculateTaskStatus(task, ScheduleCalendar.Default, new DateOnly(2026, 6, 25));
 
         Assert.Equal(TaskScheduleStatus.Behind, status);
     }
@@ -54,9 +55,30 @@ public sealed class ScheduleCalculatorTests
             PercentComplete = 1m
         };
 
-        var status = calculator.CalculateTaskStatus(task, new HashSet<DateOnly>(), new DateOnly(2026, 6, 23));
+        var status = calculator.CalculateTaskStatus(task, ScheduleCalendar.Default, new DateOnly(2026, 6, 23));
 
         Assert.Equal(TaskScheduleStatus.Complete, status);
     }
-}
 
+    [Fact]
+    public void AddWorkingDaysInclusive_UsesConfiguredFridayWorkday()
+    {
+        var calendar = new ScheduleCalendar(
+            new HashSet<DayOfWeek> { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday },
+            new HashSet<DateOnly>());
+
+        var result = calculator.AddWorkingDaysInclusive(new DateOnly(2026, 6, 25), 2, calendar);
+
+        Assert.Equal(new DateOnly(2026, 6, 26), result);
+    }
+
+    [Fact]
+    public void AddWorkingDaysInclusive_UsesTaskOvertimeOnNonWorkingDay()
+    {
+        var overtime = new HashSet<DateOnly> { new(2026, 6, 26) };
+
+        var result = calculator.AddWorkingDaysInclusive(new DateOnly(2026, 6, 25), 2, ScheduleCalendar.Default, overtime);
+
+        Assert.Equal(new DateOnly(2026, 6, 26), result);
+    }
+}

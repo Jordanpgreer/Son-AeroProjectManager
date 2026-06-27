@@ -6,42 +6,53 @@ namespace ProjectTracker.Api.Services;
 
 public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
 {
-    public async Task RefreshProjectAsync(ProjectTrackerDbContext db, Project project, CancellationToken cancellationToken = default)
+    public async Task RefreshProjectAsync(ProjectTrackerDbContext db, Project project, CancellationToken cancellationToken = default, bool recalculateDates = false)
     {
         var holidays = (await db.Holidays.Select(holiday => holiday.Date).ToListAsync(cancellationToken)).ToHashSet();
-        RefreshProject(project, holidays, DateOnly.FromDateTime(DateTime.Today));
+        var settings = await db.ScheduleSettings.FindAsync([ScheduleSettings.SingletonId], cancellationToken)
+            ?? new ScheduleSettings();
+        var calendar = new ScheduleCalendar(settings.GetWorkingDays(), holidays);
+        RefreshProject(project, calendar, DateOnly.FromDateTime(DateTime.Today), recalculateDates);
     }
 
-    public void RefreshProject(Project project, IReadOnlySet<DateOnly> holidays, DateOnly today)
+    public void RefreshProject(Project project, ScheduleCalendar calendar, DateOnly today, bool recalculateDates = false)
     {
-        DateOnly? nextStart = null;
+        DateOnly? nextStart = project.ProgramStart;
         foreach (var task in project.Tasks.OrderBy(task => task.Sequence))
         {
+            var overtimeDates = task.OvertimeDays.Select(day => day.Date).ToHashSet();
             if (!task.StartDateLocked && nextStart is not null)
             {
-                task.StartDate = NextWorkingDay(nextStart.Value, holidays);
+                task.StartDate = NextWorkingDay(nextStart.Value, calendar, overtimeDates);
             }
 
-            if (task.StartDate is not null && task.EndDate is not null)
+            if (recalculateDates && task.StartDate is not null && task.EstimatedDuration is > 0)
             {
-                task.EstimatedDuration = scheduleCalculator.CountWorkingDays(task.StartDate.Value, task.EndDate.Value, holidays);
+                task.EndDate = scheduleCalculator.AddWorkingDaysInclusive(task.StartDate.Value, task.EstimatedDuration.Value, calendar, overtimeDates);
+            }
+            else if (task.StartDate is not null && task.EndDate is not null)
+            {
+                task.EstimatedDuration = scheduleCalculator.CountWorkingDays(task.StartDate.Value, task.EndDate.Value, calendar, overtimeDates);
             }
             else if (task.StartDate is not null && task.EstimatedDuration is > 0)
             {
-                task.EndDate = scheduleCalculator.AddWorkingDaysInclusive(task.StartDate.Value, task.EstimatedDuration.Value, holidays);
+                task.EndDate = scheduleCalculator.AddWorkingDaysInclusive(task.StartDate.Value, task.EstimatedDuration.Value, calendar, overtimeDates);
             }
 
             task.PercentComplete = task.PercentCompleteManual
                 ? Math.Clamp(task.PercentComplete, 0m, 1m)
-                : CalculateAutomaticPercent(task, holidays, today);
-            task.Status = scheduleCalculator.CalculateTaskStatus(task, holidays, today);
+                : CalculateAutomaticPercent(task, calendar, today);
+            task.Status = scheduleCalculator.CalculateTaskStatus(task, calendar, today);
             task.UpdatedAt = DateTimeOffset.UtcNow;
 
             nextStart = task.EndDate?.AddDays(1);
         }
 
         var activeTasks = project.Tasks.Where(task => !string.IsNullOrWhiteSpace(task.Title)).OrderBy(task => task.Sequence).ToList();
-        project.ProgramStart = activeTasks.Select(task => task.StartDate).Where(date => date is not null).Min();
+        if (activeTasks.Count > 0)
+        {
+            project.ProgramStart = activeTasks.Select(task => task.StartDate).Where(date => date is not null).Min();
+        }
         project.TargetDelivery = activeTasks.Select(task => task.EndDate).Where(date => date is not null).Max();
         project.Progress = CalculateWeightedProgress(activeTasks);
         project.CurrentTask = activeTasks.FirstOrDefault(task => task.Status != TaskScheduleStatus.Complete)?.Title ?? "Program Complete";
@@ -49,7 +60,7 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
         project.UpdatedAt = DateTimeOffset.UtcNow;
     }
 
-    private decimal CalculateAutomaticPercent(ProjectTask task, IReadOnlySet<DateOnly> holidays, DateOnly today)
+    private decimal CalculateAutomaticPercent(ProjectTask task, ScheduleCalendar calendar, DateOnly today)
     {
         if (task.StartDate is null || task.EndDate is null)
         {
@@ -66,20 +77,21 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
             return 1m;
         }
 
-        var total = scheduleCalculator.CountWorkingDays(task.StartDate.Value, task.EndDate.Value, holidays);
+        var overtimeDates = task.OvertimeDays.Select(day => day.Date).ToHashSet();
+        var total = scheduleCalculator.CountWorkingDays(task.StartDate.Value, task.EndDate.Value, calendar, overtimeDates);
         if (total <= 0)
         {
             return 0m;
         }
 
-        var elapsed = scheduleCalculator.CountWorkingDays(task.StartDate.Value, today, holidays);
+        var elapsed = scheduleCalculator.CountWorkingDays(task.StartDate.Value, today, calendar, overtimeDates);
         return Math.Clamp((decimal)elapsed / total, 0m, 1m);
     }
 
-    private DateOnly NextWorkingDay(DateOnly date, IReadOnlySet<DateOnly> holidays)
+    private DateOnly NextWorkingDay(DateOnly date, ScheduleCalendar calendar, IReadOnlySet<DateOnly> overtimeDates)
     {
         var next = date;
-        while (!scheduleCalculator.IsWorkingDay(next, holidays))
+        while (!scheduleCalculator.IsWorkingDay(next, calendar, overtimeDates))
         {
             next = next.AddDays(1);
         }

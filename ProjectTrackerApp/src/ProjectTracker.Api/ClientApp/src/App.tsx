@@ -3,6 +3,7 @@ import {
   Archive,
   ArrowRight,
   CalendarDays,
+  CalendarPlus,
   CalendarRange,
   CheckCircle2,
   ChevronDown,
@@ -24,6 +25,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  Settings2,
   Trash2,
   Unlock,
   UploadCloud,
@@ -36,8 +38,9 @@ import './App.css'
 
 type ProjectStatus = 'NotStarted' | 'OnTrack' | 'Behind' | 'Complete'
 type TaskStatus = 'NotStarted' | 'OnTrack' | 'Behind' | 'Complete'
-type Screen = 'dashboard' | 'project' | 'calendar' | 'pastProjects' | 'holidays' | 'workCenters' | 'import'
-const screens: Screen[] = ['dashboard', 'project', 'calendar', 'pastProjects', 'holidays', 'workCenters', 'import']
+type Screen = 'dashboard' | 'project' | 'calendar' | 'pastProjects' | 'settings' | 'import'
+const screens: Screen[] = ['dashboard', 'project', 'calendar', 'pastProjects', 'settings', 'import']
+type DayOfWeekName = 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday'
 
 type User = {
   accountName: string
@@ -104,6 +107,13 @@ type ProjectTask = {
   percentCompleteManual: boolean
   status: TaskStatus
   notes: string | null
+  overtimeDays: TaskOvertimeDay[]
+}
+
+type TaskOvertimeDay = {
+  id: number
+  date: string
+  note: string | null
 }
 
 type Holiday = {
@@ -115,6 +125,11 @@ type Holiday = {
 type WorkCenter = {
   id: number
   name: string
+}
+
+type ScheduleSettings = {
+  workingDays: DayOfWeekName[]
+  updatedAt: string
 }
 
 type TaskForm = {
@@ -134,9 +149,19 @@ type TaskForm = {
   percentComplete: string
   percentCompleteManual: boolean
   notes: string
+  overtimeDays: TaskOvertimeDay[]
 }
 
 type ProjectConfirmation = 'complete' | 'delete'
+
+type ProjectCreateRequest = {
+  programName: string
+  programManager: string | null
+  customerName: string | null
+  salesOrderNumber: string | null
+  programStart: string | null
+  templateProjectId: number | null
+}
 
 const emptyDashboard: Dashboard = {
   activeProjects: 0,
@@ -148,6 +173,10 @@ const emptyDashboard: Dashboard = {
 }
 
 const dayMs = 86_400_000
+const defaultScheduleSettings: ScheduleSettings = {
+  workingDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday'],
+  updatedAt: '',
+}
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -177,6 +206,7 @@ function App() {
   const [scheduleProjects, setScheduleProjects] = useState<ProjectDetail[]>([])
   const [holidays, setHolidays] = useState<Holiday[]>([])
   const [workCenters, setWorkCenters] = useState<WorkCenter[]>([])
+  const [scheduleSettings, setScheduleSettings] = useState<ScheduleSettings>(defaultScheduleSettings)
   const [screen, setScreen] = useState<Screen>(() => readStoredScreen())
   const [loading, setLoading] = useState(true)
   const [projectLoading, setProjectLoading] = useState(false)
@@ -187,6 +217,8 @@ function App() {
   const [importMessage, setImportMessage] = useState('')
   const [projectConfirmation, setProjectConfirmation] = useState<ProjectConfirmation | null>(null)
   const [projectActionPending, setProjectActionPending] = useState(false)
+  const [projectWizardOpen, setProjectWizardOpen] = useState(false)
+  const [overtimeTask, setOvertimeTask] = useState<ProjectTask | null>(null)
 
   const projectPayload = (
     project: ProjectDetail,
@@ -212,18 +244,20 @@ function App() {
     setLoading(true)
     setError(null)
     try {
-      const [me, data, holidayData, workCenterData, calendarData] = await Promise.all([
+      const [me, data, holidayData, workCenterData, calendarData, settingsData] = await Promise.all([
         api<User>('/api/me'),
         api<Dashboard>('/api/dashboard'),
         api<Holiday[]>('/api/holidays'),
         api<WorkCenter[]>('/api/work-centers'),
         api<ProjectDetail[]>('/api/calendar'),
+        api<ScheduleSettings>('/api/settings/work-calendar'),
       ])
       setUser(me)
       setDashboard(data)
       setHolidays(holidayData)
       setWorkCenters(workCenterData)
       setScheduleProjects(calendarData)
+      setScheduleSettings(settingsData)
       if (data.projects.length > 0) {
         const storedProjectId = readStoredProjectId()
         const projectId = storedProjectId && data.projects.some((project) => project.id === storedProjectId)
@@ -242,18 +276,20 @@ function App() {
     setLoading(true)
     setError(null)
     try {
-      const [me, data, holidayData, workCenterData, calendarData] = await Promise.all([
+      const [me, data, holidayData, workCenterData, calendarData, settingsData] = await Promise.all([
         api<User>('/api/me'),
         api<Dashboard>('/api/dashboard'),
         api<Holiday[]>('/api/holidays'),
         api<WorkCenter[]>('/api/work-centers'),
         api<ProjectDetail[]>('/api/calendar'),
+        api<ScheduleSettings>('/api/settings/work-calendar'),
       ])
       setUser(me)
       setDashboard(data)
       setHolidays(holidayData)
       setWorkCenters(workCenterData)
       setScheduleProjects(calendarData)
+      setScheduleSettings(settingsData)
 
       const storedProjectId = readStoredProjectId()
       const projectId = selectedProject?.id
@@ -306,6 +342,7 @@ function App() {
       percentComplete: Number(taskForm.percentComplete || 0) / 100,
       percentCompleteManual: taskForm.percentCompleteManual,
       notes: taskForm.notes || null,
+      overtimeDays: taskForm.overtimeDays.map((day) => ({ date: day.date, note: day.note })),
     }
     const url = taskForm.id ? `/api/tasks/${taskForm.id}` : `/api/projects/${selectedProject.id}/tasks`
     await api<ProjectTask>(url, {
@@ -392,6 +429,7 @@ function App() {
       percentComplete: task.percentComplete,
       percentCompleteManual: task.percentCompleteManual,
       notes: task.notes,
+      overtimeDays: task.overtimeDays.map((day) => ({ date: day.date, note: day.note })),
     }
   }
 
@@ -468,6 +506,47 @@ function App() {
     setWorkCenters(await api<WorkCenter[]>('/api/work-centers'))
   }
 
+  async function updateWorkCalendar(workingDays: DayOfWeekName[]) {
+    const updated = await api<ScheduleSettings>('/api/settings/work-calendar', {
+      method: 'PUT',
+      body: JSON.stringify({ workingDays }),
+    })
+    setScheduleSettings(updated)
+    const [data, calendarData] = await Promise.all([
+      api<Dashboard>('/api/dashboard'),
+      api<ProjectDetail[]>('/api/calendar'),
+    ])
+    setDashboard(data)
+    setScheduleProjects(calendarData)
+    if (selectedProject) {
+      const refreshed = await api<ProjectDetail>(`/api/projects/${selectedProject.id}`)
+      setSelectedProject(refreshed)
+    }
+  }
+
+  async function createProject(request: ProjectCreateRequest) {
+    const project = await api<ProjectDetail>('/api/projects', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    })
+    const [data, calendarData] = await Promise.all([
+      api<Dashboard>('/api/dashboard'),
+      api<ProjectDetail[]>('/api/calendar'),
+    ])
+    setDashboard(data)
+    setScheduleProjects(calendarData)
+    setSelectedProject(project)
+    storeSelectedProjectId(project.id)
+    setProjectWizardOpen(false)
+    setScreen('project')
+    setEditMode(true)
+  }
+
+  async function saveOvertimeDays(task: ProjectTask, overtimeDays: TaskOvertimeDay[]) {
+    await saveTaskRow({ ...task, overtimeDays })
+    setOvertimeTask(null)
+  }
+
   async function importUpload(file: File) {
     setImportMessage('')
     const form = new FormData()
@@ -497,8 +576,9 @@ function App() {
   const canEdit = Boolean(user?.canEdit)
   const isProjectScreen = screen === 'project'
   const holidaySet = useMemo(() => new Set(holidays.map((holiday) => holiday.date)), [holidays])
+  const workingDaySet = useMemo(() => new Set(scheduleSettings.workingDays.map(dayNameToIndex)), [scheduleSettings.workingDays])
   const knownWorkStations = useMemo(() => workCenters.map((workCenter) => workCenter.name), [workCenters])
-  const workCenterConflicts = useMemo(() => buildWorkCenterConflictSet(scheduleProjects, holidaySet), [scheduleProjects, holidaySet])
+  const workCenterConflicts = useMemo(() => buildWorkCenterConflictSet(scheduleProjects, holidaySet, workingDaySet), [scheduleProjects, holidaySet, workingDaySet])
 
   return (
     <div className="app-shell">
@@ -519,6 +599,7 @@ function App() {
           dashboardSearch={dashboardSearch}
           setDashboardSearch={setDashboardSearch}
           refresh={refreshCurrent}
+          onAddProject={() => setProjectWizardOpen(true)}
         />
 
         <div className="main-scroll">
@@ -535,6 +616,7 @@ function App() {
                   project={selectedProject}
                   projects={dashboard.projects}
                   holidaySet={holidaySet}
+                  workingDaySet={workingDaySet}
                   workStations={knownWorkStations}
                   conflictKeys={workCenterConflicts}
                   canEdit={canEdit}
@@ -546,28 +628,26 @@ function App() {
                   onUpdateProject={updateProject}
                   onCompleteProject={() => setProjectConfirmation('complete')}
                   onDeleteProject={() => setProjectConfirmation('delete')}
+                  onEditOvertime={setOvertimeTask}
                   onSaveRow={saveTaskRow}
                   onReorder={reorderTaskRow}
                 />
               )}
-              {screen === 'calendar' && <CalendarView holidaySet={holidaySet} onOpenProject={openProject} />}
+              {screen === 'calendar' && <CalendarView holidaySet={holidaySet} workingDaySet={workingDaySet} onOpenProject={openProject} />}
               {screen === 'pastProjects' && <PastProjectsView projects={dashboard.projects} onOpenProject={openProject} />}
-              {screen === 'holidays' && (
-                <HolidayView
+              {screen === 'settings' && (
+                <SettingsView
+                  scheduleSettings={scheduleSettings}
                   holidays={holidays}
-                  canEdit={canEdit}
-                  addHolidayRange={addHolidayRange}
-                  updateHoliday={updateHoliday}
-                  deleteHoliday={deleteHoliday}
-                />
-              )}
-              {screen === 'workCenters' && (
-                <WorkCenterView
                   workCenters={workCenters}
-                  canEdit={canEdit}
+                  canEdit={Boolean(user?.isAdmin)}
+                  updateWorkCalendar={updateWorkCalendar}
                   addWorkCenter={addWorkCenter}
                   updateWorkCenter={updateWorkCenter}
                   deleteWorkCenter={deleteWorkCenter}
+                  addHolidayRange={addHolidayRange}
+                  updateHoliday={updateHoliday}
+                  deleteHoliday={deleteHoliday}
                 />
               )}
               {screen === 'import' && (
@@ -579,7 +659,25 @@ function App() {
       </main>
 
       {taskForm && (
-        <TaskModal form={taskForm} setForm={setTaskForm} saveTask={saveTask} onClose={() => setTaskForm(null)} workStations={knownWorkStations} holidaySet={holidaySet} />
+        <TaskModal form={taskForm} setForm={setTaskForm} saveTask={saveTask} onClose={() => setTaskForm(null)} workStations={knownWorkStations} holidaySet={holidaySet} workingDaySet={workingDaySet} />
+      )}
+      {overtimeTask && (
+        <OvertimeDialog
+          task={overtimeTask}
+          holidaySet={holidaySet}
+          workingDaySet={workingDaySet}
+          onClose={() => setOvertimeTask(null)}
+          onSave={(days) => saveOvertimeDays(overtimeTask, days)}
+        />
+      )}
+      {projectWizardOpen && (
+        <AddProjectWizard
+          projects={scheduleProjects}
+          defaultManager={user?.displayName ?? ''}
+          scheduleSettings={scheduleSettings}
+          onClose={() => setProjectWizardOpen(false)}
+          onCreate={createProject}
+        />
       )}
       {projectConfirmation && selectedProject && (
         <ProjectConfirmationDialog
@@ -627,8 +725,7 @@ function Sidebar({
 
       <div className="sidebar-foot">
         <nav className="foot-nav" aria-label="Secondary">
-          <NavButton active={screen === 'holidays'} onClick={() => setScreen('holidays')} icon={<CalendarDays size={17} />} label="Holidays" />
-          <NavButton active={screen === 'workCenters'} onClick={() => setScreen('workCenters')} icon={<Factory size={17} />} label="Work Centers" />
+          <NavButton active={screen === 'settings'} onClick={() => setScreen('settings')} icon={<Settings2 size={17} />} label="Settings" disabled={!user?.isAdmin} />
           <NavButton active={screen === 'import'} onClick={() => setScreen('import')} icon={<UploadCloud size={17} />} label="Imports / Admin" disabled={!user?.isAdmin} />
         </nav>
       </div>
@@ -670,6 +767,7 @@ function PageHeader({
   dashboardSearch,
   setDashboardSearch,
   refresh,
+  onAddProject,
 }: {
   screen: Screen
   selectedProject: ProjectDetail | null
@@ -679,6 +777,7 @@ function PageHeader({
   dashboardSearch: string
   setDashboardSearch: (value: string) => void
   refresh: () => Promise<void>
+  onAddProject: () => void
 }) {
   const portfolioExports = screen === 'dashboard'
   const projectId = selectedProject?.id
@@ -715,14 +814,17 @@ function PageHeader({
           </details>
         )}
         {screen === 'dashboard' && (
-          <label className="topbar-search" aria-label="Search dashboard programs">
-            <Search size={15} />
-            <input
-              value={dashboardSearch}
-              onChange={(event) => setDashboardSearch(event.target.value)}
-              placeholder="Search part, sales order, or customer"
-            />
-          </label>
+          <>
+            <label className="topbar-search" aria-label="Search dashboard programs">
+              <Search size={15} />
+              <input
+                value={dashboardSearch}
+                onChange={(event) => setDashboardSearch(event.target.value)}
+                placeholder="Search part, sales order, or customer"
+              />
+            </label>
+            {canEdit && <button className="button primary" onClick={onAddProject}><Plus size={15} /> Add Project</button>}
+          </>
         )}
       </div>
     </header>
@@ -1011,6 +1113,7 @@ function ProjectView({
   project,
   projects,
   holidaySet,
+  workingDaySet,
   workStations,
   conflictKeys,
   canEdit,
@@ -1022,12 +1125,14 @@ function ProjectView({
   onUpdateProject,
   onCompleteProject,
   onDeleteProject,
+  onEditOvertime,
   onSaveRow,
   onReorder,
 }: {
   project: ProjectDetail
   projects: ProjectSummary[]
   holidaySet: Set<string>
+  workingDaySet: Set<number>
   workStations: string[]
   conflictKeys: Set<string>
   canEdit: boolean
@@ -1039,6 +1144,7 @@ function ProjectView({
   onUpdateProject: (patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'customerName' | 'salesOrderNumber'>>) => Promise<void>
   onCompleteProject: () => void
   onDeleteProject: () => void
+  onEditOvertime: (task: ProjectTask) => void
   onSaveRow: (row: ProjectTask) => Promise<ProjectTask>
   onReorder: (row: ProjectTask, position: number) => Promise<void>
 }) {
@@ -1139,7 +1245,7 @@ function ProjectView({
       </header>
 
       {editMode ? (
-        <OpsEditGrid project={project} holidaySet={holidaySet} workStations={workStations} conflictKeys={conflictKeys} onSaveRow={onSaveRow} onReorder={onReorder} onDeleteTask={onDeleteTask} onAddTask={onAddTask} />
+        <OpsEditGrid project={project} holidaySet={holidaySet} workingDaySet={workingDaySet} workStations={workStations} conflictKeys={conflictKeys} onSaveRow={onSaveRow} onReorder={onReorder} onDeleteTask={onDeleteTask} onAddTask={onAddTask} onEditOvertime={onEditOvertime} />
       ) : (
         <div className={`program-workspace ${ganttOpen ? 'is-open' : ''}`}>
           <section className="panel table-panel ops-panel">
@@ -1181,6 +1287,7 @@ function ProjectView({
                             <span className="op-title">
                               {task.title}
                               {hasConflict && <ConflictIcon />}
+                              {task.overtimeDays.length > 0 && <span className="ot-badge">OT +{task.overtimeDays.length}</span>}
                             </span>
                           </td>
                           <td>{task.workStation ? <span className="station-tag">{task.workStation}</span> : <span className="cell-muted">Unassigned</span>}</td>
@@ -1192,6 +1299,7 @@ function ProjectView({
                           {canEdit && (
                             <td className="row-actions">
                               <button className="icon-button" onClick={(event) => { event.stopPropagation(); onEditTask(task) }} title="Edit operation">Edit</button>
+                              <button className="icon-button" onClick={(event) => { event.stopPropagation(); onEditOvertime(task) }} aria-label={`Overtime dates for ${task.title}`} title="Approved overtime"><CalendarPlus size={14} /></button>
                               <button className="icon-button danger" onClick={(event) => { event.stopPropagation(); onDeleteTask(task.id) }} aria-label={`Delete ${task.title}`} title="Delete">
                                 <Trash2 size={14} />
                               </button>
@@ -1234,7 +1342,7 @@ function ProjectView({
           </section>
 
           {ganttOpen ? (
-            <Gantt tasks={project.tasks} programStart={project.programStart} holidaySet={holidaySet} onCollapse={() => setGanttOpen(false)} />
+            <Gantt tasks={project.tasks} programStart={project.programStart} holidaySet={holidaySet} workingDaySet={workingDaySet} onCollapse={() => setGanttOpen(false)} />
           ) : (
             <button className="gantt-dock" onClick={() => setGanttOpen(true)} aria-label="Expand Gantt schedule" title="Expand Gantt schedule">
               <ChevronRight size={18} className="dock-chevron" />
@@ -1251,21 +1359,25 @@ function ProjectView({
 function OpsEditGrid({
   project,
   holidaySet,
+  workingDaySet,
   workStations,
   conflictKeys,
   onSaveRow,
   onReorder,
   onDeleteTask,
   onAddTask,
+  onEditOvertime,
 }: {
   project: ProjectDetail
   holidaySet: Set<string>
+  workingDaySet: Set<number>
   workStations: string[]
   conflictKeys: Set<string>
   onSaveRow: (row: ProjectTask) => Promise<ProjectTask>
   onReorder: (row: ProjectTask, position: number) => Promise<void>
   onDeleteTask: (taskId: number) => Promise<void>
   onAddTask: () => void
+  onEditOvertime: (task: ProjectTask) => void
 }) {
   const [rows, setRows] = useState<ProjectTask[]>(project.tasks)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
@@ -1284,26 +1396,25 @@ function OpsEditGrid({
       let cursor = project.programStart
         ? dateToMs(project.programStart)
         : startOfTodayMs()
-      cursor = nextWorkday(cursor, holidaySet)
-
       return patched.map((row) => {
         const next = { ...row }
+        const overtimeDates = new Set(next.overtimeDays.map((day) => day.date))
         const duration = next.estimatedDuration && next.estimatedDuration > 0 ? next.estimatedDuration : null
 
         if (!next.startDateLocked) {
-          next.startDate = msToIso(cursor)
+          next.startDate = msToIso(nextWorkday(cursor, holidaySet, workingDaySet, overtimeDates))
         }
 
         if (row.id === id && durationChanged && duration) {
-          next.endDate = calculateEndDate(next.startDate, duration, holidaySet)
+          next.endDate = calculateEndDate(next.startDate, duration, holidaySet, workingDaySet, overtimeDates)
         } else if (next.startDate && next.endDate) {
-          next.estimatedDuration = calculateDuration(next.startDate, next.endDate, holidaySet)
+          next.estimatedDuration = calculateDuration(next.startDate, next.endDate, holidaySet, workingDaySet, overtimeDates)
         } else if (next.startDate && duration) {
-          next.endDate = calculateEndDate(next.startDate, duration, holidaySet)
+          next.endDate = calculateEndDate(next.startDate, duration, holidaySet, workingDaySet, overtimeDates)
         }
 
         if (next.endDate) {
-          cursor = nextWorkday(addDays(dateToMs(next.endDate), 1), holidaySet)
+          cursor = addDays(dateToMs(next.endDate), 1)
         }
 
         return next
@@ -1422,6 +1533,7 @@ function OpsEditGrid({
                     <div className="cell-with-warning">
                       <input className="cell-input" value={row.title} onChange={(event) => update(row.id, { title: event.target.value })} onBlur={() => commit(row.id)} />
                       {hasConflict && <ConflictIcon />}
+                      {row.overtimeDays.length > 0 && <span className="ot-badge">OT +{row.overtimeDays.length}</span>}
                     </div>
                   </td>
                   <td className="col-station"><WorkStationPicker value={row.workStation ?? ''} options={workStations} onChange={(workStation) => update(row.id, { workStation })} onCommit={() => commit(row.id)} /></td>
@@ -1461,6 +1573,7 @@ function OpsEditGrid({
                   <td className="row-actions">
                     <button className="icon-button" onClick={() => { update(row.id, { percentCompleteManual: false }); onSaveRow({ ...row, percentCompleteManual: false }).catch(() => undefined) }} title="Use automatic percent">Auto</button>
                     <button className="icon-button" onClick={() => completeRow(row)} title="Complete operation"><CheckCircle2 size={14} /></button>
+                    <button className="icon-button" onClick={() => onEditOvertime(row)} aria-label={`Overtime dates for ${row.title}`} title="Approved overtime"><CalendarPlus size={14} /></button>
                     <button className="icon-button danger" onClick={() => removeRow(row)} aria-label={`Delete ${row.title}`} title="Delete step"><Trash2 size={14} /></button>
                   </td>
                 </tr>
@@ -1490,17 +1603,19 @@ function Gantt({
   tasks,
   programStart,
   holidaySet,
+  workingDaySet,
   onCollapse,
 }: {
   tasks: ProjectTask[]
   programStart: string | null
   holidaySet: Set<string>
+  workingDaySet: Set<number>
   onCollapse?: () => void
 }) {
   const ganttScrollRef = useRef<HTMLDivElement>(null)
   const { items, range, months, weekTicks, shades, todayLeft, projectedCount } = useMemo(
-    () => buildSchedule(tasks, programStart, holidaySet),
-    [tasks, programStart, holidaySet],
+    () => buildSchedule(tasks, programStart, holidaySet, workingDaySet),
+    [tasks, programStart, holidaySet, workingDaySet],
   )
 
   useEffect(() => {
@@ -1662,18 +1777,144 @@ function ShadeLayer({ shades, pct }: { shades: { start: number; end: number; hol
 /* Holidays / Import                                                      */
 /* ---------------------------------------------------------------------- */
 
+type SettingsTab = 'calendar' | 'workCenters' | 'holidays'
+
+function SettingsView({
+  scheduleSettings,
+  holidays,
+  workCenters,
+  canEdit,
+  updateWorkCalendar,
+  addWorkCenter,
+  updateWorkCenter,
+  deleteWorkCenter,
+  addHolidayRange,
+  updateHoliday,
+  deleteHoliday,
+}: {
+  scheduleSettings: ScheduleSettings
+  holidays: Holiday[]
+  workCenters: WorkCenter[]
+  canEdit: boolean
+  updateWorkCalendar: (days: DayOfWeekName[]) => Promise<void>
+  addWorkCenter: (name: string) => Promise<void>
+  updateWorkCenter: (id: number, name: string) => Promise<void>
+  deleteWorkCenter: (id: number) => Promise<void>
+  addHolidayRange: (startDate: string, endDate: string, name: string) => Promise<void>
+  updateHoliday: (id: number, date: string, name: string) => Promise<void>
+  deleteHoliday: (id: number) => Promise<void>
+}) {
+  const [tab, setTab] = useState<SettingsTab>('calendar')
+  const [draftDays, setDraftDays] = useState<DayOfWeekName[]>(scheduleSettings.workingDays)
+  const [confirming, setConfirming] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const dayOptions: { value: DayOfWeekName; short: string; label: string }[] = [
+    { value: 'Monday', short: 'Mon', label: 'Monday' },
+    { value: 'Tuesday', short: 'Tue', label: 'Tuesday' },
+    { value: 'Wednesday', short: 'Wed', label: 'Wednesday' },
+    { value: 'Thursday', short: 'Thu', label: 'Thursday' },
+    { value: 'Friday', short: 'Fri', label: 'Friday' },
+    { value: 'Saturday', short: 'Sat', label: 'Saturday' },
+    { value: 'Sunday', short: 'Sun', label: 'Sunday' },
+  ]
+
+  useEffect(() => setDraftDays(scheduleSettings.workingDays), [scheduleSettings.workingDays])
+
+  const changed = [...draftDays].sort().join('|') !== [...scheduleSettings.workingDays].sort().join('|')
+  const toggleDay = (day: DayOfWeekName) => {
+    setDraftDays((current) => current.includes(day) ? current.filter((item) => item !== day) : [...current, day])
+  }
+  const saveCalendar = async () => {
+    if (draftDays.length === 0 || saving) return
+    setSaving(true)
+    try {
+      await updateWorkCalendar(draftDays)
+      setConfirming(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="view settings-view">
+      <nav className="settings-tabs" aria-label="Settings sections">
+        <button className={tab === 'calendar' ? 'active' : ''} onClick={() => setTab('calendar')}><CalendarRange size={16} /> Work Calendar</button>
+        <button className={tab === 'workCenters' ? 'active' : ''} onClick={() => setTab('workCenters')}><Factory size={16} /> Work Centers</button>
+        <button className={tab === 'holidays' ? 'active' : ''} onClick={() => setTab('holidays')}><CalendarDays size={16} /> Holidays</button>
+      </nav>
+
+      {tab === 'calendar' && (
+        <section className="panel work-calendar-panel">
+          <header className="panel-head">
+            <div className="panel-head-text">
+              <span className="kicker">Company Schedule</span>
+              <h2>Standard Work Week</h2>
+              <p>These days drive active project dates, Gantt projections, progress, and capacity calculations.</p>
+            </div>
+            <span className="schedule-count">{draftDays.length} days / week</span>
+          </header>
+          <div className="weekday-selector">
+            {dayOptions.map((day) => (
+              <button
+                type="button"
+                key={day.value}
+                className={draftDays.includes(day.value) ? 'selected' : ''}
+                onClick={() => toggleDay(day.value)}
+                aria-pressed={draftDays.includes(day.value)}
+              >
+                <span>{day.short}</span>
+                <small>{draftDays.includes(day.value) ? 'Working' : 'Off'}</small>
+              </button>
+            ))}
+          </div>
+          <div className="settings-save-row">
+            <p><CalendarRange size={15} /> Completed projects remain unchanged. Active schedules are recalculated after confirmation.</p>
+            <button className="button primary" disabled={!canEdit || !changed || draftDays.length === 0} onClick={() => setConfirming(true)}><Save size={15} /> Save Work Week</button>
+          </div>
+        </section>
+      )}
+
+      {tab === 'workCenters' && (
+        <WorkCenterView workCenters={workCenters} canEdit={canEdit} addWorkCenter={addWorkCenter} updateWorkCenter={updateWorkCenter} deleteWorkCenter={deleteWorkCenter} embedded />
+      )}
+      {tab === 'holidays' && (
+        <HolidayView holidays={holidays} canEdit={canEdit} addHolidayRange={addHolidayRange} updateHoliday={updateHoliday} deleteHoliday={deleteHoliday} embedded />
+      )}
+
+      {confirming && (
+        <div className="modal-backdrop" onClick={() => !saving && setConfirming(false)}>
+          <section className="modal confirmation-modal" role="alertdialog" aria-modal="true" aria-labelledby="calendar-confirm-title" onClick={(event) => event.stopPropagation()}>
+            <div className="confirmation-icon complete"><CalendarRange size={22} /></div>
+            <div className="confirmation-copy">
+              <span className="kicker">Schedule Recalculation</span>
+              <h2 id="calendar-confirm-title">Apply this company work week?</h2>
+              <p>All active project schedules, target dates, progress, Gantt projections, and work-center conflicts will be recalculated. Completed projects will not change.</p>
+            </div>
+            <div className="modal-actions confirmation-actions">
+              <button className="button ghost" onClick={() => setConfirming(false)} disabled={saving}>Cancel</button>
+              <button className="button complete-solid" onClick={saveCalendar} disabled={saving}>{saving ? 'Recalculating...' : 'Apply & Recalculate'}</button>
+            </div>
+          </section>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function HolidayView({
   holidays,
   canEdit,
   addHolidayRange,
   updateHoliday,
   deleteHoliday,
+  embedded = false,
 }: {
   holidays: Holiday[]
   canEdit: boolean
   addHolidayRange: (startDate: string, endDate: string, name: string) => Promise<void>
   updateHoliday: (id: number, date: string, name: string) => Promise<void>
   deleteHoliday: (id: number) => Promise<void>
+  embedded?: boolean
 }) {
   const [dialog, setDialog] = useState<HolidayDialogState | null>(null)
   const [saving, setSaving] = useState(false)
@@ -1708,7 +1949,7 @@ function HolidayView({
   }
 
   return (
-    <section className="view">
+    <section className={embedded ? 'settings-tab-content' : 'view'}>
       <section className="panel">
         <header className="panel-head">
           <div className="panel-head-text">
@@ -1854,12 +2095,14 @@ function WorkCenterView({
   addWorkCenter,
   updateWorkCenter,
   deleteWorkCenter,
+  embedded = false,
 }: {
   workCenters: WorkCenter[]
   canEdit: boolean
   addWorkCenter: (name: string) => Promise<void>
   updateWorkCenter: (id: number, name: string) => Promise<void>
   deleteWorkCenter: (id: number) => Promise<void>
+  embedded?: boolean
 }) {
   const [query, setQuery] = useState('')
   const [dialog, setDialog] = useState<WorkCenterDialogState | null>(null)
@@ -1890,7 +2133,7 @@ function WorkCenterView({
   }
 
   return (
-    <section className="view">
+    <section className={embedded ? 'settings-tab-content' : 'view'}>
       <section className="panel table-panel workcenter-panel">
         <header className="panel-head">
           <div className="panel-head-text">
@@ -1970,7 +2213,7 @@ type WorkCenterDialogState =
 
 type CalOp = { projectId: number; taskId: number; programName: string; workStation: string | null; taskTitle: string; status: TaskStatus; projected: boolean; conflict: boolean }
 
-function CalendarView({ holidaySet, onOpenProject }: { holidaySet: Set<string>; onOpenProject: (projectId: number) => Promise<void> }) {
+function CalendarView({ holidaySet, workingDaySet, onOpenProject }: { holidaySet: Set<string>; workingDaySet: Set<number>; onOpenProject: (projectId: number) => Promise<void> }) {
   const [data, setData] = useState<ProjectDetail[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [monthAnchor, setMonthAnchor] = useState<number | null>(null)
@@ -1988,12 +2231,12 @@ function CalendarView({ holidaySet, onOpenProject }: { holidaySet: Set<string>; 
     const map = new Map<string, CalOp[]>()
     if (!data) return map
     for (const project of data) {
-      const { items } = buildSchedule(project.tasks, project.programStart, holidaySet)
+      const { items } = buildSchedule(project.tasks, project.programStart, holidaySet, workingDaySet)
       for (const item of items) {
         let day = item.startMs
         let guard = 0
         while (day <= item.endMs && guard < 400) {
-          if (isWorkday(day, holidaySet)) {
+          if (isWorkday(day, holidaySet, workingDaySet, new Set(item.task.overtimeDays.map((date) => date.date)))) {
             const iso = msToIso(day)
             const list = map.get(iso) ?? []
             list.push({
@@ -2018,7 +2261,7 @@ function CalendarView({ holidaySet, onOpenProject }: { holidaySet: Set<string>; 
       list.sort((a, b) => (a.workStation ?? 'zzz').localeCompare(b.workStation ?? 'zzz') || a.programName.localeCompare(b.programName))
     }
     return map
-  }, [data, holidaySet])
+  }, [data, holidaySet, workingDaySet])
 
   useEffect(() => {
     if (!data || monthAnchor !== null) return
@@ -2087,6 +2330,7 @@ function CalendarView({ holidaySet, onOpenProject }: { holidaySet: Set<string>; 
                 cell.iso === todayIso ? 'today' : '',
                 cell.iso === selectedDay ? 'selected' : '',
                 holidaySet.has(cell.iso) ? 'holiday' : '',
+                !isWorkday(cell.ms, holidaySet, workingDaySet) ? 'non-working' : '',
                 ops.length ? 'has-ops' : '',
               ].join(' ')
               return (
@@ -2213,6 +2457,241 @@ function buildMonthCells(monthAnchorMs: number) {
 /* Task modal                                                             */
 /* ---------------------------------------------------------------------- */
 
+function OvertimeDateEditor({
+  days,
+  holidaySet,
+  workingDaySet,
+  onChange,
+}: {
+  days: TaskOvertimeDay[]
+  holidaySet: Set<string>
+  workingDaySet: Set<number>
+  onChange: (days: TaskOvertimeDay[]) => void
+}) {
+  const [date, setDate] = useState('')
+  const [note, setNote] = useState('')
+  const [message, setMessage] = useState<string | null>(null)
+
+  const addDate = () => {
+    if (!date) return
+    if (days.some((day) => day.date === date)) {
+      setMessage('That overtime date is already approved for this operation.')
+      return
+    }
+    if (isWorkday(dateToMs(date), holidaySet, workingDaySet)) {
+      setMessage('Choose a normally non-working day or company holiday.')
+      return
+    }
+    onChange([...days, { id: -Date.now(), date, note: note.trim() || null }].sort((a, b) => a.date.localeCompare(b.date)))
+    setDate('')
+    setNote('')
+    setMessage(null)
+  }
+
+  return (
+    <div className="overtime-editor">
+      <div className="section-head-row">
+        <div>
+          <span className="section-label">Approved Overtime</span>
+          <p className="field-hint">Add exact non-working dates approved for this operation only.</p>
+        </div>
+        {days.length > 0 && <span className="ot-badge">OT +{days.length}</span>}
+      </div>
+      <div className="overtime-entry">
+        <label className="field"><span>Date</span><input type="date" value={date} onChange={(event) => { setDate(event.target.value); setMessage(null) }} /></label>
+        <label className="field"><span>Approval Note</span><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional reason or approval" /></label>
+        <button className="button ghost" type="button" onClick={addDate} disabled={!date}><Plus size={14} /> Add Date</button>
+      </div>
+      {message && <p className="inline-note warning"><AlertTriangle size={14} /> {message}</p>}
+      {days.length > 0 && (
+        <div className="overtime-list">
+          {days.map((day) => (
+            <div className="overtime-day" key={`${day.id}-${day.date}`}>
+              <CalendarPlus size={15} />
+              <span><strong>{compactDate(day.date)}</strong><small>{day.note || (holidaySet.has(day.date) ? 'Holiday overtime' : 'Approved overtime')}</small></span>
+              <button type="button" className="icon-button danger" onClick={() => onChange(days.filter((item) => item.date !== day.date))} aria-label={`Remove overtime ${day.date}`}><X size={13} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function OvertimeDialog({
+  task,
+  holidaySet,
+  workingDaySet,
+  onClose,
+  onSave,
+}: {
+  task: ProjectTask
+  holidaySet: Set<string>
+  workingDaySet: Set<number>
+  onClose: () => void
+  onSave: (days: TaskOvertimeDay[]) => Promise<void>
+}) {
+  const [days, setDays] = useState(task.overtimeDays)
+  const [saving, setSaving] = useState(false)
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    setSaving(true)
+    try {
+      await onSave(days)
+    } finally {
+      setSaving(false)
+    }
+  }
+  return (
+    <div className="modal-backdrop" onClick={() => !saving && onClose()}>
+      <form className="modal compact-modal" onSubmit={submit} onClick={(event) => event.stopPropagation()}>
+        <header className="modal-head">
+          <div className="panel-head-text"><span className="kicker">Operation Schedule</span><h2>Approved Overtime</h2><p>{task.title}</p></div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close"><X size={16} /></button>
+        </header>
+        <div className="modal-body"><OvertimeDateEditor days={days} holidaySet={holidaySet} workingDaySet={workingDaySet} onChange={setDays} /></div>
+        <div className="modal-actions">
+          <button className="button ghost" type="button" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="button primary" type="submit" disabled={saving}><Save size={15} /> {saving ? 'Saving...' : 'Save Overtime'}</button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function AddProjectWizard({
+  projects,
+  defaultManager,
+  scheduleSettings,
+  onClose,
+  onCreate,
+}: {
+  projects: ProjectDetail[]
+  defaultManager: string
+  scheduleSettings: ScheduleSettings
+  onClose: () => void
+  onCreate: (request: ProjectCreateRequest) => Promise<void>
+}) {
+  const [step, setStep] = useState(1)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [sourceMode, setSourceMode] = useState<'blank' | 'copy'>('blank')
+  const [form, setForm] = useState({
+    programName: '',
+    customerName: '',
+    salesOrderNumber: '',
+    programManager: defaultManager,
+    programStart: todayIso(),
+    templateProjectId: '',
+  })
+  const duplicate = projects.some((project) => project.programName.toLowerCase() === form.programName.trim().toLowerCase())
+  const template = projects.find((project) => project.id === Number(form.templateProjectId))
+  const canContinueDetails = Boolean(form.programName.trim()) && !duplicate
+  const canContinueSchedule = Boolean(form.programStart) && (sourceMode === 'blank' || Boolean(template))
+
+  const submit = async () => {
+    if (!canContinueDetails || !canContinueSchedule || saving) return
+    setSaving(true)
+    setError(null)
+    try {
+      await onCreate({
+        programName: form.programName.trim(),
+        customerName: form.customerName.trim() || null,
+        salesOrderNumber: form.salesOrderNumber.trim() || null,
+        programManager: form.programManager.trim() || null,
+        programStart: form.programStart || null,
+        templateProjectId: sourceMode === 'copy' ? Number(form.templateProjectId) : null,
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to create the project.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={() => !saving && onClose()}>
+      <section className="modal project-wizard" role="dialog" aria-modal="true" aria-labelledby="add-project-title" onClick={(event) => event.stopPropagation()}>
+        <header className="modal-head">
+          <div className="panel-head-text"><span className="kicker">Portfolio Setup</span><h2 id="add-project-title">Add Project</h2></div>
+          <button className="icon-button" onClick={onClose} disabled={saving} aria-label="Close"><X size={16} /></button>
+        </header>
+        <div className="wizard-steps" aria-label="Project creation progress">
+          {['Project Details', 'Schedule Setup', 'Review'].map((label, index) => (
+            <div className={`${step === index + 1 ? 'active' : ''} ${step > index + 1 ? 'complete' : ''}`} key={label}><span>{step > index + 1 ? <Check size={13} /> : index + 1}</span><strong>{label}</strong></div>
+          ))}
+        </div>
+
+        <div className="wizard-body">
+          {step === 1 && (
+            <section className="form-section">
+              <div className="field-row">
+                <label className="field"><span>Part Number</span><input value={form.programName} onChange={(event) => setForm({ ...form, programName: event.target.value })} placeholder="Required" autoFocus /></label>
+                <label className="field"><span>Sales Order #</span><input value={form.salesOrderNumber} onChange={(event) => setForm({ ...form, salesOrderNumber: event.target.value })} placeholder="Optional" /></label>
+              </div>
+              {duplicate && <p className="inline-note warning"><AlertTriangle size={14} /> A project with this part number already exists.</p>}
+              <div className="field-row">
+                <label className="field"><span>Customer</span><input value={form.customerName} onChange={(event) => setForm({ ...form, customerName: event.target.value })} placeholder="Customer name" /></label>
+                <label className="field"><span>Project Manager</span><input value={form.programManager} onChange={(event) => setForm({ ...form, programManager: event.target.value })} placeholder="Project owner" /></label>
+              </div>
+            </section>
+          )}
+
+          {step === 2 && (
+            <section className="form-section">
+              <label className="field"><span>Project Start Date</span><input type="date" value={form.programStart} onChange={(event) => setForm({ ...form, programStart: event.target.value })} /></label>
+              <div className="source-options">
+                <button type="button" className={sourceMode === 'blank' ? 'selected' : ''} onClick={() => setSourceMode('blank')}><Plus size={18} /><span><strong>Blank Schedule</strong><small>Start with no operations and build the routing manually.</small></span></button>
+                <button type="button" className={sourceMode === 'copy' ? 'selected' : ''} onClick={() => setSourceMode('copy')}><ListChecks size={18} /><span><strong>Copy Operations</strong><small>Reuse operation names, work centers, and durations from an existing project.</small></span></button>
+              </div>
+              {sourceMode === 'copy' && (
+                <div className="field"><span>Source Project</span>
+                  <div className="template-project-list">
+                    {projects.map((project) => (
+                      <button
+                        type="button"
+                        key={project.id}
+                        className={Number(form.templateProjectId) === project.id ? 'selected' : ''}
+                        onClick={() => setForm({ ...form, templateProjectId: String(project.id) })}
+                      >
+                        <span><strong>{project.programName}</strong><small>{project.tasks.length} operations · {project.customerName || 'Customer not set'}</small></span>
+                        {Number(form.templateProjectId) === project.id && <Check size={15} />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <p className="field-hint">Company calendar: {scheduleSettings.workingDays.map((day) => day.slice(0, 3)).join(', ')}. Dates are calculated after creation.</p>
+            </section>
+          )}
+
+          {step === 3 && (
+            <section className="review-grid">
+              <div><span>Part Number</span><strong>{form.programName}</strong></div>
+              <div><span>Customer</span><strong>{form.customerName || 'Not set'}</strong></div>
+              <div><span>Sales Order</span><strong>{form.salesOrderNumber || 'Not set'}</strong></div>
+              <div><span>Project Manager</span><strong>{form.programManager || 'Unassigned'}</strong></div>
+              <div><span>Start Date</span><strong>{compactDate(form.programStart)}</strong></div>
+              <div><span>Operations</span><strong>{sourceMode === 'copy' ? `${template?.tasks.length ?? 0} copied from ${template?.programName}` : 'Blank schedule'}</strong></div>
+              <p><CheckCircle2 size={16} /> The project will open in edit mode after creation.</p>
+            </section>
+          )}
+          {error && <p className="inline-note warning"><AlertTriangle size={14} /> {error}</p>}
+        </div>
+
+        <div className="modal-actions wizard-actions">
+          <button className="button ghost" type="button" onClick={step === 1 ? onClose : () => setStep(step - 1)} disabled={saving}>{step === 1 ? 'Cancel' : 'Back'}</button>
+          {step < 3 ? (
+            <button className="button primary" type="button" onClick={() => setStep(step + 1)} disabled={step === 1 ? !canContinueDetails : !canContinueSchedule}>Continue <ChevronRight size={15} /></button>
+          ) : (
+            <button className="button primary" type="button" onClick={submit} disabled={saving}>{saving ? 'Creating...' : 'Create Project'} <Check size={15} /></button>
+          )}
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function WorkStationPicker({
   value,
   options,
@@ -2319,6 +2798,7 @@ function TaskModal({
   onClose,
   workStations,
   holidaySet,
+  workingDaySet,
 }: {
   form: TaskForm
   setForm: (form: TaskForm) => void
@@ -2326,11 +2806,13 @@ function TaskModal({
   onClose: () => void
   workStations: string[]
   holidaySet: Set<string>
+  workingDaySet: Set<number>
 }) {
   const [showAdvanced, setShowAdvanced] = useState(
     Boolean(form.actualDuration || form.originalStartDate || form.originalEndDate),
   )
   const pct = Math.round(clamp(Number(form.percentComplete) || 0, 0, 100))
+  const overtimeDates = useMemo(() => new Set(form.overtimeDays.map((day) => day.date)), [form.overtimeDays])
 
   const updateSchedule = (patch: Partial<TaskForm>) => {
     const next = { ...form, ...patch }
@@ -2338,11 +2820,11 @@ function TaskModal({
     const durationChanged = Object.prototype.hasOwnProperty.call(patch, 'estimatedDuration')
 
     if (durationChanged && next.startDate && duration && duration > 0) {
-      next.endDate = calculateEndDate(next.startDate, duration, holidaySet) ?? ''
+      next.endDate = calculateEndDate(next.startDate, duration, holidaySet, workingDaySet, overtimeDates) ?? ''
     } else if (next.startDate && next.endDate) {
-      next.estimatedDuration = String(calculateDuration(next.startDate, next.endDate, holidaySet))
+      next.estimatedDuration = String(calculateDuration(next.startDate, next.endDate, holidaySet, workingDaySet, overtimeDates))
     } else if (next.startDate && duration && duration > 0) {
-      next.endDate = calculateEndDate(next.startDate, duration, holidaySet) ?? ''
+      next.endDate = calculateEndDate(next.startDate, duration, holidaySet, workingDaySet, overtimeDates) ?? ''
     }
 
     setForm(next)
@@ -2396,7 +2878,13 @@ function TaskModal({
                 <input type="date" value={form.endDate} onChange={(event) => updateSchedule({ endDate: event.target.value })} />
               </label>
             </div>
-            <p className="field-hint">End date is calculated from the start date and duration using the Monday–Thursday work week and company holidays.</p>
+            <p className="field-hint">End date is calculated using the configured company work week, holidays, and approved overtime dates.</p>
+            <OvertimeDateEditor
+              days={form.overtimeDays}
+              holidaySet={holidaySet}
+              workingDaySet={workingDaySet}
+              onChange={(overtimeDays) => setForm({ ...form, overtimeDays })}
+            />
           </section>
 
           <section className="form-section">
@@ -2587,7 +3075,7 @@ function LoadingSkeleton({ screen }: { screen: Screen }) {
   if (screen === 'project') {
     return <ProjectSkeleton />
   }
-  if (screen === 'holidays' || screen === 'workCenters' || screen === 'import' || screen === 'calendar' || screen === 'pastProjects') {
+  if (screen === 'settings' || screen === 'import' || screen === 'calendar' || screen === 'pastProjects') {
     return (
       <section className="view skeleton-view">
         <div className="panel skeleton-panel">
@@ -2662,54 +3150,55 @@ function SkeletonBlock({ width = '100%', height = 24 }: { width?: string; height
 
 const WORKDAYS = new Set([1, 2, 3, 4]) // Mon–Thu
 
-function isWorkday(ms: number, holidaySet: Set<string>) {
+function isWorkday(ms: number, holidaySet: Set<string>, workingDaySet = WORKDAYS, overtimeDates: Set<string> = new Set()) {
+  const iso = msToIso(ms)
+  if (overtimeDates.has(iso)) return true
   const dow = new Date(ms).getDay()
-  if (!WORKDAYS.has(dow)) return false
-  return !holidaySet.has(msToIso(ms))
+  return workingDaySet.has(dow) && !holidaySet.has(iso)
 }
 
-function nextWorkday(ms: number, holidaySet: Set<string>) {
+function nextWorkday(ms: number, holidaySet: Set<string>, workingDaySet = WORKDAYS, overtimeDates: Set<string> = new Set()) {
   let cur = ms
   let guard = 0
-  while (!isWorkday(cur, holidaySet) && guard < 30) {
+  while (!isWorkday(cur, holidaySet, workingDaySet, overtimeDates) && guard < 30) {
     cur = addDays(cur, 1)
     guard += 1
   }
   return cur
 }
 
-function addWorkdays(startMs: number, count: number, holidaySet: Set<string>) {
-  let cur = nextWorkday(startMs, holidaySet)
+function addWorkdays(startMs: number, count: number, holidaySet: Set<string>, workingDaySet = WORKDAYS, overtimeDates: Set<string> = new Set()) {
+  let cur = nextWorkday(startMs, holidaySet, workingDaySet, overtimeDates)
   let remaining = Math.max(0, count)
   let guard = 0
   while (remaining > 0 && guard < 4000) {
-    cur = nextWorkday(addDays(cur, 1), holidaySet)
+    cur = nextWorkday(addDays(cur, 1), holidaySet, workingDaySet, overtimeDates)
     remaining -= 1
     guard += 1
   }
   return cur
 }
 
-function workdaysBetween(startMs: number, endMs: number, holidaySet: Set<string>) {
+function workdaysBetween(startMs: number, endMs: number, holidaySet: Set<string>, workingDaySet = WORKDAYS, overtimeDates: Set<string> = new Set()) {
   let count = 0
   let cur = startMs
   let guard = 0
   while (cur <= endMs && guard < 4000) {
-    if (isWorkday(cur, holidaySet)) count += 1
+    if (isWorkday(cur, holidaySet, workingDaySet, overtimeDates)) count += 1
     cur = addDays(cur, 1)
     guard += 1
   }
   return Math.max(1, count)
 }
 
-function calculateEndDate(startDate: string | null, duration: number | null, holidaySet: Set<string>) {
+function calculateEndDate(startDate: string | null, duration: number | null, holidaySet: Set<string>, workingDaySet = WORKDAYS, overtimeDates: Set<string> = new Set()) {
   if (!startDate || !duration || duration <= 0) return null
-  return msToIso(addWorkdays(dateToMs(startDate), duration - 1, holidaySet))
+  return msToIso(addWorkdays(dateToMs(startDate), duration - 1, holidaySet, workingDaySet, overtimeDates))
 }
 
-function calculateDuration(startDate: string | null, endDate: string | null, holidaySet: Set<string>) {
+function calculateDuration(startDate: string | null, endDate: string | null, holidaySet: Set<string>, workingDaySet = WORKDAYS, overtimeDates: Set<string> = new Set()) {
   if (!startDate || !endDate) return null
-  return workdaysBetween(dateToMs(startDate), dateToMs(endDate), holidaySet)
+  return workdaysBetween(dateToMs(startDate), dateToMs(endDate), holidaySet, workingDaySet, overtimeDates)
 }
 
 function todayIso() {
@@ -2720,17 +3209,18 @@ function taskConflictKey(projectId: number, taskId: number) {
   return `${projectId}:${taskId}`
 }
 
-function buildWorkCenterConflictSet(projects: ProjectDetail[], holidaySet: Set<string>) {
+function buildWorkCenterConflictSet(projects: ProjectDetail[], holidaySet: Set<string>, workingDaySet: Set<number>) {
   const byDayStation = new Map<string, { key: string; projectId: number }[]>()
 
   for (const project of projects) {
-    const { items } = buildSchedule(project.tasks, project.programStart, holidaySet)
+    const { items } = buildSchedule(project.tasks, project.programStart, holidaySet, workingDaySet)
     for (const item of items) {
       if (!item.task.workStation) continue
       let day = item.startMs
       let guard = 0
       while (day <= item.endMs && guard < 400) {
-        if (isWorkday(day, holidaySet)) {
+        const overtimeDates = new Set(item.task.overtimeDays.map((date) => date.date))
+        if (isWorkday(day, holidaySet, workingDaySet, overtimeDates)) {
           const bucket = `${item.task.workStation}::${msToIso(day)}`
           const list = byDayStation.get(bucket) ?? []
           list.push({ key: taskConflictKey(project.id, item.task.id), projectId: project.id })
@@ -2751,7 +3241,7 @@ function buildWorkCenterConflictSet(projects: ProjectDetail[], holidaySet: Set<s
   return conflicts
 }
 
-function buildSchedule(tasks: ProjectTask[], programStart: string | null, holidaySet: Set<string>) {
+function buildSchedule(tasks: ProjectTask[], programStart: string | null, holidaySet: Set<string>, workingDaySet = WORKDAYS) {
   const ordered = [...tasks].sort((a, b) => a.sequence - b.sequence || a.id - b.id)
 
   // Seed cursor from program start, earliest real start, or today.
@@ -2761,17 +3251,16 @@ function buildSchedule(tasks: ProjectTask[], programStart: string | null, holida
     : realStarts.length > 0
       ? Math.min(...realStarts)
       : startOfTodayMs()
-  cursor = nextWorkday(cursor, holidaySet)
-
   const items: GanttItem[] = []
   let projectedCount = 0
 
   for (const task of ordered) {
+    const overtimeDates = new Set(task.overtimeDays.map((day) => day.date))
     const hasRealStart = Boolean(task.startDate)
     const hasRealEnd = Boolean(task.endDate)
 
     let startMs = hasRealStart ? dateToMs(task.startDate as string) : cursor
-    startMs = nextWorkday(startMs, holidaySet)
+    startMs = nextWorkday(startMs, holidaySet, workingDaySet, overtimeDates)
 
     let endMs: number
     if (hasRealEnd) {
@@ -2780,16 +3269,16 @@ function buildSchedule(tasks: ProjectTask[], programStart: string | null, holida
       const duration = task.estimatedDuration && task.estimatedDuration > 0
         ? task.estimatedDuration
         : hasRealStart && task.endDate
-          ? workdaysBetween(startMs, dateToMs(task.endDate as string), holidaySet)
+          ? workdaysBetween(startMs, dateToMs(task.endDate as string), holidaySet, workingDaySet, overtimeDates)
           : 1
-      endMs = addWorkdays(startMs, duration - 1, holidaySet)
+      endMs = addWorkdays(startMs, duration - 1, holidaySet, workingDaySet, overtimeDates)
     }
 
     const projected = !(hasRealStart && hasRealEnd)
     if (projected) projectedCount += 1
 
     items.push({ task, startMs, endMs, projected, left: 0, width: 0 })
-    cursor = addWorkdays(endMs, 1, holidaySet)
+    cursor = addDays(endMs, 1)
   }
 
   if (items.length === 0) {
@@ -2836,8 +3325,8 @@ function buildSchedule(tasks: ProjectTask[], programStart: string | null, holida
     const dow = day.getDay()
     if (guard % tickStepDays === 0) weekTicks.push(ms)
     const isHoliday = holidaySet.has(msToIso(ms))
-    const isWeekend = dow === 5 || dow === 6 || dow === 0
-    if (isHoliday || isWeekend) {
+    const isNonWorking = !workingDaySet.has(dow)
+    if (isHoliday || isNonWorking) {
       shades.push({ start: ms, end: addDays(ms, 1), holiday: isHoliday })
     }
     day = new Date(addDays(ms, 1))
@@ -2855,8 +3344,7 @@ function buildSchedule(tasks: ProjectTask[], programStart: string | null, holida
 /* ---------------------------------------------------------------------- */
 
 function screenEyebrow(screen: Screen) {
-  if (screen === 'holidays') return 'Calendar'
-  if (screen === 'workCenters') return 'Capacity'
+  if (screen === 'settings') return 'Administration'
   if (screen === 'import') return 'Administration'
   if (screen === 'project') return 'Part No.'
   if (screen === 'calendar') return 'Schedule'
@@ -2868,8 +3356,7 @@ function screenTitle(screen: Screen, project: ProjectDetail | null) {
   if (screen === 'project') return project?.programName ?? 'Project Detail'
   if (screen === 'calendar') return 'Work Station Calendar'
   if (screen === 'pastProjects') return 'Past Projects'
-  if (screen === 'holidays') return 'Holiday Calendar'
-  if (screen === 'workCenters') return 'Work Centers / Machines'
+  if (screen === 'settings') return 'Settings'
   if (screen === 'import') return 'Imports / Admin'
   return 'Dashboard'
 }
@@ -2878,15 +3365,19 @@ function screenSubtitle(screen: Screen) {
   if (screen === 'project') return ''
   if (screen === 'calendar') return 'Pick a day to see every part in production and its assigned work station.'
   if (screen === 'pastProjects') return 'Completed programs, archived out of the active development queue.'
-  if (screen === 'holidays') return 'Non-working days used by the schedule calculator.'
-  if (screen === 'workCenters') return 'Maintain the company machines and work centers used when assigning operations.'
+  if (screen === 'settings') return 'Company work calendar, work centers, and non-working dates.'
   if (screen === 'import') return 'Upload a workbook to add its programs to the tracker.'
   return 'Active development programs, target dates, and schedule risk across the work queue.'
 }
 
 function readStoredScreen(): Screen {
   const stored = window.localStorage.getItem('project-tracker-screen')
+  if (stored === 'holidays' || stored === 'workCenters') return 'settings'
   return screens.includes(stored as Screen) ? (stored as Screen) : 'dashboard'
+}
+
+function dayNameToIndex(day: DayOfWeekName) {
+  return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].indexOf(day)
 }
 
 function readStoredProjectId() {
@@ -2998,6 +3489,7 @@ function formFromTask(task: ProjectTask): TaskForm {
     percentComplete: Math.round(task.percentComplete * 100).toString(),
     percentCompleteManual: task.percentCompleteManual,
     notes: task.notes ?? '',
+    overtimeDays: task.overtimeDays,
   }
 }
 
@@ -3019,6 +3511,7 @@ function emptyTaskForm(project: ProjectDetail): TaskForm {
     percentComplete: '0',
     percentCompleteManual: false,
     notes: '',
+    overtimeDays: [],
   }
 }
 

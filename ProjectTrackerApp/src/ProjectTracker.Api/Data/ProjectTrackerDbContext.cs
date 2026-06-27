@@ -10,6 +10,8 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
     public DbSet<Phase> Phases => Set<Phase>();
     public DbSet<Holiday> Holidays => Set<Holiday>();
     public DbSet<WorkCenter> WorkCenters => Set<WorkCenter>();
+    public DbSet<ScheduleSettings> ScheduleSettings => Set<ScheduleSettings>();
+    public DbSet<TaskOvertimeDay> TaskOvertimeDays => Set<TaskOvertimeDay>();
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<StatusHistory> StatusHistory => Set<StatusHistory>();
 
@@ -41,6 +43,21 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
                 .WithMany(project => project.Tasks)
                 .HasForeignKey(task => task.ProjectId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TaskOvertimeDay>(entity =>
+        {
+            entity.HasIndex(day => new { day.ProjectTaskId, day.Date }).IsUnique();
+            entity.Property(day => day.Note).HasMaxLength(240);
+            entity.HasOne(day => day.ProjectTask)
+                .WithMany(task => task.OvertimeDays)
+                .HasForeignKey(day => day.ProjectTaskId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ScheduleSettings>(entity =>
+        {
+            entity.Property(settings => settings.Id).ValueGeneratedNever();
         });
 
         modelBuilder.Entity<Phase>(entity =>

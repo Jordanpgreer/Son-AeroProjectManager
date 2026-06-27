@@ -98,11 +98,11 @@ api.MapGet("/me", async (CurrentUserService currentUser, ProjectTrackerDbContext
 
 api.MapGet("/dashboard", async (ProjectTrackerDbContext db, ProjectMetricsService metrics, CancellationToken cancellationToken) =>
 {
-    var projects = await db.Projects.Include(project => project.Tasks).ToListAsync(cancellationToken);
-    var holidays = (await db.Holidays.Select(holiday => holiday.Date).ToListAsync(cancellationToken)).ToHashSet();
+    var projects = await db.Projects.Include(project => project.Tasks).ThenInclude(task => task.OvertimeDays).ToListAsync(cancellationToken);
+    var calendar = await LoadScheduleCalendarAsync(db, cancellationToken);
     foreach (var project in projects)
     {
-        metrics.RefreshProject(project, holidays, DateOnly.FromDateTime(DateTime.Today));
+        metrics.RefreshProject(project, calendar, DateOnly.FromDateTime(DateTime.Today));
     }
     await db.SaveChangesAsync(cancellationToken);
 
@@ -127,44 +127,81 @@ api.MapGet("/dashboard", async (ProjectTrackerDbContext db, ProjectMetricsServic
 
 api.MapGet("/projects", async (ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
 {
-    var projects = await db.Projects.Include(project => project.Tasks).OrderBy(project => project.ProgramName).ToListAsync(cancellationToken);
+    var projects = await db.Projects.Include(project => project.Tasks).ThenInclude(task => task.OvertimeDays).OrderBy(project => project.ProgramName).ToListAsync(cancellationToken);
     return projects.Select(ToSummaryDto);
 });
 
 api.MapGet("/projects/{id:int}", async (int id, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
 {
-    var project = await db.Projects.Include(project => project.Tasks).FirstOrDefaultAsync(project => project.Id == id, cancellationToken);
+    var project = await db.Projects.Include(project => project.Tasks).ThenInclude(task => task.OvertimeDays).FirstOrDefaultAsync(project => project.Id == id, cancellationToken);
     return project is null ? Results.NotFound() : Results.Ok(ToDetailDto(project));
 });
 
 api.MapGet("/calendar", async (ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
 {
-    var projects = await db.Projects.Include(project => project.Tasks).OrderBy(project => project.ProgramName).ToListAsync(cancellationToken);
+    var projects = await db.Projects.Include(project => project.Tasks).ThenInclude(task => task.OvertimeDays).OrderBy(project => project.ProgramName).ToListAsync(cancellationToken);
     return projects.Select(ToDetailDto);
 });
 
-api.MapPost("/projects", async (ProjectUpsertDto dto, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
+api.MapPost("/projects", async (ProjectCreateDto dto, ProjectTrackerDbContext db, ProjectMetricsService metrics, CancellationToken cancellationToken) =>
 {
     if (string.IsNullOrWhiteSpace(dto.ProgramName))
     {
         return Results.BadRequest("Program name is required.");
     }
 
+    var programName = dto.ProgramName.Trim();
+    if (await db.Projects.AnyAsync(project => project.ProgramName == programName, cancellationToken))
+    {
+        return Results.Conflict("A project with this part number already exists.");
+    }
+
     var project = new Project
     {
-        ProgramName = dto.ProgramName.Trim(),
+        ProgramName = programName,
         ProgramManager = Clean(dto.ProgramManager),
         CustomerName = Clean(dto.CustomerName),
-        SalesOrderNumber = Clean(dto.SalesOrderNumber)
+        SalesOrderNumber = Clean(dto.SalesOrderNumber),
+        ProgramStart = dto.ProgramStart
     };
+
+    if (dto.TemplateProjectId is not null)
+    {
+        var template = await db.Projects.Include(source => source.Tasks)
+            .FirstOrDefaultAsync(source => source.Id == dto.TemplateProjectId.Value, cancellationToken);
+        if (template is null)
+        {
+            return Results.BadRequest("The selected operation template no longer exists.");
+        }
+
+        foreach (var source in template.Tasks.OrderBy(task => task.Sequence))
+        {
+            project.Tasks.Add(new ProjectTask
+            {
+                Sequence = source.Sequence,
+                ExternalTaskId = source.ExternalTaskId,
+                Title = source.Title,
+                Phase = source.Phase,
+                WorkStation = source.WorkStation,
+                EstimatedDuration = source.EstimatedDuration,
+                ActualDuration = source.ActualDuration,
+                Notes = source.Notes
+            });
+        }
+    }
+
     db.Projects.Add(project);
+    if (project.Tasks.Count > 0)
+    {
+        await metrics.RefreshProjectAsync(db, project, cancellationToken, recalculateDates: true);
+    }
     await db.SaveChangesAsync(cancellationToken);
     return Results.Created($"/api/projects/{project.Id}", ToDetailDto(project));
 }).RequireAuthorization("CanEdit");
 
 api.MapPut("/projects/{id:int}", async (int id, ProjectUpsertDto dto, ProjectTrackerDbContext db, ProjectMetricsService metrics, CancellationToken cancellationToken) =>
 {
-    var project = await db.Projects.Include(project => project.Tasks).FirstOrDefaultAsync(project => project.Id == id, cancellationToken);
+    var project = await db.Projects.Include(project => project.Tasks).ThenInclude(task => task.OvertimeDays).FirstOrDefaultAsync(project => project.Id == id, cancellationToken);
     if (project is null)
     {
         return Results.NotFound();
@@ -178,7 +215,7 @@ api.MapPut("/projects/{id:int}", async (int id, ProjectUpsertDto dto, ProjectTra
 
 api.MapPost("/projects/{id:int}/complete", async (int id, ProjectTrackerDbContext db, ProjectMetricsService metrics, CancellationToken cancellationToken) =>
 {
-    var project = await db.Projects.Include(project => project.Tasks).FirstOrDefaultAsync(project => project.Id == id, cancellationToken);
+    var project = await db.Projects.Include(project => project.Tasks).ThenInclude(task => task.OvertimeDays).FirstOrDefaultAsync(project => project.Id == id, cancellationToken);
     if (project is null)
     {
         return Results.NotFound();
@@ -223,7 +260,7 @@ api.MapDelete("/projects/{id:int}", async (int id, ProjectTrackerDbContext db, C
 
 api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertDto dto, ProjectTrackerDbContext db, ProjectMetricsService metrics, CancellationToken cancellationToken) =>
 {
-    var project = await db.Projects.Include(project => project.Tasks).FirstOrDefaultAsync(project => project.Id == projectId, cancellationToken);
+    var project = await db.Projects.Include(project => project.Tasks).ThenInclude(task => task.OvertimeDays).FirstOrDefaultAsync(project => project.Id == projectId, cancellationToken);
     if (project is null)
     {
         return Results.NotFound();
@@ -234,14 +271,17 @@ api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertD
     var desiredPosition = dto.Sequence > 0 ? dto.Sequence : project.Tasks.Count;
     ResequenceTasks(project, task, desiredPosition);
     await EnsurePhaseAsync(db, task.Phase, cancellationToken);
-    await metrics.RefreshProjectAsync(db, project, cancellationToken);
+    await metrics.RefreshProjectAsync(db, project, cancellationToken, recalculateDates: true);
     await db.SaveChangesAsync(cancellationToken);
     return Results.Created($"/api/projects/{projectId}", ToTaskDto(task));
 }).RequireAuthorization("CanEdit");
 
 api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectTrackerDbContext db, ProjectMetricsService metrics, CancellationToken cancellationToken) =>
 {
-    var task = await db.Tasks.Include(task => task.Project).ThenInclude(project => project.Tasks).FirstOrDefaultAsync(task => task.Id == taskId, cancellationToken);
+    var task = await db.Tasks
+        .Include(task => task.OvertimeDays)
+        .Include(task => task.Project).ThenInclude(project => project.Tasks).ThenInclude(projectTask => projectTask.OvertimeDays)
+        .FirstOrDefaultAsync(task => task.Id == taskId, cancellationToken);
     if (task is null)
     {
         return Results.NotFound();
@@ -250,14 +290,16 @@ api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectT
     ApplyTaskDto(task, dto);
     ResequenceTasks(task.Project, task, dto.Sequence);
     await EnsurePhaseAsync(db, task.Phase, cancellationToken);
-    await metrics.RefreshProjectAsync(db, task.Project, cancellationToken);
+    await metrics.RefreshProjectAsync(db, task.Project, cancellationToken, recalculateDates: true);
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(ToTaskDto(task));
 }).RequireAuthorization("CanEdit");
 
 api.MapDelete("/tasks/{taskId:int}", async (int taskId, ProjectTrackerDbContext db, ProjectMetricsService metrics, CancellationToken cancellationToken) =>
 {
-    var task = await db.Tasks.Include(task => task.Project).ThenInclude(project => project.Tasks).FirstOrDefaultAsync(task => task.Id == taskId, cancellationToken);
+    var task = await db.Tasks
+        .Include(task => task.Project).ThenInclude(project => project.Tasks).ThenInclude(projectTask => projectTask.OvertimeDays)
+        .FirstOrDefaultAsync(task => task.Id == taskId, cancellationToken);
     if (task is null)
     {
         return Results.NotFound();
@@ -283,6 +325,7 @@ api.MapPost("/holidays", async (HolidayUpsertDto dto, ProjectTrackerDbContext db
 {
     var holiday = new Holiday { Date = dto.Date, Name = dto.Name.Trim() };
     db.Holidays.Add(holiday);
+    await db.SaveChangesAsync(cancellationToken);
     await RefreshAllProjectsAsync(db, metrics, cancellationToken);
     await db.SaveChangesAsync(cancellationToken);
     return Results.Created($"/api/holidays/{holiday.Id}", new HolidayDto(holiday.Id, holiday.Date, holiday.Name));
@@ -298,6 +341,7 @@ api.MapPut("/holidays/{id:int}", async (int id, HolidayUpsertDto dto, ProjectTra
 
     holiday.Date = dto.Date;
     holiday.Name = dto.Name.Trim();
+    await db.SaveChangesAsync(cancellationToken);
     await RefreshAllProjectsAsync(db, metrics, cancellationToken);
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(new HolidayDto(holiday.Id, holiday.Date, holiday.Name));
@@ -312,6 +356,7 @@ api.MapDelete("/holidays/{id:int}", async (int id, ProjectTrackerDbContext db, P
     }
 
     db.Holidays.Remove(holiday);
+    await db.SaveChangesAsync(cancellationToken);
     await RefreshAllProjectsAsync(db, metrics, cancellationToken);
     await db.SaveChangesAsync(cancellationToken);
     return Results.NoContent();
@@ -370,6 +415,28 @@ api.MapDelete("/work-centers/{id:int}", async (int id, ProjectTrackerDbContext d
     await db.SaveChangesAsync(cancellationToken);
     return Results.NoContent();
 }).RequireAuthorization("CanEdit");
+
+api.MapGet("/settings/work-calendar", async (ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
+{
+    var settings = await GetOrCreateScheduleSettingsAsync(db, cancellationToken);
+    return new ScheduleSettingsDto(settings.GetWorkingDays().OrderBy(day => ((int)day + 6) % 7).ToList(), settings.UpdatedAt);
+});
+
+api.MapPut("/settings/work-calendar", async (ScheduleSettingsUpsertDto dto, ProjectTrackerDbContext db, ProjectMetricsService metrics, CancellationToken cancellationToken) =>
+{
+    var days = dto.WorkingDays.Distinct().ToList();
+    if (days.Count == 0)
+    {
+        return Results.BadRequest("Select at least one company workday.");
+    }
+
+    var settings = await GetOrCreateScheduleSettingsAsync(db, cancellationToken);
+    settings.WorkingDaysMask = ScheduleSettings.ToMask(days);
+    settings.UpdatedAt = DateTimeOffset.UtcNow;
+    await RefreshAllProjectsAsync(db, metrics, cancellationToken, recalculateDates: true);
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Ok(new ScheduleSettingsDto(settings.GetWorkingDays().OrderBy(day => ((int)day + 6) % 7).ToList(), settings.UpdatedAt));
+}).RequireAuthorization("AdminOnly");
 
 api.MapPost("/import/workbook", async (ImportWorkbookRequest request, IConfiguration configuration, IWebHostEnvironment env, ProjectTrackerDbContext db, WorkbookImportService importer, CancellationToken cancellationToken) =>
 {
@@ -510,7 +577,8 @@ static ProjectTaskDto ToTaskDto(ProjectTask task)
         task.PercentComplete,
         task.PercentCompleteManual,
         task.Status,
-        task.Notes);
+        task.Notes,
+        task.OvertimeDays.OrderBy(day => day.Date).Select(day => new TaskOvertimeDayDto(day.Id, day.Date, day.Note)).ToList());
 }
 
 static void ApplyProjectDto(Project project, ProjectUpsertDto dto)
@@ -549,6 +617,15 @@ static ProjectTask ApplyTaskDto(ProjectTask task, TaskUpsertDto dto)
     task.PercentComplete = Math.Clamp(dto.PercentComplete, 0m, 1m);
     task.PercentCompleteManual = dto.PercentCompleteManual;
     task.Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
+    task.OvertimeDays.Clear();
+    foreach (var overtime in dto.OvertimeDays?.GroupBy(day => day.Date).Select(group => group.First()) ?? [])
+    {
+        task.OvertimeDays.Add(new TaskOvertimeDay
+        {
+            Date = overtime.Date,
+            Note = Clean(overtime.Note)
+        });
+    }
     task.UpdatedAt = DateTimeOffset.UtcNow;
     return task;
 }
@@ -597,14 +674,34 @@ static async Task EnsurePhaseAsync(ProjectTrackerDbContext db, string? phaseName
     }
 }
 
-static async Task RefreshAllProjectsAsync(ProjectTrackerDbContext db, ProjectMetricsService metrics, CancellationToken cancellationToken)
+static async Task RefreshAllProjectsAsync(ProjectTrackerDbContext db, ProjectMetricsService metrics, CancellationToken cancellationToken, bool recalculateDates = true)
 {
-    var projects = await db.Projects.Include(project => project.Tasks).ToListAsync(cancellationToken);
-    var holidays = (await db.Holidays.Select(holiday => holiday.Date).ToListAsync(cancellationToken)).ToHashSet();
-    foreach (var project in projects)
+    var projects = await db.Projects.Include(project => project.Tasks).ThenInclude(task => task.OvertimeDays).ToListAsync(cancellationToken);
+    var calendar = await LoadScheduleCalendarAsync(db, cancellationToken);
+    foreach (var project in projects.Where(project => project.Status != ProjectStatus.Complete))
     {
-        metrics.RefreshProject(project, holidays, DateOnly.FromDateTime(DateTime.Today));
+        metrics.RefreshProject(project, calendar, DateOnly.FromDateTime(DateTime.Today), recalculateDates);
     }
+}
+
+static async Task<ScheduleCalendar> LoadScheduleCalendarAsync(ProjectTrackerDbContext db, CancellationToken cancellationToken)
+{
+    var settings = await GetOrCreateScheduleSettingsAsync(db, cancellationToken);
+    var holidays = (await db.Holidays.Select(holiday => holiday.Date).ToListAsync(cancellationToken)).ToHashSet();
+    return new ScheduleCalendar(settings.GetWorkingDays(), holidays);
+}
+
+static async Task<ScheduleSettings> GetOrCreateScheduleSettingsAsync(ProjectTrackerDbContext db, CancellationToken cancellationToken)
+{
+    var settings = await db.ScheduleSettings.FindAsync([ScheduleSettings.SingletonId], cancellationToken);
+    if (settings is not null)
+    {
+        return settings;
+    }
+
+    settings = new ScheduleSettings();
+    db.ScheduleSettings.Add(settings);
+    return settings;
 }
 
 static string ResolveWorkbookPath(string? requestedPath, IConfiguration configuration, IWebHostEnvironment env)
@@ -640,8 +737,12 @@ static async Task InitializeDatabaseAsync(WebApplication app)
             await EnsureSqliteTextColumnAsync(db, "Projects", "CustomerName", cancellationToken: default);
             await EnsureSqliteTextColumnAsync(db, "Projects", "SalesOrderNumber", cancellationToken: default);
             await EnsureSqliteWorkCentersTableAsync(db, cancellationToken: default);
+            await EnsureSqliteScheduleTablesAsync(db, cancellationToken: default);
         }
     }
+
+    await GetOrCreateScheduleSettingsAsync(db, cancellationToken: default);
+    await db.SaveChangesAsync();
 
     var autoImport = configuration.GetValue("Import:AutoImportOnEmpty", app.Environment.IsDevelopment());
     if (autoImport && !await db.Projects.AnyAsync())
@@ -720,6 +821,37 @@ static async Task EnsureSqliteWorkCentersTableAsync(ProjectTrackerDbContext db, 
                 "UpdatedAt" TEXT NOT NULL
             );
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_WorkCenters_Name" ON "WorkCenters" ("Name");
+            """;
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+    finally
+    {
+        await connection.CloseAsync();
+    }
+}
+
+static async Task EnsureSqliteScheduleTablesAsync(ProjectTrackerDbContext db, CancellationToken cancellationToken)
+{
+    var connection = db.Database.GetDbConnection();
+    await connection.OpenAsync(cancellationToken);
+    try
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS "ScheduleSettings" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_ScheduleSettings" PRIMARY KEY,
+                "WorkingDaysMask" INTEGER NOT NULL,
+                "UpdatedAt" TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS "TaskOvertimeDays" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_TaskOvertimeDays" PRIMARY KEY AUTOINCREMENT,
+                "ProjectTaskId" INTEGER NOT NULL,
+                "Date" TEXT NOT NULL,
+                "Note" TEXT NULL,
+                "CreatedAt" TEXT NOT NULL,
+                CONSTRAINT "FK_TaskOvertimeDays_Tasks_ProjectTaskId" FOREIGN KEY ("ProjectTaskId") REFERENCES "Tasks" ("Id") ON DELETE CASCADE
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_TaskOvertimeDays_ProjectTaskId_Date" ON "TaskOvertimeDays" ("ProjectTaskId", "Date");
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
     }

@@ -4,13 +4,13 @@ namespace ProjectTracker.Api.Services;
 
 public sealed class ScheduleCalculator
 {
-    public bool IsWorkingDay(DateOnly date, IReadOnlySet<DateOnly> holidays)
+    public bool IsWorkingDay(DateOnly date, ScheduleCalendar calendar, IReadOnlySet<DateOnly>? overtimeDates = null)
     {
-        return date.DayOfWeek is DayOfWeek.Monday or DayOfWeek.Tuesday or DayOfWeek.Wednesday or DayOfWeek.Thursday
-            && !holidays.Contains(date);
+        return overtimeDates?.Contains(date) == true
+            || (calendar.WorkingDays.Contains(date.DayOfWeek) && !calendar.Holidays.Contains(date));
     }
 
-    public DateOnly AddWorkingDaysInclusive(DateOnly start, int workingDays, IReadOnlySet<DateOnly> holidays)
+    public DateOnly AddWorkingDaysInclusive(DateOnly start, int workingDays, ScheduleCalendar calendar, IReadOnlySet<DateOnly>? overtimeDates = null)
     {
         if (workingDays <= 0)
         {
@@ -21,7 +21,7 @@ public sealed class ScheduleCalculator
         var counted = 0;
         while (true)
         {
-            if (IsWorkingDay(date, holidays))
+            if (IsWorkingDay(date, calendar, overtimeDates))
             {
                 counted++;
                 if (counted == workingDays)
@@ -34,7 +34,7 @@ public sealed class ScheduleCalculator
         }
     }
 
-    public int CountWorkingDays(DateOnly start, DateOnly end, IReadOnlySet<DateOnly> holidays)
+    public int CountWorkingDays(DateOnly start, DateOnly end, ScheduleCalendar calendar, IReadOnlySet<DateOnly>? overtimeDates = null)
     {
         if (end < start)
         {
@@ -44,7 +44,7 @@ public sealed class ScheduleCalculator
         var days = 0;
         for (var date = start; date <= end; date = date.AddDays(1))
         {
-            if (IsWorkingDay(date, holidays))
+            if (IsWorkingDay(date, calendar, overtimeDates))
             {
                 days++;
             }
@@ -53,7 +53,7 @@ public sealed class ScheduleCalculator
         return days;
     }
 
-    public TaskScheduleStatus CalculateTaskStatus(ProjectTask task, IReadOnlySet<DateOnly> holidays, DateOnly today)
+    public TaskScheduleStatus CalculateTaskStatus(ProjectTask task, ScheduleCalendar calendar, DateOnly today)
     {
         if (task.PercentComplete >= 1m)
         {
@@ -75,14 +75,15 @@ public sealed class ScheduleCalculator
             return TaskScheduleStatus.NotStarted;
         }
 
-        var total = CountWorkingDays(task.StartDate.Value, task.EndDate.Value, holidays);
+        var overtimeDates = task.OvertimeDays.Select(day => day.Date).ToHashSet();
+        var total = CountWorkingDays(task.StartDate.Value, task.EndDate.Value, calendar, overtimeDates);
         if (total <= 0)
         {
             return task.PercentComplete > 0m ? TaskScheduleStatus.OnTrack : TaskScheduleStatus.Behind;
         }
 
         var elapsedThrough = today < task.EndDate.Value ? today : task.EndDate.Value;
-        var elapsed = CountWorkingDays(task.StartDate.Value, elapsedThrough, holidays);
+        var elapsed = CountWorkingDays(task.StartDate.Value, elapsedThrough, calendar, overtimeDates);
         var expectedProgress = (decimal)elapsed / total;
 
         return task.PercentComplete >= expectedProgress ? TaskScheduleStatus.OnTrack : TaskScheduleStatus.Behind;

@@ -38,6 +38,9 @@ public sealed class WorkbookImportService(ProjectMetricsService metricsService)
         }
 
         var holidays = ImportHolidays(db, workbook);
+        var settings = await db.ScheduleSettings.FindAsync([ScheduleSettings.SingletonId], cancellationToken)
+            ?? new ScheduleSettings();
+        var calendar = new ScheduleCalendar(settings.GetWorkingDays(), holidays.Select(holiday => holiday.Date).ToHashSet());
         var phaseNames = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         var projectCount = 0;
         var taskCount = 0;
@@ -79,7 +82,7 @@ public sealed class WorkbookImportService(ProjectMetricsService metricsService)
                 project.Tasks.Add(task);
             }
 
-            metricsService.RefreshProject(project, holidays.Select(holiday => holiday.Date).ToHashSet(), DateOnly.FromDateTime(DateTime.Today));
+            metricsService.RefreshProject(project, calendar, DateOnly.FromDateTime(DateTime.Today));
             db.Projects.Add(project);
             projectCount++;
             taskCount += tasks.Count;

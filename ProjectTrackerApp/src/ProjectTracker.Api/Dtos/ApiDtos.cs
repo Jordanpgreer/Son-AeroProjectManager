@@ -57,13 +57,22 @@ public sealed record ProjectTaskDto(
     decimal PercentComplete,
     bool PercentCompleteManual,
     TaskScheduleStatus Status,
-    string? Notes);
+    string? Notes,
+    IReadOnlyList<TaskOvertimeDayDto> OvertimeDays);
 
 public sealed record ProjectUpsertDto(
     string ProgramName,
     string? ProgramManager,
     string? CustomerName,
     string? SalesOrderNumber);
+
+public sealed record ProjectCreateDto(
+    string ProgramName,
+    string? ProgramManager,
+    string? CustomerName,
+    string? SalesOrderNumber,
+    DateOnly? ProgramStart,
+    int? TemplateProjectId);
 
 public sealed record TaskUpsertDto(
     int Sequence,
@@ -80,7 +89,18 @@ public sealed record TaskUpsertDto(
     int? ActualDuration,
     decimal PercentComplete,
     bool PercentCompleteManual,
-    string? Notes);
+    string? Notes,
+    IReadOnlyList<TaskOvertimeDayUpsertDto>? OvertimeDays);
+
+public sealed record TaskOvertimeDayDto(int Id, DateOnly Date, string? Note);
+
+public sealed record TaskOvertimeDayUpsertDto(DateOnly Date, string? Note);
+
+public sealed record ScheduleSettingsDto(
+    IReadOnlyList<DayOfWeek> WorkingDays,
+    DateTimeOffset UpdatedAt);
+
+public sealed record ScheduleSettingsUpsertDto(IReadOnlyList<DayOfWeek> WorkingDays);
 
 public sealed record HolidayDto(int Id, DateOnly Date, string Name);
 
