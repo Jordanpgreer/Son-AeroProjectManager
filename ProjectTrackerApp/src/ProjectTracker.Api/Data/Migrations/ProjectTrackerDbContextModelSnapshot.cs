@@ -176,6 +176,9 @@ namespace ProjectTracker.Api.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<int?>("DependencyTaskId")
+                        .HasColumnType("int");
+
                     b.Property<DateOnly?>("EndDate")
                         .HasColumnType("date");
 
@@ -237,6 +240,8 @@ namespace ProjectTracker.Api.Data.Migrations
                         .HasColumnType("nvarchar(120)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DependencyTaskId");
 
                     b.HasIndex("ProjectId", "Sequence");
 

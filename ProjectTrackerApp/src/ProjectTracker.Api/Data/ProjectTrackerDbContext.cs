@@ -36,6 +36,7 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
             entity.Property(task => task.Title).HasMaxLength(240);
             entity.Property(task => task.Phase).HasMaxLength(120);
             entity.Property(task => task.WorkStation).HasMaxLength(120);
+            entity.HasIndex(task => task.DependencyTaskId);
             entity.Property(task => task.PercentComplete).HasPrecision(5, 4);
             entity.Property(task => task.Status).HasConversion<string>().HasMaxLength(24);
             entity.Property(task => task.Notes).HasMaxLength(2000);

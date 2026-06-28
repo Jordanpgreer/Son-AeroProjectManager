@@ -467,6 +467,7 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .data-table tbody tr:hover { background: var(--surface-2); }
 
 .portfolio-table { min-width: 900px; }
+.past-projects-table { min-width: 980px; }
 .ops-table { min-width: 720px; }
 .ops-panel .table-wrap { max-height: min(640px, calc(100vh - 320px)); overflow: auto; }
 .program-workspace.is-open .ops-table { min-width: 440px; }
@@ -554,7 +555,7 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .ops-edit .panel-head h2 { display: inline-flex; align-items: center; gap: 6px; }
 .ops-edit .panel-head h2 svg { color: var(--steel); }
 
-.edit-table { min-width: 1260px; }
+.edit-table { min-width: 1410px; }
 .edit-table th { background: var(--surface-2); }
 .edit-table td { padding: 6px 8px; vertical-align: middle; }
 .edit-row { transition: background 120ms ease; }
@@ -584,6 +585,7 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .edit-table .col-num { width: 104px; }
 .edit-table .col-slider { width: 184px; }
 .edit-table .col-lock { width: 58px; text-align: center; }
+.edit-table .col-dependency { width: 190px; min-width: 170px; }
 .lock-button { min-width: 32px; justify-content: center; }
 .lock-button.active { color: var(--steel-700); background: var(--steel-tint); border-color: var(--steel-tint-2); }
 .cell-slider { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 8px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
@@ -626,6 +628,7 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 
 .sched-chip { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: var(--r-sm); font-family: var(--font-mono); font-size: 11px; font-weight: 500; white-space: nowrap; }
 .sched-chip.overdue { color: var(--risk-700); background: var(--risk-tint); }
+.sched-chip.late { color: var(--risk-700); background: var(--risk-tint); }
 .sched-chip.soon { color: var(--warn-700); background: var(--warn-tint); }
 .sched-chip.ok { color: var(--ink-2); background: var(--surface-3); }
 .sched-chip.done { color: var(--done-700); background: var(--done-tint); }

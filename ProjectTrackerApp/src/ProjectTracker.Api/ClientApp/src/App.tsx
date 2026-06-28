@@ -68,6 +68,7 @@ type ProjectSummary = {
   currentTask: string | null
   progress: number
   targetDelivery: string | null
+  finalCompletionDate: string | null
   daysLeft: number | null
   status: ProjectStatus
   taskCount: number
@@ -96,6 +97,7 @@ type ProjectTask = {
   title: string
   phase: string | null
   workStation: string | null
+  dependencyTaskId: number | null
   startDate: string | null
   startDateLocked: boolean
   originalStartDate: string | null
@@ -139,6 +141,7 @@ type TaskForm = {
   title: string
   phase: string
   workStation: string
+  dependencyTaskId: string
   startDate: string
   startDateLocked: boolean
   originalStartDate: string
@@ -214,6 +217,7 @@ function App() {
   const [taskForm, setTaskForm] = useState<TaskForm | null>(null)
   const [editMode, setEditMode] = useState(false)
   const [dashboardSearch, setDashboardSearch] = useState('')
+  const [pastProjectsSearch, setPastProjectsSearch] = useState('')
   const [importMessage, setImportMessage] = useState('')
   const [projectConfirmation, setProjectConfirmation] = useState<ProjectConfirmation | null>(null)
   const [projectActionPending, setProjectActionPending] = useState(false)
@@ -332,6 +336,7 @@ function App() {
       title: taskForm.title,
       phase: taskForm.phase || null,
       workStation: taskForm.workStation || null,
+      dependencyTaskId: taskForm.dependencyTaskId ? Number(taskForm.dependencyTaskId) : null,
       startDate: taskForm.startDate || null,
       startDateLocked: taskForm.startDateLocked,
       originalStartDate: taskForm.originalStartDate || null,
@@ -419,6 +424,7 @@ function App() {
       title: task.title,
       phase: task.phase,
       workStation: task.workStation,
+      dependencyTaskId: task.dependencyTaskId,
       startDate: task.startDate,
       startDateLocked: task.startDateLocked,
       originalStartDate: task.originalStartDate,
@@ -598,6 +604,8 @@ function App() {
           onToggleEdit={toggleEditMode}
           dashboardSearch={dashboardSearch}
           setDashboardSearch={setDashboardSearch}
+          pastProjectsSearch={pastProjectsSearch}
+          setPastProjectsSearch={setPastProjectsSearch}
           refresh={refreshCurrent}
           onAddProject={() => setProjectWizardOpen(true)}
         />
@@ -634,7 +642,7 @@ function App() {
                 />
               )}
               {screen === 'calendar' && <CalendarView holidaySet={holidaySet} workingDaySet={workingDaySet} onOpenProject={openProject} />}
-              {screen === 'pastProjects' && <PastProjectsView projects={dashboard.projects} onOpenProject={openProject} />}
+              {screen === 'pastProjects' && <PastProjectsView projects={dashboard.projects} search={pastProjectsSearch} onOpenProject={openProject} />}
               {screen === 'settings' && (
                 <SettingsView
                   scheduleSettings={scheduleSettings}
@@ -659,7 +667,7 @@ function App() {
       </main>
 
       {taskForm && (
-        <TaskModal form={taskForm} setForm={setTaskForm} saveTask={saveTask} onClose={() => setTaskForm(null)} workStations={knownWorkStations} holidaySet={holidaySet} workingDaySet={workingDaySet} />
+        <TaskModal form={taskForm} setForm={setTaskForm} saveTask={saveTask} onClose={() => setTaskForm(null)} tasks={selectedProject?.tasks ?? []} workStations={knownWorkStations} holidaySet={holidaySet} workingDaySet={workingDaySet} />
       )}
       {overtimeTask && (
         <OvertimeDialog
@@ -766,6 +774,8 @@ function PageHeader({
   onToggleEdit,
   dashboardSearch,
   setDashboardSearch,
+  pastProjectsSearch,
+  setPastProjectsSearch,
   refresh,
   onAddProject,
 }: {
@@ -776,14 +786,17 @@ function PageHeader({
   onToggleEdit: () => void
   dashboardSearch: string
   setDashboardSearch: (value: string) => void
+  pastProjectsSearch: string
+  setPastProjectsSearch: (value: string) => void
   refresh: () => Promise<void>
   onAddProject: () => void
 }) {
   const portfolioExports = screen === 'dashboard'
+  const pastProjectExports = screen === 'pastProjects'
   const projectId = selectedProject?.id
-  const xlsxHref = portfolioExports ? '/api/reports/portfolio.xlsx' : `/api/reports/projects/${projectId}.xlsx`
-  const pdfHref = portfolioExports ? '/api/reports/portfolio.pdf' : `/api/reports/projects/${projectId}.pdf`
-  const showExports = screen === 'dashboard' || screen === 'project'
+  const xlsxHref = portfolioExports ? '/api/reports/portfolio.xlsx' : pastProjectExports ? '/api/reports/past-projects.xlsx' : `/api/reports/projects/${projectId}.xlsx`
+  const pdfHref = portfolioExports ? '/api/reports/portfolio.pdf' : pastProjectExports ? '/api/reports/past-projects.pdf' : `/api/reports/projects/${projectId}.pdf`
+  const showExports = screen === 'dashboard' || screen === 'project' || screen === 'pastProjects'
   const subtitle = screenSubtitle(screen)
 
   return (
@@ -825,6 +838,16 @@ function PageHeader({
             </label>
             {canEdit && <button className="button primary" onClick={onAddProject}><Plus size={15} /> Add Project</button>}
           </>
+        )}
+        {screen === 'pastProjects' && (
+          <label className="topbar-search" aria-label="Search past projects">
+            <Search size={15} />
+            <input
+              value={pastProjectsSearch}
+              onChange={(event) => setPastProjectsSearch(event.target.value)}
+              placeholder="Search completed projects"
+            />
+          </label>
         )}
       </div>
     </header>
@@ -895,25 +918,92 @@ function DashboardView({
   )
 }
 
-function PastProjectsView({ projects, onOpenProject }: { projects: ProjectSummary[]; onOpenProject: (projectId: number) => Promise<void> }) {
+function PastProjectsView({ projects, search, onOpenProject }: { projects: ProjectSummary[]; search: string; onOpenProject: (projectId: number) => Promise<void> }) {
   const completed = projects.filter((project) => project.status === 'Complete')
+  const query = search.trim().toLowerCase()
+  const visible = query
+    ? completed.filter((project) =>
+      project.programName.toLowerCase().includes(query) ||
+      (project.customerName ?? '').toLowerCase().includes(query) ||
+      (project.salesOrderNumber ?? '').toLowerCase().includes(query))
+    : completed
+  const dated = visible.filter((project) => project.targetDelivery && project.finalCompletionDate)
+  const onTime = dated.filter((project) => dateToMs(project.finalCompletionDate as string) <= dateToMs(project.targetDelivery as string)).length
+  const late = dated.length - onTime
+  const onTimePercent = dated.length === 0 ? 0 : onTime / dated.length
+  const avgCompletion = visible.length === 0 ? 0 : visible.reduce((sum, project) => sum + project.progress, 0) / visible.length
   return (
-    <section className="view">
+    <section className="view dashboard-view">
+      <div className="kpi-row">
+        <Kpi label="Completed Projects" value={visible.length.toString()} hint="archived programs" tone="ink" icon={<Archive size={17} />} />
+        <Kpi label="On Time Percentage" value={formatPercent(onTimePercent)} hint={dated.length === 0 ? 'needs target and completion dates' : `${onTime} on time - ${late} late`} tone="ok" icon={<CheckCircle2 size={17} />} bar={onTimePercent} />
+        <Kpi label="Late Projects" value={late.toString()} hint={late > 0 ? 'finished after target' : 'none in filtered set'} tone="risk" icon={<AlertTriangle size={17} />} />
+        <Kpi label="Avg Completion" value={formatPercent(avgCompletion)} tone="steel" icon={<Gauge size={17} />} bar={avgCompletion} />
+      </div>
       <section className="panel table-panel">
         <header className="panel-head">
           <div className="panel-head-text">
-            <span className="kicker">Archive</span>
-            <h2>Past Projects · {completed.length}</h2>
-            <p>Programs whose operations are all complete. They no longer appear on the dashboard.</p>
+            <span className="kicker">Archive Performance</span>
+            <h2>Past Projects · {visible.length}</h2>
+            <p>Completed programs with target versus final completion dates.</p>
           </div>
+          {visible.length > 0 && (
+            <StatusBar segments={[
+              { key: 'on-track', count: onTime, label: 'On time' },
+              { key: 'behind', count: late, label: 'Late' },
+            ]} total={Math.max(dated.length, 1)} />
+          )}
         </header>
-        {completed.length === 0 ? (
-          <EmptyState title="No completed programs yet" body="A program moves here automatically once every operation is marked complete." />
+        {visible.length === 0 ? (
+          <EmptyState
+            title={query ? 'No matching completed programs' : 'No completed programs yet'}
+            body={query ? 'Try another part number, sales order number, or customer name.' : 'A program moves here automatically once every operation is marked complete.'}
+          />
         ) : (
-          <PortfolioTable projects={completed} onOpenProject={onOpenProject} />
+          <PastProjectsTable projects={visible} onOpenProject={onOpenProject} />
         )}
       </section>
     </section>
+  )
+}
+
+function PastProjectsTable({ projects, onOpenProject }: { projects: ProjectSummary[]; onOpenProject: (projectId: number) => Promise<void> }) {
+  return (
+    <div className="table-wrap">
+      <table className="data-table portfolio-table past-projects-table">
+        <thead>
+          <tr>
+            <th>Part / Program</th>
+            <th>Customer</th>
+            <th>Manager</th>
+            <th>Target</th>
+            <th>Final Completion</th>
+            <th className="col-progress">Progress</th>
+            <th className="col-status">Result</th>
+            <th aria-label="Open" />
+          </tr>
+        </thead>
+        <tbody>
+          {projects.map((project) => {
+            const isLate = project.targetDelivery && project.finalCompletionDate
+              ? dateToMs(project.finalCompletionDate) > dateToMs(project.targetDelivery)
+              : false
+            return (
+              <tr key={project.id} className={`clickable-row rail-${isLate ? 'behind' : 'complete'}`} onClick={() => onOpenProject(project.id)}>
+                <td><span className="mono-id">{project.programName}</span></td>
+                <td className="cell-muted">{project.customerName ?? '—'}</td>
+                <td className="cell-muted">{project.programManager ?? '—'}</td>
+                <td className="cell-mono">{compactDate(project.targetDelivery)}</td>
+                <td className="cell-mono">{compactDate(project.finalCompletionDate)}</td>
+                <td className="col-progress"><Progress value={project.progress} status={project.status} /></td>
+                <td className="col-status"><span className={`sched-chip ${isLate ? 'late' : 'done'}`}>{isLate ? 'Late' : 'On Time'}</span></td>
+                <td className="cell-go"><ArrowRight size={16} /></td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
@@ -1396,13 +1486,16 @@ function OpsEditGrid({
       let cursor = project.programStart
         ? dateToMs(project.programStart)
         : startOfTodayMs()
+      const scheduled = new Map<number, ProjectTask>()
       return patched.map((row) => {
         const next = { ...row }
         const overtimeDates = new Set(next.overtimeDays.map((day) => day.date))
         const duration = next.estimatedDuration && next.estimatedDuration > 0 ? next.estimatedDuration : null
+        const dependencyEnd = next.dependencyTaskId ? scheduled.get(next.dependencyTaskId)?.endDate : null
+        const calculatedStart = dependencyEnd ? addDays(dateToMs(dependencyEnd), 1) : cursor
 
         if (!next.startDateLocked) {
-          next.startDate = msToIso(nextWorkday(cursor, holidaySet, workingDaySet, overtimeDates))
+          next.startDate = msToIso(nextWorkday(calculatedStart, holidaySet, workingDaySet, overtimeDates))
         }
 
         if (row.id === id && durationChanged && duration) {
@@ -1417,6 +1510,7 @@ function OpsEditGrid({
           cursor = addDays(dateToMs(next.endDate), 1)
         }
 
+        scheduled.set(next.id, next)
         return next
       })
   }
@@ -1495,6 +1589,7 @@ function OpsEditGrid({
               <th className="col-drag">#</th>
               <th>Operation</th>
               <th>Work Station</th>
+              <th>Dependency</th>
               <th className="col-lock">Lock</th>
               <th>Start</th>
               <th>End</th>
@@ -1537,6 +1632,14 @@ function OpsEditGrid({
                     </div>
                   </td>
                   <td className="col-station"><WorkStationPicker value={row.workStation ?? ''} options={workStations} onChange={(workStation) => update(row.id, { workStation })} onCommit={() => commit(row.id)} /></td>
+                  <td className="col-dependency">
+                    <select className="cell-input" value={row.dependencyTaskId ?? ''} onChange={(event) => updateScheduleField(row.id, { dependencyTaskId: event.target.value ? Number(event.target.value) : null })} onBlur={() => commit(row.id)}>
+                      <option value="">Default: previous op</option>
+                      {rows.filter((option) => option.id !== row.id && option.sequence < row.sequence).map((option) => (
+                        <option key={option.id} value={option.id}>{option.externalTaskId || option.sequence}. {option.title || 'Untitled operation'}</option>
+                      ))}
+                    </select>
+                  </td>
                   <td className="col-lock">
                     <button
                       className={`icon-button lock-button ${row.startDateLocked ? 'active' : ''}`}
@@ -2796,6 +2899,7 @@ function TaskModal({
   setForm,
   saveTask,
   onClose,
+  tasks,
   workStations,
   holidaySet,
   workingDaySet,
@@ -2804,6 +2908,7 @@ function TaskModal({
   setForm: (form: TaskForm) => void
   saveTask: (event: FormEvent) => Promise<void>
   onClose: () => void
+  tasks: ProjectTask[]
   workStations: string[]
   holidaySet: Set<string>
   workingDaySet: Set<number>
@@ -2849,6 +2954,14 @@ function TaskModal({
             <div className="field"><span>Work Station</span>
               <WorkStationPicker value={form.workStation} options={workStations} onChange={(workStation) => setForm({ ...form, workStation })} />
             </div>
+            <label className="field"><span>Dependency</span>
+              <select value={form.dependencyTaskId} onChange={(event) => setForm({ ...form, dependencyTaskId: event.target.value })}>
+                <option value="">Default: previous operation</option>
+                {tasks.filter((task) => task.id !== form.id && task.sequence < form.sequence).map((task) => (
+                  <option key={task.id} value={task.id}>{task.externalTaskId || task.sequence}. {task.title || 'Untitled operation'}</option>
+                ))}
+              </select>
+            </label>
           </section>
 
           <section className="form-section">
@@ -3253,14 +3366,17 @@ function buildSchedule(tasks: ProjectTask[], programStart: string | null, holida
       ? Math.min(...realStarts)
       : startOfTodayMs()
   const items: GanttItem[] = []
+  const scheduled = new Map<number, GanttItem>()
   let projectedCount = 0
 
   for (const task of ordered) {
     const overtimeDates = new Set(task.overtimeDays.map((day) => day.date))
     const hasRealStart = Boolean(task.startDate)
     const hasRealEnd = Boolean(task.endDate)
+    const dependencyEnd = task.dependencyTaskId ? scheduled.get(task.dependencyTaskId)?.endMs : null
+    const calculatedStart = dependencyEnd ? addDays(dependencyEnd, 1) : cursor
 
-    let startMs = hasRealStart ? dateToMs(task.startDate as string) : cursor
+    let startMs = hasRealStart ? dateToMs(task.startDate as string) : calculatedStart
     startMs = nextWorkday(startMs, holidaySet, workingDaySet, overtimeDates)
 
     let endMs: number
@@ -3278,7 +3394,9 @@ function buildSchedule(tasks: ProjectTask[], programStart: string | null, holida
     const projected = !(hasRealStart && hasRealEnd)
     if (projected) projectedCount += 1
 
-    items.push({ task, startMs, endMs, projected, left: 0, width: 0 })
+    const item = { task, startMs, endMs, projected, left: 0, width: 0 }
+    items.push(item)
+    scheduled.set(task.id, item)
     cursor = addDays(endMs, 1)
   }
 
@@ -3482,6 +3600,7 @@ function formFromTask(task: ProjectTask): TaskForm {
     title: task.title,
     phase: task.phase ?? '',
     workStation: task.workStation ?? '',
+    dependencyTaskId: task.dependencyTaskId?.toString() ?? '',
     startDate: task.startDate ?? '',
     startDateLocked: task.startDateLocked,
     originalStartDate: task.originalStartDate ?? '',
@@ -3504,6 +3623,7 @@ function emptyTaskForm(project: ProjectDetail): TaskForm {
     title: '',
     phase: last?.phase ?? '',
     workStation: last?.workStation ?? '',
+    dependencyTaskId: '',
     startDate: '',
     startDateLocked: false,
     originalStartDate: '',

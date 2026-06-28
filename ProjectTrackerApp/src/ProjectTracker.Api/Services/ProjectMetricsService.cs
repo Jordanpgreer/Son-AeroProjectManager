@@ -18,12 +18,15 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
     public void RefreshProject(Project project, ScheduleCalendar calendar, DateOnly today, bool recalculateDates = false)
     {
         DateOnly? nextStart = project.ProgramStart;
+        var scheduledTasks = new Dictionary<int, ProjectTask>();
         foreach (var task in project.Tasks.OrderBy(task => task.Sequence))
         {
             var overtimeDates = task.OvertimeDays.Select(day => day.Date).ToHashSet();
-            if (!task.StartDateLocked && nextStart is not null)
+            var dependencyStart = GetDependencyStart(task, scheduledTasks);
+            var calculatedStart = dependencyStart ?? nextStart;
+            if (!task.StartDateLocked && calculatedStart is not null)
             {
-                task.StartDate = NextWorkingDay(nextStart.Value, calendar, overtimeDates);
+                task.StartDate = NextWorkingDay(calculatedStart.Value, calendar, overtimeDates);
             }
 
             if (recalculateDates && task.StartDate is not null && task.EstimatedDuration is > 0)
@@ -46,6 +49,7 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
             task.UpdatedAt = DateTimeOffset.UtcNow;
 
             nextStart = task.EndDate?.AddDays(1);
+            scheduledTasks[task.Id] = task;
         }
 
         var activeTasks = project.Tasks.Where(task => !string.IsNullOrWhiteSpace(task.Title)).OrderBy(task => task.Sequence).ToList();
@@ -97,6 +101,18 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
         }
 
         return next;
+    }
+
+    private static DateOnly? GetDependencyStart(ProjectTask task, IReadOnlyDictionary<int, ProjectTask> scheduledTasks)
+    {
+        if (task.DependencyTaskId is null)
+        {
+            return null;
+        }
+
+        return scheduledTasks.TryGetValue(task.DependencyTaskId.Value, out var dependency) && dependency.EndDate is not null
+            ? dependency.EndDate.Value.AddDays(1)
+            : null;
     }
 
     private static decimal CalculateWeightedProgress(IReadOnlyCollection<ProjectTask> tasks)

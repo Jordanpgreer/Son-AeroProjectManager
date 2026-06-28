@@ -183,6 +183,7 @@ api.MapPost("/projects", async (ProjectCreateDto dto, ProjectTrackerDbContext db
                 Title = source.Title,
                 Phase = source.Phase,
                 WorkStation = source.WorkStation,
+                DependencyTaskId = null,
                 EstimatedDuration = source.EstimatedDuration,
                 ActualDuration = source.ActualDuration,
                 Notes = source.Notes
@@ -270,6 +271,7 @@ api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertD
     project.Tasks.Add(task);
     var desiredPosition = dto.Sequence > 0 ? dto.Sequence : project.Tasks.Count;
     ResequenceTasks(project, task, desiredPosition);
+    NormalizeTaskDependency(project, task);
     await EnsurePhaseAsync(db, task.Phase, cancellationToken);
     await metrics.RefreshProjectAsync(db, project, cancellationToken, recalculateDates: true);
     await db.SaveChangesAsync(cancellationToken);
@@ -289,6 +291,7 @@ api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectT
 
     ApplyTaskDto(task, dto);
     ResequenceTasks(task.Project, task, dto.Sequence);
+    NormalizeTaskDependency(task.Project, task);
     await EnsurePhaseAsync(db, task.Phase, cancellationToken);
     await metrics.RefreshProjectAsync(db, task.Project, cancellationToken, recalculateDates: true);
     await db.SaveChangesAsync(cancellationToken);
@@ -492,6 +495,18 @@ api.MapGet("/reports/portfolio.pdf", async (ReportService reports, CancellationT
     return Results.File(report.Content, report.ContentType, report.FileName);
 });
 
+api.MapGet("/reports/past-projects.xlsx", async (ReportService reports, CancellationToken cancellationToken) =>
+{
+    var report = await reports.PastProjectsExcelAsync(cancellationToken);
+    return Results.File(report.Content, report.ContentType, report.FileName);
+});
+
+api.MapGet("/reports/past-projects.pdf", async (ReportService reports, CancellationToken cancellationToken) =>
+{
+    var report = await reports.PastProjectsPdfAsync(cancellationToken);
+    return Results.File(report.Content, report.ContentType, report.FileName);
+});
+
 api.MapGet("/reports/projects/{id:int}.xlsx", async (int id, ReportService reports, CancellationToken cancellationToken) =>
 {
     try
@@ -526,6 +541,9 @@ static ProjectSummaryDto ToSummaryDto(Project project)
 {
     var today = DateOnly.FromDateTime(DateTime.Today);
     var daysLeft = project.TargetDelivery is null ? (int?)null : project.TargetDelivery.Value.DayNumber - today.DayNumber;
+    var finalCompletionDate = project.Status == ProjectStatus.Complete
+        ? project.Tasks.Select(task => task.EndDate).Where(date => date is not null).Max()
+        : null;
     return new ProjectSummaryDto(
         project.Id,
         project.ProgramName,
@@ -535,6 +553,7 @@ static ProjectSummaryDto ToSummaryDto(Project project)
         project.CurrentTask,
         project.Progress,
         project.TargetDelivery,
+        finalCompletionDate,
         daysLeft,
         project.Status,
         project.Tasks.Count,
@@ -567,6 +586,7 @@ static ProjectTaskDto ToTaskDto(ProjectTask task)
         task.Title,
         task.Phase,
         task.WorkStation,
+        task.DependencyTaskId,
         task.StartDate,
         task.StartDateLocked,
         task.OriginalStartDate,
@@ -607,6 +627,7 @@ static ProjectTask ApplyTaskDto(ProjectTask task, TaskUpsertDto dto)
     task.Title = dto.Title.Trim();
     task.Phase = string.IsNullOrWhiteSpace(dto.Phase) ? null : dto.Phase.Trim();
     task.WorkStation = string.IsNullOrWhiteSpace(dto.WorkStation) ? null : dto.WorkStation.Trim();
+    task.DependencyTaskId = dto.DependencyTaskId == task.Id ? null : dto.DependencyTaskId;
     task.StartDate = dto.StartDate;
     task.StartDateLocked = dto.StartDateLocked;
     task.OriginalStartDate = dto.OriginalStartDate;
@@ -631,6 +652,20 @@ static ProjectTask ApplyTaskDto(ProjectTask task, TaskUpsertDto dto)
 }
 
 static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+static void NormalizeTaskDependency(Project project, ProjectTask task)
+{
+    if (task.DependencyTaskId is null)
+    {
+        return;
+    }
+
+    var dependency = project.Tasks.FirstOrDefault(candidate => candidate.Id == task.DependencyTaskId.Value);
+    if (dependency is null || dependency.Id == task.Id || dependency.Sequence >= task.Sequence)
+    {
+        task.DependencyTaskId = null;
+    }
+}
 
 // Steps are numbered 1..N by position. "Step Order" is the desired position; moving a step
 // renumbers every step's Sequence (and ExternalTaskId, which is the same value) to stay 1..N.
@@ -734,6 +769,7 @@ static async Task InitializeDatabaseAsync(WebApplication app)
         {
             await EnsureSqliteBooleanColumnAsync(db, "StartDateLocked", cancellationToken: default);
             await EnsureSqliteBooleanColumnAsync(db, "PercentCompleteManual", cancellationToken: default);
+            await EnsureSqliteIntegerColumnAsync(db, "DependencyTaskId", cancellationToken: default);
             await EnsureSqliteTextColumnAsync(db, "Projects", "CustomerName", cancellationToken: default);
             await EnsureSqliteTextColumnAsync(db, "Projects", "SalesOrderNumber", cancellationToken: default);
             await EnsureSqliteWorkCentersTableAsync(db, cancellationToken: default);
@@ -798,6 +834,30 @@ static async Task EnsureSqliteBooleanColumnAsync(ProjectTrackerDbContext db, str
 
         await using var alterCommand = connection.CreateCommand();
         alterCommand.CommandText = $"ALTER TABLE \"Tasks\" ADD COLUMN \"{columnName}\" INTEGER NOT NULL DEFAULT 0;";
+        await alterCommand.ExecuteNonQueryAsync(cancellationToken);
+    }
+    finally
+    {
+        await connection.CloseAsync();
+    }
+}
+
+static async Task EnsureSqliteIntegerColumnAsync(ProjectTrackerDbContext db, string columnName, CancellationToken cancellationToken)
+{
+    var connection = db.Database.GetDbConnection();
+    await connection.OpenAsync(cancellationToken);
+    try
+    {
+        await using var checkCommand = connection.CreateCommand();
+        checkCommand.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('Tasks') WHERE name = '{columnName}';";
+        var exists = Convert.ToInt32(await checkCommand.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (exists)
+        {
+            return;
+        }
+
+        await using var alterCommand = connection.CreateCommand();
+        alterCommand.CommandText = $"ALTER TABLE \"Tasks\" ADD COLUMN \"{columnName}\" INTEGER NULL;";
         await alterCommand.ExecuteNonQueryAsync(cancellationToken);
     }
     finally

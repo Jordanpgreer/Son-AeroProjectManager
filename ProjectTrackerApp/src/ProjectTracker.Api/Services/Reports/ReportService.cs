@@ -16,6 +16,14 @@ public sealed class ReportService(ProjectTrackerDbContext db)
         return new ReportFile(content, XlsxContentType, $"portfolio-summary-{DateOnly.FromDateTime(DateTime.Today):yyyyMMdd}.xlsx");
     }
 
+    public async Task<ReportFile> PastProjectsExcelAsync(CancellationToken cancellationToken = default)
+    {
+        var data = await LoadPortfolioAsync(cancellationToken);
+        var completed = data.Projects.Where(project => project.Status == ProjectStatus.Complete).ToList();
+        var content = ExcelReportBuilder.BuildPastProjects(completed, data.Calendar, ReportAssets.LogoPath);
+        return new ReportFile(content, XlsxContentType, $"past-projects-{DateOnly.FromDateTime(DateTime.Today):yyyyMMdd}.xlsx");
+    }
+
     public async Task<ReportFile> ProjectExcelAsync(int projectId, CancellationToken cancellationToken = default)
     {
         var data = await LoadProjectAsync(projectId, cancellationToken);
@@ -28,6 +36,14 @@ public sealed class ReportService(ProjectTrackerDbContext db)
         var data = await LoadPortfolioAsync(cancellationToken);
         var content = PdfReportBuilder.BuildPortfolio(data.Projects, data.Calendar, ReportAssets.LogoPath);
         return new ReportFile(content, PdfContentType, $"portfolio-summary-{DateOnly.FromDateTime(DateTime.Today):yyyyMMdd}.pdf");
+    }
+
+    public async Task<ReportFile> PastProjectsPdfAsync(CancellationToken cancellationToken = default)
+    {
+        var data = await LoadPortfolioAsync(cancellationToken);
+        var completed = data.Projects.Where(project => project.Status == ProjectStatus.Complete).ToList();
+        var content = PdfReportBuilder.BuildPastProjects(completed, data.Calendar, ReportAssets.LogoPath);
+        return new ReportFile(content, PdfContentType, $"past-projects-{DateOnly.FromDateTime(DateTime.Today):yyyyMMdd}.pdf");
     }
 
     public async Task<ReportFile> ProjectPdfAsync(int projectId, CancellationToken cancellationToken = default)

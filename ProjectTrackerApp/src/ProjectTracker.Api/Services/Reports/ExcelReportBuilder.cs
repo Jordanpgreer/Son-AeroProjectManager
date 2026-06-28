@@ -47,6 +47,18 @@ internal static class ExcelReportBuilder
         return Save(workbook);
     }
 
+    public static byte[] BuildPastProjects(IReadOnlyList<Project> projects, ScheduleCalendar calendar, string? logoPath)
+    {
+        using var workbook = new XLWorkbook();
+        workbook.Properties.Title = "SON-AERO Past Projects";
+        workbook.Properties.Subject = "SON-AERO completed project performance report";
+        workbook.Properties.Company = "SON-AERO";
+
+        BuildPastProjectsSummary(workbook.Worksheets.Add("Past Projects"), projects, calendar, logoPath);
+        BuildPortfolioTimeline(workbook.Worksheets.Add("Completion Timeline"), projects, calendar, logoPath);
+        return Save(workbook);
+    }
+
     private static void BuildProjectSummary(IXLWorksheet sheet, Project project, ScheduleCalendar calendar, string? logoPath)
     {
         ConfigureSheet(sheet, XLPageOrientation.Landscape);
@@ -186,6 +198,70 @@ internal static class ExcelReportBuilder
         sheet.Range(headerRow + 1, 1, lastRow, headers.Length).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
         sheet.Range(headerRow + 1, 1, lastRow, 5).Style.Alignment.WrapText = true;
         sheet.PageSetup.PrintAreas.Add($"A1:J{lastRow}");
+        sheet.PageSetup.SetRowsToRepeatAtTop(headerRow, headerRow);
+    }
+
+    private static void BuildPastProjectsSummary(IXLWorksheet sheet, IReadOnlyList<Project> projects, ScheduleCalendar calendar, string? logoPath)
+    {
+        ConfigureSheet(sheet, XLPageOrientation.Landscape);
+        AddBrandHeader(sheet, 10, logoPath, "PAST PROJECTS");
+        sheet.Range("A6:I6").Merge().Value = "Completed Project Performance";
+        StyleTitle(sheet.Range("A6:I6"), 22);
+        sheet.Range("A7:I7").Merge().Value = $"Generated {DateTime.Now:MMM d, yyyy h:mm tt}  |  {WorkWeekLabel(calendar)}";
+        StyleSubtitle(sheet.Range("A7:I7"));
+
+        var dated = projects.Where(project => project.TargetDelivery is not null && FinalCompletionDate(project) is not null).ToList();
+        var onTime = dated.Count(project => FinalCompletionDate(project) <= project.TargetDelivery);
+        var late = dated.Count - onTime;
+        var onTimePercent = dated.Count == 0 ? 0m : (decimal)onTime / dated.Count;
+        var average = projects.Count == 0 ? 0m : projects.Average(project => project.Progress);
+        AddMetric(sheet, "A9:B10", "Completed Projects", projects.Count.ToString(), Ink2, Surface2);
+        AddMetric(sheet, "C9:D10", "On Time Percentage", ReportText.Percent(onTimePercent), Green, GreenTint);
+        AddMetric(sheet, "E9:F10", "Late Projects", late.ToString(), Red, RedTint);
+        AddMetric(sheet, "G9:I10", "Average Completion", ReportText.Percent(average), Steel, SteelTint);
+
+        var headers = new[] { "Part No.", "Customer", "Sales Order", "Manager", "Target", "Final Completion", "Result", "Operations", "Progress" };
+        const int headerRow = 12;
+        WriteTableHeader(sheet, headerRow, headers);
+        for (var index = 0; index < projects.Count; index++)
+        {
+            var project = projects[index];
+            var finalCompletion = FinalCompletionDate(project);
+            var isLate = project.TargetDelivery is not null && finalCompletion is not null && finalCompletion > project.TargetDelivery;
+            var row = headerRow + 1 + index;
+            sheet.Cell(row, 1).Value = project.ProgramName;
+            SetOptionalText(sheet.Cell(row, 2), project.CustomerName);
+            SetOptionalText(sheet.Cell(row, 3), project.SalesOrderNumber);
+            SetOptionalText(sheet.Cell(row, 4), project.ProgramManager);
+            SetDate(sheet.Cell(row, 5), project.TargetDelivery);
+            SetDate(sheet.Cell(row, 6), finalCompletion);
+            sheet.Cell(row, 7).Value = isLate ? "Late" : "On Time";
+            sheet.Cell(row, 8).Value = project.Tasks.Count;
+            sheet.Cell(row, 9).Value = project.Progress;
+            sheet.Cell(row, 9).Style.NumberFormat.Format = "0%";
+            var range = sheet.Range(row, 1, row, headers.Length);
+            StyleDataRow(range, index);
+            range.Style.Border.BottomBorder = XLBorderStyleValues.Hair;
+            range.Style.Border.BottomBorderColor = Line;
+            sheet.Cell(row, 7).Style.Fill.BackgroundColor = isLate ? RedTint : GreenTint;
+            sheet.Cell(row, 7).Style.Font.FontColor = isLate ? Red : Green;
+            sheet.Cell(row, 7).Style.Font.Bold = true;
+            sheet.Cell(row, 1).Style.Border.LeftBorder = XLBorderStyleValues.Medium;
+            sheet.Cell(row, 1).Style.Border.LeftBorderColor = isLate ? Red : Green;
+            sheet.Row(row).Height = 25;
+        }
+
+        var lastRow = Math.Max(headerRow + 1, headerRow + projects.Count);
+        sheet.Range(headerRow, 1, lastRow, headers.Length).SetAutoFilter();
+        sheet.SheetView.FreezeRows(headerRow);
+        sheet.Columns(1, 4).Width = 20;
+        sheet.Columns(5, 6).Width = 17;
+        sheet.Column(7).Width = 14;
+        sheet.Column(8).Width = 12;
+        sheet.Column(9).Width = 12;
+        sheet.Range(headerRow + 1, 1, lastRow, headers.Length).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        sheet.Range(headerRow + 1, 1, lastRow, 4).Style.Alignment.WrapText = true;
+        sheet.PageSetup.PrintAreas.Add($"A1:I{lastRow}");
         sheet.PageSetup.SetRowsToRepeatAtTop(headerRow, headerRow);
     }
 
@@ -528,6 +604,14 @@ internal static class ExcelReportBuilder
         var normalizedStart = start ?? end!.Value;
         var normalizedEnd = end ?? normalizedStart;
         return normalizedEnd < normalizedStart ? (normalizedStart, normalizedStart) : (normalizedStart, normalizedEnd);
+    }
+
+    private static DateOnly? FinalCompletionDate(Project project)
+    {
+        return project.Tasks
+            .Select(task => task.EndDate)
+            .Where(date => date is not null)
+            .Max();
     }
 
     private static bool Overlaps((DateOnly Start, DateOnly End) range, TimelineBucket bucket) => range.Start <= bucket.End && range.End >= bucket.Start;

@@ -75,6 +75,23 @@ internal static class PdfReportBuilder
         return Save(document);
     }
 
+    public static byte[] BuildPastProjects(IReadOnlyList<Project> projects, ScheduleCalendar calendar, string? logoPath)
+    {
+        EnsureFonts();
+        using var document = CreateDocument("SON-AERO Past Projects");
+        using var logo = LoadLogo(logoPath);
+        var ordered = projects.OrderBy(project => FinalCompletionDate(project)).ThenBy(project => project.ProgramName).ToList();
+        var pageNumber = 1;
+
+        DrawPastProjectsOverviewPage(document, ordered.Take(15).ToList(), ordered, calendar, logo, pageNumber++);
+        for (var offset = 15; offset < ordered.Count; offset += 21)
+        {
+            DrawPastProjectsContinuationPage(document, ordered.Skip(offset).Take(21).ToList(), offset, logo, pageNumber++);
+        }
+
+        return Save(document);
+    }
+
     private static void DrawProjectOverviewPage(PdfDocument document, Project project, IReadOnlyList<ProjectTask> tasks, int offset, ScheduleCalendar calendar, XImage? logo, int pageNumber)
     {
         var page = AddLandscapePage(document);
@@ -151,6 +168,41 @@ internal static class PdfReportBuilder
         DrawFooter(graphics, page, pageNumber, "SON-AERO | Internal portfolio control");
     }
 
+    private static void DrawPastProjectsOverviewPage(PdfDocument document, IReadOnlyList<Project> rows, IReadOnlyList<Project> allProjects, ScheduleCalendar calendar, XImage? logo, int pageNumber)
+    {
+        var page = AddLandscapePage(document);
+        using var graphics = XGraphics.FromPdfPage(page);
+        DrawBrandHeader(graphics, page, logo, "PAST PROJECTS", pageNumber);
+        DrawText(graphics, "Completed Project Performance", Fonts.Title, Ink, 28, 82, 520, 28);
+        DrawText(graphics, $"Generated {DateTime.Now:MMM d, yyyy h:mm tt}  |  {WorkWeekLabel(calendar)}", Fonts.Small, Muted, 28, 108, 520, 16);
+        var dated = allProjects.Where(project => project.TargetDelivery is not null && FinalCompletionDate(project) is not null).ToList();
+        var onTime = dated.Count(project => FinalCompletionDate(project) <= project.TargetDelivery);
+        var late = dated.Count - onTime;
+        var onTimePercent = dated.Count == 0 ? 0m : (decimal)onTime / dated.Count;
+        var average = allProjects.Count == 0 ? 0m : allProjects.Average(project => project.Progress);
+        DrawMetrics(graphics, 28, 137, 736, new[]
+        {
+            new PdfMetric("Completed Projects", allProjects.Count.ToString(), Ink2, Surface2),
+            new PdfMetric("On Time Percentage", ReportText.Percent(onTimePercent), Green, GreenTint),
+            new PdfMetric("Late Projects", late.ToString(), Red, RedTint),
+            new PdfMetric("Average Completion", ReportText.Percent(average), Steel, SteelTint)
+        });
+        DrawSectionLabel(graphics, "COMPLETED PROJECTS", 28, 197);
+        DrawPastProjectsTable(graphics, rows, 0, 28, 214, 736, 22);
+        DrawFooter(graphics, page, pageNumber, "SON-AERO | Completed project archive");
+    }
+
+    private static void DrawPastProjectsContinuationPage(PdfDocument document, IReadOnlyList<Project> projects, int offset, XImage? logo, int pageNumber)
+    {
+        var page = AddLandscapePage(document);
+        using var graphics = XGraphics.FromPdfPage(page);
+        DrawBrandHeader(graphics, page, logo, "PAST PROJECTS", pageNumber);
+        DrawText(graphics, "Completed Project Performance - Continued", Fonts.PageTitle, Ink, 28, 84, 650, 24);
+        DrawSectionLabel(graphics, $"PROJECTS {offset + 1}-{offset + projects.Count}", 28, 120);
+        DrawPastProjectsTable(graphics, projects, offset, 28, 138, 736, 20.5);
+        DrawFooter(graphics, page, pageNumber, "SON-AERO | Completed project archive");
+    }
+
     private static void DrawTaskTable(XGraphics graphics, IReadOnlyList<ProjectTask> tasks, int offset, double x, double y, double width, double rowHeight)
     {
         var columns = new[]
@@ -211,6 +263,42 @@ internal static class PdfReportBuilder
                 if (column == 6) graphics.DrawRectangle(new XSolidBrush(StatusTint(project.Status)), cellX, rowY, columns[column].Width, rowHeight);
                 DrawText(graphics, FitText(graphics, values[column], column == 0 ? Fonts.TableBold : Fonts.Table, columns[column].Width - 10),
                     column is 0 or 6 ? Fonts.TableBold : Fonts.Table, column == 6 ? StatusColor(project.Status) : Ink2,
+                    cellX + 5, rowY + 6, columns[column].Width - 10, rowHeight - 5);
+                cellX += columns[column].Width;
+            }
+            graphics.DrawLine(new XPen(Line, 0.35), x, rowY + rowHeight, x + width, rowY + rowHeight);
+        }
+    }
+
+    private static void DrawPastProjectsTable(XGraphics graphics, IReadOnlyList<Project> projects, int offset, double x, double y, double width, double rowHeight)
+    {
+        var columns = new[]
+        {
+            new PdfColumn("Part No.", 140), new PdfColumn("Customer", 95), new PdfColumn("Manager", 90),
+            new PdfColumn("Target", 82), new PdfColumn("Final Completion", 98), new PdfColumn("Result", 62),
+            new PdfColumn("Progress", 58), new PdfColumn("Ops", 35), new PdfColumn("Sales Order", 96)
+        };
+        DrawTableHeader(graphics, columns, x, y, rowHeight + 2);
+        for (var index = 0; index < projects.Count; index++)
+        {
+            var project = projects[index];
+            var finalCompletion = FinalCompletionDate(project);
+            var isLate = project.TargetDelivery is not null && finalCompletion is not null && finalCompletion > project.TargetDelivery;
+            var rowY = y + rowHeight + 2 + (index * rowHeight);
+            graphics.DrawRectangle(new XSolidBrush(index % 2 == 0 ? XColors.White : Surface2), x, rowY, width, rowHeight);
+            graphics.DrawRectangle(new XSolidBrush(isLate ? Red : Green), x, rowY, 3, rowHeight);
+            var values = new[]
+            {
+                project.ProgramName, project.CustomerName ?? string.Empty, project.ProgramManager ?? string.Empty,
+                CompactDate(project.TargetDelivery), CompactDate(finalCompletion), isLate ? "Late" : "On Time",
+                ReportText.Percent(project.Progress), project.Tasks.Count.ToString(), project.SalesOrderNumber ?? string.Empty
+            };
+            var cellX = x;
+            for (var column = 0; column < columns.Length; column++)
+            {
+                if (column == 5) graphics.DrawRectangle(new XSolidBrush(isLate ? RedTint : GreenTint), cellX, rowY, columns[column].Width, rowHeight);
+                DrawText(graphics, FitText(graphics, values[column], column == 0 ? Fonts.TableBold : Fonts.Table, columns[column].Width - 10),
+                    column is 0 or 5 ? Fonts.TableBold : Fonts.Table, column == 5 ? (isLate ? Red : Green) : Ink2,
                     cellX + 5, rowY + 6, columns[column].Width - 10, rowHeight - 5);
                 cellX += columns[column].Width;
             }
@@ -464,6 +552,14 @@ internal static class PdfReportBuilder
         var normalizedStart = start ?? end!.Value;
         var normalizedEnd = end ?? normalizedStart;
         return normalizedEnd < normalizedStart ? (normalizedStart, normalizedStart) : (normalizedStart, normalizedEnd);
+    }
+
+    private static DateOnly? FinalCompletionDate(Project project)
+    {
+        return project.Tasks
+            .Select(task => task.EndDate)
+            .Where(date => date is not null)
+            .Max();
     }
 
     private static bool Overlaps((DateOnly Start, DateOnly End) range, TimelineBucket bucket) => range.Start <= bucket.End && range.End >= bucket.Start;

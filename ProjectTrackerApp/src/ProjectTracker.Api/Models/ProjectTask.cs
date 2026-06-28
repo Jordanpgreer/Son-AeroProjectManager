@@ -10,6 +10,7 @@ public sealed class ProjectTask
     public string Title { get; set; } = string.Empty;
     public string? Phase { get; set; }
     public string? WorkStation { get; set; }
+    public int? DependencyTaskId { get; set; }
     public DateOnly? StartDate { get; set; }
     public bool StartDateLocked { get; set; }
     public DateOnly? OriginalStartDate { get; set; }
