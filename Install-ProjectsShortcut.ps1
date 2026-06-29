@@ -17,7 +17,7 @@ if (-not (Test-Path -LiteralPath $icon)) {
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-$shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$launcher`""
+$shortcut.Arguments = "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$launcher`""
 $shortcut.WorkingDirectory = $root
 $shortcut.IconLocation = $icon
 $shortcut.Description = 'Launch SON-AERO Projects'

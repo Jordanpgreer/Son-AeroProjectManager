@@ -8,6 +8,8 @@ powershell -ExecutionPolicy Bypass -File .\Setup-Projects.ps1
 
 This installs missing prerequisites with `winget`, then creates a desktop shortcut named `Projects` using the SON-AERO red icon. The shortcut runs `Start-Projects.ps1`, which starts the local web app at `http://localhost:5135` and opens it in the default browser.
 
+After pulling application updates, the shortcut automatically rebuilds changed frontend files before launching. If startup fails, it shows an error dialog and writes `projects-launch.out.log` and `projects-launch.err.log` in the project folder.
+
 Requirements for a fresh machine:
 
 - .NET 8 SDK
