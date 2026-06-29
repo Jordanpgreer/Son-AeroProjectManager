@@ -556,10 +556,7 @@ internal static class PdfReportBuilder
 
     private static DateOnly? FinalCompletionDate(Project project)
     {
-        return project.Tasks
-            .Select(task => task.EndDate)
-            .Where(date => date is not null)
-            .Max();
+        return project.CompletedOn;
     }
 
     private static bool Overlaps((DateOnly Start, DateOnly End) range, TimelineBucket bucket) => range.Start <= bucket.End && range.End >= bucket.Start;

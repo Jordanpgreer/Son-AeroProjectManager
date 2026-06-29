@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ProjectTracker.Api.Data;
 
@@ -11,9 +12,11 @@ using ProjectTracker.Api.Data;
 namespace ProjectTracker.Api.Data.Migrations
 {
     [DbContext(typeof(ProjectTrackerDbContext))]
-    partial class ProjectTrackerDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260629151101_AddProjectCompletionDate")]
+    partial class AddProjectCompletionDate
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -126,13 +129,6 @@ namespace ProjectTracker.Api.Data.Migrations
                         .HasMaxLength(160)
                         .HasColumnType("nvarchar(160)");
 
-                    b.Property<string>("Engineer")
-                        .HasMaxLength(120)
-                        .HasColumnType("nvarchar(120)");
-
-                    b.Property<int?>("PriorityRank")
-                        .HasColumnType("int");
-
                     b.Property<string>("ProgramManager")
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)");
@@ -170,90 +166,6 @@ namespace ProjectTracker.Api.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("Projects");
-                });
-
-            modelBuilder.Entity("ProjectTracker.Api.Models.ProjectAuditEntry", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Action")
-                        .IsRequired()
-                        .HasMaxLength(48)
-                        .HasColumnType("nvarchar(48)");
-
-                    b.Property<DateTimeOffset>("ChangedAt")
-                        .HasColumnType("datetimeoffset");
-
-                    b.Property<string>("ChangedByAccountName")
-                        .IsRequired()
-                        .HasMaxLength(160)
-                        .HasColumnType("nvarchar(160)");
-
-                    b.Property<string>("ChangedByDisplayName")
-                        .IsRequired()
-                        .HasMaxLength(160)
-                        .HasColumnType("nvarchar(160)");
-
-                    b.Property<string>("ChangesJson")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int>("ProjectId")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("ProjectTaskId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Summary")
-                        .IsRequired()
-                        .HasMaxLength(240)
-                        .HasColumnType("nvarchar(240)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProjectId", "ChangedAt");
-
-                    b.ToTable("ProjectAuditEntries");
-                });
-
-            modelBuilder.Entity("ProjectTracker.Api.Models.ProjectMessage", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("AuthorAccountName")
-                        .IsRequired()
-                        .HasMaxLength(160)
-                        .HasColumnType("nvarchar(160)");
-
-                    b.Property<string>("AuthorDisplayName")
-                        .IsRequired()
-                        .HasMaxLength(160)
-                        .HasColumnType("nvarchar(160)");
-
-                    b.Property<string>("Body")
-                        .IsRequired()
-                        .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("datetimeoffset");
-
-                    b.Property<int>("ProjectId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProjectId", "CreatedAt");
-
-                    b.ToTable("ProjectMessages");
                 });
 
             modelBuilder.Entity("ProjectTracker.Api.Models.ProjectTask", b =>
@@ -460,28 +372,6 @@ namespace ProjectTracker.Api.Data.Migrations
                     b.ToTable("WorkCenters");
                 });
 
-            modelBuilder.Entity("ProjectTracker.Api.Models.ProjectAuditEntry", b =>
-                {
-                    b.HasOne("ProjectTracker.Api.Models.Project", "Project")
-                        .WithMany("AuditEntries")
-                        .HasForeignKey("ProjectId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Project");
-                });
-
-            modelBuilder.Entity("ProjectTracker.Api.Models.ProjectMessage", b =>
-                {
-                    b.HasOne("ProjectTracker.Api.Models.Project", "Project")
-                        .WithMany("Messages")
-                        .HasForeignKey("ProjectId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Project");
-                });
-
             modelBuilder.Entity("ProjectTracker.Api.Models.ProjectTask", b =>
                 {
                     b.HasOne("ProjectTracker.Api.Models.Project", "Project")
@@ -524,10 +414,6 @@ namespace ProjectTracker.Api.Data.Migrations
 
             modelBuilder.Entity("ProjectTracker.Api.Models.Project", b =>
                 {
-                    b.Navigation("AuditEntries");
-
-                    b.Navigation("Messages");
-
                     b.Navigation("Tasks");
                 });
 

@@ -9,31 +9,42 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronsUpDown,
   Database,
   Check,
+  Eye,
   Factory,
   FileSpreadsheet,
   FileText,
   GanttChartSquare,
   Gauge,
   GripVertical,
+  History,
   LayoutDashboard,
   ListChecks,
   Lock,
+  MessageSquare,
   Pencil,
   Plus,
   RefreshCw,
   Save,
   Search,
+  Send,
   Settings2,
+  ShieldCheck,
   Trash2,
   Unlock,
   UploadCloud,
   X,
+  AtSign,
+  ChevronUp,
+  ZoomIn,
+  ZoomOut,
+  Users,
 } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { FormEvent, ReactNode } from 'react'
+import type { DragEvent, FormEvent, ReactNode } from 'react'
 import './App.css'
 
 type ProjectStatus = 'NotStarted' | 'OnTrack' | 'Behind' | 'Complete'
@@ -59,13 +70,24 @@ type Dashboard = {
   projects: ProjectSummary[]
 }
 
+type ProjectNote = {
+  note: string
+  step: string
+  at: string
+}
+
+type DashboardSortField = 'priority' | 'target' | 'schedule' | 'notes'
+type DashboardSort = { field: DashboardSortField; dir: 'asc' | 'desc' }
+
 type ProjectSummary = {
   id: number
   programName: string
   programManager: string | null
+  engineer: string | null
   customerName: string | null
   salesOrderNumber: string | null
   currentTask: string | null
+  priorityRank: number | null
   progress: number
   targetDelivery: string | null
   finalCompletionDate: string | null
@@ -73,17 +95,20 @@ type ProjectSummary = {
   status: ProjectStatus
   taskCount: number
   behindTaskCount: number
+  recentNote: ProjectNote | null
 }
 
 type ProjectDetail = {
   id: number
   programName: string
   programManager: string | null
+  engineer: string | null
   customerName: string | null
   salesOrderNumber: string | null
   currentTask: string | null
   programStart: string | null
   targetDelivery: string | null
+  completedOn: string | null
   progress: number
   status: ProjectStatus
   tasks: ProjectTask[]
@@ -155,7 +180,35 @@ type TaskForm = {
   overtimeDays: TaskOvertimeDay[]
 }
 
-type ProjectConfirmation = 'complete' | 'delete'
+type ProjectConfirmation = 'complete' | 'delete' | 'reopen'
+
+type ProjectAuditChange = {
+  field: string
+  oldValue: string | null
+  newValue: string | null
+}
+
+type ApplicationRole = 'Admin' | 'Editor' | 'Viewer'
+
+type AdminUser = {
+  id: number
+  accountName: string
+  displayName: string
+  role: ApplicationRole
+  lastSeenAt: string
+}
+
+type ProjectAuditEntry = {
+  id: number
+  projectId: number
+  projectTaskId: number | null
+  action: string
+  summary: string
+  changes: ProjectAuditChange[]
+  changedByAccountName: string
+  changedByDisplayName: string
+  changedAt: string
+}
 
 type ProjectCreateRequest = {
   programName: string
@@ -223,13 +276,16 @@ function App() {
   const [projectActionPending, setProjectActionPending] = useState(false)
   const [projectWizardOpen, setProjectWizardOpen] = useState(false)
   const [overtimeTask, setOvertimeTask] = useState<ProjectTask | null>(null)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [activityOpen, setActivityOpen] = useState(false)
 
   const projectPayload = (
     project: ProjectDetail,
-    patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'customerName' | 'salesOrderNumber'>> = {},
+    patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber'>> = {},
   ) => ({
     programName: patch.programName ?? project.programName,
     programManager: patch.programManager ?? project.programManager,
+    engineer: patch.engineer ?? project.engineer,
     customerName: patch.customerName ?? project.customerName,
     salesOrderNumber: patch.salesOrderNumber ?? project.salesOrderNumber,
   })
@@ -315,6 +371,8 @@ function App() {
       setScreen('project')
     }
     setProjectLoading(true)
+    setChatOpen(false)
+    setActivityOpen(false)
     setError(null)
     try {
       const project = await api<ProjectDetail>(`/api/projects/${projectId}`)
@@ -325,6 +383,16 @@ function App() {
     } finally {
       setProjectLoading(false)
     }
+  }
+
+  async function openActiveProjectWorkspace() {
+    if (selectedProject && selectedProject.status !== 'Complete') {
+      setScreen('project')
+      return
+    }
+
+    const activeProject = dashboard.projects.find((project) => project.status !== 'Complete')
+    if (activeProject) await openProject(activeProject.id)
   }
 
   async function saveTask(event: FormEvent) {
@@ -363,7 +431,7 @@ function App() {
     await loadDashboard()
   }
 
-  async function updateProject(patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'customerName' | 'salesOrderNumber'>>) {
+  async function updateProject(patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber'>>) {
     if (!selectedProject) return
     const project = await api<ProjectDetail>(`/api/projects/${selectedProject.id}`, {
       method: 'PUT',
@@ -380,22 +448,47 @@ function App() {
     setSelectedProject(project)
     setScheduleProjects((current) => current.map((item) => (item.id === project.id ? project : item)))
     storeSelectedProjectId(project.id)
+    setEditMode(false)
     await loadDashboard()
+  }
+
+  async function reopenProject() {
+    if (!selectedProject) return
+    const project = await api<ProjectDetail>(`/api/projects/${selectedProject.id}/reopen`, { method: 'POST' })
+    setSelectedProject(project)
+    setScheduleProjects((current) => current.map((item) => (item.id === project.id ? project : item)))
+    storeSelectedProjectId(project.id)
+    setEditMode(false)
+    await loadDashboard()
+  }
+
+  async function updateProjectPriority(projectId: number, priorityRank: number) {
+    setError(null)
+    try {
+      await api<void>(`/api/projects/${projectId}/priority`, {
+        method: 'PUT',
+        body: JSON.stringify({ priorityRank }),
+      })
+      setDashboard(await api<Dashboard>('/api/dashboard'))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to update project priority.')
+    }
   }
 
   async function deleteProject() {
     if (!selectedProject) return
+    const wasCompleted = selectedProject.status === 'Complete'
     await api<void>(`/api/projects/${selectedProject.id}`, { method: 'DELETE' })
     const data = await api<Dashboard>('/api/dashboard')
     setDashboard(data)
     setScheduleProjects((current) => current.filter((item) => item.id !== selectedProject.id))
-    const nextProject = data.projects[0]
+    const nextProject = data.projects.find((project) => (project.status === 'Complete') === wasCompleted)
     if (nextProject) {
       await openProject(nextProject.id, false)
     } else {
       clearStoredProjectId()
       setSelectedProject(null)
-      setScreen('dashboard')
+      setScreen(wasCompleted ? 'pastProjects' : 'dashboard')
     }
   }
 
@@ -406,6 +499,8 @@ function App() {
     try {
       if (projectConfirmation === 'complete') {
         await completeProject()
+      } else if (projectConfirmation === 'reopen') {
+        await reopenProject()
       } else {
         await deleteProject()
       }
@@ -579,6 +674,12 @@ function App() {
     if (screen !== 'project') setEditMode(false)
   }, [screen])
 
+  useEffect(() => {
+    if (user && !user.isAdmin && (screen === 'settings' || screen === 'import')) {
+      setScreen('dashboard')
+    }
+  }, [screen, user])
+
   const canEdit = Boolean(user?.canEdit)
   const isProjectScreen = screen === 'project'
   const holidaySet = useMemo(() => new Set(holidays.map((holiday) => holiday.date)), [holidays])
@@ -592,6 +693,8 @@ function App() {
         screen={screen}
         setScreen={setScreen}
         selectedProject={selectedProject}
+        hasActiveProjects={dashboard.projects.some((project) => project.status !== 'Complete')}
+        onOpenActiveProjects={openActiveProjectWorkspace}
         user={user}
       />
 
@@ -608,6 +711,10 @@ function App() {
           setPastProjectsSearch={setPastProjectsSearch}
           refresh={refreshCurrent}
           onAddProject={() => setProjectWizardOpen(true)}
+          onOpenActivity={() => {
+            setChatOpen(false)
+            setActivityOpen(true)
+          }}
         />
 
         <div className="main-scroll">
@@ -617,7 +724,7 @@ function App() {
           {!loading && !error && !projectLoading && (
             <>
               {screen === 'dashboard' && (
-                <DashboardView dashboard={dashboard} search={dashboardSearch} onOpenProject={openProject} />
+                <DashboardView dashboard={dashboard} search={dashboardSearch} canEdit={canEdit} onOpenProject={openProject} onMovePriority={updateProjectPriority} />
               )}
               {isProjectScreen && selectedProject && (
                 <ProjectView
@@ -635,7 +742,12 @@ function App() {
                   onDeleteTask={deleteTask}
                   onUpdateProject={updateProject}
                   onCompleteProject={() => setProjectConfirmation('complete')}
+                  onReopenProject={() => setProjectConfirmation('reopen')}
                   onDeleteProject={() => setProjectConfirmation('delete')}
+                  onOpenChat={() => {
+                    setActivityOpen(false)
+                    setChatOpen(true)
+                  }}
                   onEditOvertime={setOvertimeTask}
                   onSaveRow={saveTaskRow}
                   onReorder={reorderTaskRow}
@@ -649,6 +761,7 @@ function App() {
                   holidays={holidays}
                   workCenters={workCenters}
                   canEdit={Boolean(user?.isAdmin)}
+                  currentUser={user}
                   updateWorkCalendar={updateWorkCalendar}
                   addWorkCenter={addWorkCenter}
                   updateWorkCenter={updateWorkCenter}
@@ -696,6 +809,12 @@ function App() {
           onConfirm={confirmProjectAction}
         />
       )}
+      {chatOpen && selectedProject && user && (
+        <ProjectChatDrawer project={selectedProject} currentUser={user} onClose={() => setChatOpen(false)} />
+      )}
+      {activityOpen && selectedProject && (
+        <ProjectActivityDrawer project={selectedProject} onClose={() => setActivityOpen(false)} />
+      )}
     </div>
   )
 }
@@ -708,11 +827,15 @@ function Sidebar({
   screen,
   setScreen,
   selectedProject,
+  hasActiveProjects,
+  onOpenActiveProjects,
   user,
 }: {
   screen: Screen
   setScreen: (screen: Screen) => void
   selectedProject: ProjectDetail | null
+  hasActiveProjects: boolean
+  onOpenActiveProjects: () => Promise<void>
   user: User | null
 }) {
   return (
@@ -725,18 +848,20 @@ function Sidebar({
         <span className="nav-heading">Program Control</span>
         <nav aria-label="Primary">
           <NavButton active={screen === 'dashboard'} onClick={() => setScreen('dashboard')} icon={<LayoutDashboard size={17} />} label="Dashboard" />
-          <NavButton active={screen === 'project'} onClick={() => setScreen('project')} icon={<ListChecks size={17} />} label="Project Detail" disabled={!selectedProject} />
+          <NavButton active={screen === 'project' && selectedProject?.status !== 'Complete'} onClick={() => void onOpenActiveProjects()} icon={<ListChecks size={17} />} label="Project Detail" disabled={!hasActiveProjects} />
           <NavButton active={screen === 'calendar'} onClick={() => setScreen('calendar')} icon={<CalendarRange size={17} />} label="Calendar" />
-          <NavButton active={screen === 'pastProjects'} onClick={() => setScreen('pastProjects')} icon={<Archive size={17} />} label="Past Projects" />
+          <NavButton active={screen === 'pastProjects' || (screen === 'project' && selectedProject?.status === 'Complete')} onClick={() => setScreen('pastProjects')} icon={<Archive size={17} />} label="Past Projects" />
         </nav>
       </div>
 
-      <div className="sidebar-foot">
-        <nav className="foot-nav" aria-label="Secondary">
-          <NavButton active={screen === 'settings'} onClick={() => setScreen('settings')} icon={<Settings2 size={17} />} label="Settings" disabled={!user?.isAdmin} />
-          <NavButton active={screen === 'import'} onClick={() => setScreen('import')} icon={<UploadCloud size={17} />} label="Imports / Admin" disabled={!user?.isAdmin} />
-        </nav>
-      </div>
+      {user?.isAdmin && (
+        <div className="sidebar-foot">
+          <nav className="foot-nav" aria-label="Secondary">
+            <NavButton active={screen === 'settings'} onClick={() => setScreen('settings')} icon={<Settings2 size={17} />} label="Settings" />
+            <NavButton active={screen === 'import'} onClick={() => setScreen('import')} icon={<UploadCloud size={17} />} label="Imports / Admin" />
+          </nav>
+        </div>
+      )}
     </aside>
   )
 }
@@ -778,6 +903,7 @@ function PageHeader({
   setPastProjectsSearch,
   refresh,
   onAddProject,
+  onOpenActivity,
 }: {
   screen: Screen
   selectedProject: ProjectDetail | null
@@ -790,6 +916,7 @@ function PageHeader({
   setPastProjectsSearch: (value: string) => void
   refresh: () => Promise<void>
   onAddProject: () => void
+  onOpenActivity: () => void
 }) {
   const portfolioExports = screen === 'dashboard'
   const pastProjectExports = screen === 'pastProjects'
@@ -803,14 +930,21 @@ function PageHeader({
     <header className="topbar">
       <div className="page-title-block">
         <span className="eyebrow">{screenEyebrow(screen)}</span>
-        <h1>{screenTitle(screen, selectedProject)}</h1>
+        <div className="page-title-row">
+          <h1>{screenTitle(screen, selectedProject)}</h1>
+          {screen === 'project' && selectedProject && (
+            <button className="button ghost page-activity-button" type="button" onClick={onOpenActivity}>
+              <History size={15} /> Activity
+            </button>
+          )}
+        </div>
         {subtitle && <p>{subtitle}</p>}
       </div>
       <div className="topbar-actions">
         <button className="button ghost" onClick={refresh} title="Reload tracker data">
           <RefreshCw size={15} /> Refresh
         </button>
-        {screen === 'project' && canEdit && selectedProject && (
+        {screen === 'project' && canEdit && selectedProject && selectedProject.status !== 'Complete' && (
           <button className={`button ${editMode ? 'primary' : 'ghost'}`} onClick={onToggleEdit} title="Edit the operation grid inline">
             {editMode ? <><Check size={15} /> Done</> : <><Pencil size={15} /> Edit</>}
           </button>
@@ -861,21 +995,50 @@ function PageHeader({
 function DashboardView({
   dashboard,
   search,
+  canEdit,
   onOpenProject,
+  onMovePriority,
 }: {
   dashboard: Dashboard
   search: string
+  canEdit: boolean
   onOpenProject: (projectId: number) => Promise<void>
+  onMovePriority: (projectId: number, priorityRank: number) => Promise<void>
 }) {
   // Completed programs live on the Past Projects page, not here.
+  const [sort, setSort] = useState<DashboardSort>({ field: 'priority', dir: 'asc' })
   const active = dashboard.projects.filter((project) => project.status !== 'Complete')
   const query = search.trim().toLowerCase()
-  const visible = query
-      ? active.filter((project) =>
-        project.programName.toLowerCase().includes(query) ||
-        (project.customerName ?? '').toLowerCase().includes(query) ||
-        (project.salesOrderNumber ?? '').toLowerCase().includes(query))
+  const filtered = query
+    ? active.filter((project) =>
+      project.programName.toLowerCase().includes(query) ||
+      (project.customerName ?? '').toLowerCase().includes(query) ||
+      (project.salesOrderNumber ?? '').toLowerCase().includes(query))
     : active
+
+  const handleSort = (field: DashboardSortField) =>
+    setSort((current) => current.field === field
+      ? { field, dir: current.dir === 'asc' ? 'desc' : 'asc' }
+      : { field, dir: field === 'notes' ? 'desc' : 'asc' })
+
+  const sortValue = (project: ProjectSummary): number | null => {
+    switch (sort.field) {
+      case 'priority': return project.priorityRank
+      case 'target': return project.targetDelivery ? Date.parse(project.targetDelivery) : null
+      case 'schedule': return project.daysLeft
+      case 'notes': return project.recentNote ? Date.parse(project.recentNote.at) : null
+    }
+  }
+
+  const visible = [...filtered].sort((a, b) => {
+    const aValue = sortValue(a)
+    const bValue = sortValue(b)
+    // Always keep empty values last, regardless of direction.
+    if (aValue === null && bValue === null) return (a.priorityRank ?? Number.MAX_SAFE_INTEGER) - (b.priorityRank ?? Number.MAX_SAFE_INTEGER)
+    if (aValue === null) return 1
+    if (bValue === null) return -1
+    return sort.dir === 'asc' ? aValue - bValue : bValue - aValue
+  })
   const total = visible.length
   const onTrack = visible.filter((project) => project.status === 'OnTrack').length
   const behind = visible.filter((project) => project.status === 'Behind').length
@@ -911,7 +1074,7 @@ function DashboardView({
             body={query ? 'Try another part number, sales order number, or customer name.' : 'Import or add programs to begin tracking schedule progress.'}
           />
         ) : (
-          <PortfolioTable projects={visible} onOpenProject={onOpenProject} />
+          <PortfolioTable projects={visible} maxPriority={active.length} canEdit={canEdit} sort={sort} onSort={handleSort} onOpenProject={onOpenProject} onMovePriority={onMovePriority} />
         )}
       </section>
     </section>
@@ -975,7 +1138,8 @@ function PastProjectsTable({ projects, onOpenProject }: { projects: ProjectSumma
           <tr>
             <th>Part / Program</th>
             <th>Customer</th>
-            <th>Manager</th>
+            <th>Contact Lead</th>
+            <th>Engineer</th>
             <th>Target</th>
             <th>Final Completion</th>
             <th className="col-progress">Progress</th>
@@ -985,18 +1149,21 @@ function PastProjectsTable({ projects, onOpenProject }: { projects: ProjectSumma
         </thead>
         <tbody>
           {projects.map((project) => {
+            const hasPerformanceDates = project.targetDelivery !== null && project.finalCompletionDate !== null
             const isLate = project.targetDelivery && project.finalCompletionDate
               ? dateToMs(project.finalCompletionDate) > dateToMs(project.targetDelivery)
               : false
+            const resultLabel = hasPerformanceDates ? (isLate ? 'Late' : 'On Time') : 'Completed'
             return (
               <tr key={project.id} className={`clickable-row rail-${isLate ? 'behind' : 'complete'}`} onClick={() => onOpenProject(project.id)}>
                 <td><span className="mono-id">{project.programName}</span></td>
                 <td className="cell-muted">{project.customerName ?? '—'}</td>
                 <td className="cell-muted">{project.programManager ?? '—'}</td>
+                <td className="cell-muted">{project.engineer ?? '—'}</td>
                 <td className="cell-mono">{compactDate(project.targetDelivery)}</td>
                 <td className="cell-mono">{compactDate(project.finalCompletionDate)}</td>
                 <td className="col-progress"><Progress value={project.progress} status={project.status} /></td>
-                <td className="col-status"><span className={`sched-chip ${isLate ? 'late' : 'done'}`}>{isLate ? 'Late' : 'On Time'}</span></td>
+                <td className="col-status"><span className={`sched-chip ${isLate ? 'late' : 'done'}`}>{resultLabel}</span></td>
                 <td className="cell-go"><ArrowRight size={16} /></td>
               </tr>
             )
@@ -1007,18 +1174,95 @@ function PastProjectsTable({ projects, onOpenProject }: { projects: ProjectSumma
   )
 }
 
-function PortfolioTable({ projects, onOpenProject }: { projects: ProjectSummary[]; onOpenProject: (projectId: number) => Promise<void> }) {
+function PriorityControl({
+  rank,
+  maxPriority,
+  canEdit,
+  programName,
+  onMove,
+}: {
+  rank: number | null
+  maxPriority: number
+  canEdit: boolean
+  programName: string
+  onMove: (rank: number) => Promise<void>
+}) {
+  const tier = rank === null ? 'none' : rank === 1 ? 'top' : rank <= 3 ? 'high' : 'normal'
+  return (
+    <div className="priority-cell">
+      <span className={`priority-badge tier-${tier}`} title={rank ? `Priority ${rank}` : 'No priority'}>{rank ?? '–'}</span>
+      {canEdit && rank && (
+        <span className="priority-move">
+          <button type="button" onClick={() => void onMove(rank - 1)} disabled={rank <= 1} aria-label={`Raise priority of ${programName}`} title="Higher priority"><ChevronUp size={13} /></button>
+          <button type="button" onClick={() => void onMove(rank + 1)} disabled={rank >= maxPriority} aria-label={`Lower priority of ${programName}`} title="Lower priority"><ChevronDown size={13} /></button>
+        </span>
+      )}
+    </div>
+  )
+}
+
+function SortableHeader({
+  label,
+  field,
+  sort,
+  onSort,
+  className = '',
+}: {
+  label: string
+  field: DashboardSortField
+  sort: DashboardSort
+  onSort: (field: DashboardSortField) => void
+  className?: string
+}) {
+  const activeSort = sort.field === field
+  return (
+    <th
+      className={`sortable ${activeSort ? 'sorted' : ''} ${className}`.trim()}
+      onClick={() => onSort(field)}
+      aria-sort={activeSort ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      title={`Sort by ${label.toLowerCase()}`}
+    >
+      <span className="sortable-label">
+        {label}
+        {activeSort
+          ? (sort.dir === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />)
+          : <ChevronsUpDown size={12} className="sort-hint" />}
+      </span>
+    </th>
+  )
+}
+
+function PortfolioTable({
+  projects,
+  maxPriority,
+  canEdit,
+  sort,
+  onSort,
+  onOpenProject,
+  onMovePriority,
+}: {
+  projects: ProjectSummary[]
+  maxPriority: number
+  canEdit: boolean
+  sort: DashboardSort
+  onSort: (field: DashboardSortField) => void
+  onOpenProject: (projectId: number) => Promise<void>
+  onMovePriority: (projectId: number, priorityRank: number) => Promise<void>
+}) {
   return (
     <div className="table-wrap">
       <table className="data-table portfolio-table">
         <thead>
           <tr>
+            <SortableHeader label="Priority" field="priority" sort={sort} onSort={onSort} className="col-priority" />
             <th>Part / Program</th>
             <th>Current Operation</th>
-            <th>Manager</th>
+            <th>Contact Lead</th>
+            <th>Engineer</th>
+            <SortableHeader label="Recent Notes" field="notes" sort={sort} onSort={onSort} className="col-notes" />
             <th className="col-progress">Progress</th>
-            <th>Target</th>
-            <th>Schedule</th>
+            <SortableHeader label="Target" field="target" sort={sort} onSort={onSort} />
+            <SortableHeader label="Schedule" field="schedule" sort={sort} onSort={onSort} />
             <th className="col-status">Status</th>
             <th aria-label="Open" />
           </tr>
@@ -1026,11 +1270,23 @@ function PortfolioTable({ projects, onOpenProject }: { projects: ProjectSummary[
         <tbody>
           {projects.map((project) => (
             <tr key={project.id} className={`clickable-row rail-${statusClass(project.status)}`} onClick={() => onOpenProject(project.id)}>
+              <td className="col-priority" onClick={(event) => event.stopPropagation()}>
+                <PriorityControl rank={project.priorityRank} maxPriority={maxPriority} canEdit={canEdit} programName={project.programName} onMove={(rank) => onMovePriority(project.id, rank)} />
+              </td>
               <td>
                 <span className="mono-id">{project.programName}</span>
               </td>
               <td className="cell-op">{project.currentTask ?? '—'}</td>
               <td className="cell-muted">{project.programManager ?? '—'}</td>
+              <td className="cell-muted">{project.engineer ?? '—'}</td>
+              <td className="col-notes">
+                {project.recentNote ? (
+                  <div className="recent-note" title={`${project.recentNote.step} · ${formatNoteTime(project.recentNote.at)}\n\n${project.recentNote.note}`}>
+                    <span className="recent-note-text">{project.recentNote.note}</span>
+                    <span className="recent-note-meta">{project.recentNote.step} · {formatNoteTime(project.recentNote.at)}</span>
+                  </div>
+                ) : <span className="cell-muted">—</span>}
+              </td>
               <td className="col-progress"><Progress value={project.progress} status={project.status} /></td>
               <td className="cell-mono">{compactDate(project.targetDelivery)}</td>
               <td><ScheduleChip daysLeft={project.daysLeft} status={project.status} /></td>
@@ -1060,18 +1316,21 @@ function ProjectPicker({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
-  const activeProjects = useMemo(
-    () => projects.filter((item) => item.status !== 'Complete'),
-    [projects],
+  const isCompletedProject = project.status === 'Complete'
+  const availableProjects = useMemo(
+    () => projects.filter((item) => (item.status === 'Complete') === isCompletedProject),
+    [isCompletedProject, projects],
   )
   const filteredProjects = useMemo(() => {
     const value = query.trim().toLowerCase()
-    if (!value) return activeProjects
-    return activeProjects.filter((item) =>
+    if (!value) return availableProjects
+    return availableProjects.filter((item) =>
       item.programName.toLowerCase().includes(value) ||
       (item.customerName ?? '').toLowerCase().includes(value) ||
       (item.salesOrderNumber ?? '').toLowerCase().includes(value))
-  }, [activeProjects, query])
+  }, [availableProjects, query])
+
+  const projectTypeLabel = isCompletedProject ? 'completed' : 'active'
 
   useEffect(() => {
     if (!open) return
@@ -1107,7 +1366,7 @@ function ProjectPicker({
       >
         <span>
           <strong>{project.programName}</strong>
-          <small>{project.status === 'Complete' ? 'Completed project' : `${activeProjects.length} active project${activeProjects.length === 1 ? '' : 's'}`}</small>
+          <small>{availableProjects.length} {projectTypeLabel} project{availableProjects.length === 1 ? '' : 's'}</small>
         </span>
         <ChevronDown size={16} />
       </button>
@@ -1118,13 +1377,13 @@ function ProjectPicker({
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search active projects"
+              placeholder={`Search ${projectTypeLabel} projects`}
               autoFocus
             />
           </label>
-          <div className="project-picker-results" role="listbox" aria-label="Active projects">
+          <div className="project-picker-results" role="listbox" aria-label={`${isCompletedProject ? 'Completed' : 'Active'} projects`}>
             {filteredProjects.length === 0 ? (
-              <div className="project-picker-empty">No active projects match your search.</div>
+              <div className="project-picker-empty">No {projectTypeLabel} projects match your search.</div>
             ) : filteredProjects.map((item) => (
               <button
                 type="button"
@@ -1163,6 +1422,7 @@ function ProjectConfirmationDialog({
   onConfirm: () => Promise<void>
 }) {
   const deleting = action === 'delete'
+  const reopening = action === 'reopen'
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -1175,26 +1435,316 @@ function ProjectConfirmationDialog({
   return (
     <div className="modal-backdrop" onClick={() => !pending && onCancel()}>
       <section className="modal confirmation-modal" role="alertdialog" aria-modal="true" aria-labelledby="project-confirmation-title" onClick={(event) => event.stopPropagation()}>
-        <div className={`confirmation-icon ${deleting ? 'danger' : 'complete'}`}>
-          {deleting ? <AlertTriangle size={22} /> : <CheckCircle2 size={22} />}
+        <div className={`confirmation-icon ${deleting ? 'danger' : reopening ? 'reopen' : 'complete'}`}>
+          {deleting ? <AlertTriangle size={22} /> : reopening ? <RefreshCw size={22} /> : <CheckCircle2 size={22} />}
         </div>
         <div className="confirmation-copy">
           <span className="kicker">{deleting ? 'Permanent Action' : 'Project Status'}</span>
-          <h2 id="project-confirmation-title">{deleting ? 'Delete this project?' : 'Complete this project?'}</h2>
+          <h2 id="project-confirmation-title">{deleting ? 'Delete this project?' : reopening ? 'Make this project active?' : 'Complete this project?'}</h2>
           <p>
             {deleting
               ? <><strong>{projectName}</strong> and all of its operations will be permanently deleted. This cannot be undone.</>
+              : reopening
+                ? <><strong>{projectName}</strong> will return to the active project queue. Its final operation will reopen at 0% so scheduling work can continue.</>
               : <><strong>{projectName}</strong> will move to Past Projects and every operation will be marked 100% complete.</>}
           </p>
         </div>
         <div className="modal-actions confirmation-actions">
           <button className="button ghost" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
-          <button className={`button ${deleting ? 'danger-solid' : 'complete-solid'}`} type="button" onClick={onConfirm} disabled={pending} autoFocus>
-            {deleting ? <Trash2 size={15} /> : <CheckCircle2 size={15} />}
-            {pending ? 'Working...' : deleting ? 'Delete Project' : 'Complete Project'}
+          <button className={`button ${deleting ? 'danger-solid' : reopening ? 'primary' : 'complete-solid'}`} type="button" onClick={onConfirm} disabled={pending} autoFocus>
+            {deleting ? <Trash2 size={15} /> : reopening ? <RefreshCw size={15} /> : <CheckCircle2 size={15} />}
+            {pending ? 'Working...' : deleting ? 'Delete Project' : reopening ? 'Make Active' : 'Complete Project'}
           </button>
         </div>
       </section>
+    </div>
+  )
+}
+
+function ProjectChatDrawer({
+  project,
+  currentUser,
+  onClose,
+}: {
+  project: ProjectDetail
+  currentUser: User
+  onClose: () => void
+}) {
+  const [messages, setMessages] = useState<ProjectMessage[]>([])
+  const [users, setUsers] = useState<MentionableUser[]>([])
+  const [draft, setDraft] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const latestMessageIdRef = useRef(0)
+  const messageListRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    let mounted = true
+
+    const mergeMessages = (incoming: ProjectMessage[], replace = false) => {
+      if (!mounted) return
+      setMessages((current) => {
+        const next = replace ? incoming : [...current, ...incoming.filter((message) => !current.some((item) => item.id === message.id))]
+        latestMessageIdRef.current = next.at(-1)?.id ?? 0
+        return next
+      })
+    }
+
+    const loadInitial = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const [initialMessages, mentionUsers] = await Promise.all([
+          api<ProjectMessage[]>(`/api/projects/${project.id}/messages`),
+          api<MentionableUser[]>('/api/users/mentions'),
+        ])
+        mergeMessages(initialMessages, true)
+        if (mounted) setUsers(mentionUsers)
+      } catch (err) {
+        if (mounted) setError(err instanceof Error ? err.message : 'Unable to load project chat.')
+      } finally {
+        if (mounted) setLoading(false)
+      }
+    }
+
+    const poll = async () => {
+      try {
+        const incoming = await api<ProjectMessage[]>(`/api/projects/${project.id}/messages?afterId=${latestMessageIdRef.current}`)
+        mergeMessages(incoming)
+      } catch {
+        // The next poll retries quietly; sending errors remain explicit.
+      }
+    }
+
+    void loadInitial()
+    const interval = window.setInterval(() => void poll(), 8000)
+    return () => {
+      mounted = false
+      window.clearInterval(interval)
+    }
+  }, [project.id])
+
+  useEffect(() => {
+    messageListRef.current?.scrollTo({ top: messageListRef.current.scrollHeight, behavior: loading ? 'auto' : 'smooth' })
+  }, [loading, messages])
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
+
+  const mentionMatch = draft.match(/(^|\s)@([A-Za-z0-9._-]*)$/)
+  const mentionQuery = mentionMatch?.[2].toLowerCase() ?? ''
+  const mentionSuggestions = mentionMatch
+    ? users
+      .filter((user) =>
+        user.mentionHandle.toLowerCase().includes(mentionQuery) ||
+        user.displayName.toLowerCase().includes(mentionQuery))
+      .slice(0, 5)
+    : []
+
+  const insertMention = (user: MentionableUser) => {
+    if (!mentionMatch) return
+    const beforeMention = draft.slice(0, draft.length - mentionMatch[0].length)
+    setDraft(`${beforeMention}${mentionMatch[1]}@${user.mentionHandle} `)
+  }
+
+  const sendMessage = async () => {
+    const body = draft.trim()
+    if (!body || sending) return
+    setSending(true)
+    setError(null)
+    try {
+      const message = await api<ProjectMessage>(`/api/projects/${project.id}/messages`, {
+        method: 'POST',
+        body: JSON.stringify({ body }),
+      })
+      setMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message])
+      latestMessageIdRef.current = message.id
+      setDraft('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to send the message.')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="chat-backdrop" onClick={onClose}>
+      <aside className="project-chat" role="dialog" aria-modal="true" aria-labelledby="project-chat-title" onClick={(event) => event.stopPropagation()}>
+        <header className="chat-head">
+          <div>
+            <span className="kicker">Project Communication</span>
+            <h2 id="project-chat-title">Project Chat</h2>
+            <p>{project.programName}</p>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close project chat"><X size={17} /></button>
+        </header>
+
+        <div className="chat-messages" ref={messageListRef} aria-live="polite">
+          {loading ? (
+            <div className="chat-loading" aria-label="Loading messages">
+              <SkeletonLine width="58%" /><SkeletonLine width="76%" /><SkeletonLine width="48%" />
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="chat-empty">
+              <MessageSquare size={21} />
+              <strong>No messages yet</strong>
+              <span>Start the project conversation below.</span>
+            </div>
+          ) : messages.map((message) => {
+            const own = message.authorAccountName.toLowerCase() === currentUser.accountName.toLowerCase()
+            return (
+              <article className={`chat-message ${own ? 'own' : ''}`} key={message.id}>
+                <div className="chat-avatar" aria-hidden="true">{userInitials(message.authorDisplayName)}</div>
+                <div className="chat-message-content">
+                  <header><strong>{message.authorDisplayName}</strong><time dateTime={message.createdAt}>{formatChatTime(message.createdAt)}</time></header>
+                  <p>{renderChatMessage(message.body)}</p>
+                </div>
+              </article>
+            )
+          })}
+        </div>
+
+        <footer className="chat-composer">
+          {error && <div className="chat-error" role="alert"><AlertTriangle size={14} /><span>{error}</span></div>}
+          <div className="chat-input-wrap">
+            {mentionSuggestions.length > 0 && (
+              <div className="mention-menu" role="listbox" aria-label="Mention a user">
+                {mentionSuggestions.map((mentionUser) => (
+                  <button type="button" role="option" aria-selected="false" key={mentionUser.accountName} onClick={() => insertMention(mentionUser)}>
+                    <span className="chat-avatar small">{userInitials(mentionUser.displayName)}</span>
+                    <span><strong>{mentionUser.displayName}</strong><small>@{mentionUser.mentionHandle}</small></span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <textarea
+              value={draft}
+              onChange={(event) => setDraft(event.target.value.slice(0, 2000))}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || event.shiftKey) return
+                event.preventDefault()
+                if (mentionSuggestions.length > 0) insertMention(mentionSuggestions[0])
+                else void sendMessage()
+              }}
+              placeholder="Write a message... Use @ to tag someone"
+              aria-label="Project message"
+              rows={3}
+            />
+            <div className="chat-composer-meta">
+              <span><AtSign size={13} /> Tag users with @</span>
+              <span>{draft.length}/2000</span>
+            </div>
+          </div>
+          <button className="button primary chat-send" type="button" onClick={() => void sendMessage()} disabled={!draft.trim() || sending}>
+            <Send size={15} /> {sending ? 'Sending' : 'Send'}
+          </button>
+        </footer>
+      </aside>
+    </div>
+  )
+}
+
+function ProjectActivityDrawer({ project, onClose }: { project: ProjectDetail; onClose: () => void }) {
+  const [entries, setEntries] = useState<ProjectAuditEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  async function loadActivity() {
+    setLoading(true)
+    setError(null)
+    try {
+      setEntries(await api<ProjectAuditEntry[]>(`/api/projects/${project.id}/activity`))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load project activity.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadActivity()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  return (
+    <div className="chat-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose()
+    }}>
+      <aside className="project-chat activity-drawer" role="dialog" aria-modal="true" aria-label="Project Activity Log">
+        <header className="chat-head">
+          <div>
+            <span className="kicker">Project History</span>
+            <h2>Activity Log</h2>
+            <p>{project.programName}</p>
+          </div>
+          <div className="drawer-head-actions">
+            <button className="icon-button" type="button" onClick={() => void loadActivity()} aria-label="Refresh activity log" title="Refresh activity log"><RefreshCw size={16} /></button>
+            <button className="icon-button" type="button" onClick={onClose} aria-label="Close activity log"><X size={17} /></button>
+          </div>
+        </header>
+
+        <div className="activity-list" aria-live="polite">
+          {loading ? (
+            <div className="chat-loading" aria-label="Loading activity log">
+              {[0, 1, 2, 3].map((item) => <div className="skeleton-line" style={{ height: 92 }} key={item} />)}
+            </div>
+          ) : error ? (
+            <div className="chat-empty">
+              <AlertTriangle size={22} />
+              <strong>Activity unavailable</strong>
+              <span>{error}</span>
+              <button className="button ghost" type="button" onClick={() => void loadActivity()}><RefreshCw size={14} /> Retry</button>
+            </div>
+          ) : entries.length === 0 ? (
+            <div className="chat-empty">
+              <History size={23} />
+              <strong>No recorded activity yet</strong>
+              <span>Future project and operation changes will appear here.</span>
+            </div>
+          ) : entries.map((entry) => (
+            <article className="activity-entry" key={entry.id}>
+              <div className={`activity-marker action-${activityActionClass(entry.action)}`} aria-hidden="true">
+                {activityActionIcon(entry.action)}
+              </div>
+              <div className="activity-entry-body">
+                <header>
+                  <strong>{entry.summary}</strong>
+                  <time dateTime={entry.changedAt}>{formatActivityTime(entry.changedAt)}</time>
+                </header>
+                <p className="activity-actor">{entry.changedByDisplayName}</p>
+                {entry.changes.length > 0 && (
+                  <div className="activity-changes">
+                    {entry.changes.map((change, index) => (
+                      <div className="activity-change" key={`${entry.id}-${change.field}-${index}`}>
+                        <span>{change.field}</span>
+                        <div>
+                          <del>{change.oldValue || '—'}</del>
+                          <ChevronRight size={11} />
+                          <ins>{change.newValue || '—'}</ins>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </article>
+          ))}
+        </div>
+      </aside>
     </div>
   )
 }
@@ -1214,7 +1764,9 @@ function ProjectView({
   onDeleteTask,
   onUpdateProject,
   onCompleteProject,
+  onReopenProject,
   onDeleteProject,
+  onOpenChat,
   onEditOvertime,
   onSaveRow,
   onReorder,
@@ -1231,9 +1783,11 @@ function ProjectView({
   onEditTask: (task: ProjectTask) => void
   onAddTask: () => void
   onDeleteTask: (taskId: number) => Promise<void>
-  onUpdateProject: (patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'customerName' | 'salesOrderNumber'>>) => Promise<void>
+  onUpdateProject: (patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber'>>) => Promise<void>
   onCompleteProject: () => void
+  onReopenProject: () => void
   onDeleteProject: () => void
+  onOpenChat: () => void
   onEditOvertime: (task: ProjectTask) => void
   onSaveRow: (row: ProjectTask) => Promise<ProjectTask>
   onReorder: (row: ProjectTask, position: number) => Promise<void>
@@ -1242,21 +1796,33 @@ function ProjectView({
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null)
   const [noteDraft, setNoteDraft] = useState('')
   const [savingNoteId, setSavingNoteId] = useState<number | null>(null)
+  const [noteSaveError, setNoteSaveError] = useState<string | null>(null)
   const [projectMeta, setProjectMeta] = useState({
+    programManager: project.programManager ?? '',
+    engineer: project.engineer ?? '',
     customerName: project.customerName ?? '',
     salesOrderNumber: project.salesOrderNumber ?? '',
   })
+  const isCompleted = project.status === 'Complete'
+  const canModify = canEdit && !isCompleted
   const daysLeft = calculateDaysLeft(project.targetDelivery)
   const total = project.tasks.length
   const overdue = daysLeft !== null && daysLeft < 0
-  const operationColSpan = canEdit ? 9 : 8
+  const hasCompletionResult = project.completedOn !== null && project.targetDelivery !== null
+  const completedLate = project.completedOn && project.targetDelivery
+    ? dateToMs(project.completedOn) > dateToMs(project.targetDelivery)
+    : false
+  const completionResult = hasCompletionResult ? (completedLate ? 'Late' : 'On time') : 'Completed'
+  const operationColSpan = canModify ? 9 : 8
 
   useEffect(() => {
     setProjectMeta({
+      programManager: project.programManager ?? '',
+      engineer: project.engineer ?? '',
       customerName: project.customerName ?? '',
       salesOrderNumber: project.salesOrderNumber ?? '',
     })
-  }, [project.id, project.customerName, project.salesOrderNumber])
+  }, [project.id, project.programManager, project.engineer, project.customerName, project.salesOrderNumber])
 
   const toggleTaskNotes = (task: ProjectTask) => {
     if (expandedTaskId === task.id) {
@@ -1266,6 +1832,7 @@ function ProjectView({
 
     setExpandedTaskId(task.id)
     setNoteDraft(task.notes ?? '')
+    setNoteSaveError(null)
   }
 
   const saveTaskNote = async (task: ProjectTask) => {
@@ -1273,12 +1840,17 @@ function ProjectView({
     try {
       const updated = await onSaveRow({ ...task, notes: noteDraft.trim() || null })
       setNoteDraft(updated.notes ?? '')
+      setNoteSaveError(null)
+    } catch (error) {
+      setNoteSaveError(error instanceof Error ? error.message : 'The operation note could not be saved.')
     } finally {
       setSavingNoteId(null)
     }
   }
 
   const saveProjectMeta = () => onUpdateProject({
+    programManager: projectMeta.programManager.trim() || null,
+    engineer: projectMeta.engineer.trim() || null,
     customerName: projectMeta.customerName.trim() || null,
     salesOrderNumber: projectMeta.salesOrderNumber.trim() || null,
   })
@@ -1291,14 +1863,33 @@ function ProjectView({
           <div className="program-sub">
             <span className="program-current-inline"><span className="dot active" />{project.currentTask ?? 'No current operation'}</span>
             <span className="program-facts">
-              <span><i>Mgr</i> {project.programManager ?? 'Unassigned'}</span>
+              <span><i>Lead</i> {project.programManager || 'Unassigned'}</span>
+              <span><i>Eng</i> {project.engineer || 'Unassigned'}</span>
               {!editMode && <span><i>Customer</i> {project.customerName || 'Not set'}</span>}
               {!editMode && <span><i>SO</i> {project.salesOrderNumber || 'Not set'}</span>}
               <span><i>Target</i> <b className="cell-mono">{compactDate(project.targetDelivery)}</b></span>
             </span>
           </div>
-          {editMode && (
+          {editMode && canModify && (
             <div className="program-meta-grid">
+              <label>
+                <span>Contact Lead</span>
+                <input
+                  className="cell-input"
+                  value={projectMeta.programManager}
+                  onChange={(event) => setProjectMeta((current) => ({ ...current, programManager: event.target.value }))}
+                  placeholder="Contact lead"
+                />
+              </label>
+              <label>
+                <span>Engineer</span>
+                <input
+                  className="cell-input"
+                  value={projectMeta.engineer}
+                  onChange={(event) => setProjectMeta((current) => ({ ...current, engineer: event.target.value }))}
+                  placeholder="Assigned engineer"
+                />
+              </label>
               <label>
                 <span>Customer Name</span>
                 <input
@@ -1323,18 +1914,32 @@ function ProjectView({
         </div>
         <div className="stat-strip">
           <div className="stat-chip"><span className="kicker">Status</span><StatusBadge status={project.status} /></div>
-          <div className={`stat-chip ${overdue ? 'is-risk' : ''}`}><span className="kicker">Schedule</span><strong>{formatDays(daysLeft)}</strong></div>
-          <div className="stat-chip wide"><span className="kicker">Completion</span><Progress value={project.progress} status={project.status} /></div>
-          {canEdit && (
-            <div className="project-actions">
-              <button className="button ghost" onClick={onCompleteProject} disabled={project.status === 'Complete'}><CheckCircle2 size={15} /> Complete Project</button>
-              <button className="button danger" onClick={onDeleteProject}><Trash2 size={15} /> Delete Project</button>
+          {isCompleted ? (
+            <div className={`stat-chip ${completedLate ? 'is-risk' : ''}`}>
+              <span className="kicker">Result</span>
+              <strong>{completionResult} <small>{compactDate(project.completedOn)}</small></strong>
             </div>
+          ) : (
+            <div className={`stat-chip ${overdue ? 'is-risk' : ''}`}><span className="kicker">Schedule</span><strong>{formatDays(daysLeft)}</strong></div>
           )}
+          <div className="stat-chip wide"><span className="kicker">Completion</span><Progress value={project.progress} status={project.status} /></div>
+          <div className="project-actions">
+            <button className="button ghost" onClick={onOpenChat}><MessageSquare size={15} /> Chat</button>
+            {canEdit && (
+              <>
+              {isCompleted ? (
+                <button className="button ghost" onClick={onReopenProject}><RefreshCw size={15} /> Make Active</button>
+              ) : (
+                <button className="button ghost" onClick={onCompleteProject}><CheckCircle2 size={15} /> Complete Project</button>
+              )}
+              <button className="button danger" onClick={onDeleteProject}><Trash2 size={15} /> Delete Project</button>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
-      {editMode ? (
+      {editMode && canModify ? (
         <OpsEditGrid project={project} holidaySet={holidaySet} workingDaySet={workingDaySet} workStations={workStations} conflictKeys={conflictKeys} onSaveRow={onSaveRow} onReorder={onReorder} onDeleteTask={onDeleteTask} onAddTask={onAddTask} onEditOvertime={onEditOvertime} />
       ) : (
         <div className={`program-workspace ${ganttOpen ? 'is-open' : ''}`}>
@@ -1344,7 +1949,7 @@ function ProjectView({
                 <span className="kicker">Operation Grid</span>
                 <h2>Schedule Tasks · {total} ops</h2>
               </div>
-              {canEdit && <button className="button primary" onClick={onAddTask}><Plus size={15} /> Add Operation</button>}
+              {canModify && <button className="button primary" onClick={onAddTask}><Plus size={15} /> Add Operation</button>}
             </header>
             <div className="table-wrap">
               <table className="data-table ops-table">
@@ -1358,7 +1963,7 @@ function ProjectView({
                     <th className="col-num opt-col">Dur</th>
                     <th className="col-progress">Complete</th>
                     <th className="col-status">Status</th>
-                    {canEdit && <th aria-label="Actions" />}
+                    {canModify && <th aria-label="Actions" />}
                   </tr>
                 </thead>
                 <tbody>
@@ -1386,7 +1991,7 @@ function ProjectView({
                           <td className="col-num cell-mono opt-col">{task.estimatedDuration ?? '—'}</td>
                           <td className="col-progress"><Progress value={task.percentComplete} status={task.status} compact /></td>
                           <td className="col-status"><StatusBadge status={task.status} /></td>
-                          {canEdit && (
+                          {canModify && (
                             <td className="row-actions">
                               <button className="icon-button" onClick={(event) => { event.stopPropagation(); onEditTask(task) }} title="Edit operation">Edit</button>
                               <button className="icon-button" onClick={(event) => { event.stopPropagation(); onEditOvertime(task) }} aria-label={`Overtime dates for ${task.title}`} title="Approved overtime"><CalendarPlus size={14} /></button>
@@ -1399,27 +2004,38 @@ function ProjectView({
                         {isExpanded && (
                           <tr className="operation-notes-row">
                             <td colSpan={operationColSpan}>
-                              <form
-                                className="operation-notes"
-                                onClick={(event) => event.stopPropagation()}
-                                onSubmit={(event) => {
-                                  event.preventDefault()
-                                  saveTaskNote(task)
-                                }}
-                              >
-                                <span className="kicker">Notes</span>
-                                <textarea
-                                  value={noteDraft}
-                                  onChange={(event) => setNoteDraft(event.target.value)}
-                                  placeholder="Add notes for this operation"
-                                />
-                                <div className="operation-notes-actions">
-                                  <button className="button primary" type="submit" disabled={savingNoteId === task.id}>
-                                    {savingNoteId === task.id ? 'Saving...' : 'Save Note'}
-                                  </button>
-                                  <button className="button ghost" type="button" onClick={() => setExpandedTaskId(null)}>Cancel</button>
+                              {canModify ? (
+                                <form
+                                  className="operation-notes"
+                                  onClick={(event) => event.stopPropagation()}
+                                  onSubmit={(event) => {
+                                    event.preventDefault()
+                                    saveTaskNote(task)
+                                  }}
+                                >
+                                  <span className="kicker">Notes</span>
+                                  <textarea
+                                    value={noteDraft}
+                                    onChange={(event) => setNoteDraft(event.target.value)}
+                                    placeholder="Add notes for this operation"
+                                  />
+                                  {noteSaveError && <p className="inline-note warning" role="alert"><AlertTriangle size={14} /> {noteSaveError}</p>}
+                                  <div className="operation-notes-actions">
+                                    <button className="button primary" type="submit" disabled={savingNoteId === task.id}>
+                                      {savingNoteId === task.id ? 'Saving...' : 'Save Note'}
+                                    </button>
+                                    <button className="button ghost" type="button" onClick={() => setExpandedTaskId(null)}>Cancel</button>
+                                  </div>
+                                </form>
+                              ) : (
+                                <div className="operation-notes readonly-note" onClick={(event) => event.stopPropagation()}>
+                                  <span className="kicker">Notes</span>
+                                  <p>{task.notes || 'No notes recorded for this operation.'}</p>
+                                  <div className="operation-notes-actions">
+                                    <button className="button ghost" type="button" onClick={() => setExpandedTaskId(null)}>Close</button>
+                                  </div>
                                 </div>
-                              </form>
+                              )}
                             </td>
                           </tr>
                         )}
@@ -1472,6 +2088,7 @@ function OpsEditGrid({
   const [rows, setRows] = useState<ProjectTask[]>(project.tasks)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const rowsRef = useRef(rows)
   rowsRef.current = rows
 
@@ -1518,15 +2135,26 @@ function OpsEditGrid({
   const updateScheduleField = (id: number, patch: Partial<ProjectTask>) =>
     setRows((current) => buildScheduledRows(current, id, patch))
 
+  const handleSaveError = (error: unknown) => {
+    setRows(project.tasks)
+    setSaveError(error instanceof Error ? error.message : 'The operation change could not be saved. Your last saved values have been restored.')
+  }
+
+  const persistRow = async (row: ProjectTask) => {
+    setSaveError(null)
+    try {
+      const saved = await onSaveRow(row)
+      setRows((current) => current.map((item) => (item.id === saved.id ? saved : item)))
+    } catch (error) {
+      handleSaveError(error)
+    }
+  }
+
   const toggleStartLock = (row: ProjectTask) => {
     const nextRows = buildScheduledRows(rowsRef.current, row.id, { startDateLocked: !row.startDateLocked })
     setRows(nextRows)
     const updated = nextRows.find((item) => item.id === row.id)
-    if (updated) {
-      onSaveRow(updated)
-        .then((saved) => setRows((current) => current.map((item) => (item.id === saved.id ? saved : item))))
-        .catch(() => undefined)
-    }
+    if (updated) void persistRow(updated)
   }
 
   const completeRow = (row: ProjectTask) => {
@@ -1540,11 +2168,7 @@ function OpsEditGrid({
     })
     setRows(nextRows)
     const updated = nextRows.find((item) => item.id === row.id)
-    if (updated) {
-      onSaveRow(updated)
-        .then((saved) => setRows((current) => current.map((item) => (item.id === saved.id ? saved : item))))
-        .catch(() => undefined)
-    }
+    if (updated) void persistRow(updated)
   }
 
   const renumber = (list: ProjectTask[]) => list.map((row, index) => ({ ...row, sequence: index + 1, externalTaskId: String(index + 1) }))
@@ -1552,12 +2176,10 @@ function OpsEditGrid({
   const commit = (id: number) => {
     const row = rowsRef.current.find((item) => item.id === id)
     if (!row) return
-    onSaveRow(row)
-      .then((updated) => setRows((current) => current.map((item) => (item.id === updated.id ? updated : item))))
-      .catch(() => undefined)
+    void persistRow(row)
   }
 
-  const handleDrop = (targetIndex: number) => {
+  const handleDrop = async (targetIndex: number) => {
     if (dragIndex === null || dragIndex === targetIndex) { setDragIndex(null); setOverIndex(null); return }
     const next = [...rows]
     const [moved] = next.splice(dragIndex, 1)
@@ -1565,12 +2187,22 @@ function OpsEditGrid({
     setRows(renumber(next))
     setDragIndex(null)
     setOverIndex(null)
-    onReorder(moved, targetIndex + 1).catch(() => undefined)
+    setSaveError(null)
+    try {
+      await onReorder(moved, targetIndex + 1)
+    } catch (error) {
+      handleSaveError(error)
+    }
   }
 
-  const removeRow = (row: ProjectTask) => {
+  const removeRow = async (row: ProjectTask) => {
     setRows((current) => renumber(current.filter((item) => item.id !== row.id)))
-    onDeleteTask(row.id).catch(() => undefined)
+    setSaveError(null)
+    try {
+      await onDeleteTask(row.id)
+    } catch (error) {
+      handleSaveError(error)
+    }
   }
 
   return (
@@ -1582,6 +2214,13 @@ function OpsEditGrid({
         </div>
         <button className="button primary" onClick={onAddTask}><Plus size={15} /> Add Operation</button>
       </header>
+      {saveError && (
+        <div className="inline-save-error" role="alert">
+          <AlertTriangle size={15} />
+          <span>{saveError}</span>
+          <button type="button" className="icon-button" onClick={() => setSaveError(null)} aria-label="Dismiss save error"><X size={14} /></button>
+        </div>
+      )}
       <div className="table-wrap">
         <table className="data-table ops-table edit-table">
           <thead>
@@ -1610,7 +2249,7 @@ function OpsEditGrid({
                   key={row.id}
                   className={`edit-row rail-${statusClass(row.status)} ${overIndex === index ? 'drop-target' : ''} ${dragIndex === index ? 'dragging' : ''}`}
                   onDragOver={(event) => { event.preventDefault(); if (overIndex !== index) setOverIndex(index) }}
-                  onDrop={() => handleDrop(index)}
+                  onDrop={() => void handleDrop(index)}
                 >
                   <td className="col-drag">
                     <span
@@ -1674,10 +2313,10 @@ function OpsEditGrid({
                     </div>
                   </td>
                   <td className="row-actions">
-                    <button className="icon-button" onClick={() => { update(row.id, { percentCompleteManual: false }); onSaveRow({ ...row, percentCompleteManual: false }).catch(() => undefined) }} title="Use automatic percent">Auto</button>
+                    <button className="icon-button" onClick={() => { update(row.id, { percentCompleteManual: false }); void persistRow({ ...row, percentCompleteManual: false }) }} title="Use automatic percent">Auto</button>
                     <button className="icon-button" onClick={() => completeRow(row)} title="Complete operation"><CheckCircle2 size={14} /></button>
                     <button className="icon-button" onClick={() => onEditOvertime(row)} aria-label={`Overtime dates for ${row.title}`} title="Approved overtime"><CalendarPlus size={14} /></button>
-                    <button className="icon-button danger" onClick={() => removeRow(row)} aria-label={`Delete ${row.title}`} title="Delete step"><Trash2 size={14} /></button>
+                    <button className="icon-button danger" onClick={() => void removeRow(row)} aria-label={`Delete ${row.title}`} title="Delete step"><Trash2 size={14} /></button>
                   </td>
                 </tr>
               )
@@ -1702,6 +2341,30 @@ type GanttItem = {
   width: number
 }
 
+type ProjectMessage = {
+  id: number
+  projectId: number
+  authorAccountName: string
+  authorDisplayName: string
+  body: string
+  createdAt: string
+}
+
+type MentionableUser = {
+  accountName: string
+  displayName: string
+  mentionHandle: string
+}
+
+const ganttZoomLevels = [
+  { label: '25%', dayWidth: 6.5 },
+  { label: '50%', dayWidth: 13 },
+  { label: '75%', dayWidth: 20 },
+  { label: '100%', dayWidth: 26 },
+  { label: '125%', dayWidth: 34 },
+]
+const defaultGanttZoomIndex = 3
+
 function Gantt({
   tasks,
   programStart,
@@ -1716,6 +2379,9 @@ function Gantt({
   onCollapse?: () => void
 }) {
   const ganttScrollRef = useRef<HTMLDivElement>(null)
+  const pendingScrollCenterRef = useRef<number | null>(null)
+  const [zoomIndex, setZoomIndex] = useState(defaultGanttZoomIndex)
+  const zoom = ganttZoomLevels[zoomIndex]
   const { items, range, months, weekTicks, shades, todayLeft, projectedCount } = useMemo(
     () => buildSchedule(tasks, programStart, holidaySet, workingDaySet),
     [tasks, programStart, holidaySet, workingDaySet],
@@ -1741,6 +2407,30 @@ function Gantt({
     return () => element.removeEventListener('wheel', handleWheel)
   }, [range])
 
+  useEffect(() => {
+    const centerRatio = pendingScrollCenterRef.current
+    const element = ganttScrollRef.current
+    if (centerRatio === null || !element) return undefined
+
+    const frame = requestAnimationFrame(() => {
+      const nextLeft = centerRatio * element.scrollWidth - element.clientWidth / 2
+      element.scrollLeft = Math.max(0, Math.min(element.scrollWidth - element.clientWidth, nextLeft))
+      pendingScrollCenterRef.current = null
+    })
+
+    return () => cancelAnimationFrame(frame)
+  }, [zoom.dayWidth])
+
+  const changeZoom = (nextIndex: number) => {
+    if (nextIndex < 0 || nextIndex >= ganttZoomLevels.length || nextIndex === zoomIndex) return
+
+    const element = ganttScrollRef.current
+    if (element && element.scrollWidth > 0) {
+      pendingScrollCenterRef.current = (element.scrollLeft + element.clientWidth / 2) / element.scrollWidth
+    }
+    setZoomIndex(nextIndex)
+  }
+
   const collapseButton = onCollapse && (
     <button className="gantt-collapse" onClick={onCollapse} title="Collapse Gantt schedule">
       Collapse <ChevronLeft size={15} />
@@ -1761,9 +2451,8 @@ function Gantt({
   }
 
   const totalMs = range.end - range.start
-  const dayWidth = 26
   const totalDays = Math.max(1, Math.round(totalMs / dayMs))
-  const trackWidth = Math.max(760, totalDays * dayWidth)
+  const trackWidth = Math.max(760, totalDays * zoom.dayWidth)
   const pct = (ms: number) => ((ms - range.start) / totalMs) * 100
 
   return (
@@ -1783,6 +2472,27 @@ function Gantt({
             <span><i className="legend-swatch complete" /> Complete</span>
             <span><i className="legend-swatch projected" /> Projected</span>
             <span><i className="legend-today" /> Today</span>
+          </div>
+          <div className="gantt-zoom" aria-label="Timeline zoom controls">
+            <button
+              type="button"
+              onClick={() => changeZoom(zoomIndex - 1)}
+              disabled={zoomIndex === 0}
+              aria-label="Zoom out timeline"
+              title="Zoom out timeline"
+            >
+              <ZoomOut size={14} />
+            </button>
+            <span className="gantt-zoom-value" aria-live="polite">{zoom.label}</span>
+            <button
+              type="button"
+              onClick={() => changeZoom(zoomIndex + 1)}
+              disabled={zoomIndex === ganttZoomLevels.length - 1}
+              aria-label="Zoom in timeline"
+              title="Zoom in timeline"
+            >
+              <ZoomIn size={14} />
+            </button>
           </div>
         </div>
       </header>
@@ -1880,13 +2590,14 @@ function ShadeLayer({ shades, pct }: { shades: { start: number; end: number; hol
 /* Holidays / Import                                                      */
 /* ---------------------------------------------------------------------- */
 
-type SettingsTab = 'calendar' | 'workCenters' | 'holidays'
+type SettingsTab = 'calendar' | 'workCenters' | 'holidays' | 'roles'
 
 function SettingsView({
   scheduleSettings,
   holidays,
   workCenters,
   canEdit,
+  currentUser,
   updateWorkCalendar,
   addWorkCenter,
   updateWorkCenter,
@@ -1899,6 +2610,7 @@ function SettingsView({
   holidays: Holiday[]
   workCenters: WorkCenter[]
   canEdit: boolean
+  currentUser: User | null
   updateWorkCalendar: (days: DayOfWeekName[]) => Promise<void>
   addWorkCenter: (name: string) => Promise<void>
   updateWorkCenter: (id: number, name: string) => Promise<void>
@@ -1944,6 +2656,7 @@ function SettingsView({
         <button className={tab === 'calendar' ? 'active' : ''} onClick={() => setTab('calendar')}><CalendarRange size={16} /> Work Calendar</button>
         <button className={tab === 'workCenters' ? 'active' : ''} onClick={() => setTab('workCenters')}><Factory size={16} /> Work Centers</button>
         <button className={tab === 'holidays' ? 'active' : ''} onClick={() => setTab('holidays')}><CalendarDays size={16} /> Holidays</button>
+        <button className={tab === 'roles' ? 'active' : ''} onClick={() => setTab('roles')}><Users size={16} /> User Roles</button>
       </nav>
 
       {tab === 'calendar' && (
@@ -1983,6 +2696,7 @@ function SettingsView({
       {tab === 'holidays' && (
         <HolidayView holidays={holidays} canEdit={canEdit} addHolidayRange={addHolidayRange} updateHoliday={updateHoliday} deleteHoliday={deleteHoliday} embedded />
       )}
+      {tab === 'roles' && <UserRolesPanel currentUser={currentUser} />}
 
       {confirming && (
         <div className="modal-backdrop" onClick={() => !saving && setConfirming(false)}>
@@ -2000,6 +2714,176 @@ function SettingsView({
           </section>
         </div>
       )}
+    </section>
+  )
+}
+
+const roleDefinitions: { role: ApplicationRole; label: string; description: string; icon: ReactNode }[] = [
+  { role: 'Admin', label: 'Admin', description: 'All pages, settings, imports, and editing.', icon: <ShieldCheck size={16} /> },
+  { role: 'Editor', label: 'Edit', description: 'Project pages with full project editing.', icon: <Pencil size={15} /> },
+  { role: 'Viewer', label: 'View Only', description: 'Project pages without edit controls.', icon: <Eye size={16} /> },
+]
+
+function UserRolesPanel({ currentUser }: { currentUser: User | null }) {
+  const [users, setUsers] = useState<AdminUser[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [draggedUserId, setDraggedUserId] = useState<number | null>(null)
+  const [dragOverRole, setDragOverRole] = useState<ApplicationRole | null>(null)
+  const [movingUserId, setMovingUserId] = useState<number | null>(null)
+
+  async function loadUsers() {
+    setLoading(true)
+    setError(null)
+    try {
+      setUsers(await api<AdminUser[]>('/api/admin/users'))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load user roles.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadUsers()
+  }, [])
+
+  async function moveUser(userId: number, role: ApplicationRole) {
+    const existing = users.find((user) => user.id === userId)
+    if (!existing || existing.role === role || movingUserId !== null) return
+
+    setMovingUserId(userId)
+    setError(null)
+    try {
+      const updated = await api<AdminUser>(`/api/admin/users/${userId}/role`, {
+        method: 'PUT',
+        body: JSON.stringify({ role }),
+      })
+      setUsers((current) => current.map((user) => user.id === userId ? updated : user))
+      if (currentUser?.accountName.toLowerCase() === updated.accountName.toLowerCase()) {
+        window.location.reload()
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to update this user role.')
+    } finally {
+      setMovingUserId(null)
+      setDraggedUserId(null)
+      setDragOverRole(null)
+    }
+  }
+
+  function startDrag(event: DragEvent<HTMLElement>, userId: number) {
+    setDraggedUserId(userId)
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', String(userId))
+  }
+
+  function dropOnRole(event: DragEvent<HTMLElement>, role: ApplicationRole) {
+    event.preventDefault()
+    const transferredId = Number(event.dataTransfer.getData('text/plain'))
+    const userId = draggedUserId ?? (Number.isFinite(transferredId) ? transferredId : null)
+    setDragOverRole(null)
+    if (userId !== null) void moveUser(userId, role)
+  }
+
+  const query = search.trim().toLowerCase()
+  const visibleUsers = query
+    ? users.filter((user) => user.displayName.toLowerCase().includes(query) || user.accountName.toLowerCase().includes(query))
+    : users
+
+  return (
+    <section className="settings-tab-content">
+      <section className="panel role-management-panel">
+        <header className="panel-head">
+          <div className="panel-head-text">
+            <span className="kicker">Access Control</span>
+            <h2>User Roles</h2>
+            <p>Drag a Windows account between roles or use the selector on its card.</p>
+          </div>
+          <label className="search-field role-search" aria-label="Search users">
+            <Search size={15} />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name or Windows account" />
+          </label>
+        </header>
+
+        {error && <p className="inline-note warning role-error"><AlertTriangle size={14} /> {error}</p>}
+
+        {loading ? (
+          <div className="role-board">
+            {roleDefinitions.map((definition) => (
+              <div className="role-lane" key={definition.role}>
+                <div className="skeleton-line" style={{ height: 52 }} />
+                <div className="skeleton-line" style={{ height: 76 }} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="role-board">
+            {roleDefinitions.map((definition) => {
+              const roleUsers = visibleUsers.filter((user) => user.role === definition.role)
+              return (
+                <section
+                  className={`role-lane ${dragOverRole === definition.role ? 'drag-over' : ''}`}
+                  key={definition.role}
+                  onDragEnter={() => setDragOverRole(definition.role)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDragLeave={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOverRole(null)
+                  }}
+                  onDrop={(event) => dropOnRole(event, definition.role)}
+                >
+                  <header className={`role-lane-head role-${definition.role.toLowerCase()}`}>
+                    <span className="role-lane-icon">{definition.icon}</span>
+                    <div>
+                      <h3>{definition.label}</h3>
+                      <p>{definition.description}</p>
+                    </div>
+                    <strong>{roleUsers.length}</strong>
+                  </header>
+                  <div className="role-user-list">
+                    {roleUsers.length === 0 ? (
+                      <div className="role-empty">Drop users here</div>
+                    ) : roleUsers.map((roleUser) => (
+                      <article
+                        className={`role-user-card ${movingUserId === roleUser.id ? 'is-moving' : ''}`}
+                        draggable={movingUserId === null}
+                        onDragStart={(event) => startDrag(event, roleUser.id)}
+                        onDragEnd={() => {
+                          setDraggedUserId(null)
+                          setDragOverRole(null)
+                        }}
+                        key={roleUser.id}
+                      >
+                        <span className="role-drag-handle" title="Drag to another role"><GripVertical size={15} /></span>
+                        <span className="role-avatar">{userInitials(roleUser.displayName)}</span>
+                        <div className="role-user-copy">
+                          <strong>{roleUser.displayName} {currentUser?.accountName.toLowerCase() === roleUser.accountName.toLowerCase() && <small>You</small>}</strong>
+                          <span>{roleUser.accountName}</span>
+                          <time dateTime={roleUser.lastSeenAt}>{formatLastSeen(roleUser.lastSeenAt)}</time>
+                        </div>
+                        <select
+                          value={roleUser.role}
+                          onChange={(event) => void moveUser(roleUser.id, event.target.value as ApplicationRole)}
+                          onMouseDown={(event) => event.stopPropagation()}
+                          aria-label={`Role for ${roleUser.displayName}`}
+                          disabled={movingUserId !== null}
+                        >
+                          {roleDefinitions.map((option) => <option value={option.role} key={option.role}>{option.label}</option>)}
+                        </select>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              )
+            })}
+          </div>
+        )}
+
+        {!loading && users.length === 0 && (
+          <p className="inline-note"><Users size={14} /> Windows accounts appear here after their first sign-in or when initially configured on the server.</p>
+        )}
+      </section>
     </section>
   )
 }
@@ -2314,7 +3198,7 @@ type WorkCenterDialogState =
 /* Calendar                                                               */
 /* ---------------------------------------------------------------------- */
 
-type CalOp = { projectId: number; taskId: number; programName: string; workStation: string | null; taskTitle: string; status: TaskStatus; projected: boolean; conflict: boolean }
+type CalOp = { projectId: number; taskId: number; programName: string; workStation: string | null; taskTitle: string; status: TaskStatus; projected: boolean; conflict: boolean; completedProject: boolean }
 
 function CalendarView({ holidaySet, workingDaySet, onOpenProject }: { holidaySet: Set<string>; workingDaySet: Set<number>; onOpenProject: (projectId: number) => Promise<void> }) {
   const [data, setData] = useState<ProjectDetail[] | null>(null)
@@ -2351,6 +3235,7 @@ function CalendarView({ holidaySet, workingDaySet, onOpenProject }: { holidaySet
               status: item.task.status,
               projected: item.projected,
               conflict: false,
+              completedProject: project.status === 'Complete',
             })
             map.set(iso, list)
           }
@@ -2398,7 +3283,9 @@ function CalendarView({ holidaySet, workingDaySet, onOpenProject }: { holidaySet
 
   const shiftMonth = (delta: number) => {
     const current = new Date(monthAnchor)
-    setMonthAnchor(new Date(current.getFullYear(), current.getMonth() + delta, 1).getTime())
+    const nextMonth = new Date(current.getFullYear(), current.getMonth() + delta, 1)
+    setMonthAnchor(nextMonth.getTime())
+    setSelectedDay(msToIso(nextMonth.getTime()))
   }
   const goToday = () => {
     const now = new Date()
@@ -2443,7 +3330,9 @@ function CalendarView({ holidaySet, workingDaySet, onOpenProject }: { holidaySet
                   {hasConflict && <ConflictIcon className="cal-conflict" />}
                   <span className="cal-ops">
                     {stations.slice(0, 3).map((entry) => (
-                      <span className={`cal-op ${statusClass(entry.status)} ${entry.unassigned ? 'unassigned' : ''}`} key={entry.station}>{entry.station}</span>
+                      <span className={`cal-op ${statusClass(entry.status)} ${entry.unassigned ? 'unassigned' : ''} ${entry.completed ? 'completed-project' : ''}`} key={entry.station}>
+                        {entry.station}{entry.completed && <Check size={10} aria-hidden="true" />}
+                      </span>
                     ))}
                     {stations.length > 3 && <span className="cal-more">+{stations.length - 3} more</span>}
                   </span>
@@ -2477,10 +3366,10 @@ function CalendarView({ holidaySet, workingDaySet, onOpenProject }: { holidaySet
                   </div>
                   <div className="day-group-ops">
                     {group.ops.map((op, index) => (
-                      <button className="day-op" key={index} onClick={() => onOpenProject(op.projectId)} title={`Open ${op.programName}`}>
+                      <button className={`day-op ${op.completedProject ? 'completed-project' : ''}`} key={index} onClick={() => onOpenProject(op.projectId)} title={`Open ${op.programName}`}>
                         <span className={`day-rail ${statusClass(op.status)}`} />
                         <div className="day-op-body">
-                          <span className="mono-id">{op.programName}</span>
+                          <span className="mono-id">{op.programName}{op.completedProject && <span className="completed-project-badge">Completed</span>}</span>
                           <span className="day-op-task">{op.taskTitle}{op.projected ? ' · projected' : ''}</span>
                         </div>
                       </button>
@@ -2502,14 +3391,17 @@ function worseStatus(a: TaskStatus, b: TaskStatus) {
 }
 
 function stationsForDay(ops: CalOp[]) {
-  const map = new Map<string, TaskStatus>()
+  const map = new Map<string, { status: TaskStatus; completed: boolean }>()
   for (const op of ops) {
     const key = op.workStation ?? 'Unassigned'
     const existing = map.get(key)
-    map.set(key, existing ? worseStatus(existing, op.status) : op.status)
+    map.set(key, {
+      status: existing ? worseStatus(existing.status, op.status) : op.status,
+      completed: existing ? existing.completed && op.completedProject : op.completedProject,
+    })
   }
   return [...map.entries()]
-    .map(([station, status]) => ({ station, status, unassigned: station === 'Unassigned' }))
+    .map(([station, value]) => ({ station, status: value.status, completed: value.completed, unassigned: station === 'Unassigned' }))
     .sort((a, b) => (a.unassigned ? 1 : 0) - (b.unassigned ? 1 : 0) || a.station.localeCompare(b.station))
 }
 
@@ -2529,7 +3421,7 @@ function groupByStation(ops: CalOp[]) {
 function markCalendarConflicts(ops: CalOp[]) {
   const byStation = new Map<string, CalOp[]>()
   for (const op of ops) {
-    if (!op.workStation) continue
+    if (!op.workStation || op.completedProject) continue
     const list = byStation.get(op.workStation) ?? []
     list.push(op)
     byStation.set(op.workStation, list)
@@ -3327,6 +4219,7 @@ function buildWorkCenterConflictSet(projects: ProjectDetail[], holidaySet: Set<s
   const byDayStation = new Map<string, { key: string; projectId: number }[]>()
 
   for (const project of projects) {
+    if (project.status === 'Complete') continue
     const { items } = buildSchedule(project.tasks, project.programStart, holidaySet, workingDaySet)
     for (const item of items) {
       if (!item.task.workStation) continue
@@ -3484,7 +4377,7 @@ function screenSubtitle(screen: Screen) {
   if (screen === 'project') return ''
   if (screen === 'calendar') return 'Pick a day to see every part in production and its assigned work station.'
   if (screen === 'pastProjects') return 'Completed programs, archived out of the active development queue.'
-  if (screen === 'settings') return 'Company work calendar, work centers, and non-working dates.'
+  if (screen === 'settings') return 'Company work calendar, work centers, holidays, and user access.'
   if (screen === 'import') return 'Upload a workbook to add its programs to the tracker.'
   return 'Active development programs, target dates, and schedule risk across the work queue.'
 }
@@ -3527,9 +4420,74 @@ function formatPercent(value: number) {
   return `${Math.round(value * 100)}%`
 }
 
+function userInitials(displayName: string) {
+  const parts = displayName.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  return `${parts[0][0]}${parts.length > 1 ? parts.at(-1)?.[0] ?? '' : ''}`.toUpperCase()
+}
+
+function formatChatTime(value: string) {
+  const date = new Date(value)
+  const today = new Date()
+  const sameDay = date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth() && date.getDate() === today.getDate()
+  return new Intl.DateTimeFormat(undefined, sameDay
+    ? { hour: 'numeric', minute: '2-digit' }
+    : { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(date)
+}
+
+function formatActivityTime(value: string) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value))
+}
+
+function formatLastSeen(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime()) || date.getUTCFullYear() <= 1970) return 'Never signed in'
+  return `Last seen ${new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
+  }).format(date)}`
+}
+
+function activityActionClass(action: string) {
+  if (action === 'ProjectCompleted') return 'complete'
+  if (action === 'OperationDeleted') return 'danger'
+  if (action === 'ProjectReopened' || action === 'PriorityChanged') return 'schedule'
+  return 'standard'
+}
+
+function activityActionIcon(action: string): ReactNode {
+  if (action === 'ProjectCompleted') return <CheckCircle2 size={14} />
+  if (action === 'ProjectReopened') return <RefreshCw size={14} />
+  if (action === 'PriorityChanged') return <ChevronUp size={14} />
+  if (action === 'OperationDeleted') return <Trash2 size={14} />
+  if (action === 'ProjectCreated' || action === 'OperationAdded') return <Plus size={14} />
+  return <Pencil size={13} />
+}
+
+function renderChatMessage(body: string) {
+  return body.split(/(@[A-Za-z0-9._-]+)/g).map((part, index) =>
+    part.startsWith('@') ? <span className="chat-mention" key={`${part}-${index}`}>{part}</span> : part)
+}
+
 function compactDate(value: string | null) {
   if (!value) return '—'
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: '2-digit', year: 'numeric' }).format(new Date(`${value}T00:00:00`))
+}
+
+function formatNoteTime(iso: string) {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  const today = new Date()
+  const sameDay = date.toDateString() === today.toDateString()
+  if (sameDay) return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(date)
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: '2-digit' }).format(date)
 }
 
 function calculateDaysLeft(targetDelivery: string | null) {

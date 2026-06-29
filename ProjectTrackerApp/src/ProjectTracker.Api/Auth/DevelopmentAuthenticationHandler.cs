@@ -8,18 +8,17 @@ namespace ProjectTracker.Api.Auth;
 public sealed class DevelopmentAuthenticationHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger,
-    UrlEncoder encoder) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    UrlEncoder encoder,
+    IConfiguration configuration) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     public const string SchemeName = "Development";
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
+        var accountName = configuration["Authentication:DevelopmentAccount"] ?? "DEV\\ProjectTrackerAdmin";
         var claims = new[]
         {
-            new Claim(ClaimTypes.Name, "DEV\\ProjectTrackerAdmin"),
-            new Claim(ClaimTypes.Role, "Admin"),
-            new Claim(ClaimTypes.Role, "Editor"),
-            new Claim(ClaimTypes.Role, "Viewer")
+            new Claim(ClaimTypes.Name, accountName)
         };
 
         var identity = new ClaimsIdentity(claims, SchemeName);
@@ -27,4 +26,3 @@ public sealed class DevelopmentAuthenticationHandler(
         return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(principal, SchemeName)));
     }
 }
-

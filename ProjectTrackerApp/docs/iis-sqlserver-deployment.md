@@ -63,6 +63,8 @@ Create `appsettings.Production.json` in the publish folder:
 }
 ```
 
+The `Security` lists bootstrap initial accounts only. After the first startup, use **Settings → User Roles** in the application to move known Windows accounts between Admin, Edit, and View Only. Assignments are stored in SQL Server. Accounts not configured above appear as View Only after their first sign-in.
+
 ## Backups
 
 Copy `ProjectTrackerApp\deployment\backup-project-tracker.sql` to the server, then schedule it with SQL Server Agent if available, or Windows Task Scheduler plus `sqlcmd`.

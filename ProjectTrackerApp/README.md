@@ -36,7 +36,7 @@ Development mode uses `project-tracker-dev.db` and auto-imports the existing wor
 - Database: `ProjectTracker` on `.\\SQLEXPRESS`
 - Authentication: Windows Authentication
 - Anonymous Authentication: disabled
-- App roles are configured in `appsettings.Production.json` or IIS environment variables:
+- Initial Admin and Editor accounts are bootstrapped from `appsettings.Production.json` or IIS environment variables:
 
 ```json
 {
@@ -47,7 +47,11 @@ Development mode uses `project-tracker-dev.db` and auto-imports the existing wor
 }
 ```
 
-Users not listed as Admin or Editor are treated as Viewers.
+After startup, Admins manage assignments from **Settings → User Roles**. Role changes are stored in the application database and take effect on the user's next request. New Windows accounts default to View Only after their first sign-in. The application prevents removal of the final Admin.
+
+- **Admin:** all pages, imports, settings, role management, and project editing.
+- **Edit:** Dashboard, Project Detail, Calendar, and Past Projects with project editing.
+- **View Only:** Dashboard, Project Detail, Calendar, and Past Projects without edit controls.
 
 ## Publish
 
@@ -57,4 +61,3 @@ cd "C:\Users\USER\projects\non project folder\Project Tracker\ProjectTrackerApp"
 ```
 
 The publish output is written to `ProjectTrackerApp\publish`.
-

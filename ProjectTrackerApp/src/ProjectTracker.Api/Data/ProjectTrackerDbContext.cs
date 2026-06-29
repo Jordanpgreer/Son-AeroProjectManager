@@ -6,6 +6,8 @@ namespace ProjectTracker.Api.Data;
 public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbContext> options) : DbContext(options)
 {
     public DbSet<Project> Projects => Set<Project>();
+    public DbSet<ProjectMessage> ProjectMessages => Set<ProjectMessage>();
+    public DbSet<ProjectAuditEntry> ProjectAuditEntries => Set<ProjectAuditEntry>();
     public DbSet<ProjectTask> Tasks => Set<ProjectTask>();
     public DbSet<Phase> Phases => Set<Phase>();
     public DbSet<Holiday> Holidays => Set<Holiday>();
@@ -22,6 +24,7 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
             entity.HasIndex(project => project.ProgramName).IsUnique();
             entity.Property(project => project.ProgramName).HasMaxLength(160);
             entity.Property(project => project.ProgramManager).HasMaxLength(120);
+            entity.Property(project => project.Engineer).HasMaxLength(120);
             entity.Property(project => project.CustomerName).HasMaxLength(160);
             entity.Property(project => project.SalesOrderNumber).HasMaxLength(80);
             entity.Property(project => project.Progress).HasPrecision(5, 4);
@@ -43,6 +46,31 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
             entity.HasOne(task => task.Project)
                 .WithMany(project => project.Tasks)
                 .HasForeignKey(task => task.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ProjectMessage>(entity =>
+        {
+            entity.HasIndex(message => new { message.ProjectId, message.CreatedAt });
+            entity.Property(message => message.AuthorAccountName).HasMaxLength(160);
+            entity.Property(message => message.AuthorDisplayName).HasMaxLength(160);
+            entity.Property(message => message.Body).HasMaxLength(2000);
+            entity.HasOne(message => message.Project)
+                .WithMany(project => project.Messages)
+                .HasForeignKey(message => message.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ProjectAuditEntry>(entity =>
+        {
+            entity.HasIndex(entry => new { entry.ProjectId, entry.ChangedAt });
+            entity.Property(entry => entry.Action).HasMaxLength(48);
+            entity.Property(entry => entry.Summary).HasMaxLength(240);
+            entity.Property(entry => entry.ChangedByAccountName).HasMaxLength(160);
+            entity.Property(entry => entry.ChangedByDisplayName).HasMaxLength(160);
+            entity.HasOne(entry => entry.Project)
+                .WithMany(project => project.AuditEntries)
+                .HasForeignKey(entry => entry.ProjectId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

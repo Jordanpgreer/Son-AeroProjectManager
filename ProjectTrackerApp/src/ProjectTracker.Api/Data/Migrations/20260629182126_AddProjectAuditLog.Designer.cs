@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ProjectTracker.Api.Data;
 
@@ -11,9 +12,11 @@ using ProjectTracker.Api.Data;
 namespace ProjectTracker.Api.Data.Migrations
 {
     [DbContext(typeof(ProjectTrackerDbContext))]
-    partial class ProjectTrackerDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260629182126_AddProjectAuditLog")]
+    partial class AddProjectAuditLog
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -125,10 +128,6 @@ namespace ProjectTracker.Api.Data.Migrations
                     b.Property<string>("CustomerName")
                         .HasMaxLength(160)
                         .HasColumnType("nvarchar(160)");
-
-                    b.Property<string>("Engineer")
-                        .HasMaxLength(120)
-                        .HasColumnType("nvarchar(120)");
 
                     b.Property<int?>("PriorityRank")
                         .HasColumnType("int");

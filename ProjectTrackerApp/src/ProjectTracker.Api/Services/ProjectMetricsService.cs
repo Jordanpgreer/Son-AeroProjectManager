@@ -17,6 +17,14 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
 
     public void RefreshProject(Project project, ScheduleCalendar calendar, DateOnly today, bool recalculateDates = false)
     {
+        if (project.CompletedOn is not null)
+        {
+            project.Progress = 1m;
+            project.Status = ProjectStatus.Complete;
+            project.CurrentTask = "Program Complete";
+            return;
+        }
+
         DateOnly? nextStart = project.ProgramStart;
         var scheduledTasks = new Dictionary<int, ProjectTask>();
         foreach (var task in project.Tasks.OrderBy(task => task.Sequence))
@@ -61,6 +69,14 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
         project.Progress = CalculateWeightedProgress(activeTasks);
         project.CurrentTask = activeTasks.FirstOrDefault(task => task.Status != TaskScheduleStatus.Complete)?.Title ?? "Program Complete";
         project.Status = CalculateProjectStatus(activeTasks, project.Progress);
+        if (project.Status == ProjectStatus.Complete)
+        {
+            project.CompletedOn = activeTasks
+                .Select(task => task.EndDate)
+                .Where(date => date is not null)
+                .Max()
+                ?? today;
+        }
         project.UpdatedAt = DateTimeOffset.UtcNow;
     }
 

@@ -69,4 +69,50 @@ public sealed class ProjectMetricsServiceTests
         Assert.NotEqual(operation4.EndDate!.Value.AddDays(1), operation5.StartDate);
         Assert.Equal(operation3.EndDate!.Value.AddDays(1), operation5.StartDate);
     }
+
+    [Fact]
+    public void RefreshProject_PreservesArchivedProjectWithoutOperations()
+    {
+        var completedOn = new DateOnly(2026, 6, 25);
+        var project = new Project
+        {
+            ProgramName = "Archived empty project",
+            CompletedOn = completedOn,
+            Status = ProjectStatus.Complete,
+            Progress = 1m
+        };
+
+        metrics.RefreshProject(project, ScheduleCalendar.Default, new DateOnly(2026, 6, 29));
+
+        Assert.Equal(ProjectStatus.Complete, project.Status);
+        Assert.Equal(1m, project.Progress);
+        Assert.Equal(completedOn, project.CompletedOn);
+        Assert.Equal("Program Complete", project.CurrentTask);
+    }
+
+    [Fact]
+    public void RefreshProject_RecordsFinalScheduledDateWhenProjectAutomaticallyCompletes()
+    {
+        var finalDate = new DateOnly(2026, 6, 23);
+        var project = new Project
+        {
+            ProgramName = "Automatically completed project",
+            Tasks =
+            [
+                new ProjectTask
+                {
+                    Sequence = 1,
+                    Title = "Final operation",
+                    StartDate = new DateOnly(2026, 6, 22),
+                    EndDate = finalDate,
+                    EstimatedDuration = 2
+                }
+            ]
+        };
+
+        metrics.RefreshProject(project, ScheduleCalendar.Default, new DateOnly(2026, 6, 29));
+
+        Assert.Equal(ProjectStatus.Complete, project.Status);
+        Assert.Equal(finalDate, project.CompletedOn);
+    }
 }
