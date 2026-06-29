@@ -278,6 +278,7 @@ function App() {
   const [overtimeTask, setOvertimeTask] = useState<ProjectTask | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
   const [activityOpen, setActivityOpen] = useState(false)
+  const lastRefreshedScreen = useRef(screen)
 
   const projectPayload = (
     project: ProjectDetail,
@@ -673,6 +674,16 @@ function App() {
   useEffect(() => {
     if (screen !== 'project') setEditMode(false)
   }, [screen])
+
+  useEffect(() => {
+    if (loading || lastRefreshedScreen.current === screen) {
+      return
+    }
+
+    lastRefreshedScreen.current = screen
+    void refreshCurrent()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, loading])
 
   useEffect(() => {
     if (user && !user.isAdmin && (screen === 'settings' || screen === 'import')) {
@@ -1841,6 +1852,7 @@ function ProjectView({
       const updated = await onSaveRow({ ...task, notes: noteDraft.trim() || null })
       setNoteDraft(updated.notes ?? '')
       setNoteSaveError(null)
+      setExpandedTaskId(null)
     } catch (error) {
       setNoteSaveError(error instanceof Error ? error.message : 'The operation note could not be saved.')
     } finally {

@@ -22,6 +22,7 @@ public sealed class ProjectTask
     public bool PercentCompleteManual { get; set; }
     public TaskScheduleStatus Status { get; set; } = TaskScheduleStatus.NotStarted;
     public string? Notes { get; set; }
+    public DateTimeOffset? NoteUpdatedAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     public List<TaskOvertimeDay> OvertimeDays { get; set; } = [];

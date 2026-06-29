@@ -826,14 +826,14 @@ static ProjectSummaryDto ToSummaryDto(Project project)
     var daysLeft = project.TargetDelivery is null ? (int?)null : project.TargetDelivery.Value.DayNumber - today.DayNumber;
     var finalCompletionDate = project.Status == ProjectStatus.Complete ? project.CompletedOn : null;
 
-    // Newest operation note across the project's steps (most-recently-updated step that has a note).
+    // Newest operation note across the project's steps, independent of unrelated task edits.
     var recentNoteTask = project.Tasks
         .Where(task => !string.IsNullOrWhiteSpace(task.Notes))
-        .OrderByDescending(task => task.UpdatedAt)
+        .OrderByDescending(task => task.NoteUpdatedAt ?? task.UpdatedAt)
         .FirstOrDefault();
     var recentNote = recentNoteTask is null
         ? null
-        : new ProjectNoteDto(recentNoteTask.Notes!.Trim(), recentNoteTask.Title, recentNoteTask.UpdatedAt);
+        : new ProjectNoteDto(recentNoteTask.Notes!.Trim(), recentNoteTask.Title, recentNoteTask.NoteUpdatedAt ?? recentNoteTask.UpdatedAt);
 
     return new ProjectSummaryDto(
         project.Id,
@@ -955,7 +955,12 @@ static ProjectTask ApplyTaskDto(ProjectTask task, TaskUpsertDto dto)
     task.ActualDuration = dto.ActualDuration;
     task.PercentComplete = Math.Clamp(dto.PercentComplete, 0m, 1m);
     task.PercentCompleteManual = dto.PercentCompleteManual;
-    task.Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
+    var notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
+    if (!string.Equals(task.Notes, notes, StringComparison.Ordinal))
+    {
+        task.NoteUpdatedAt = notes is null ? null : DateTimeOffset.UtcNow;
+    }
+    task.Notes = notes;
     task.OvertimeDays.Clear();
     foreach (var overtime in dto.OvertimeDays?.GroupBy(day => day.Date).Select(group => group.First()) ?? [])
     {
@@ -1126,6 +1131,7 @@ static async Task InitializeDatabaseAsync(WebApplication app)
             await EnsureSqliteBooleanColumnAsync(db, "StartDateLocked", cancellationToken: default);
             await EnsureSqliteBooleanColumnAsync(db, "PercentCompleteManual", cancellationToken: default);
             await EnsureSqliteIntegerColumnAsync(db, "DependencyTaskId", cancellationToken: default);
+            await EnsureSqliteTextColumnAsync(db, "Tasks", "NoteUpdatedAt", cancellationToken: default);
             await EnsureSqliteTextColumnAsync(db, "Projects", "CustomerName", cancellationToken: default);
             await EnsureSqliteTextColumnAsync(db, "Projects", "SalesOrderNumber", cancellationToken: default);
             await EnsureSqliteTextColumnAsync(db, "Projects", "CompletedOn", cancellationToken: default);

@@ -287,6 +287,9 @@ namespace ProjectTracker.Api.Data.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
 
+                    b.Property<DateTimeOffset?>("NoteUpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<DateOnly?>("OriginalEndDate")
                         .HasColumnType("date");
 
