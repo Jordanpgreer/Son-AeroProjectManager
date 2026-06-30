@@ -23,6 +23,7 @@ public sealed class ProjectTask
     public TaskScheduleStatus Status { get; set; } = TaskScheduleStatus.NotStarted;
     public string? Notes { get; set; }
     public DateTimeOffset? NoteUpdatedAt { get; set; }
+    public long Version { get; set; } = 1;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     public List<TaskOvertimeDay> OvertimeDays { get; set; } = [];

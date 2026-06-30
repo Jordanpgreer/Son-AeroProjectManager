@@ -115,4 +115,33 @@ public sealed class ProjectMetricsServiceTests
         Assert.Equal(ProjectStatus.Complete, project.Status);
         Assert.Equal(finalDate, project.CompletedOn);
     }
+
+    [Fact]
+    public void RefreshProject_DoesNotAdvanceVersionsWhenComputedValuesAreUnchanged()
+    {
+        var project = new Project
+        {
+            ProgramName = "Stable project",
+            ProgramStart = new DateOnly(2026, 7, 6),
+            Tasks =
+            [
+                new ProjectTask
+                {
+                    Sequence = 1,
+                    Title = "Stable operation",
+                    EstimatedDuration = 2
+                }
+            ]
+        };
+        var today = new DateOnly(2026, 7, 1);
+
+        metrics.RefreshProject(project, ScheduleCalendar.Default, today, recalculateDates: true);
+        var projectVersion = project.Version;
+        var taskVersion = project.Tasks[0].Version;
+
+        metrics.RefreshProject(project, ScheduleCalendar.Default, today, recalculateDates: true);
+
+        Assert.Equal(projectVersion, project.Version);
+        Assert.Equal(taskVersion, project.Tasks[0].Version);
+    }
 }

@@ -15,6 +15,7 @@ public sealed class Project
     public decimal Progress { get; set; }
     public ProjectStatus Status { get; set; } = ProjectStatus.NotStarted;
     public string? CurrentTask { get; set; }
+    public long Version { get; set; } = 1;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 

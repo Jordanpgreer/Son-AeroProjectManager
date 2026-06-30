@@ -30,6 +30,7 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
             entity.Property(project => project.Progress).HasPrecision(5, 4);
             entity.Property(project => project.Status).HasConversion<string>().HasMaxLength(24);
             entity.Property(project => project.CurrentTask).HasMaxLength(240);
+            entity.Property(project => project.Version).IsConcurrencyToken();
         });
 
         modelBuilder.Entity<ProjectTask>(entity =>
@@ -43,6 +44,7 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
             entity.Property(task => task.PercentComplete).HasPrecision(5, 4);
             entity.Property(task => task.Status).HasConversion<string>().HasMaxLength(24);
             entity.Property(task => task.Notes).HasMaxLength(2000);
+            entity.Property(task => task.Version).IsConcurrencyToken();
             entity.HasOne(task => task.Project)
                 .WithMany(project => project.Tasks)
                 .HasForeignKey(task => task.ProjectId)

@@ -72,6 +72,22 @@ if (app.Environment.IsDevelopment())
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next(context);
+    }
+    catch (DbUpdateConcurrencyException) when (!context.Response.HasStarted)
+    {
+        context.Response.StatusCode = StatusCodes.Status409Conflict;
+        await context.Response.WriteAsJsonAsync(new ConcurrencyConflictDto(
+            "ConcurrencyConflict",
+            "This record was changed by another user. Reload the latest version before saving again.",
+            "Record",
+            0));
+    }
+});
 
 await InitializeDatabaseAsync(app);
 
@@ -141,7 +157,9 @@ api.MapGet("/dashboard", async (ProjectTrackerDbContext db, ProjectMetricsServic
     {
         metrics.RefreshProject(project, calendar, DateOnly.FromDateTime(DateTime.Today));
     }
+    var previousPriorities = projects.ToDictionary(project => project.Id, project => project.PriorityRank);
     NormalizeProjectPriorities(projects);
+    BumpPriorityVersions(projects, previousPriorities);
     await db.SaveChangesAsync(cancellationToken);
 
     var summaries = projects
@@ -349,9 +367,14 @@ api.MapPut("/projects/{id:int}", async (int id, ProjectUpsertDto dto, ProjectTra
     {
         return Results.Conflict("Completed projects are read-only. Make the project active before editing.");
     }
+    if (dto.Version != project.Version)
+    {
+        return ConcurrencyConflict("Project", project.Id);
+    }
 
     var before = ProjectAuditService.CaptureProject(project);
     ApplyProjectDto(project, dto);
+    project.Version++;
     await metrics.RefreshProjectAsync(db, project, cancellationToken);
     var changes = ProjectAuditService.Diff(before, ProjectAuditService.CaptureProject(project));
     if (changes.Count > 0)
@@ -362,12 +385,16 @@ api.MapPut("/projects/{id:int}", async (int id, ProjectUpsertDto dto, ProjectTra
     return Results.Ok(ToDetailDto(project));
 }).RequireAuthorization("CanEdit");
 
-api.MapPost("/projects/{id:int}/complete", async (int id, ProjectTrackerDbContext db, ProjectAuditService audit, CancellationToken cancellationToken) =>
+api.MapPost("/projects/{id:int}/complete", async (int id, ProjectActionDto dto, ProjectTrackerDbContext db, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
     var project = await db.Projects.Include(project => project.Tasks).ThenInclude(task => task.OvertimeDays).FirstOrDefaultAsync(project => project.Id == id, cancellationToken);
     if (project is null)
     {
         return Results.NotFound();
+    }
+    if (dto.Version != project.Version)
+    {
+        return ConcurrencyConflict("Project", project.Id);
     }
 
     var before = ProjectAuditService.CaptureProject(project);
@@ -377,6 +404,7 @@ api.MapPost("/projects/{id:int}/complete", async (int id, ProjectTrackerDbContex
         task.PercentCompleteManual = true;
         task.Status = TaskScheduleStatus.Complete;
         task.UpdatedAt = DateTimeOffset.UtcNow;
+        task.Version++;
     }
 
     project.CompletedOn = DateOnly.FromDateTime(DateTime.Today);
@@ -385,11 +413,14 @@ api.MapPost("/projects/{id:int}/complete", async (int id, ProjectTrackerDbContex
     project.Status = ProjectStatus.Complete;
     project.CurrentTask = "Program Complete";
     project.UpdatedAt = DateTimeOffset.UtcNow;
+    project.Version++;
 
     var remainingProjects = await db.Projects
         .Where(candidate => candidate.Id != project.Id)
         .ToListAsync(cancellationToken);
+    var previousPriorities = remainingProjects.ToDictionary(candidate => candidate.Id, candidate => candidate.PriorityRank);
     NormalizeProjectPriorities([project, .. remainingProjects]);
+    BumpPriorityVersions(remainingProjects, previousPriorities);
     audit.Record(
         db,
         project,
@@ -400,12 +431,16 @@ api.MapPost("/projects/{id:int}/complete", async (int id, ProjectTrackerDbContex
     return Results.Ok(ToDetailDto(project));
 }).RequireAuthorization("CanEdit");
 
-api.MapPost("/projects/{id:int}/reopen", async (int id, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
+api.MapPost("/projects/{id:int}/reopen", async (int id, ProjectActionDto dto, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
     var project = await db.Projects.Include(project => project.Tasks).ThenInclude(task => task.OvertimeDays).FirstOrDefaultAsync(project => project.Id == id, cancellationToken);
     if (project is null)
     {
         return Results.NotFound();
+    }
+    if (dto.Version != project.Version)
+    {
+        return ConcurrencyConflict("Project", project.Id);
     }
 
     var before = ProjectAuditService.CaptureProject(project);
@@ -424,13 +459,17 @@ api.MapPost("/projects/{id:int}/reopen", async (int id, ProjectTrackerDbContext 
         finalTask.PercentComplete = 0m;
         finalTask.PercentCompleteManual = true;
         finalTask.UpdatedAt = DateTimeOffset.UtcNow;
+        finalTask.Version++;
     }
 
+    project.Version++;
     await metrics.RefreshProjectAsync(db, project, cancellationToken);
     var otherProjects = await db.Projects
         .Where(candidate => candidate.Id != project.Id)
         .ToListAsync(cancellationToken);
+    var previousPriorities = otherProjects.ToDictionary(candidate => candidate.Id, candidate => candidate.PriorityRank);
     NormalizeProjectPriorities([project, .. otherProjects]);
+    BumpPriorityVersions(otherProjects, previousPriorities);
     audit.Record(
         db,
         project,
@@ -453,9 +492,13 @@ api.MapPut("/projects/{id:int}/priority", async (int id, ProjectPriorityDto dto,
     {
         return Results.Conflict("Completed projects do not have an active priority.");
     }
+    if (dto.Version != project.Version)
+    {
+        return ConcurrencyConflict("Project", project.Id);
+    }
 
-    NormalizeProjectPriorities(projects);
     var previousPriorities = projects.ToDictionary(candidate => candidate.Id, candidate => candidate.PriorityRank);
+    NormalizeProjectPriorities(projects);
     var active = projects
         .Where(candidate => candidate.Status != ProjectStatus.Complete && candidate.Id != id)
         .OrderBy(candidate => candidate.PriorityRank)
@@ -470,6 +513,8 @@ api.MapPut("/projects/{id:int}/priority", async (int id, ProjectPriorityDto dto,
     foreach (var changedProject in active.Where(candidate => previousPriorities[candidate.Id] != candidate.PriorityRank))
     {
         var oldRank = previousPriorities[changedProject.Id];
+        changedProject.Version++;
+        changedProject.UpdatedAt = DateTimeOffset.UtcNow;
         audit.Record(
             db,
             changedProject,
@@ -482,19 +527,25 @@ api.MapPut("/projects/{id:int}/priority", async (int id, ProjectPriorityDto dto,
     return Results.NoContent();
 }).RequireAuthorization("CanEdit");
 
-api.MapDelete("/projects/{id:int}", async (int id, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
+api.MapDelete("/projects/{id:int}", async (int id, long version, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
 {
     var project = await db.Projects.FindAsync([id], cancellationToken);
     if (project is null)
     {
         return Results.NotFound();
     }
+    if (version != project.Version)
+    {
+        return ConcurrencyConflict("Project", project.Id);
+    }
 
     db.Projects.Remove(project);
     var remainingProjects = await db.Projects
         .Where(candidate => candidate.Id != id)
         .ToListAsync(cancellationToken);
+    var previousPriorities = remainingProjects.ToDictionary(candidate => candidate.Id, candidate => candidate.PriorityRank);
     NormalizeProjectPriorities(remainingProjects);
+    BumpPriorityVersions(remainingProjects, previousPriorities);
     await db.SaveChangesAsync(cancellationToken);
     return Results.NoContent();
 }).RequireAuthorization("CanEdit");
@@ -511,12 +562,20 @@ api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertD
     {
         return Results.Conflict("Completed projects are read-only. Make the project active before editing.");
     }
+    if (dto.ProjectVersion != project.Version)
+    {
+        return ConcurrencyConflict("Project", project.Id);
+    }
 
+    var previousSequences = project.Tasks.ToDictionary(candidate => candidate.Id, candidate => candidate.Sequence);
     var task = ApplyTaskDto(new ProjectTask { ProjectId = projectId }, dto);
     project.Tasks.Add(task);
     var desiredPosition = dto.Sequence > 0 ? dto.Sequence : project.Tasks.Count;
     ResequenceTasks(project, task, desiredPosition);
+    BumpSequenceVersions(project.Tasks, previousSequences, task.Id);
     NormalizeTaskDependency(project, task);
+    project.Version++;
+    project.UpdatedAt = DateTimeOffset.UtcNow;
     await EnsurePhaseAsync(db, task.Phase, cancellationToken);
     await metrics.RefreshProjectAsync(db, project, cancellationToken, recalculateDates: true);
     audit.Record(
@@ -547,11 +606,24 @@ api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectT
     {
         return Results.Conflict("Completed projects are read-only. Make the project active before editing.");
     }
+    if (dto.Version != task.Version)
+    {
+        return ConcurrencyConflict("Operation", task.Id);
+    }
+    if (dto.ProjectVersion != task.Project.Version)
+    {
+        return ConcurrencyConflict("Project", task.Project.Id);
+    }
 
     var before = ProjectAuditService.CaptureTask(task);
+    var previousSequences = task.Project.Tasks.ToDictionary(candidate => candidate.Id, candidate => candidate.Sequence);
     ApplyTaskDto(task, dto);
+    task.Version++;
     ResequenceTasks(task.Project, task, dto.Sequence);
+    BumpSequenceVersions(task.Project.Tasks, previousSequences, task.Id);
     NormalizeTaskDependency(task.Project, task);
+    task.Project.Version++;
+    task.Project.UpdatedAt = DateTimeOffset.UtcNow;
     await EnsurePhaseAsync(db, task.Phase, cancellationToken);
     await metrics.RefreshProjectAsync(db, task.Project, cancellationToken, recalculateDates: true);
     var changes = ProjectAuditService.Diff(before, ProjectAuditService.CaptureTask(task));
@@ -563,7 +635,7 @@ api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectT
     return Results.Ok(ToTaskDto(task));
 }).RequireAuthorization("CanEdit");
 
-api.MapDelete("/tasks/{taskId:int}", async (int taskId, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
+api.MapDelete("/tasks/{taskId:int}", async (int taskId, long version, long projectVersion, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
     var task = await db.Tasks
         .Include(task => task.Project).ThenInclude(project => project.Tasks).ThenInclude(projectTask => projectTask.OvertimeDays)
@@ -577,14 +649,26 @@ api.MapDelete("/tasks/{taskId:int}", async (int taskId, ProjectTrackerDbContext 
     {
         return Results.Conflict("Completed projects are read-only. Make the project active before editing.");
     }
+    if (version != task.Version)
+    {
+        return ConcurrencyConflict("Operation", task.Id);
+    }
+    if (projectVersion != task.Project.Version)
+    {
+        return ConcurrencyConflict("Project", task.Project.Id);
+    }
 
     var project = task.Project;
+    var previousSequences = project.Tasks.ToDictionary(candidate => candidate.Id, candidate => candidate.Sequence);
     var deletedSequence = task.Sequence;
     var deletedTitle = task.Title;
     var deletedValues = ProjectAuditService.CaptureTask(task);
     project.Tasks.Remove(task);
     db.Tasks.Remove(task);
     RenumberTasks(project);
+    BumpSequenceVersions(project.Tasks, previousSequences);
+    project.Version++;
+    project.UpdatedAt = DateTimeOffset.UtcNow;
     await metrics.RefreshProjectAsync(db, project, cancellationToken, recalculateDates: true);
     audit.Record(
         db,
@@ -826,17 +910,17 @@ static ProjectSummaryDto ToSummaryDto(Project project)
     var daysLeft = project.TargetDelivery is null ? (int?)null : project.TargetDelivery.Value.DayNumber - today.DayNumber;
     var finalCompletionDate = project.Status == ProjectStatus.Complete ? project.CompletedOn : null;
 
-    // Newest operation note across the project's steps, independent of unrelated task edits.
-    var recentNoteTask = project.Tasks
-        .Where(task => !string.IsNullOrWhiteSpace(task.Notes))
-        .OrderByDescending(task => task.NoteUpdatedAt ?? task.UpdatedAt)
-        .FirstOrDefault();
-    var recentNote = recentNoteTask is null
+    var recentProjectNote = ProjectNoteService.GetMostRecent(project);
+    var recentNote = recentProjectNote is null
         ? null
-        : new ProjectNoteDto(recentNoteTask.Notes!.Trim(), recentNoteTask.Title, recentNoteTask.NoteUpdatedAt ?? recentNoteTask.UpdatedAt);
+        : new ProjectNoteDto(
+            recentProjectNote.Task.Notes!.Trim(),
+            recentProjectNote.Task.Title,
+            recentProjectNote.UpdatedAt);
 
     return new ProjectSummaryDto(
         project.Id,
+        project.Version,
         project.ProgramName,
         project.ProgramManager,
         project.Engineer,
@@ -858,6 +942,7 @@ static ProjectDetailDto ToDetailDto(Project project)
 {
     return new ProjectDetailDto(
         project.Id,
+        project.Version,
         project.ProgramName,
         project.ProgramManager,
         project.Engineer,
@@ -876,6 +961,7 @@ static ProjectTaskDto ToTaskDto(ProjectTask task)
 {
     return new ProjectTaskDto(
         task.Id,
+        task.Version,
         task.ProjectId,
         task.Sequence,
         task.ExternalTaskId,
@@ -975,6 +1061,41 @@ static ProjectTask ApplyTaskDto(ProjectTask task, TaskUpsertDto dto)
 }
 
 static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+static IResult ConcurrencyConflict(string resourceType, int resourceId) => Results.Conflict(
+    new ConcurrencyConflictDto(
+        "ConcurrencyConflict",
+        $"This {resourceType.ToLowerInvariant()} was changed by another user. Reload the latest version before saving again.",
+        resourceType,
+        resourceId));
+
+static void BumpSequenceVersions(
+    IEnumerable<ProjectTask> tasks,
+    IReadOnlyDictionary<int, int> previousSequences,
+    int? alreadyUpdatedTaskId = null)
+{
+    foreach (var task in tasks.Where(task =>
+                 task.Id != alreadyUpdatedTaskId
+                 && previousSequences.TryGetValue(task.Id, out var previousSequence)
+                 && previousSequence != task.Sequence))
+    {
+        task.Version++;
+        task.UpdatedAt = DateTimeOffset.UtcNow;
+    }
+}
+
+static void BumpPriorityVersions(
+    IEnumerable<Project> projects,
+    IReadOnlyDictionary<int, int?> previousPriorities)
+{
+    foreach (var project in projects.Where(project =>
+                 previousPriorities.TryGetValue(project.Id, out var previousPriority)
+                 && previousPriority != project.PriorityRank))
+    {
+        project.Version++;
+        project.UpdatedAt = DateTimeOffset.UtcNow;
+    }
+}
 
 static string? NormalizeApplicationRole(string? role) => role?.Trim().ToUpperInvariant() switch
 {
@@ -1132,6 +1253,8 @@ static async Task InitializeDatabaseAsync(WebApplication app)
             await EnsureSqliteBooleanColumnAsync(db, "PercentCompleteManual", cancellationToken: default);
             await EnsureSqliteIntegerColumnAsync(db, "DependencyTaskId", cancellationToken: default);
             await EnsureSqliteTextColumnAsync(db, "Tasks", "NoteUpdatedAt", cancellationToken: default);
+            await EnsureSqliteLongColumnAsync(db, "Projects", "Version", cancellationToken: default);
+            await EnsureSqliteLongColumnAsync(db, "Tasks", "Version", cancellationToken: default);
             await EnsureSqliteTextColumnAsync(db, "Projects", "CustomerName", cancellationToken: default);
             await EnsureSqliteTextColumnAsync(db, "Projects", "SalesOrderNumber", cancellationToken: default);
             await EnsureSqliteTextColumnAsync(db, "Projects", "CompletedOn", cancellationToken: default);
@@ -1144,6 +1267,7 @@ static async Task InitializeDatabaseAsync(WebApplication app)
     }
 
     await SeedConfiguredUsersAsync(db, configuration, cancellationToken: default);
+    await ProjectNoteService.BackfillUpdatedAtAsync(db, cancellationToken: default);
     await BackfillCompletedDatesAsync(db, cancellationToken: default);
     NormalizeProjectPriorities(await db.Projects.ToListAsync());
 
@@ -1313,6 +1437,30 @@ static async Task EnsureSqliteNullableIntegerColumnAsync(ProjectTrackerDbContext
 
         await using var alterCommand = connection.CreateCommand();
         alterCommand.CommandText = $"ALTER TABLE \"{tableName}\" ADD COLUMN \"{columnName}\" INTEGER NULL;";
+        await alterCommand.ExecuteNonQueryAsync(cancellationToken);
+    }
+    finally
+    {
+        await connection.CloseAsync();
+    }
+}
+
+static async Task EnsureSqliteLongColumnAsync(ProjectTrackerDbContext db, string tableName, string columnName, CancellationToken cancellationToken)
+{
+    var connection = db.Database.GetDbConnection();
+    await connection.OpenAsync(cancellationToken);
+    try
+    {
+        await using var checkCommand = connection.CreateCommand();
+        checkCommand.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{tableName}') WHERE name = '{columnName}';";
+        var exists = Convert.ToInt32(await checkCommand.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (exists)
+        {
+            return;
+        }
+
+        await using var alterCommand = connection.CreateCommand();
+        alterCommand.CommandText = $"ALTER TABLE \"{tableName}\" ADD COLUMN \"{columnName}\" INTEGER NOT NULL DEFAULT 1;";
         await alterCommand.ExecuteNonQueryAsync(cancellationToken);
     }
     finally

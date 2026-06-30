@@ -1147,6 +1147,7 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .confirmation-icon.danger { color: var(--red-700); background: var(--red-tint); border: 1px solid var(--red-tint-2); }
 .confirmation-icon.complete { color: var(--ok-700); background: var(--ok-tint); border: 1px solid #bfe0cb; }
 .confirmation-icon.reopen { color: var(--steel-700); background: var(--steel-tint); border: 1px solid var(--steel-tint-2); }
+.confirmation-icon.conflict { color: var(--steel-700); background: var(--steel-tint); border: 1px solid var(--steel-tint-2); }
 .confirmation-copy { display: grid; gap: 7px; }
 .confirmation-copy h2 { font-size: 19px; }
 .confirmation-copy p { color: var(--ink-2); font-size: 13px; line-height: 1.55; }

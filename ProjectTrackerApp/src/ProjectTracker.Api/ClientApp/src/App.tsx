@@ -81,6 +81,7 @@ type DashboardSort = { field: DashboardSortField; dir: 'asc' | 'desc' }
 
 type ProjectSummary = {
   id: number
+  version: number
   programName: string
   programManager: string | null
   engineer: string | null
@@ -100,6 +101,7 @@ type ProjectSummary = {
 
 type ProjectDetail = {
   id: number
+  version: number
   programName: string
   programManager: string | null
   engineer: string | null
@@ -116,6 +118,7 @@ type ProjectDetail = {
 
 type ProjectTask = {
   id: number
+  version: number
   projectId: number
   sequence: number
   externalTaskId: string | null
@@ -161,6 +164,7 @@ type ScheduleSettings = {
 
 type TaskForm = {
   id?: number
+  version: number
   sequence: number
   externalTaskId: string
   title: string
@@ -181,6 +185,13 @@ type TaskForm = {
 }
 
 type ProjectConfirmation = 'complete' | 'delete' | 'reopen'
+
+type ConcurrencyConflict = {
+  code: 'ConcurrencyConflict'
+  message: string
+  resourceType: string
+  resourceId: number
+}
 
 type ProjectAuditChange = {
   field: string
@@ -245,7 +256,19 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const text = await response.text()
-    throw new Error(text || `${response.status} ${response.statusText}`)
+    let payload: unknown = text
+    try {
+      payload = JSON.parse(text)
+    } catch {
+      // Plain-text API errors remain supported.
+    }
+    const message = typeof payload === 'object' && payload !== null && 'message' in payload
+      ? String(payload.message)
+      : typeof payload === 'string' ? payload : text
+    if (response.status === 409 && typeof payload === 'object' && payload !== null && 'code' in payload && payload.code === 'ConcurrencyConflict') {
+      window.dispatchEvent(new CustomEvent<ConcurrencyConflict>('project-tracker:concurrency-conflict', { detail: payload as ConcurrencyConflict }))
+    }
+    throw new Error(message || `${response.status} ${response.statusText}`)
   }
 
   if (response.status === 204) {
@@ -278,6 +301,7 @@ function App() {
   const [overtimeTask, setOvertimeTask] = useState<ProjectTask | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
   const [activityOpen, setActivityOpen] = useState(false)
+  const [concurrencyConflict, setConcurrencyConflict] = useState<ConcurrencyConflict | null>(null)
   const lastRefreshedScreen = useRef(screen)
 
   const projectPayload = (
@@ -289,7 +313,14 @@ function App() {
     engineer: patch.engineer ?? project.engineer,
     customerName: patch.customerName ?? project.customerName,
     salesOrderNumber: patch.salesOrderNumber ?? project.salesOrderNumber,
+    version: project.version,
   })
+
+  useEffect(() => {
+    const showConflict = (event: Event) => setConcurrencyConflict((event as CustomEvent<ConcurrencyConflict>).detail)
+    window.addEventListener('project-tracker:concurrency-conflict', showConflict)
+    return () => window.removeEventListener('project-tracker:concurrency-conflict', showConflict)
+  }, [])
 
   async function loadDashboard() {
     const data = await api<Dashboard>('/api/dashboard')
@@ -417,6 +448,8 @@ function App() {
       percentCompleteManual: taskForm.percentCompleteManual,
       notes: taskForm.notes || null,
       overtimeDays: taskForm.overtimeDays.map((day) => ({ date: day.date, note: day.note })),
+      version: taskForm.version,
+      projectVersion: selectedProject.version,
     }
     const url = taskForm.id ? `/api/tasks/${taskForm.id}` : `/api/projects/${selectedProject.id}/tasks`
     await api<ProjectTask>(url, {
@@ -427,8 +460,9 @@ function App() {
     await loadDashboard()
   }
 
-  async function deleteTask(taskId: number) {
-    await api<void>(`/api/tasks/${taskId}`, { method: 'DELETE' })
+  async function deleteTask(task: ProjectTask) {
+    if (!selectedProject) return
+    await api<void>(`/api/tasks/${task.id}?version=${task.version}&projectVersion=${selectedProject.version}`, { method: 'DELETE' })
     await loadDashboard()
   }
 
@@ -445,7 +479,10 @@ function App() {
 
   async function completeProject() {
     if (!selectedProject) return
-    const project = await api<ProjectDetail>(`/api/projects/${selectedProject.id}/complete`, { method: 'POST' })
+    const project = await api<ProjectDetail>(`/api/projects/${selectedProject.id}/complete`, {
+      method: 'POST',
+      body: JSON.stringify({ version: selectedProject.version }),
+    })
     setSelectedProject(project)
     setScheduleProjects((current) => current.map((item) => (item.id === project.id ? project : item)))
     storeSelectedProjectId(project.id)
@@ -455,7 +492,10 @@ function App() {
 
   async function reopenProject() {
     if (!selectedProject) return
-    const project = await api<ProjectDetail>(`/api/projects/${selectedProject.id}/reopen`, { method: 'POST' })
+    const project = await api<ProjectDetail>(`/api/projects/${selectedProject.id}/reopen`, {
+      method: 'POST',
+      body: JSON.stringify({ version: selectedProject.version }),
+    })
     setSelectedProject(project)
     setScheduleProjects((current) => current.map((item) => (item.id === project.id ? project : item)))
     storeSelectedProjectId(project.id)
@@ -466,9 +506,11 @@ function App() {
   async function updateProjectPriority(projectId: number, priorityRank: number) {
     setError(null)
     try {
+      const project = dashboard.projects.find((item) => item.id === projectId)
+      if (!project) return
       await api<void>(`/api/projects/${projectId}/priority`, {
         method: 'PUT',
-        body: JSON.stringify({ priorityRank }),
+        body: JSON.stringify({ priorityRank, version: project.version }),
       })
       setDashboard(await api<Dashboard>('/api/dashboard'))
     } catch (err) {
@@ -479,7 +521,7 @@ function App() {
   async function deleteProject() {
     if (!selectedProject) return
     const wasCompleted = selectedProject.status === 'Complete'
-    await api<void>(`/api/projects/${selectedProject.id}`, { method: 'DELETE' })
+    await api<void>(`/api/projects/${selectedProject.id}?version=${selectedProject.version}`, { method: 'DELETE' })
     const data = await api<Dashboard>('/api/dashboard')
     setDashboard(data)
     setScheduleProjects((current) => current.filter((item) => item.id !== selectedProject.id))
@@ -532,6 +574,8 @@ function App() {
       percentCompleteManual: task.percentCompleteManual,
       notes: task.notes,
       overtimeDays: task.overtimeDays.map((day) => ({ date: day.date, note: day.note })),
+      version: task.version,
+      projectVersion: selectedProject?.version ?? 0,
     }
   }
 
@@ -544,7 +588,10 @@ function App() {
   }
 
   async function reorderTaskRow(row: ProjectTask, position: number): Promise<void> {
-    await api<ProjectTask>(`/api/tasks/${row.id}`, { method: 'PUT', body: JSON.stringify({ ...taskToPayload(row), sequence: position }) })
+    const updated = await api<ProjectTask>(`/api/tasks/${row.id}`, { method: 'PUT', body: JSON.stringify({ ...taskToPayload(row), sequence: position }) })
+    const project = await api<ProjectDetail>(`/api/projects/${updated.projectId}`)
+    setSelectedProject(project)
+    setScheduleProjects((current) => current.map((item) => (item.id === project.id ? project : item)))
   }
 
   function toggleEditMode() {
@@ -818,6 +865,19 @@ function App() {
           pending={projectActionPending}
           onCancel={() => setProjectConfirmation(null)}
           onConfirm={confirmProjectAction}
+        />
+      )}
+      {concurrencyConflict && (
+        <ConcurrencyConflictDialog
+          conflict={concurrencyConflict}
+          onCancel={() => setConcurrencyConflict(null)}
+          onReload={async () => {
+            setConcurrencyConflict(null)
+            setTaskForm(null)
+            setOvertimeTask(null)
+            setEditMode(false)
+            await refreshCurrent()
+          }}
         />
       )}
       {chatOpen && selectedProject && user && (
@@ -1472,6 +1532,54 @@ function ProjectConfirmationDialog({
   )
 }
 
+function ConcurrencyConflictDialog({
+  conflict,
+  onCancel,
+  onReload,
+}: {
+  conflict: ConcurrencyConflict
+  onCancel: () => void
+  onReload: () => Promise<void>
+}) {
+  const [reloading, setReloading] = useState(false)
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !reloading) onCancel()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [onCancel, reloading])
+
+  const reload = async () => {
+    setReloading(true)
+    try {
+      await onReload()
+    } finally {
+      setReloading(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={() => !reloading && onCancel()}>
+      <section className="modal confirmation-modal" role="alertdialog" aria-modal="true" aria-labelledby="concurrency-conflict-title" onClick={(event) => event.stopPropagation()}>
+        <div className="confirmation-icon conflict"><RefreshCw size={22} /></div>
+        <div className="confirmation-copy">
+          <span className="kicker">Newer Version Available</span>
+          <h2 id="concurrency-conflict-title">Review the latest changes</h2>
+          <p>{conflict.message} Your attempted change was not saved, so no one else's work was overwritten.</p>
+        </div>
+        <div className="modal-actions confirmation-actions">
+          <button className="button ghost" type="button" onClick={onCancel} disabled={reloading}>Cancel</button>
+          <button className="button primary" type="button" onClick={() => void reload()} disabled={reloading} autoFocus>
+            <RefreshCw size={15} /> {reloading ? 'Reloading...' : 'Reload Latest'}
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function ProjectChatDrawer({
   project,
   currentUser,
@@ -1793,7 +1901,7 @@ function ProjectView({
   onSelectProject: (projectId: number) => Promise<void>
   onEditTask: (task: ProjectTask) => void
   onAddTask: () => void
-  onDeleteTask: (taskId: number) => Promise<void>
+  onDeleteTask: (task: ProjectTask) => Promise<void>
   onUpdateProject: (patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber'>>) => Promise<void>
   onCompleteProject: () => void
   onReopenProject: () => void
@@ -2007,7 +2115,7 @@ function ProjectView({
                             <td className="row-actions">
                               <button className="icon-button" onClick={(event) => { event.stopPropagation(); onEditTask(task) }} title="Edit operation">Edit</button>
                               <button className="icon-button" onClick={(event) => { event.stopPropagation(); onEditOvertime(task) }} aria-label={`Overtime dates for ${task.title}`} title="Approved overtime"><CalendarPlus size={14} /></button>
-                              <button className="icon-button danger" onClick={(event) => { event.stopPropagation(); onDeleteTask(task.id) }} aria-label={`Delete ${task.title}`} title="Delete">
+                              <button className="icon-button danger" onClick={(event) => { event.stopPropagation(); onDeleteTask(task) }} aria-label={`Delete ${task.title}`} title="Delete">
                                 <Trash2 size={14} />
                               </button>
                             </td>
@@ -2093,7 +2201,7 @@ function OpsEditGrid({
   conflictKeys: Set<string>
   onSaveRow: (row: ProjectTask) => Promise<ProjectTask>
   onReorder: (row: ProjectTask, position: number) => Promise<void>
-  onDeleteTask: (taskId: number) => Promise<void>
+  onDeleteTask: (task: ProjectTask) => Promise<void>
   onAddTask: () => void
   onEditOvertime: (task: ProjectTask) => void
 }) {
@@ -2211,7 +2319,7 @@ function OpsEditGrid({
     setRows((current) => renumber(current.filter((item) => item.id !== row.id)))
     setSaveError(null)
     try {
-      await onDeleteTask(row.id)
+      await onDeleteTask(row)
     } catch (error) {
       handleSaveError(error)
     }
@@ -4565,6 +4673,7 @@ function clamp(value: number, min: number, max: number) {
 function formFromTask(task: ProjectTask): TaskForm {
   return {
     id: task.id,
+    version: task.version,
     sequence: task.sequence,
     externalTaskId: task.externalTaskId ?? '',
     title: task.title,
@@ -4588,6 +4697,7 @@ function formFromTask(task: ProjectTask): TaskForm {
 function emptyTaskForm(project: ProjectDetail): TaskForm {
   const last = project.tasks.at(-1)
   return {
+    version: 0,
     sequence: project.tasks.length + 1,
     externalTaskId: '',
     title: '',

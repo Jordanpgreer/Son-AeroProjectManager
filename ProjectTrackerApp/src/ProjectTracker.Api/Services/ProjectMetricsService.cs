@@ -17,11 +17,13 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
 
     public void RefreshProject(Project project, ScheduleCalendar calendar, DateOnly today, bool recalculateDates = false)
     {
+        var projectState = ProjectComputedState.Capture(project);
         if (project.CompletedOn is not null)
         {
             project.Progress = 1m;
             project.Status = ProjectStatus.Complete;
             project.CurrentTask = "Program Complete";
+            UpdateProjectVersion(project, projectState);
             return;
         }
 
@@ -29,6 +31,7 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
         var scheduledTasks = new Dictionary<int, ProjectTask>();
         foreach (var task in project.Tasks.OrderBy(task => task.Sequence))
         {
+            var taskState = TaskComputedState.Capture(task);
             var overtimeDates = task.OvertimeDays.Select(day => day.Date).ToHashSet();
             var dependencyStart = GetDependencyStart(task, scheduledTasks);
             var calculatedStart = dependencyStart ?? nextStart;
@@ -54,7 +57,7 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
                 ? Math.Clamp(task.PercentComplete, 0m, 1m)
                 : CalculateAutomaticPercent(task, calendar, today);
             task.Status = scheduleCalculator.CalculateTaskStatus(task, calendar, today);
-            task.UpdatedAt = DateTimeOffset.UtcNow;
+            UpdateTaskVersion(task, taskState);
 
             nextStart = task.EndDate?.AddDays(1);
             scheduledTasks[task.Id] = task;
@@ -77,6 +80,28 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
                 .Max()
                 ?? today;
         }
+        UpdateProjectVersion(project, projectState);
+    }
+
+    private static void UpdateTaskVersion(ProjectTask task, TaskComputedState before)
+    {
+        if (before == TaskComputedState.Capture(task))
+        {
+            return;
+        }
+
+        task.Version++;
+        task.UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    private static void UpdateProjectVersion(Project project, ProjectComputedState before)
+    {
+        if (before == ProjectComputedState.Capture(project))
+        {
+            return;
+        }
+
+        project.Version++;
         project.UpdatedAt = DateTimeOffset.UtcNow;
     }
 
@@ -167,5 +192,37 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
         }
 
         return ProjectStatus.OnTrack;
+    }
+
+    private sealed record TaskComputedState(
+        DateOnly? StartDate,
+        DateOnly? EndDate,
+        int? EstimatedDuration,
+        decimal PercentComplete,
+        TaskScheduleStatus Status)
+    {
+        public static TaskComputedState Capture(ProjectTask task) => new(
+            task.StartDate,
+            task.EndDate,
+            task.EstimatedDuration,
+            task.PercentComplete,
+            task.Status);
+    }
+
+    private sealed record ProjectComputedState(
+        DateOnly? ProgramStart,
+        DateOnly? TargetDelivery,
+        DateOnly? CompletedOn,
+        decimal Progress,
+        ProjectStatus Status,
+        string? CurrentTask)
+    {
+        public static ProjectComputedState Capture(Project project) => new(
+            project.ProgramStart,
+            project.TargetDelivery,
+            project.CompletedOn,
+            project.Progress,
+            project.Status,
+            project.CurrentTask);
     }
 }

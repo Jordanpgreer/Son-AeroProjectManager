@@ -20,6 +20,7 @@ public sealed record ProjectNoteDto(string Note, string Step, DateTimeOffset At)
 
 public sealed record ProjectSummaryDto(
     int Id,
+    long Version,
     string ProgramName,
     string? ProgramManager,
     string? Engineer,
@@ -38,6 +39,7 @@ public sealed record ProjectSummaryDto(
 
 public sealed record ProjectDetailDto(
     int Id,
+    long Version,
     string ProgramName,
     string? ProgramManager,
     string? Engineer,
@@ -53,6 +55,7 @@ public sealed record ProjectDetailDto(
 
 public sealed record ProjectTaskDto(
     int Id,
+    long Version,
     int ProjectId,
     int Sequence,
     string? ExternalTaskId,
@@ -78,7 +81,8 @@ public sealed record ProjectUpsertDto(
     string? ProgramManager,
     string? Engineer,
     string? CustomerName,
-    string? SalesOrderNumber);
+    string? SalesOrderNumber,
+    long Version);
 
 public sealed record ProjectCreateDto(
     string ProgramName,
@@ -106,7 +110,9 @@ public sealed record TaskUpsertDto(
     decimal PercentComplete,
     bool PercentCompleteManual,
     string? Notes,
-    IReadOnlyList<TaskOvertimeDayUpsertDto>? OvertimeDays);
+    IReadOnlyList<TaskOvertimeDayUpsertDto>? OvertimeDays,
+    long Version,
+    long ProjectVersion);
 
 public sealed record TaskOvertimeDayDto(int Id, DateOnly Date, string? Note);
 
@@ -126,7 +132,15 @@ public sealed record WorkCenterDto(int Id, string Name);
 
 public sealed record WorkCenterUpsertDto(string Name);
 
-public sealed record ProjectPriorityDto(int PriorityRank);
+public sealed record ProjectPriorityDto(int PriorityRank, long Version);
+
+public sealed record ProjectActionDto(long Version);
+
+public sealed record ConcurrencyConflictDto(
+    string Code,
+    string Message,
+    string ResourceType,
+    int ResourceId);
 
 public sealed record ProjectMessageDto(
     int Id,
