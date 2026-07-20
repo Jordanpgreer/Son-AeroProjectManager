@@ -1,16 +1,20 @@
-# Build output
+# ---------------------------------------------------------------------------
+# SON-AERO Internal Hub — monorepo .gitignore
+# Patterns without a leading slash apply in every app (apps/*, shared, etc.).
+# ---------------------------------------------------------------------------
+
+# Build output (any app)
 bin/
 obj/
 publish/
 dist/
 wwwroot/
 
-# Frontend dependencies and generated output
+# Frontend dependencies and generated output (any app)
 node_modules/
-ProjectTrackerApp/src/ProjectTracker.Api/ClientApp/dist/
-ProjectTrackerApp/src/ProjectTracker.Api/wwwroot/
 
-# Local databases
+# Local databases (the tracked demo DB apps/project-tracker/.../project-tracker-dev.db
+# stays tracked because git ignore rules never apply to already-tracked files)
 *.db
 *.sqlite
 *.sqlite3
@@ -21,6 +25,7 @@ ProjectTrackerApp/src/ProjectTracker.Api/wwwroot/
 .playwright-cli/
 .playwright-mcp/
 output/
+tmp/
 test-results/
 playwright-report/
 
@@ -31,13 +36,32 @@ playwright-report/
 .vscode/
 .idea/
 *.log
+
+# Hub / launcher runtime artifacts (kept outside source)
+logs/
+.hub-build-stamp
 .projects-build-stamp
+*-launch.out.log
+*-launch.err.log
 
 # Generated/exported reports
 *.xlsx
 *.pdf
 !Project Tracker.xlsm
 
-# Workbook backups/intermediate repair copies
+# Legacy workbook backups / intermediate repair copies (kept locally under
+# data/project-tracker/legacy-workbooks but not tracked)
 Project Tracker.backup-*.xlsm
 Project Tracker - *.xlsm
+
+# Codex local configuration
+.codex/
+
+# Claude Flow runtime data
+.claude-flow/data/
+.claude-flow/logs/
+
+# Environment variables
+.env
+.env.local
+.env.*.local

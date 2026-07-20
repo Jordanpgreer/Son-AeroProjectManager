@@ -1,0 +1,83 @@
+/*
+ * SON-AERO brand tokens — canonical source of truth.
+ *
+ * The shared design tokens (typography, color, lines, radii, elevation) for every
+ * SON-AERO internal application. This file is the single source; each frontend imports
+ * a synced copy (scripts/Sync-Branding.ps1 -> <app>/src/brand-tokens.css, pulled in from
+ * that app's index.css). Only tokens that are identical across every app live here — an
+ * app keeps any app-specific or intentionally-divergent tokens (e.g. --grid-line,
+ * --shadow-pop, --font-id, spacing scale) in its own index.css :root.
+ *
+ * Update tokens HERE, then run scripts/Sync-Branding.ps1 to propagate.
+ */
+:root {
+  /* ---- Type ------------------------------------------------------------ */
+  --font-display: 'Archivo', 'IBM Plex Sans', system-ui, sans-serif;
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  /* ---- Canvas & surfaces ---------------------------------------------- */
+  --bg: #e9edf1;
+  --bg-deep: #dfe4ea;
+  --surface: #ffffff;
+  --surface-2: #f5f7f9;
+  --surface-3: #eceff3;
+
+  /* ---- Ink ------------------------------------------------------------- */
+  --ink: #101822;
+  --ink-2: #3a4654;
+  --muted: #67727f;
+  --faint: #98a3af;
+
+  /* ---- Lines ----------------------------------------------------------- */
+  --line: #e3e7ec;
+  --line-2: #d0d7df;
+  --line-3: #bcc5ce;
+
+  /* ---- Brand red ------------------------------------------------------- */
+  --red: #e23b2c;
+  --red-600: #cf3122;
+  --red-700: #a92317;
+  --red-tint: #fceeec;
+  --red-tint-2: #f6d6d1;
+
+  /* ---- Steel (secondary accent / data) -------------------------------- */
+  --steel: #2f6195;
+  --steel-700: #1f486f;
+  --steel-tint: #e8eff6;
+
+  /* ---- Status ---------------------------------------------------------- */
+  --ok: #1f7a4d;
+  --ok-700: #155c39;
+  --ok-tint: #e5f2ea;
+  --warn: #b5731a;
+  --warn-700: #8a560f;
+  --warn-tint: #fbf1de;
+  --risk: #e23b2c;
+  --risk-700: #a92317;
+  --risk-tint: #fcebe8;
+  --done: #46586b;
+  --done-tint: #e9edf1;
+  --idle: #7d8893;
+  --idle-tint: #edf0f3;
+
+  /* ---- Dark navigation rail (navy / graphite) ------------------------- */
+  --nav-1: #0d1218;
+  --nav-2: #141d26;
+  --nav-3: #0a0e13;
+  --nav-text: #c9d2db;
+  --nav-strong: #ffffff;
+  --nav-muted: #79868f;
+  --nav-line: rgba(255, 255, 255, 0.08);
+
+  /* ---- Radii ----------------------------------------------------------- */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 11px;
+  --r-pill: 999px;
+
+  /* ---- Elevation ------------------------------------------------------- */
+  --shadow-1: 0 1px 1px rgba(16, 24, 33, 0.04), 0 1px 2px rgba(16, 24, 33, 0.05);
+  --shadow-2: 0 1px 2px rgba(16, 24, 33, 0.05), 0 10px 22px -14px rgba(16, 24, 33, 0.30);
+}

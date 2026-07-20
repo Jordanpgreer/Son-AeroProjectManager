@@ -1,0 +1,101 @@
+using ProjectTracker.Api.Dtos;
+using ProjectTracker.Api.Models;
+using ProjectTracker.Api.Services;
+
+namespace ProjectTracker.Api.Mapping;
+
+public static class ProjectDtoMapper
+{
+    public static ProjectSummaryDto ToSummaryDto(Project project)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var daysLeft = project.TargetDelivery is null ? (int?)null : project.TargetDelivery.Value.DayNumber - today.DayNumber;
+        var finalCompletionDate = project.Status == ProjectStatus.Complete ? project.CompletedOn : null;
+        var recentProjectNote = ProjectNoteService.GetMostRecent(project);
+        var recentNote = recentProjectNote is null
+            ? null
+            : new ProjectNoteDto(
+                recentProjectNote.Task.Notes!.Trim(),
+                recentProjectNote.Task.Title,
+                recentProjectNote.UpdatedAt);
+
+        return new ProjectSummaryDto(
+            project.Id,
+            project.Version,
+            project.ProgramName,
+            project.ProgramManager,
+            project.Engineer,
+            project.CustomerName,
+            project.SalesOrderNumber,
+            project.CurrentTask,
+            project.PriorityRank,
+            project.Progress,
+            project.TargetDelivery,
+            finalCompletionDate,
+            daysLeft,
+            project.Status,
+            project.Tasks.Count,
+            project.Tasks.Count(task => task.Status == TaskScheduleStatus.Behind),
+            recentNote);
+    }
+
+    public static ProjectDetailDto ToDetailDto(Project project) => new(
+        project.Id,
+        project.Version,
+        project.ProgramName,
+        project.ProgramManager,
+        project.Engineer,
+        project.CustomerName,
+        project.SalesOrderNumber,
+        project.CurrentTask,
+        project.ProgramStart,
+        project.TargetDelivery,
+        project.CompletedOn,
+        project.Progress,
+        project.Status,
+        project.Tasks.OrderBy(task => task.Sequence).Select(ToTaskDto).ToList());
+
+    public static ProjectTaskDto ToTaskDto(ProjectTask task) => new(
+        task.Id,
+        task.Version,
+        task.ProjectId,
+        task.Sequence,
+        task.ExternalTaskId,
+        task.Title,
+        task.Phase,
+        task.WorkStation,
+        task.DependencyTaskId,
+        task.StartDate,
+        task.StartDateLocked,
+        task.OriginalStartDate,
+        task.EndDate,
+        task.OriginalEndDate,
+        task.EstimatedDuration,
+        task.ActualDuration,
+        task.PercentComplete,
+        task.PercentCompleteManual,
+        task.Status,
+        task.Notes,
+        task.OvertimeDays.OrderBy(day => day.Date).Select(day => new TaskOvertimeDayDto(day.Id, day.Date, day.Note)).ToList());
+
+    public static ProjectMessageDto ToMessageDto(ProjectMessage message) => new(
+        message.Id,
+        message.ProjectId,
+        message.AuthorAccountName,
+        message.AuthorDisplayName,
+        message.Body,
+        message.CreatedAt);
+
+    public static ProjectAuditEntryDto ToAuditEntryDto(ProjectAuditEntry entry) => new(
+        entry.Id,
+        entry.ProjectId,
+        entry.ProjectTaskId,
+        entry.Action,
+        entry.Summary,
+        ProjectAuditService.ReadChanges(entry.ChangesJson)
+            .Select(change => new ProjectAuditChangeDto(change.Field, change.OldValue, change.NewValue))
+            .ToList(),
+        entry.ChangedByAccountName,
+        entry.ChangedByDisplayName,
+        entry.ChangedAt);
+}
