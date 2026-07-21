@@ -1,4 +1,5 @@
-using System.Text.Json;
+using System.Net.Http.Json;
+using Microsoft.Extensions.Caching.Memory;
 using Portal.Api.Dtos;
 
 namespace Portal.Api.Services;
@@ -10,6 +11,7 @@ namespace Portal.Api.Services;
 /// </summary>
 public sealed class TrackerPreviewService(
     HttpClient httpClient,
+    IMemoryCache cache,
     ApplicationRegistry registry,
     ILogger<TrackerPreviewService> logger)
 {
@@ -25,61 +27,27 @@ public sealed class TrackerPreviewService(
 
         try
         {
+            if (cache.TryGetValue(url, out TrackerPreviewDto? cached) && cached is not null)
+            {
+                return cached;
+            }
+
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(2));
 
-            var json = await httpClient.GetStringAsync(url, timeout.Token);
-            using var document = JsonDocument.Parse(json);
-            if (document.RootElement.ValueKind != JsonValueKind.Array)
+            var snapshot = await httpClient.GetFromJsonAsync<TrackerPreviewDto>(url, timeout.Token);
+            if (snapshot is null)
             {
                 return null;
             }
 
-            var projects = new List<(string Name, double Progress, string Status, int Priority)>();
-            foreach (var element in document.RootElement.EnumerateArray())
-            {
-                var status = element.TryGetProperty("status", out var statusValue) ? statusValue.GetString() ?? "" : "";
-                var name = element.TryGetProperty("programName", out var nameValue) ? nameValue.GetString() ?? "" : "";
-                var progress = element.TryGetProperty("progress", out var progressValue) && progressValue.TryGetDouble(out var parsedProgress)
-                    ? parsedProgress
-                    : 0d;
-                var priority = element.TryGetProperty("priorityRank", out var priorityValue)
-                    && priorityValue.ValueKind == JsonValueKind.Number
-                    && priorityValue.TryGetInt32(out var parsedPriority)
-                    ? parsedPriority
-                    : int.MaxValue;
-                projects.Add((name, progress, status, priority));
-            }
-
-            var active = projects
-                .Where(project => !string.Equals(project.Status, "Complete", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-            var onTrack = active.Count(project => string.Equals(project.Status, "OnTrack", StringComparison.OrdinalIgnoreCase));
-            var behind = active.Count(project => string.Equals(project.Status, "Behind", StringComparison.OrdinalIgnoreCase));
-            var averageProgress = active.Count > 0 ? active.Average(project => project.Progress) : 0d;
-
-            var rows = active
-                .OrderBy(project => project.Priority)
-                .ThenByDescending(project => project.Progress)
-                .Take(5)
-                .Select(project => new TrackerPreviewRow(project.Name, project.Progress, NormalizeStatus(project.Status)))
-                .ToList();
-
-            return new TrackerPreviewDto(active.Count, onTrack, behind, averageProgress, rows);
+            cache.Set(url, snapshot, TimeSpan.FromSeconds(15));
+            return snapshot;
         }
         catch (Exception exception)
         {
             logger.LogDebug(exception, "Project Tracker preview unavailable at {Url}.", url);
             return null;
         }
-    }
-
-    private static string NormalizeStatus(string status)
-    {
-        if (string.Equals(status, "OnTrack", StringComparison.OrdinalIgnoreCase)) return "onTrack";
-        if (string.Equals(status, "Behind", StringComparison.OrdinalIgnoreCase)) return "behind";
-        if (string.Equals(status, "Complete", StringComparison.OrdinalIgnoreCase)) return "complete";
-        return "notStarted";
     }
 }

@@ -80,4 +80,80 @@ public sealed class ProjectReadServiceTests
         Assert.Single(await db.Tasks.IgnoreQueryFilters().ToListAsync());
         Assert.Single(await db.ProjectAuditEntries.IgnoreQueryFilters().ToListAsync());
     }
+
+    [Fact]
+    public async Task PreviewRead_ReturnsCompactOrderedActiveSnapshot()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>().UseSqlite(connection).Options;
+        await using var db = new ProjectTrackerDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
+        db.Projects.AddRange(
+            new Project
+            {
+                ProgramName = "BRAVO",
+                PriorityRank = 2,
+                Tasks =
+                [
+                    new ProjectTask
+                    {
+                        Sequence = 1,
+                        Title = "Late task",
+                        StartDate = DateOnly.FromDateTime(DateTime.Today.AddDays(-4)),
+                        EndDate = DateOnly.FromDateTime(DateTime.Today.AddDays(-1)),
+                        EstimatedDuration = 4,
+                        PercentComplete = 0.2m,
+                        PercentCompleteManual = true
+                    }
+                ]
+            },
+            new Project
+            {
+                ProgramName = "ALPHA",
+                PriorityRank = 1,
+                Tasks =
+                [
+                    new ProjectTask
+                    {
+                        Sequence = 1,
+                        Title = "Active task",
+                        StartDate = DateOnly.FromDateTime(DateTime.Today.AddDays(-1)),
+                        EndDate = DateOnly.FromDateTime(DateTime.Today.AddDays(3)),
+                        EstimatedDuration = 5,
+                        PercentComplete = 0.6m
+                    }
+                ]
+            },
+            new Project
+            {
+                ProgramName = "COMPLETE",
+                PriorityRank = 3,
+                CompletedOn = DateOnly.FromDateTime(DateTime.Today),
+                Tasks =
+                [
+                    new ProjectTask
+                    {
+                        Sequence = 1,
+                        Title = "Done task",
+                        StartDate = DateOnly.FromDateTime(DateTime.Today.AddDays(-3)),
+                        EndDate = DateOnly.FromDateTime(DateTime.Today.AddDays(-1)),
+                        EstimatedDuration = 3,
+                        PercentComplete = 1m
+                    }
+                ]
+            });
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        var service = new ProjectReadService(db, new ProjectMetricsService(new ScheduleCalculator()));
+        var preview = await service.PreviewAsync();
+
+        Assert.Equal(2, preview.ActiveProjects);
+        Assert.Equal(1, preview.OnTrack);
+        Assert.Equal(1, preview.Behind);
+        Assert.Equal(new[] { "ALPHA", "BRAVO" }, preview.Programs.Select(program => program.Name).ToArray());
+        Assert.Equal(new[] { "onTrack", "behind" }, preview.Programs.Select(program => program.Status).ToArray());
+    }
 }

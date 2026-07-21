@@ -67,6 +67,12 @@ export type ProjectDetail = {
   tasks: ProjectTask[]
 }
 
+export type ProjectVersion = {
+  id: number
+  version: number
+  updatedAt: string
+}
+
 export type ProjectTask = {
   id: number
   version: number

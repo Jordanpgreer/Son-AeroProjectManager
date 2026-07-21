@@ -18,6 +18,15 @@ public static class ProjectReadEndpoints
             return project is null ? Results.NotFound() : Results.Ok(project);
         });
 
+        api.MapGet("/projects/{id:int}/version", async (int id, ProjectReadService reads, CancellationToken cancellationToken) =>
+        {
+            var project = await reads.VersionAsync(id, cancellationToken);
+            return project is null ? Results.NotFound() : Results.Ok(project);
+        });
+
+        api.MapGet("/preview", (ProjectReadService reads, CancellationToken cancellationToken) =>
+            reads.PreviewAsync(cancellationToken));
+
         api.MapGet("/calendar", (ProjectReadService reads, CancellationToken cancellationToken) =>
             reads.CalendarAsync(cancellationToken));
 

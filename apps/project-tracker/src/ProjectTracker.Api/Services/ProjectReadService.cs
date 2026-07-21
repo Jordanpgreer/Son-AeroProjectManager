@@ -38,6 +38,33 @@ public sealed class ProjectReadService(ProjectTrackerDbContext db, ProjectMetric
         return projects.OrderBy(project => project.ProgramName).Select(ProjectDtoMapper.ToSummaryDto).ToList();
     }
 
+    public async Task<TrackerPreviewDto> PreviewAsync(CancellationToken cancellationToken = default)
+    {
+        var projects = await LoadProjectsAsync(cancellationToken);
+        await RefreshForReadAsync(projects, cancellationToken);
+
+        var active = projects
+            .Where(project => project.Status != ProjectStatus.Complete)
+            .ToList();
+
+        var rows = active
+            .OrderBy(project => project.PriorityRank ?? int.MaxValue)
+            .ThenByDescending(project => project.Progress)
+            .Take(5)
+            .Select(project => new TrackerPreviewRowDto(
+                project.ProgramName,
+                decimal.ToDouble(project.Progress),
+                NormalizePreviewStatus(project.Status)))
+            .ToList();
+
+        return new TrackerPreviewDto(
+            active.Count,
+            active.Count(project => project.Status == ProjectStatus.OnTrack),
+            active.Count(project => project.Status == ProjectStatus.Behind),
+            active.Count == 0 ? 0d : active.Average(project => decimal.ToDouble(project.Progress)),
+            rows);
+    }
+
     public async Task<ProjectDetailDto?> DetailAsync(int id, CancellationToken cancellationToken = default)
     {
         var project = await ProjectQuery().FirstOrDefaultAsync(project => project.Id == id, cancellationToken);
@@ -49,6 +76,13 @@ public sealed class ProjectReadService(ProjectTrackerDbContext db, ProjectMetric
         await RefreshForReadAsync([project], cancellationToken);
         return ProjectDtoMapper.ToDetailDto(project);
     }
+
+    public Task<ProjectVersionDto?> VersionAsync(int id, CancellationToken cancellationToken = default) =>
+        db.Projects
+            .AsNoTracking()
+            .Where(project => project.Id == id)
+            .Select(project => new ProjectVersionDto(project.Id, project.Version, project.UpdatedAt))
+            .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<IReadOnlyList<ProjectDetailDto>> CalendarAsync(CancellationToken cancellationToken = default)
     {
@@ -99,4 +133,12 @@ public sealed class ProjectReadService(ProjectTrackerDbContext db, ProjectMetric
             project.PriorityRank = null;
         }
     }
+
+    private static string NormalizePreviewStatus(ProjectStatus status) => status switch
+    {
+        ProjectStatus.OnTrack => "onTrack",
+        ProjectStatus.Behind => "behind",
+        ProjectStatus.Complete => "complete",
+        _ => "notStarted"
+    };
 }

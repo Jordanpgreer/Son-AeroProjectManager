@@ -25,6 +25,15 @@ public sealed record DashboardDto(
     DateOnly? NearestDelivery,
     IReadOnlyList<ProjectSummaryDto> Projects);
 
+public sealed record TrackerPreviewDto(
+    int ActiveProjects,
+    int OnTrack,
+    int Behind,
+    double AverageProgress,
+    IReadOnlyList<TrackerPreviewRowDto> Programs);
+
+public sealed record TrackerPreviewRowDto(string Name, double Progress, string Status);
+
 public sealed record ProjectNoteDto(string Note, string Step, DateTimeOffset At);
 
 public sealed record ProjectSummaryDto(
@@ -61,6 +70,8 @@ public sealed record ProjectDetailDto(
     decimal Progress,
     ProjectStatus Status,
     IReadOnlyList<ProjectTaskDto> Tasks);
+
+public sealed record ProjectVersionDto(int Id, long Version, DateTimeOffset UpdatedAt);
 
 public sealed record ProjectTaskDto(
     int Id,

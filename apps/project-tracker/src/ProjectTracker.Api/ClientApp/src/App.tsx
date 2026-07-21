@@ -1,6 +1,7 @@
 import './App.css'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import type { FormEvent } from 'react'
+import { RefreshCw } from 'lucide-react'
 import {
   isPortalDashboardPreview,
   isPortalDashboardLaunch,
@@ -32,6 +33,7 @@ import type {
   ProjectConfirmation,
   ConcurrencyConflict,
   ProjectCreateRequest,
+  ProjectVersion,
 } from './types'
 import {
   ErrorState,
@@ -95,6 +97,8 @@ function App() {
   const [chatOpen, setChatOpen] = useState(false)
   const [activityOpen, setActivityOpen] = useState(false)
   const [concurrencyConflict, setConcurrencyConflict] = useState<ConcurrencyConflict | null>(null)
+  const [projectChangeNotice, setProjectChangeNotice] = useState<ProjectVersion | null>(null)
+  const [dismissedProjectVersion, setDismissedProjectVersion] = useState<number | null>(null)
   const referenceDataLoaded = useRef(false)
   const calendarDataLoaded = useRef(false)
 
@@ -122,6 +126,8 @@ function App() {
     if (selectedProject) {
       const refreshed = await api<ProjectDetail>(`/api/projects/${selectedProject.id}`)
       setSelectedProject(refreshed)
+      setProjectChangeNotice(null)
+      setDismissedProjectVersion(null)
       storeSelectedProjectId(refreshed.id)
     }
   }
@@ -204,6 +210,8 @@ function App() {
       if (projectId && screen === 'project') {
         const project = await api<ProjectDetail>(`/api/projects/${projectId}`)
         setSelectedProject(project)
+        setProjectChangeNotice(null)
+        setDismissedProjectVersion(null)
         storeSelectedProjectId(project.id)
       }
     } catch (err) {
@@ -228,6 +236,8 @@ function App() {
         loadCalendarData(),
       ])
       setSelectedProject(project)
+      setProjectChangeNotice(null)
+      setDismissedProjectVersion(null)
       storeSelectedProjectId(project.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load program data.')
@@ -304,6 +314,8 @@ function App() {
       body: JSON.stringify(projectPayload(selectedProject, patch)),
     })
     setSelectedProject(project)
+    setProjectChangeNotice(null)
+    setDismissedProjectVersion(null)
     storeSelectedProjectId(project.id)
     await loadDashboard()
   }
@@ -315,6 +327,8 @@ function App() {
       body: JSON.stringify({ version: selectedProject.version }),
     })
     setSelectedProject(project)
+    setProjectChangeNotice(null)
+    setDismissedProjectVersion(null)
     setScheduleProjects((current) => current.map((item) => (item.id === project.id ? project : item)))
     storeSelectedProjectId(project.id)
     setEditMode(false)
@@ -328,6 +342,8 @@ function App() {
       body: JSON.stringify({ version: selectedProject.version }),
     })
     setSelectedProject(project)
+    setProjectChangeNotice(null)
+    setDismissedProjectVersion(null)
     setScheduleProjects((current) => current.map((item) => (item.id === project.id ? project : item)))
     storeSelectedProjectId(project.id)
     setEditMode(false)
@@ -414,6 +430,8 @@ function App() {
     const updated = await api<ProjectTask>(`/api/tasks/${row.id}`, { method: 'PUT', body: JSON.stringify(taskToPayload(row)) })
     const project = await api<ProjectDetail>(`/api/projects/${updated.projectId}`)
     setSelectedProject(project)
+    setProjectChangeNotice(null)
+    setDismissedProjectVersion(null)
     setScheduleProjects((current) => current.map((item) => (item.id === project.id ? project : item)))
     return project.tasks.find((task) => task.id === updated.id) ?? updated
   }
@@ -422,6 +440,8 @@ function App() {
     const updated = await api<ProjectTask>(`/api/tasks/${row.id}`, { method: 'PUT', body: JSON.stringify({ ...taskToPayload(row), sequence: position }) })
     const project = await api<ProjectDetail>(`/api/projects/${updated.projectId}`)
     setSelectedProject(project)
+    setProjectChangeNotice(null)
+    setDismissedProjectVersion(null)
     setScheduleProjects((current) => current.map((item) => (item.id === project.id ? project : item)))
   }
 
@@ -516,13 +536,15 @@ function App() {
       api<Dashboard>('/api/dashboard'),
       api<ProjectDetail[]>('/api/calendar'),
     ])
-    setDashboard(data)
-    setScheduleProjects(calendarData)
-    setSelectedProject(project)
-    storeSelectedProjectId(project.id)
-    setProjectWizardOpen(false)
-    setScreen('project')
-    setEditMode(true)
+      setDashboard(data)
+      setScheduleProjects(calendarData)
+      setSelectedProject(project)
+      setProjectChangeNotice(null)
+      setDismissedProjectVersion(null)
+      storeSelectedProjectId(project.id)
+      setProjectWizardOpen(false)
+      setScreen('project')
+      setEditMode(true)
   }
 
   async function saveOvertimeDays(task: ProjectTask, overtimeDays: TaskOvertimeDay[]) {
@@ -571,6 +593,38 @@ function App() {
   useEffect(() => {
     if (screen !== 'project') setEditMode(false)
   }, [screen])
+
+  useEffect(() => {
+    if (screen !== 'project' || !selectedProject || loading || projectLoading) {
+      return
+    }
+
+    let active = true
+
+    const checkForProjectChanges = async () => {
+      try {
+        const latest = await api<ProjectVersion>(`/api/projects/${selectedProject.id}/version`)
+        if (!active) return
+        if (latest.version !== selectedProject.version) {
+          if (dismissedProjectVersion !== latest.version) {
+            setProjectChangeNotice(latest)
+          }
+          return
+        }
+
+        setProjectChangeNotice(null)
+      } catch {
+        // Silent retry on next poll.
+      }
+    }
+
+    void checkForProjectChanges()
+    const interval = window.setInterval(() => void checkForProjectChanges(), 10000)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
+  }, [screen, selectedProject?.id, selectedProject?.version, loading, projectLoading, dismissedProjectVersion])
 
   useEffect(() => {
     if (loading) return
@@ -624,6 +678,45 @@ function App() {
         <div className="main-scroll">
           {(loading || screenDataLoading) && <LoadingSkeleton screen={screen} />}
           {error && <ErrorState message={error} onRetry={refreshCurrent} />}
+          {!loading && !screenDataLoading && !error && projectChangeNotice && isProjectScreen && selectedProject && (
+            <section className="view change-notice-wrap">
+              <div className="panel state-warning">
+                <RefreshCw size={20} />
+                <div>
+                  <strong>Project data changed while you were viewing it</strong>
+                  <p>
+                    Another user saved updates to <b>{selectedProject.programName}</b>. Reload to review the latest data before making more changes.
+                  </p>
+                </div>
+                <div className="state-warning-actions">
+                  <button
+                    className="button ghost"
+                    type="button"
+                    onClick={() => {
+                      setDismissedProjectVersion(projectChangeNotice.version)
+                      setProjectChangeNotice(null)
+                    }}
+                  >
+                    Dismiss
+                  </button>
+                  <button
+                    className="button primary"
+                    type="button"
+                    onClick={() => void (async () => {
+                      setProjectChangeNotice(null)
+                      setDismissedProjectVersion(null)
+                      setTaskForm(null)
+                      setOvertimeTask(null)
+                      setEditMode(false)
+                      await refreshCurrent()
+                    })()}
+                  >
+                    <RefreshCw size={15} /> Reload Latest
+                  </button>
+                </div>
+              </div>
+            </section>
+          )}
           {!loading && !screenDataLoading && !error && projectLoading && isProjectScreen && <ProjectSkeleton />}
           {!loading && !screenDataLoading && !error && !projectLoading && (
             <>

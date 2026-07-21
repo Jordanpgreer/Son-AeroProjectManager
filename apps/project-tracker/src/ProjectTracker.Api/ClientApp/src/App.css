@@ -1363,6 +1363,27 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .state-error p { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
 .state-error .button { margin-left: auto; }
 
+.change-notice-wrap {
+  padding-bottom: 0;
+}
+
+.state-warning {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-color: #d9c48c;
+  background: linear-gradient(180deg, #fffaf0 0%, #fff7e7 100%);
+}
+.state-warning > svg { color: #b7791f; flex: none; }
+.state-warning strong { color: var(--ink); font-size: 14px; }
+.state-warning p { color: var(--ink-2); font-size: 12.5px; margin-top: 3px; }
+.state-warning-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
 /* ---------------------------------------------------------------------- */
 /* Skeletons                                                              */
 /* ---------------------------------------------------------------------- */
