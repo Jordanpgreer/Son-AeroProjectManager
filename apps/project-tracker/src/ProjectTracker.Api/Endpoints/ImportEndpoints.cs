@@ -18,10 +18,10 @@ public static class ImportEndpoints
         {
             var path = WorkbookPathResolver.Resolve(request.Path, configuration, environment);
             return Results.Ok(await importer.ImportAsync(db, path, request.ReplaceExisting, cancellationToken));
-        }).RequireAuthorization("AdminOnly");
+        }).RequireAuthorization("ManageImports");
 
         api.MapPost("/import/upload", UploadAsync)
-            .RequireAuthorization("AdminOnly")
+            .RequireAuthorization("ManageImports")
             .DisableAntiforgery();
         return api;
     }

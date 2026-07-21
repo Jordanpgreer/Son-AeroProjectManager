@@ -15,6 +15,9 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
     public DbSet<ScheduleSettings> ScheduleSettings => Set<ScheduleSettings>();
     public DbSet<TaskOvertimeDay> TaskOvertimeDays => Set<TaskOvertimeDay>();
     public DbSet<AppUser> Users => Set<AppUser>();
+    public DbSet<AppGroup> Groups => Set<AppGroup>();
+    public DbSet<AppUserGroupMembership> UserGroupMemberships => Set<AppUserGroupMembership>();
+    public DbSet<AppGroupPermission> GroupPermissions => Set<AppGroupPermission>();
     public DbSet<StatusHistory> StatusHistory => Set<StatusHistory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -121,7 +124,37 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
             entity.HasIndex(user => user.AccountName).IsUnique();
             entity.Property(user => user.AccountName).HasMaxLength(160);
             entity.Property(user => user.DisplayName).HasMaxLength(160);
-            entity.Property(user => user.Role).HasMaxLength(32);
+            entity.HasMany(user => user.GroupMemberships)
+                .WithOne(membership => membership.User)
+                .HasForeignKey(membership => membership.AppUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AppGroup>(entity =>
+        {
+            entity.HasIndex(group => group.Name).IsUnique();
+            entity.Property(group => group.Name).HasMaxLength(80);
+            entity.Property(group => group.Description).HasMaxLength(240);
+            entity.HasMany(group => group.UserMemberships)
+                .WithOne(membership => membership.Group)
+                .HasForeignKey(membership => membership.AppGroupId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(group => group.Permissions)
+                .WithOne(permission => permission.Group)
+                .HasForeignKey(permission => permission.AppGroupId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AppUserGroupMembership>(entity =>
+        {
+            entity.HasKey(membership => new { membership.AppUserId, membership.AppGroupId });
+            entity.HasIndex(membership => membership.AppGroupId);
+        });
+
+        modelBuilder.Entity<AppGroupPermission>(entity =>
+        {
+            entity.HasKey(permission => new { permission.AppGroupId, permission.PermissionKey });
+            entity.Property(permission => permission.PermissionKey).HasMaxLength(120);
         });
 
         modelBuilder.Entity<StatusHistory>(entity =>

@@ -2,9 +2,38 @@ using ProjectTracker.Api.Models;
 
 namespace ProjectTracker.Api.Dtos;
 
-public sealed record UserDto(string AccountName, string DisplayName, string Role, bool CanEdit, bool IsAdmin);
+public sealed record UserDto(
+    string AccountName,
+    string DisplayName,
+    bool IsRegistered,
+    bool IsActive,
+    IReadOnlyList<string> Groups,
+    IReadOnlyList<string> Permissions,
+    bool CanEdit,
+    bool IsAdmin);
 
-public sealed record AdminUserDto(int Id, string AccountName, string DisplayName, string Role, DateTimeOffset LastSeenAt);
+public sealed record RegisteredUserDto(
+    int Id,
+    string AccountName,
+    string DisplayName,
+    bool IsActive,
+    DateTimeOffset LastSeenAt,
+    IReadOnlyList<int> GroupIds);
+
+public sealed record AccessGroupDto(
+    int Id,
+    string Name,
+    string? Description,
+    bool IsSystemGroup,
+    IReadOnlyList<string> Permissions,
+    int UserCount);
+
+public sealed record PermissionDefinitionDto(string Key, string Label, string Description, string Category);
+
+public sealed record AccessOverviewDto(
+    IReadOnlyList<RegisteredUserDto> Users,
+    IReadOnlyList<AccessGroupDto> Groups,
+    IReadOnlyList<PermissionDefinitionDto> Permissions);
 
 public sealed record ArchivedProjectDto(
     int Id,
@@ -15,7 +44,11 @@ public sealed record ArchivedProjectDto(
     DateTimeOffset DeletedAt,
     string? DeletedByDisplayName);
 
-public sealed record UserRoleUpdateDto(string Role);
+public sealed record RegisteredUserUpsertDto(string AccountName, string? DisplayName, bool IsActive, IReadOnlyList<int> GroupIds);
+
+public sealed record UserGroupAssignmentDto(IReadOnlyList<int> GroupIds);
+
+public sealed record AccessGroupUpsertDto(string Name, string? Description, bool IsSystemGroup, IReadOnlyList<string> Permissions);
 
 public sealed record DashboardDto(
     int ActiveProjects,

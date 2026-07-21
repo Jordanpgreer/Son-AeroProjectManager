@@ -29,6 +29,10 @@ import type {
   ProjectDetail,
 } from '../types'
 
+function hasPermission(user: User | null, permission: string) {
+  return Boolean(user?.permissions?.includes(permission))
+}
+
 export function Sidebar({
   screen,
   setScreen,
@@ -60,11 +64,26 @@ export function Sidebar({
         </nav>
       </div>
 
-      {user?.isAdmin && (
+      {(hasPermission(user, 'settings.workCalendar.manage')
+        || hasPermission(user, 'settings.holidays.manage')
+        || hasPermission(user, 'settings.workCenters.manage')
+        || hasPermission(user, 'access.manageUsers')
+        || hasPermission(user, 'access.manageGroups')
+        || hasPermission(user, 'archived.restore')
+        || hasPermission(user, 'import.manage')) && (
         <div className="sidebar-foot">
           <nav className="foot-nav" aria-label="Secondary">
-            <NavButton active={screen === 'settings'} onClick={() => setScreen('settings')} icon={<Settings2 size={17} />} label="Settings" />
-            <NavButton active={screen === 'import'} onClick={() => setScreen('import')} icon={<UploadCloud size={17} />} label="Imports / Admin" />
+            {(hasPermission(user, 'settings.workCalendar.manage')
+              || hasPermission(user, 'settings.holidays.manage')
+              || hasPermission(user, 'settings.workCenters.manage')
+              || hasPermission(user, 'access.manageUsers')
+              || hasPermission(user, 'access.manageGroups')
+              || hasPermission(user, 'archived.restore')) && (
+              <NavButton active={screen === 'settings'} onClick={() => setScreen('settings')} icon={<Settings2 size={17} />} label="Settings" />
+            )}
+            {hasPermission(user, 'import.manage') && (
+              <NavButton active={screen === 'import'} onClick={() => setScreen('import')} icon={<UploadCloud size={17} />} label="Imports / Admin" />
+            )}
           </nav>
         </div>
       )}

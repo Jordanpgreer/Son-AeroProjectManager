@@ -320,6 +320,12 @@ function App() {
     await loadDashboard()
   }
 
+  async function refreshCurrentUserAccess() {
+    const me = await api<User>('/api/me')
+    setUser(me)
+    return me
+  }
+
   async function completeProject() {
     if (!selectedProject) return
     const project = await api<ProjectDetail>(`/api/projects/${selectedProject.id}/complete`, {
@@ -633,7 +639,17 @@ function App() {
   }, [screen, loading])
 
   useEffect(() => {
-    if (user && !user.isAdmin && (screen === 'settings' || screen === 'import')) {
+    const canOpenSettings = Boolean(user?.permissions?.some((permission) => [
+      'settings.workCalendar.manage',
+      'settings.holidays.manage',
+      'settings.workCenters.manage',
+      'access.manageUsers',
+      'access.manageGroups',
+      'archived.restore',
+    ].includes(permission)))
+    const canOpenImport = Boolean(user?.permissions?.includes('import.manage'))
+
+    if (user && ((!canOpenSettings && screen === 'settings') || (!canOpenImport && screen === 'import'))) {
       setScreen('dashboard')
     }
   }, [screen, user])
@@ -757,8 +773,8 @@ function App() {
                   scheduleSettings={scheduleSettings}
                   holidays={holidays}
                   workCenters={workCenters}
-                  canEdit={Boolean(user?.isAdmin)}
                   currentUser={user}
+                  onAccessChanged={refreshCurrentUserAccess}
                   updateWorkCalendar={updateWorkCalendar}
                   addWorkCenter={addWorkCenter}
                   updateWorkCenter={updateWorkCenter}
@@ -769,7 +785,7 @@ function App() {
                 />
               )}
               {screen === 'import' && (
-                <ImportView isAdmin={Boolean(user?.isAdmin)} message={importMessage} onUpload={importUpload} />
+                <ImportView isAdmin={Boolean(user?.permissions?.includes('import.manage'))} message={importMessage} onUpload={importUpload} />
               )}
             </>
           )}

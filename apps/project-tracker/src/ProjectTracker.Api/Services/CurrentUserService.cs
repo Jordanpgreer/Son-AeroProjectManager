@@ -1,9 +1,12 @@
 using System.Security.Claims;
+using SonAero.Platform.Security;
 
 namespace ProjectTracker.Api.Services;
 
 public sealed class CurrentUserService(IHttpContextAccessor httpContextAccessor)
 {
+    private ClaimsPrincipal? Principal => httpContextAccessor.HttpContext?.User;
+
     public string AccountName => httpContextAccessor.HttpContext?.User.Identity?.Name ?? "Unknown";
 
     public string DisplayName
@@ -16,28 +19,24 @@ public sealed class CurrentUserService(IHttpContextAccessor httpContextAccessor)
         }
     }
 
-    public string Role
-    {
-        get
-        {
-            var user = httpContextAccessor.HttpContext?.User;
-            if (user?.IsInRole("Admin") == true)
-            {
-                return "Admin";
-            }
+    public bool IsRegistered => Principal?.HasClaim(ApplicationClaimTypes.RegisteredUser, "true") == true;
 
-            if (user?.IsInRole("Editor") == true)
-            {
-                return "Editor";
-            }
+    public bool IsActive => IsRegistered;
 
-            return "Viewer";
-        }
-    }
+    public IReadOnlyList<string> Groups => Principal?
+        .FindAll(ApplicationClaimTypes.Group)
+        .Select(claim => claim.Value)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(value => value)
+        .ToList() ?? [];
 
-    public bool CanEdit => httpContextAccessor.HttpContext?.User.IsInRole("Editor") == true
-        || httpContextAccessor.HttpContext?.User.IsInRole("Admin") == true;
+    public IReadOnlyList<string> Permissions => Principal?
+        .FindAll(ApplicationClaimTypes.Permission)
+        .Select(claim => claim.Value)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(value => value)
+        .ToList() ?? [];
 
-    public bool IsAdmin => httpContextAccessor.HttpContext?.User.IsInRole("Admin") == true;
+    public bool HasPermission(string permission) => Principal?.HasClaim(ApplicationClaimTypes.Permission, permission) == true;
 }
 

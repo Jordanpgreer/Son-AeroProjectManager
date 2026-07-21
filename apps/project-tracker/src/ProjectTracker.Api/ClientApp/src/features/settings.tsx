@@ -1,6 +1,6 @@
 import '../App.css'
 import { useState, useEffect, useMemo, useRef } from 'react'
-import type { ReactNode, FormEvent, DragEvent } from 'react'
+import type { FormEvent } from 'react'
 import {
   AlertTriangle,
   ArchiveRestore,
@@ -8,9 +8,7 @@ import {
   CalendarPlus,
   CalendarRange,
   CheckCircle2,
-  Eye,
   Factory,
-  GripVertical,
   Pencil,
   Plus,
   Save,
@@ -37,8 +35,10 @@ import type {
   Holiday,
   WorkCenter,
   ScheduleSettings,
-  ApplicationRole,
-  AdminUser,
+  AccessOverview,
+  AccessGroup,
+  PermissionDefinition,
+  RegisteredUser,
 } from '../types'
 import {
   EmptyState,
@@ -47,12 +47,16 @@ import { ArchivedProjectsPanel } from './archived-projects'
 
 export type SettingsTab = 'calendar' | 'workCenters' | 'holidays' | 'roles' | 'archived'
 
+function hasPermission(user: User | null, permission: string) {
+  return Boolean(user?.permissions?.includes(permission))
+}
+
 export function SettingsView({
   scheduleSettings,
   holidays,
   workCenters,
-  canEdit,
   currentUser,
+  onAccessChanged,
   updateWorkCalendar,
   addWorkCenter,
   updateWorkCenter,
@@ -64,8 +68,8 @@ export function SettingsView({
   scheduleSettings: ScheduleSettings
   holidays: Holiday[]
   workCenters: WorkCenter[]
-  canEdit: boolean
   currentUser: User | null
+  onAccessChanged: () => Promise<User>
   updateWorkCalendar: (days: DayOfWeekName[]) => Promise<void>
   addWorkCenter: (name: string) => Promise<void>
   updateWorkCenter: (id: number, name: string) => Promise<void>
@@ -78,6 +82,9 @@ export function SettingsView({
   const [draftDays, setDraftDays] = useState<DayOfWeekName[]>(scheduleSettings.workingDays)
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
+  const canManageCalendar = hasPermission(currentUser, 'settings.workCalendar.manage')
+  const canManageWorkCenters = hasPermission(currentUser, 'settings.workCenters.manage')
+  const canManageHolidays = hasPermission(currentUser, 'settings.holidays.manage')
   const dayOptions: { value: DayOfWeekName; short: string; label: string }[] = [
     { value: 'Monday', short: 'Mon', label: 'Monday' },
     { value: 'Tuesday', short: 'Tue', label: 'Tuesday' },
@@ -89,6 +96,22 @@ export function SettingsView({
   ]
 
   useEffect(() => setDraftDays(scheduleSettings.workingDays), [scheduleSettings.workingDays])
+
+  const canManageAccess = hasPermission(currentUser, 'access.manageUsers') || hasPermission(currentUser, 'access.manageGroups')
+  const canRestoreArchived = hasPermission(currentUser, 'archived.restore')
+  const visibleTabs: SettingsTab[] = [
+    'calendar',
+    'workCenters',
+    'holidays',
+    ...(canManageAccess ? ['roles' as const] : []),
+    ...(canRestoreArchived ? ['archived' as const] : []),
+  ]
+
+  useEffect(() => {
+    if (!visibleTabs.includes(tab)) {
+      setTab(visibleTabs[0] ?? 'calendar')
+    }
+  }, [tab, visibleTabs])
 
   const changed = [...draftDays].sort().join('|') !== [...scheduleSettings.workingDays].sort().join('|')
   const toggleDay = (day: DayOfWeekName) => {
@@ -111,8 +134,8 @@ export function SettingsView({
         <button className={tab === 'calendar' ? 'active' : ''} onClick={() => setTab('calendar')}><CalendarRange size={16} /> Work Calendar</button>
         <button className={tab === 'workCenters' ? 'active' : ''} onClick={() => setTab('workCenters')}><Factory size={16} /> Work Centers</button>
         <button className={tab === 'holidays' ? 'active' : ''} onClick={() => setTab('holidays')}><CalendarDays size={16} /> Holidays</button>
-        <button className={tab === 'roles' ? 'active' : ''} onClick={() => setTab('roles')}><Users size={16} /> User Roles</button>
-        <button className={tab === 'archived' ? 'active' : ''} onClick={() => setTab('archived')}><ArchiveRestore size={16} /> Archived Projects</button>
+        {canManageAccess && <button className={tab === 'roles' ? 'active' : ''} onClick={() => setTab('roles')}><Users size={16} /> Access</button>}
+        {canRestoreArchived && <button className={tab === 'archived' ? 'active' : ''} onClick={() => setTab('archived')}><ArchiveRestore size={16} /> Archived Projects</button>}
       </nav>
 
       {tab === 'calendar' && (
@@ -141,18 +164,18 @@ export function SettingsView({
           </div>
           <div className="settings-save-row">
             <p><CalendarRange size={15} /> Completed projects remain unchanged. Active schedules are recalculated after confirmation.</p>
-            <button className="button primary" disabled={!canEdit || !changed || draftDays.length === 0} onClick={() => setConfirming(true)}><Save size={15} /> Save Work Week</button>
+            <button className="button primary" disabled={!canManageCalendar || !changed || draftDays.length === 0} onClick={() => setConfirming(true)}><Save size={15} /> Save Work Week</button>
           </div>
         </section>
       )}
 
       {tab === 'workCenters' && (
-        <WorkCenterView workCenters={workCenters} canEdit={canEdit} addWorkCenter={addWorkCenter} updateWorkCenter={updateWorkCenter} deleteWorkCenter={deleteWorkCenter} embedded />
+        <WorkCenterView workCenters={workCenters} canEdit={canManageWorkCenters} addWorkCenter={addWorkCenter} updateWorkCenter={updateWorkCenter} deleteWorkCenter={deleteWorkCenter} embedded />
       )}
       {tab === 'holidays' && (
-        <HolidayView holidays={holidays} canEdit={canEdit} addHolidayRange={addHolidayRange} updateHoliday={updateHoliday} deleteHoliday={deleteHoliday} embedded />
+        <HolidayView holidays={holidays} canEdit={canManageHolidays} addHolidayRange={addHolidayRange} updateHoliday={updateHoliday} deleteHoliday={deleteHoliday} embedded />
       )}
-      {tab === 'roles' && <UserRolesPanel currentUser={currentUser} />}
+      {tab === 'roles' && canManageAccess && <AccessManagementPanel currentUser={currentUser} onAccessChanged={onAccessChanged} />}
       {tab === 'archived' && <ArchivedProjectsPanel />}
 
       {confirming && (
@@ -175,173 +198,378 @@ export function SettingsView({
   )
 }
 
-export const roleDefinitions: { role: ApplicationRole; label: string; description: string; icon: ReactNode }[] = [
-  { role: 'Admin', label: 'Admin', description: 'All pages, settings, imports, and editing.', icon: <ShieldCheck size={16} /> },
-  { role: 'Editor', label: 'Edit', description: 'Project pages with full project editing.', icon: <Pencil size={15} /> },
-  { role: 'Viewer', label: 'View Only', description: 'Project pages without edit controls.', icon: <Eye size={16} /> },
-]
-
-export function UserRolesPanel({ currentUser }: { currentUser: User | null }) {
-  const [users, setUsers] = useState<AdminUser[]>([])
+export function AccessManagementPanel({ currentUser, onAccessChanged }: { currentUser: User | null; onAccessChanged: () => Promise<User> }) {
+  const [overview, setOverview] = useState<AccessOverview | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
-  const [draggedUserId, setDraggedUserId] = useState<number | null>(null)
-  const [dragOverRole, setDragOverRole] = useState<ApplicationRole | null>(null)
-  const [movingUserId, setMovingUserId] = useState<number | null>(null)
+  const [userSearch, setUserSearch] = useState('')
+  const [newUser, setNewUser] = useState({ accountName: '', displayName: '', isActive: true, groupIds: [] as number[] })
+  const [newGroup, setNewGroup] = useState({ name: '', description: '', isSystemGroup: false, permissions: [] as string[] })
+  const [userDrafts, setUserDrafts] = useState<Record<number, { groupIds: number[]; isActive: boolean }>>({})
+  const [groupDrafts, setGroupDrafts] = useState<Record<number, string[]>>({})
+  const [savingAll, setSavingAll] = useState(false)
 
-  async function loadUsers() {
+  async function loadOverview() {
     setLoading(true)
     setError(null)
     try {
-      setUsers(await api<AdminUser[]>('/api/admin/users'))
+      setOverview(await api<AccessOverview>('/api/admin/access'))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load user roles.')
+      setError(err instanceof Error ? err.message : 'Unable to load access management.')
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    void loadUsers()
+    void loadOverview()
   }, [])
 
-  async function moveUser(userId: number, role: ApplicationRole) {
-    const existing = users.find((user) => user.id === userId)
-    if (!existing || existing.role === role || movingUserId !== null) return
+  useEffect(() => {
+    if (!overview) return
+    setUserDrafts(Object.fromEntries(
+      overview.users.map((user) => [user.id, { groupIds: user.groupIds, isActive: user.isActive }]),
+    ))
+    setGroupDrafts(Object.fromEntries(
+      overview.groups.map((group) => [group.id, group.permissions]),
+    ))
+  }, [overview])
 
-    setMovingUserId(userId)
+  async function createUser(event: FormEvent) {
+    event.preventDefault()
+    if (!newUser.accountName.trim()) return
     setError(null)
     try {
-      const updated = await api<AdminUser>(`/api/admin/users/${userId}/role`, {
-        method: 'PUT',
-        body: JSON.stringify({ role }),
+      await api<RegisteredUser>('/api/admin/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          accountName: newUser.accountName.trim(),
+          displayName: newUser.displayName.trim() || null,
+          isActive: newUser.isActive,
+          groupIds: newUser.groupIds,
+        }),
       })
-      setUsers((current) => current.map((user) => user.id === userId ? updated : user))
-      if (currentUser?.accountName.toLowerCase() === updated.accountName.toLowerCase()) {
-        window.location.reload()
-      }
+      setNewUser({ accountName: '', displayName: '', isActive: true, groupIds: [] })
+      await loadOverview()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to update this user role.')
-    } finally {
-      setMovingUserId(null)
-      setDraggedUserId(null)
-      setDragOverRole(null)
+      setError(err instanceof Error ? err.message : 'Unable to register that user.')
     }
   }
 
-  function startDrag(event: DragEvent<HTMLElement>, userId: number) {
-    setDraggedUserId(userId)
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', String(userId))
+  function updateUserDraft(userId: number, recipe: (draft: { groupIds: number[]; isActive: boolean }) => { groupIds: number[]; isActive: boolean }) {
+    setUserDrafts((current) => {
+      const existing = current[userId]
+      if (!existing) return current
+      return { ...current, [userId]: recipe(existing) }
+    })
   }
 
-  function dropOnRole(event: DragEvent<HTMLElement>, role: ApplicationRole) {
+  async function createGroup(event: FormEvent) {
     event.preventDefault()
-    const transferredId = Number(event.dataTransfer.getData('text/plain'))
-    const userId = draggedUserId ?? (Number.isFinite(transferredId) ? transferredId : null)
-    setDragOverRole(null)
-    if (userId !== null) void moveUser(userId, role)
+    if (!newGroup.name.trim()) return
+    setError(null)
+    try {
+      await api<AccessGroup>('/api/admin/groups', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: newGroup.name.trim(),
+          description: newGroup.description.trim() || null,
+          isSystemGroup: newGroup.isSystemGroup,
+          permissions: newGroup.permissions,
+        }),
+      })
+      setNewGroup({ name: '', description: '', isSystemGroup: false, permissions: [] })
+      await loadOverview()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to create that group.')
+    }
   }
 
-  const query = search.trim().toLowerCase()
-  const visibleUsers = query
-    ? users.filter((user) => user.displayName.toLowerCase().includes(query) || user.accountName.toLowerCase().includes(query))
-    : users
+  const groups = overview?.groups ?? []
+  const permissions = overview?.permissions ?? []
+  const filteredUsers = (overview?.users ?? []).filter((user) => {
+    const query = userSearch.trim().toLowerCase()
+    if (!query) return true
+    return user.displayName.toLowerCase().includes(query) || user.accountName.toLowerCase().includes(query)
+  })
+  const permissionCategories = [...new Set(permissions.map((permission) => permission.category))]
+  const dirtyUserIds = (overview?.users ?? [])
+    .filter((user) => {
+      const draft = userDrafts[user.id]
+      if (!draft) return false
+      return draft.isActive !== user.isActive
+        || draft.groupIds.length !== user.groupIds.length
+        || draft.groupIds.some((groupId, index) => groupId !== user.groupIds[index])
+    })
+    .map((user) => user.id)
+  const dirtyGroupIds = (overview?.groups ?? [])
+    .filter((group) => {
+      const draft = groupDrafts[group.id]
+      if (!draft) return false
+      return draft.length !== group.permissions.length
+        || draft.some((permission, index) => permission !== group.permissions[index])
+    })
+    .map((group) => group.id)
+  const hasPendingChanges = dirtyUserIds.length > 0 || dirtyGroupIds.length > 0
+
+  function updateGroupDraft(groupId: number, permissions: string[]) {
+    setGroupDrafts((current) => ({ ...current, [groupId]: permissions }))
+  }
+
+  async function saveAllChanges() {
+    if (!overview || !hasPendingChanges || savingAll) return
+    setSavingAll(true)
+    setError(null)
+    try {
+      for (const userId of dirtyUserIds) {
+        const user = overview.users.find((candidate) => candidate.id === userId)
+        const draft = user ? userDrafts[user.id] : null
+        if (!user || !draft) continue
+        await api<RegisteredUser>(`/api/admin/users/${user.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            accountName: user.accountName,
+            displayName: user.displayName,
+            isActive: draft.isActive,
+            groupIds: draft.groupIds,
+          }),
+        })
+      }
+
+      for (const groupId of dirtyGroupIds) {
+        const group = overview.groups.find((candidate) => candidate.id === groupId)
+        const draft = group ? groupDrafts[group.id] : null
+        if (!group || !draft) continue
+        await api<AccessGroup>(`/api/admin/groups/${group.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: group.name,
+            description: group.description,
+            isSystemGroup: group.isSystemGroup,
+            permissions: draft,
+          }),
+        })
+      }
+
+      await onAccessChanged().catch(() => currentUser as User | null)
+      await loadOverview()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to save access changes.')
+    } finally {
+      setSavingAll(false)
+    }
+  }
 
   return (
-    <section className="settings-tab-content">
+    <section className="settings-tab-content access-tab-content">
+      <div className="access-save-bar">
+        <p className="field-hint">Changes stay local on this page until you apply them.</p>
+        <button className="button primary" type="button" disabled={!hasPendingChanges || savingAll} onClick={() => void saveAllChanges()}>
+          <Save size={15} /> {savingAll ? 'Saving Changes...' : `Save All Changes${hasPendingChanges ? ` (${dirtyUserIds.length + dirtyGroupIds.length})` : ''}`}
+        </button>
+      </div>
       <section className="panel role-management-panel">
         <header className="panel-head">
           <div className="panel-head-text">
             <span className="kicker">Access Control</span>
-            <h2>User Roles</h2>
-            <p>Drag a Windows account between roles or use the selector on its card.</p>
+            <h2>Registered Users & Groups</h2>
+            <p>Register Microsoft/Windows users before sign-in, assign them to groups, and control permissions per group.</p>
           </div>
           <label className="search-field role-search" aria-label="Search users">
             <Search size={15} />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name or Windows account" />
+            <input value={userSearch} onChange={(event) => setUserSearch(event.target.value)} placeholder="Search registered users" />
           </label>
         </header>
 
         {error && <p className="inline-note warning role-error"><AlertTriangle size={14} /> {error}</p>}
 
-        {loading ? (
+        {loading || !overview ? (
           <div className="role-board">
-            {roleDefinitions.map((definition) => (
-              <div className="role-lane" key={definition.role}>
-                <div className="skeleton-line" style={{ height: 52 }} />
-                <div className="skeleton-line" style={{ height: 76 }} />
-              </div>
-            ))}
+            <div className="skeleton-line" style={{ height: 120 }} />
+            <div className="skeleton-line" style={{ height: 280 }} />
           </div>
         ) : (
-          <div className="role-board">
-            {roleDefinitions.map((definition) => {
-              const roleUsers = visibleUsers.filter((user) => user.role === definition.role)
-              return (
-                <section
-                  className={`role-lane ${dragOverRole === definition.role ? 'drag-over' : ''}`}
-                  key={definition.role}
-                  onDragEnter={() => setDragOverRole(definition.role)}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDragLeave={(event) => {
-                    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOverRole(null)
-                  }}
-                  onDrop={(event) => dropOnRole(event, definition.role)}
-                >
-                  <header className={`role-lane-head role-${definition.role.toLowerCase()}`}>
-                    <span className="role-lane-icon">{definition.icon}</span>
-                    <div>
-                      <h3>{definition.label}</h3>
-                      <p>{definition.description}</p>
-                    </div>
-                    <strong>{roleUsers.length}</strong>
-                  </header>
-                  <div className="role-user-list">
-                    {roleUsers.length === 0 ? (
-                      <div className="role-empty">Drop users here</div>
-                    ) : roleUsers.map((roleUser) => (
-                      <article
-                        className={`role-user-card ${movingUserId === roleUser.id ? 'is-moving' : ''}`}
-                        draggable={movingUserId === null}
-                        onDragStart={(event) => startDrag(event, roleUser.id)}
-                        onDragEnd={() => {
-                          setDraggedUserId(null)
-                          setDragOverRole(null)
-                        }}
-                        key={roleUser.id}
-                      >
-                        <span className="role-drag-handle" title="Drag to another role"><GripVertical size={15} /></span>
-                        <span className="role-avatar">{userInitials(roleUser.displayName)}</span>
-                        <div className="role-user-copy">
-                          <strong>{roleUser.displayName} {currentUser?.accountName.toLowerCase() === roleUser.accountName.toLowerCase() && <small>You</small>}</strong>
-                          <span>{roleUser.accountName}</span>
-                          <time dateTime={roleUser.lastSeenAt}>{formatLastSeen(roleUser.lastSeenAt)}</time>
-                        </div>
-                        <select
-                          value={roleUser.role}
-                          onChange={(event) => void moveUser(roleUser.id, event.target.value as ApplicationRole)}
-                          onMouseDown={(event) => event.stopPropagation()}
-                          aria-label={`Role for ${roleUser.displayName}`}
-                          disabled={movingUserId !== null}
-                        >
-                          {roleDefinitions.map((option) => <option value={option.role} key={option.role}>{option.label}</option>)}
-                        </select>
-                      </article>
-                    ))}
-                  </div>
-                </section>
-              )
-            })}
-          </div>
-        )}
+          <div className="access-layout">
+            <section className="access-users">
+              <header className="section-head-row">
+                <div>
+                  <span className="section-label">Registered Users</span>
+                  <p className="field-hint">Only registered users with an active toggle can open this module.</p>
+                </div>
+                <span className="ot-badge">{overview.users.length} total</span>
+              </header>
+              <form className="compact-form-grid" onSubmit={createUser}>
+                <input value={newUser.accountName} onChange={(event) => setNewUser({ ...newUser, accountName: event.target.value })} placeholder="DOMAIN\\user.name" required />
+                <input value={newUser.displayName} onChange={(event) => setNewUser({ ...newUser, displayName: event.target.value })} placeholder="Display name" />
+                <button className="button primary" type="submit"><Plus size={15} /> Register User</button>
+              </form>
+              <div className="role-user-list access-user-list">
+                {filteredUsers.map((user) => (
+                  <UserAccessCard
+                    key={user.id}
+                    user={user}
+                    currentUser={currentUser}
+                    groups={groups}
+                    draft={userDrafts[user.id] ?? { groupIds: user.groupIds, isActive: user.isActive }}
+                    saving={savingAll}
+                    onDraftChange={(recipe) => updateUserDraft(user.id, recipe)}
+                  />
+                ))}
+              </div>
+            </section>
 
-        {!loading && users.length === 0 && (
-          <p className="inline-note"><Users size={14} /> Windows accounts appear here after their first sign-in or when initially configured on the server.</p>
+            <section className="access-groups">
+              <header className="section-head-row">
+                <div>
+                  <span className="section-label">Groups</span>
+                  <p className="field-hint">Permissions stack through group membership. Create groups like Engineering, Manager, Sales, or custom teams.</p>
+                </div>
+                <ShieldCheck size={18} />
+              </header>
+              <form className="compact-form-grid" onSubmit={createGroup}>
+                <input value={newGroup.name} onChange={(event) => setNewGroup({ ...newGroup, name: event.target.value })} placeholder="Group name" required />
+                <input value={newGroup.description} onChange={(event) => setNewGroup({ ...newGroup, description: event.target.value })} placeholder="Description" />
+                <button className="button primary" type="submit"><Plus size={15} /> Create Group</button>
+              </form>
+              <div className="access-group-list">
+                {groups.map((group) => (
+                  <AccessGroupCard
+                    key={group.id}
+                    group={group}
+                    permissions={permissions}
+                    categories={permissionCategories}
+                    draft={groupDrafts[group.id] ?? group.permissions}
+                    saving={savingAll}
+                    onDraftChange={(permissions) => updateGroupDraft(group.id, permissions)}
+                  />
+                ))}
+              </div>
+            </section>
+          </div>
         )}
       </section>
     </section>
+  )
+}
+
+function UserAccessCard({
+  user,
+  currentUser,
+  groups,
+  draft,
+  saving,
+  onDraftChange,
+}: {
+  user: RegisteredUser
+  currentUser: User | null
+  groups: AccessGroup[]
+  draft: { groupIds: number[]; isActive: boolean }
+  saving: boolean
+  onDraftChange: (recipe: (draft: { groupIds: number[]; isActive: boolean }) => { groupIds: number[]; isActive: boolean }) => void
+}) {
+  function toggleGroup(groupId: number, checked: boolean) {
+    onDraftChange((current) => ({
+      ...current,
+      groupIds: (checked ? [...current.groupIds, groupId] : current.groupIds.filter((value) => value !== groupId))
+        .filter((value, index, values) => values.indexOf(value) === index)
+        .sort((a, b) => a - b),
+    }))
+  }
+
+  return (
+    <article className="role-user-card access-user-card">
+      <span className="role-avatar">{userInitials(user.displayName)}</span>
+      <div className="role-user-copy">
+        <strong>{user.displayName} {currentUser?.accountName.toLowerCase() === user.accountName.toLowerCase() && <small>You</small>}</strong>
+        <span>{user.accountName}</span>
+        <time dateTime={user.lastSeenAt}>{formatLastSeen(user.lastSeenAt)}</time>
+      </div>
+      <div className="field user-group-checklist">
+        <span>Groups</span>
+        <div className="group-checkbox-list">
+          {groups.map((group) => (
+            <label key={group.id} className="permission-row group-checkbox-row">
+              <input
+                type="checkbox"
+                checked={draft.groupIds.includes(group.id)}
+                onChange={(event) => toggleGroup(group.id, event.target.checked)}
+                disabled={saving}
+              />
+              <span>
+                <strong>{group.name}</strong>
+                <small>{group.description || `${group.userCount} assigned users`}</small>
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="access-user-actions">
+        <label className="field checkbox-row">
+          <input
+            type="checkbox"
+            checked={draft.isActive}
+            onChange={(event) => onDraftChange((current) => ({ ...current, isActive: event.target.checked }))}
+            disabled={saving}
+          />
+          <span>Active</span>
+        </label>
+      </div>
+    </article>
+  )
+}
+
+function AccessGroupCard({
+  group,
+  permissions,
+  categories,
+  draft,
+  saving,
+  onDraftChange,
+}: {
+  group: AccessGroup
+  permissions: PermissionDefinition[]
+  categories: string[]
+  draft: string[]
+  saving: boolean
+  onDraftChange: (permissions: string[]) => void
+}) {
+  const togglePermission = (key: string) => {
+    const next = draft.includes(key) ? draft.filter((permission) => permission !== key) : [...draft, key]
+    onDraftChange(next.sort((a, b) => a.localeCompare(b)))
+  }
+
+  return (
+    <article className="panel access-group-card">
+      <header className="panel-head">
+        <div className="panel-head-text">
+          <span className="kicker">{group.isSystemGroup ? 'System Group' : 'Custom Group'}</span>
+          <h3>{group.name}</h3>
+          <p>{group.description || 'No description provided.'}</p>
+        </div>
+        <span className="ot-badge">{group.userCount} users</span>
+      </header>
+      <div className="permission-grid">
+        {categories.map((category) => (
+          <section key={category} className="permission-category">
+            <span className="section-label">{category}</span>
+            {permissions.filter((permission) => permission.category === category).map((permission) => (
+              <label key={permission.key} className="permission-row">
+                <input
+                  type="checkbox"
+                  checked={draft.includes(permission.key)}
+                  onChange={() => togglePermission(permission.key)}
+                  disabled={saving}
+                />
+                <span>
+                  <strong>{permission.label}</strong>
+                  <small>{permission.description}</small>
+                </span>
+              </label>
+            ))}
+          </section>
+        ))}
+      </div>
+    </article>
   )
 }
 
@@ -525,7 +753,7 @@ export function ImportView({ isAdmin, message, onUpload }: { isAdmin: boolean; m
             <UploadCloud size={16} /> {busy ? 'Importing…' : 'Import Workbook'}
           </button>
         </form>
-        {!isAdmin && <p className="inline-note warning"><AlertTriangle size={14} /> Admin role required to run imports.</p>}
+        {!isAdmin && <p className="inline-note warning"><AlertTriangle size={14} /> Import permission required to run workbook uploads.</p>}
         {error && <p className="inline-note warning"><AlertTriangle size={14} /> {error}</p>}
         {message && <p className="inline-note success"><CheckCircle2 size={14} /> {message}</p>}
       </section>

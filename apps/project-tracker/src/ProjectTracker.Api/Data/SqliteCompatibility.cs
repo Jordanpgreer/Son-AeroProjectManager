@@ -81,6 +81,50 @@ public static partial class SqliteCompatibility
         }
     }
 
+    public static async Task EnsureAccessControlTablesAsync(ProjectTrackerDbContext db, CancellationToken cancellationToken)
+    {
+        const string commandText = """
+            CREATE TABLE IF NOT EXISTS "Groups" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_Groups" PRIMARY KEY AUTOINCREMENT,
+                "Name" TEXT NOT NULL,
+                "Description" TEXT NULL,
+                "IsSystemGroup" INTEGER NOT NULL DEFAULT 0,
+                "CreatedAt" TEXT NOT NULL,
+                "UpdatedAt" TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_Groups_Name" ON "Groups" ("Name");
+            CREATE TABLE IF NOT EXISTS "UserGroupMemberships" (
+                "AppUserId" INTEGER NOT NULL,
+                "AppGroupId" INTEGER NOT NULL,
+                "CreatedAt" TEXT NOT NULL,
+                CONSTRAINT "PK_UserGroupMemberships" PRIMARY KEY ("AppUserId", "AppGroupId"),
+                CONSTRAINT "FK_UserGroupMemberships_Users_AppUserId" FOREIGN KEY ("AppUserId") REFERENCES "Users" ("Id") ON DELETE CASCADE,
+                CONSTRAINT "FK_UserGroupMemberships_Groups_AppGroupId" FOREIGN KEY ("AppGroupId") REFERENCES "Groups" ("Id") ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS "IX_UserGroupMemberships_AppGroupId" ON "UserGroupMemberships" ("AppGroupId");
+            CREATE TABLE IF NOT EXISTS "GroupPermissions" (
+                "AppGroupId" INTEGER NOT NULL,
+                "PermissionKey" TEXT NOT NULL,
+                "CreatedAt" TEXT NOT NULL,
+                CONSTRAINT "PK_GroupPermissions" PRIMARY KEY ("AppGroupId", "PermissionKey"),
+                CONSTRAINT "FK_GroupPermissions_Groups_AppGroupId" FOREIGN KEY ("AppGroupId") REFERENCES "Groups" ("Id") ON DELETE CASCADE
+            );
+            """;
+
+        var connection = db.Database.GetDbConnection();
+        await connection.OpenAsync(cancellationToken);
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = commandText;
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        finally
+        {
+            await connection.CloseAsync();
+        }
+    }
+
     private static async Task EnsureColumnAsync(
         ProjectTrackerDbContext db,
         string table,

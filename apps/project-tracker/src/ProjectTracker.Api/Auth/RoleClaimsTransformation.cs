@@ -6,7 +6,7 @@ using SonAero.Platform.Security;
 
 namespace ProjectTracker.Api.Auth;
 
-public sealed class RoleClaimsTransformation(IConfiguration configuration, ProjectTrackerDbContext db) : IClaimsTransformation
+public sealed class RoleClaimsTransformation(ProjectTrackerDbContext db) : IClaimsTransformation
 {
     private const string ApplicationRoleIdentity = "ProjectTrackerRoles";
 
@@ -23,54 +23,46 @@ public sealed class RoleClaimsTransformation(IConfiguration configuration, Proje
         }
 
         var account = principal.Identity.Name;
-        var normalizedAccount = account.ToUpper();
-        var storedRole = await db.Users
+        var normalizedAccount = account.ToUpperInvariant();
+        var access = await db.Users
             .AsNoTracking()
-            .Where(user => user.AccountName.ToUpper() == normalizedAccount)
-            .Select(user => user.Role)
-            .FirstOrDefaultAsync();
-        var role = ApplicationRoles.Normalize(storedRole) ?? ConfiguredRole(account);
+            .Include(user => user.GroupMemberships)
+                .ThenInclude(membership => membership.Group)
+                    .ThenInclude(group => group.Permissions)
+            .FirstOrDefaultAsync(user => user.AccountName.ToUpper() == normalizedAccount && user.IsActive);
         var identity = new ClaimsIdentity(ApplicationRoleIdentity);
 
-        if (role == ApplicationRoles.Admin)
+        if (access is null)
         {
-            identity.AddClaim(new Claim(ClaimTypes.Role, "Admin"));
-            identity.AddClaim(new Claim(ClaimTypes.Role, "Editor"));
-            identity.AddClaim(new Claim(ClaimTypes.Role, "Viewer"));
+            principal.AddIdentity(identity);
+            return principal;
         }
-        else if (role == ApplicationRoles.Editor)
+
+        var groups = access.GroupMemberships
+            .Select(membership => membership.Group.Name)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var permissions = access.GroupMemberships
+            .SelectMany(membership => membership.Group.Permissions.Select(permission => permission.PermissionKey))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        identity.AddClaim(new Claim(ApplicationClaimTypes.RegisteredUser, "true"));
+        identity.AddClaim(new Claim(ClaimTypes.Role, "Viewer"));
+
+        foreach (var group in groups)
         {
-            identity.AddClaim(new Claim(ClaimTypes.Role, "Editor"));
-            identity.AddClaim(new Claim(ClaimTypes.Role, "Viewer"));
+            identity.AddClaim(new Claim(ApplicationClaimTypes.Group, group));
         }
-        else
+
+        foreach (var permission in permissions)
         {
-            identity.AddClaim(new Claim(ClaimTypes.Role, "Viewer"));
+            identity.AddClaim(new Claim(ApplicationClaimTypes.Permission, permission));
         }
 
         principal.AddIdentity(identity);
         return principal;
     }
-
-    private string ConfiguredRole(string account)
-    {
-        var admins = configuration.GetSection("Security:Admins").Get<string[]>() ?? [];
-        var editors = configuration.GetSection("Security:Editors").Get<string[]>() ?? [];
-
-        if (ContainsAccount(admins, account))
-        {
-            return ApplicationRoles.Admin;
-        }
-        if (ContainsAccount(editors, account))
-        {
-            return ApplicationRoles.Editor;
-        }
-        return ApplicationRoles.Viewer;
-    }
-
-    private static bool ContainsAccount(IEnumerable<string> accounts, string account)
-    {
-        return accounts.Any(candidate => string.Equals(candidate, account, StringComparison.OrdinalIgnoreCase));
-    }
-
 }

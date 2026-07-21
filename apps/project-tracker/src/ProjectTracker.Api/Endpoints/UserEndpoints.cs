@@ -13,61 +13,359 @@ public static class UserEndpoints
     {
         api.MapGet("/me", async (CurrentUserService currentUser, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
         {
-            var user = await db.Users.FirstOrDefaultAsync(user => user.AccountName == currentUser.AccountName, cancellationToken);
+            var user = await db.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(candidate => candidate.AccountName == currentUser.AccountName, cancellationToken);
             if (user is null)
             {
-                user = new AppUser
-                {
-                    AccountName = currentUser.AccountName,
-                    DisplayName = currentUser.DisplayName,
-                    Role = currentUser.Role
-                };
-                db.Users.Add(user);
+                return Results.Forbid();
             }
 
-            user.LastSeenAt = DateTimeOffset.UtcNow;
-            user.Role = currentUser.Role;
-            await db.SaveChangesAsync(cancellationToken);
-            return new UserDto(currentUser.AccountName, currentUser.DisplayName, currentUser.Role, currentUser.CanEdit, currentUser.IsAdmin);
+            if (user.IsActive)
+            {
+                var tracked = await db.Users.FindAsync([user.Id], cancellationToken);
+                if (tracked is not null)
+                {
+                    tracked.DisplayName = currentUser.DisplayName;
+                    tracked.LastSeenAt = DateTimeOffset.UtcNow;
+                    await db.SaveChangesAsync(cancellationToken);
+                }
+            }
+
+            return Results.Ok(new UserDto(
+                currentUser.AccountName,
+                user.DisplayName,
+                currentUser.IsRegistered,
+                user.IsActive,
+                currentUser.Groups,
+                currentUser.Permissions,
+                currentUser.Permissions.Any(permission =>
+                    permission.StartsWith("project.edit.", StringComparison.OrdinalIgnoreCase)
+                    || permission.StartsWith("task.edit.", StringComparison.OrdinalIgnoreCase)
+                    || permission is ApplicationPermissions.ProjectCreate or ApplicationPermissions.TaskCreate or ApplicationPermissions.TaskDelete),
+                currentUser.Groups.Contains(ApplicationGroups.Administrators, StringComparer.OrdinalIgnoreCase)
+                || currentUser.Permissions.Any(permission => permission is
+                    ApplicationPermissions.SettingsWorkCalendarManage
+                    or ApplicationPermissions.SettingsHolidaysManage
+                    or ApplicationPermissions.SettingsWorkCentersManage
+                    or ApplicationPermissions.ImportManage
+                    or ApplicationPermissions.AccessManageUsers
+                    or ApplicationPermissions.AccessManageGroups
+                    or ApplicationPermissions.ArchivedRestore)));
         });
 
-        api.MapGet("/admin/users", async (ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
+        api.MapGet("/admin/access", async (ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
         {
-            return await db.Users
+            var users = await db.Users
                 .AsNoTracking()
-                .OrderBy(user => user.Role == ApplicationRoles.Admin ? 0 : user.Role == ApplicationRoles.Editor ? 1 : 2)
+                .Include(user => user.GroupMemberships)
+                .OrderByDescending(user => user.IsActive)
                 .ThenBy(user => user.DisplayName)
                 .ThenBy(user => user.AccountName)
-                .Select(user => new AdminUserDto(user.Id, user.AccountName, user.DisplayName, user.Role, user.LastSeenAt))
+                .Select(user => new RegisteredUserDto(
+                    user.Id,
+                    user.AccountName,
+                    user.DisplayName,
+                    user.IsActive,
+                    user.LastSeenAt,
+                    user.GroupMemberships
+                        .Select(membership => membership.AppGroupId)
+                        .OrderBy(id => id)
+                        .ToList()))
                 .ToListAsync(cancellationToken);
-        }).RequireAuthorization("AdminOnly");
 
-        api.MapPut("/admin/users/{id:int}/role", async (int id, UserRoleUpdateDto dto, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
+            var groups = await db.Groups
+                .AsNoTracking()
+                .Include(group => group.UserMemberships)
+                .Include(group => group.Permissions)
+                .OrderBy(group => group.Name)
+                .Select(group => new AccessGroupDto(
+                    group.Id,
+                    group.Name,
+                    group.Description,
+                    group.IsSystemGroup,
+                    group.Permissions
+                        .Select(permission => permission.PermissionKey)
+                        .OrderBy(key => key)
+                        .ToList(),
+                    group.UserMemberships.Count))
+                .ToListAsync(cancellationToken);
+
+            var permissions = ApplicationPermissions.All
+                .Select(permission => new PermissionDefinitionDto(permission.Key, permission.Label, permission.Description, permission.Category))
+                .ToList();
+
+            return Results.Ok(new AccessOverviewDto(users, groups, permissions));
+        }).RequireAuthorization("ManageUsers");
+
+        api.MapPost("/admin/users", async (RegisteredUserUpsertDto dto, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
         {
-            var role = ApplicationRoles.Normalize(dto.Role);
-            if (role is null)
+            var accountName = NormalizeAccountName(dto.AccountName);
+            if (string.IsNullOrWhiteSpace(accountName))
             {
-                return Results.BadRequest("Role must be Admin, Editor, or Viewer.");
+                return Results.BadRequest("Account name is required.");
             }
 
-            var user = await db.Users.FindAsync([id], cancellationToken);
+            if (await db.Users.AnyAsync(user => user.AccountName == accountName, cancellationToken))
+            {
+                return Results.Conflict("That user is already registered.");
+            }
+
+            var groupIds = NormalizeGroupIds(dto.GroupIds);
+            if (groupIds.Count > 0 && await db.Groups.CountAsync(group => groupIds.Contains(group.Id), cancellationToken) != groupIds.Count)
+            {
+                return Results.BadRequest("One or more selected groups no longer exist.");
+            }
+
+            var user = new AppUser
+            {
+                AccountName = accountName,
+                DisplayName = string.IsNullOrWhiteSpace(dto.DisplayName) ? DefaultDisplayName(accountName) : dto.DisplayName.Trim(),
+                IsActive = dto.IsActive,
+                LastSeenAt = DateTimeOffset.UnixEpoch
+            };
+            foreach (var groupId in groupIds)
+            {
+                user.GroupMemberships.Add(new AppUserGroupMembership { AppGroupId = groupId });
+            }
+
+            db.Users.Add(user);
+            await db.SaveChangesAsync(cancellationToken);
+            return Results.Created($"/api/admin/users/{user.Id}", await ToRegisteredUserDtoAsync(db, user.Id, cancellationToken));
+        }).RequireAuthorization("ManageUsers");
+
+        api.MapPut("/admin/users/{id:int}", async (int id, RegisteredUserUpsertDto dto, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
+        {
+            var user = await db.Users
+                .Include(candidate => candidate.GroupMemberships)
+                .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
             if (user is null)
             {
                 return Results.NotFound();
             }
 
-            if (string.Equals(user.Role, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase)
-                && role != ApplicationRoles.Admin
-                && await db.Users.CountAsync(candidate => candidate.Role == ApplicationRoles.Admin, cancellationToken) <= 1)
+            var accountName = NormalizeAccountName(dto.AccountName);
+            if (string.IsNullOrWhiteSpace(accountName))
             {
-                return Results.BadRequest("At least one administrator must remain assigned.");
+                return Results.BadRequest("Account name is required.");
             }
 
-            user.Role = role;
+            if (await db.Users.AnyAsync(candidate => candidate.Id != id && candidate.AccountName == accountName, cancellationToken))
+            {
+                return Results.Conflict("Another user is already registered with that account name.");
+            }
+
+            var groupIds = NormalizeGroupIds(dto.GroupIds);
+            if (groupIds.Count > 0 && await db.Groups.CountAsync(group => groupIds.Contains(group.Id), cancellationToken) != groupIds.Count)
+            {
+                return Results.BadRequest("One or more selected groups no longer exist.");
+            }
+
+            user.AccountName = accountName;
+            user.DisplayName = string.IsNullOrWhiteSpace(dto.DisplayName) ? DefaultDisplayName(accountName) : dto.DisplayName.Trim();
+            user.IsActive = dto.IsActive;
+            ReplaceMemberships(user, groupIds);
+            if (!await HasActiveAccessManagerAsync(db, cancellationToken))
+            {
+                return Results.BadRequest("At least one active user must retain both user-management and group-management access.");
+            }
+
             await db.SaveChangesAsync(cancellationToken);
-            return Results.Ok(new AdminUserDto(user.Id, user.AccountName, user.DisplayName, user.Role, user.LastSeenAt));
-        }).RequireAuthorization("AdminOnly");
+            return Results.Ok(await ToRegisteredUserDtoAsync(db, user.Id, cancellationToken));
+        }).RequireAuthorization("ManageUsers");
+
+        api.MapPut("/admin/users/{id:int}/groups", async (int id, UserGroupAssignmentDto dto, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
+        {
+            var user = await db.Users.Include(candidate => candidate.GroupMemberships).FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+            if (user is null)
+            {
+                return Results.NotFound();
+            }
+
+            var groupIds = NormalizeGroupIds(dto.GroupIds);
+            if (groupIds.Count > 0 && await db.Groups.CountAsync(group => groupIds.Contains(group.Id), cancellationToken) != groupIds.Count)
+            {
+                return Results.BadRequest("One or more selected groups no longer exist.");
+            }
+
+            ReplaceMemberships(user, groupIds);
+            if (!await HasActiveAccessManagerAsync(db, cancellationToken))
+            {
+                return Results.BadRequest("At least one active user must retain both user-management and group-management access.");
+            }
+            await db.SaveChangesAsync(cancellationToken);
+            return Results.Ok(await ToRegisteredUserDtoAsync(db, user.Id, cancellationToken));
+        }).RequireAuthorization("ManageUsers");
+
+        api.MapPost("/admin/groups", async (AccessGroupUpsertDto dto, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
+        {
+            var name = dto.Name.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return Results.BadRequest("Group name is required.");
+            }
+
+            if (await db.Groups.AnyAsync(group => group.Name == name, cancellationToken))
+            {
+                return Results.Conflict("A group with that name already exists.");
+            }
+
+            var permissions = NormalizePermissions(dto.Permissions);
+            var group = new AppGroup
+            {
+                Name = name,
+                Description = Clean(dto.Description),
+                IsSystemGroup = dto.IsSystemGroup
+            };
+            foreach (var permission in permissions)
+            {
+                group.Permissions.Add(new AppGroupPermission { PermissionKey = permission });
+            }
+
+            db.Groups.Add(group);
+            await db.SaveChangesAsync(cancellationToken);
+            return Results.Created($"/api/admin/groups/{group.Id}", await ToAccessGroupDtoAsync(db, group.Id, cancellationToken));
+        }).RequireAuthorization("ManageGroups");
+
+        api.MapPut("/admin/groups/{id:int}", async (int id, AccessGroupUpsertDto dto, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
+        {
+            var group = await db.Groups
+                .Include(candidate => candidate.Permissions)
+                .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+            if (group is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (!string.Equals(group.Name, dto.Name.Trim(), StringComparison.OrdinalIgnoreCase)
+                && await db.Groups.AnyAsync(candidate => candidate.Id != id && candidate.Name == dto.Name.Trim(), cancellationToken))
+            {
+                return Results.Conflict("Another group already uses that name.");
+            }
+
+            group.Name = dto.Name.Trim();
+            group.Description = Clean(dto.Description);
+            group.IsSystemGroup = dto.IsSystemGroup;
+            group.UpdatedAt = DateTimeOffset.UtcNow;
+            ReplacePermissions(group, NormalizePermissions(dto.Permissions));
+            if (!await HasActiveAccessManagerAsync(db, cancellationToken))
+            {
+                return Results.BadRequest("At least one active user must retain both user-management and group-management access.");
+            }
+            await db.SaveChangesAsync(cancellationToken);
+            return Results.Ok(await ToAccessGroupDtoAsync(db, group.Id, cancellationToken));
+        }).RequireAuthorization("ManageGroups");
 
         return api;
     }
+
+    private static void ReplaceMemberships(AppUser user, IReadOnlyCollection<int> groupIds)
+    {
+        var existing = user.GroupMemberships.Select(membership => membership.AppGroupId).ToHashSet();
+        foreach (var membership in user.GroupMemberships.Where(membership => !groupIds.Contains(membership.AppGroupId)).ToList())
+        {
+            user.GroupMemberships.Remove(membership);
+        }
+
+        foreach (var groupId in groupIds.Where(groupId => !existing.Contains(groupId)))
+        {
+            user.GroupMemberships.Add(new AppUserGroupMembership { AppGroupId = groupId });
+        }
+    }
+
+    private static void ReplacePermissions(AppGroup group, IReadOnlyCollection<string> permissions)
+    {
+        var existing = group.Permissions.Select(permission => permission.PermissionKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var permission in group.Permissions.Where(permission => !permissions.Contains(permission.PermissionKey, StringComparer.OrdinalIgnoreCase)).ToList())
+        {
+            group.Permissions.Remove(permission);
+        }
+
+        foreach (var permission in permissions.Where(permission => !existing.Contains(permission)))
+        {
+            group.Permissions.Add(new AppGroupPermission { PermissionKey = permission });
+        }
+    }
+
+    private static async Task<RegisteredUserDto> ToRegisteredUserDtoAsync(ProjectTrackerDbContext db, int userId, CancellationToken cancellationToken)
+    {
+        return await db.Users
+            .AsNoTracking()
+            .Include(user => user.GroupMemberships)
+            .Where(user => user.Id == userId)
+            .Select(user => new RegisteredUserDto(
+                user.Id,
+                user.AccountName,
+                user.DisplayName,
+                user.IsActive,
+                user.LastSeenAt,
+                user.GroupMemberships.Select(membership => membership.AppGroupId).OrderBy(id => id).ToList()))
+            .SingleAsync(cancellationToken);
+    }
+
+    private static async Task<AccessGroupDto> ToAccessGroupDtoAsync(ProjectTrackerDbContext db, int groupId, CancellationToken cancellationToken)
+    {
+        return await db.Groups
+            .AsNoTracking()
+            .Include(group => group.UserMemberships)
+            .Include(group => group.Permissions)
+            .Where(group => group.Id == groupId)
+            .Select(group => new AccessGroupDto(
+                group.Id,
+                group.Name,
+                group.Description,
+                group.IsSystemGroup,
+                group.Permissions.Select(permission => permission.PermissionKey).OrderBy(key => key).ToList(),
+                group.UserMemberships.Count))
+            .SingleAsync(cancellationToken);
+    }
+
+    private static List<int> NormalizeGroupIds(IReadOnlyList<int> groupIds) => groupIds.Distinct().OrderBy(id => id).ToList();
+
+    private static List<string> NormalizePermissions(IReadOnlyList<string> permissions)
+    {
+        var invalid = permissions.Where(permission => !ApplicationPermissions.AllKeys.Contains(permission)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (invalid.Count > 0)
+        {
+            throw new BadHttpRequestException($"Unknown permission key(s): {string.Join(", ", invalid)}");
+        }
+
+        return permissions
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(permission => permission, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string NormalizeAccountName(string value) => value.Trim();
+
+    private static string DefaultDisplayName(string accountName)
+    {
+        var slashIndex = accountName.LastIndexOf('\\');
+        return slashIndex >= 0 ? accountName[(slashIndex + 1)..] : accountName;
+    }
+
+    private static async Task<bool> HasActiveAccessManagerAsync(ProjectTrackerDbContext db, CancellationToken cancellationToken)
+    {
+        var groups = await db.Groups
+            .Include(group => group.Permissions)
+            .ToListAsync(cancellationToken);
+        var groupPermissions = groups.ToDictionary(
+            group => group.Id,
+            group => group.Permissions.Select(permission => permission.PermissionKey).ToHashSet(StringComparer.OrdinalIgnoreCase));
+
+        var users = await db.Users
+            .Include(user => user.GroupMemberships)
+            .ToListAsync(cancellationToken);
+
+        return users
+            .Where(user => user.IsActive)
+            .Select(user => user.GroupMemberships
+                .SelectMany(membership => groupPermissions.TryGetValue(membership.AppGroupId, out var permissions) ? permissions : [])
+                .ToHashSet(StringComparer.OrdinalIgnoreCase))
+            .Any(permissions =>
+                permissions.Contains(ApplicationPermissions.AccessManageUsers)
+                && permissions.Contains(ApplicationPermissions.AccessManageGroups));
+    }
+
+    private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

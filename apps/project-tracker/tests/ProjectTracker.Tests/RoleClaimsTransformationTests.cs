@@ -1,48 +1,61 @@
 using System.Security.Claims;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using ProjectTracker.Api.Auth;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Models;
+using SonAero.Platform.Security;
 
 namespace ProjectTracker.Tests;
 
 public sealed class RoleClaimsTransformationTests
 {
     [Fact]
-    public async Task TransformAsync_UsesStoredEditorRoleBeforeConfiguration()
+    public async Task TransformAsync_LoadsStoredGroupsAndPermissionsForRegisteredUser()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
         var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>().UseSqlite(connection).Options;
         await using var db = new ProjectTrackerDbContext(options);
         await db.Database.EnsureCreatedAsync();
-        db.Users.Add(new AppUser
+
+        var engineering = new AppGroup
+        {
+            Name = ApplicationGroups.Engineering,
+            Description = "Engineering team",
+            IsSystemGroup = true,
+            Permissions =
+            [
+                new AppGroupPermission { PermissionKey = ApplicationPermissions.ModuleView },
+                new AppGroupPermission { PermissionKey = ApplicationPermissions.TaskEditEstimatedDuration }
+            ]
+        };
+        var user = new AppUser
         {
             AccountName = "DOMAIN\\planner.one",
             DisplayName = "Planner One",
-            Role = "Editor"
-        });
+            IsActive = true,
+            GroupMemberships =
+            [
+                new AppUserGroupMembership { Group = engineering }
+            ]
+        };
+
+        db.Users.Add(user);
         await db.SaveChangesAsync();
 
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Security:Admins:0"] = "DOMAIN\\planner.one"
-            })
-            .Build();
         var principal = AuthenticatedPrincipal("DOMAIN\\planner.one");
+        await new RoleClaimsTransformation(db).TransformAsync(principal);
 
-        await new RoleClaimsTransformation(configuration, db).TransformAsync(principal);
-
-        Assert.True(principal.IsInRole("Editor"));
+        Assert.True(principal.HasClaim(ApplicationClaimTypes.RegisteredUser, "true"));
+        Assert.True(principal.HasClaim(ApplicationClaimTypes.Group, ApplicationGroups.Engineering));
+        Assert.True(principal.HasClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ModuleView));
+        Assert.True(principal.HasClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.TaskEditEstimatedDuration));
         Assert.True(principal.IsInRole("Viewer"));
-        Assert.False(principal.IsInRole("Admin"));
     }
 
     [Fact]
-    public async Task TransformAsync_UsesConfiguredAdminForFirstLogin()
+    public async Task TransformAsync_DoesNotGrantRegisteredClaimsToUnknownUser()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -50,19 +63,12 @@ public sealed class RoleClaimsTransformationTests
         await using var db = new ProjectTrackerDbContext(options);
         await db.Database.EnsureCreatedAsync();
 
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Security:Admins:0"] = "DOMAIN\\new.admin"
-            })
-            .Build();
-        var principal = AuthenticatedPrincipal("DOMAIN\\new.admin");
+        var principal = AuthenticatedPrincipal("DOMAIN\\new.user");
+        await new RoleClaimsTransformation(db).TransformAsync(principal);
 
-        await new RoleClaimsTransformation(configuration, db).TransformAsync(principal);
-
-        Assert.True(principal.IsInRole("Admin"));
-        Assert.True(principal.IsInRole("Editor"));
-        Assert.True(principal.IsInRole("Viewer"));
+        Assert.False(principal.HasClaim(ApplicationClaimTypes.RegisteredUser, "true"));
+        Assert.False(principal.HasClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ModuleView));
+        Assert.False(principal.IsInRole("Viewer"));
     }
 
     private static ClaimsPrincipal AuthenticatedPrincipal(string accountName) =>

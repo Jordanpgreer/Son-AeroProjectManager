@@ -160,12 +160,12 @@ function Get-LaunchFailureDetails($app) {
 }
 
 function Start-App($app, $dotnet) {
+    Ensure-Frontend $app
+
     if (Test-AppHealth $app) {
         Write-Host ("{0} is already running." -f $app.Name)
         return
     }
-
-    Ensure-Frontend $app
 
     $outLog = Join-Path $logDir ("{0}.out.log" -f $app.Key)
     $errLog = Join-Path $logDir ("{0}.err.log" -f $app.Key)

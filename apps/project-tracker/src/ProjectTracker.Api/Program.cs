@@ -11,6 +11,7 @@ using ProjectTracker.Api.Models;
 using ProjectTracker.Api.Services;
 using ProjectTracker.Api.Services.Import;
 using ProjectTracker.Api.Services.Reports;
+using SonAero.Platform.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -43,9 +44,21 @@ builder.Services.AddScoped<IClaimsTransformation, RoleClaimsTransformation>();
 
 builder.Services.AddAuthorization(options =>
 {
-    options.AddPolicy("CanView", policy => policy.RequireRole("Viewer", "Editor", "Admin"));
-    options.AddPolicy("CanEdit", policy => policy.RequireRole("Editor", "Admin"));
-    options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
+    options.AddPolicy("CanView", policy => policy.RequireClaim(ApplicationClaimTypes.RegisteredUser, "true"));
+    options.AddPolicy("ProjectCreate", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectCreate));
+    options.AddPolicy("ProjectPriority", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectReorderPriority));
+    options.AddPolicy("ProjectComplete", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectComplete));
+    options.AddPolicy("ProjectReopen", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectReopen));
+    options.AddPolicy("ProjectArchive", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectArchive));
+    options.AddPolicy("TaskCreate", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.TaskCreate));
+    options.AddPolicy("TaskDelete", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.TaskDelete));
+    options.AddPolicy("ManageCalendar", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.SettingsWorkCalendarManage));
+    options.AddPolicy("ManageHolidays", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.SettingsHolidaysManage));
+    options.AddPolicy("ManageWorkCenters", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.SettingsWorkCentersManage));
+    options.AddPolicy("ManageImports", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ImportManage));
+    options.AddPolicy("ManageUsers", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.AccessManageUsers));
+    options.AddPolicy("ManageGroups", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.AccessManageGroups));
+    options.AddPolicy("RestoreArchived", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ArchivedRestore));
 });
 
 builder.Services.AddDbContext<ProjectTrackerDbContext>((serviceProvider, options) =>
@@ -254,9 +267,9 @@ api.MapPost("/projects", async (ProjectCreateDto dto, ProjectTrackerDbContext db
             .ToList());
     await db.SaveChangesAsync(cancellationToken);
     return Results.Created($"/api/projects/{project.Id}", ToDetailDto(project));
-}).RequireAuthorization("CanEdit");
+}).RequireAuthorization("ProjectCreate");
 
-api.MapPut("/projects/{id:int}", async (int id, ProjectUpsertDto dto, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
+api.MapPut("/projects/{id:int}", async (int id, ProjectUpsertDto dto, ProjectTrackerDbContext db, CurrentUserService currentUser, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
     var project = await db.Projects.Include(project => project.Tasks).ThenInclude(task => task.OvertimeDays).FirstOrDefaultAsync(project => project.Id == id, cancellationToken);
     if (project is null)
@@ -272,6 +285,11 @@ api.MapPut("/projects/{id:int}", async (int id, ProjectUpsertDto dto, ProjectTra
     {
         return ConcurrencyConflict("Project", project.Id);
     }
+    var deniedProjectPermission = FindDeniedProjectPermission(project, dto, currentUser);
+    if (deniedProjectPermission is not null)
+    {
+        return Results.Forbid();
+    }
 
     var before = ProjectAuditService.CaptureProject(project);
     ApplyProjectDto(project, dto);
@@ -284,7 +302,7 @@ api.MapPut("/projects/{id:int}", async (int id, ProjectUpsertDto dto, ProjectTra
     }
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(ToDetailDto(project));
-}).RequireAuthorization("CanEdit");
+}).RequireAuthorization("CanView");
 
 api.MapPost("/projects/{id:int}/complete", async (int id, ProjectActionDto dto, ProjectTrackerDbContext db, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
@@ -330,7 +348,7 @@ api.MapPost("/projects/{id:int}/complete", async (int id, ProjectActionDto dto, 
         ProjectAuditService.Diff(before, ProjectAuditService.CaptureProject(project)));
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(ToDetailDto(project));
-}).RequireAuthorization("CanEdit");
+}).RequireAuthorization("ProjectComplete");
 
 api.MapPost("/projects/{id:int}/reopen", async (int id, ProjectActionDto dto, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
@@ -379,7 +397,7 @@ api.MapPost("/projects/{id:int}/reopen", async (int id, ProjectActionDto dto, Pr
         ProjectAuditService.Diff(before, ProjectAuditService.CaptureProject(project)));
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(ToDetailDto(project));
-}).RequireAuthorization("CanEdit");
+}).RequireAuthorization("ProjectReopen");
 
 api.MapPut("/projects/{id:int}/priority", async (int id, ProjectPriorityDto dto, ProjectTrackerDbContext db, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
@@ -426,7 +444,7 @@ api.MapPut("/projects/{id:int}/priority", async (int id, ProjectPriorityDto dto,
 
     await db.SaveChangesAsync(cancellationToken);
     return Results.NoContent();
-}).RequireAuthorization("CanEdit");
+}).RequireAuthorization("ProjectPriority");
 
 api.MapDelete("/projects/{id:int}", async (
     int id,
@@ -466,9 +484,9 @@ api.MapDelete("/projects/{id:int}", async (
     BumpPriorityVersions(remainingProjects, previousPriorities);
     await db.SaveChangesAsync(cancellationToken);
     return Results.NoContent();
-}).RequireAuthorization("CanEdit");
+}).RequireAuthorization("ProjectArchive");
 
-api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertDto dto, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
+api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertDto dto, ProjectTrackerDbContext db, CurrentUserService currentUser, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
     var project = await db.Projects.Include(project => project.Tasks).ThenInclude(task => task.OvertimeDays).FirstOrDefaultAsync(project => project.Id == projectId, cancellationToken);
     if (project is null)
@@ -483,6 +501,10 @@ api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertD
     if (dto.ProjectVersion != project.Version)
     {
         return ConcurrencyConflict("Project", project.Id);
+    }
+    if (FindDeniedTaskPermission(null, dto, currentUser) is not null)
+    {
+        return Results.Forbid();
     }
 
     var previousSequences = project.Tasks.ToDictionary(candidate => candidate.Id, candidate => candidate.Sequence);
@@ -507,9 +529,9 @@ api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertD
             .ToList());
     await db.SaveChangesAsync(cancellationToken);
     return Results.Created($"/api/projects/{projectId}", ToTaskDto(task));
-}).RequireAuthorization("CanEdit");
+}).RequireAuthorization("TaskCreate");
 
-api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
+api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectTrackerDbContext db, CurrentUserService currentUser, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
     var task = await db.Tasks
         .Include(task => task.OvertimeDays)
@@ -532,6 +554,10 @@ api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectT
     {
         return ConcurrencyConflict("Project", task.Project.Id);
     }
+    if (FindDeniedTaskPermission(task, dto, currentUser) is not null)
+    {
+        return Results.Forbid();
+    }
 
     var before = ProjectAuditService.CaptureTask(task);
     var previousSequences = task.Project.Tasks.ToDictionary(candidate => candidate.Id, candidate => candidate.Sequence);
@@ -551,7 +577,7 @@ api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectT
     }
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(ToTaskDto(task));
-}).RequireAuthorization("CanEdit");
+}).RequireAuthorization("CanView");
 
 api.MapDelete("/tasks/{taskId:int}", async (int taskId, long version, long projectVersion, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
@@ -600,7 +626,7 @@ api.MapDelete("/tasks/{taskId:int}", async (int taskId, long version, long proje
         taskId);
     await db.SaveChangesAsync(cancellationToken);
     return Results.NoContent();
-}).RequireAuthorization("CanEdit");
+}).RequireAuthorization("TaskDelete");
 
 api.MapGet("/holidays", async (ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
 {
@@ -617,7 +643,7 @@ api.MapPost("/holidays", async (HolidayUpsertDto dto, ProjectTrackerDbContext db
     await RefreshAllProjectsAsync(db, metrics, cancellationToken);
     await db.SaveChangesAsync(cancellationToken);
     return Results.Created($"/api/holidays/{holiday.Id}", new HolidayDto(holiday.Id, holiday.Date, holiday.Name));
-}).RequireAuthorization("AdminOnly");
+}).RequireAuthorization("ManageHolidays");
 
 api.MapPut("/holidays/{id:int}", async (int id, HolidayUpsertDto dto, ProjectTrackerDbContext db, ProjectMetricsService metrics, CancellationToken cancellationToken) =>
 {
@@ -633,7 +659,7 @@ api.MapPut("/holidays/{id:int}", async (int id, HolidayUpsertDto dto, ProjectTra
     await RefreshAllProjectsAsync(db, metrics, cancellationToken);
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(new HolidayDto(holiday.Id, holiday.Date, holiday.Name));
-}).RequireAuthorization("AdminOnly");
+}).RequireAuthorization("ManageHolidays");
 
 api.MapDelete("/holidays/{id:int}", async (int id, ProjectTrackerDbContext db, ProjectMetricsService metrics, CancellationToken cancellationToken) =>
 {
@@ -648,7 +674,7 @@ api.MapDelete("/holidays/{id:int}", async (int id, ProjectTrackerDbContext db, P
     await RefreshAllProjectsAsync(db, metrics, cancellationToken);
     await db.SaveChangesAsync(cancellationToken);
     return Results.NoContent();
-}).RequireAuthorization("AdminOnly");
+}).RequireAuthorization("ManageHolidays");
 
 api.MapGet("/work-centers", async (ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
 {
@@ -669,7 +695,7 @@ api.MapPost("/work-centers", async (WorkCenterUpsertDto dto, ProjectTrackerDbCon
     db.WorkCenters.Add(workCenter);
     await db.SaveChangesAsync(cancellationToken);
     return Results.Created($"/api/work-centers/{workCenter.Id}", new WorkCenterDto(workCenter.Id, workCenter.Name));
-}).RequireAuthorization("AdminOnly");
+}).RequireAuthorization("ManageWorkCenters");
 
 api.MapPut("/work-centers/{id:int}", async (int id, WorkCenterUpsertDto dto, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
 {
@@ -689,7 +715,7 @@ api.MapPut("/work-centers/{id:int}", async (int id, WorkCenterUpsertDto dto, Pro
     workCenter.UpdatedAt = DateTimeOffset.UtcNow;
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(new WorkCenterDto(workCenter.Id, workCenter.Name));
-}).RequireAuthorization("AdminOnly");
+}).RequireAuthorization("ManageWorkCenters");
 
 api.MapDelete("/work-centers/{id:int}", async (int id, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
 {
@@ -702,7 +728,7 @@ api.MapDelete("/work-centers/{id:int}", async (int id, ProjectTrackerDbContext d
     db.WorkCenters.Remove(workCenter);
     await db.SaveChangesAsync(cancellationToken);
     return Results.NoContent();
-}).RequireAuthorization("AdminOnly");
+}).RequireAuthorization("ManageWorkCenters");
 
 api.MapGet("/settings/work-calendar", async (ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
 {
@@ -724,7 +750,7 @@ api.MapPut("/settings/work-calendar", async (ScheduleSettingsUpsertDto dto, Proj
     await RefreshAllProjectsAsync(db, metrics, cancellationToken, recalculateDates: true);
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(new ScheduleSettingsDto(settings.GetWorkingDays().OrderBy(day => ((int)day + 6) % 7).ToList(), settings.UpdatedAt));
-}).RequireAuthorization("AdminOnly");
+}).RequireAuthorization("ManageCalendar");
 
 app.MapFallbackToFile("index.html");
 
@@ -969,7 +995,9 @@ static async Task InitializeDatabaseAsync(WebApplication app)
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "DeletedByAccountName", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "DeletedByDisplayName", cancellationToken: default);
             await SqliteCompatibility.EnsureNullableIntegerColumnAsync(db, "Projects", "PriorityRank", cancellationToken: default);
+            await SqliteCompatibility.EnsureBooleanColumnAsync(db, "Users", "IsActive", cancellationToken: default);
             await SqliteCompatibility.EnsureLegacyTablesAsync(db, cancellationToken: default);
+            await SqliteCompatibility.EnsureAccessControlTablesAsync(db, cancellationToken: default);
         }
     }
 
@@ -1019,41 +1047,181 @@ static async Task BackfillCompletedDatesAsync(ProjectTrackerDbContext db, Cancel
 
 static async Task SeedConfiguredUsersAsync(ProjectTrackerDbContext db, IConfiguration configuration, CancellationToken cancellationToken)
 {
-    var existing = (await db.Users.ToListAsync(cancellationToken))
-        .ToDictionary(user => user.AccountName, StringComparer.OrdinalIgnoreCase);
-    var configured = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    var groupIds = await EnsureDefaultGroupsAsync(db, cancellationToken);
+    var existing = await db.Users
+        .Include(user => user.GroupMemberships)
+        .ToDictionaryAsync(user => user.AccountName, StringComparer.OrdinalIgnoreCase, cancellationToken);
 
     foreach (var account in configuration.GetSection("Security:Editors").Get<string[]>() ?? [])
     {
-        if (!string.IsNullOrWhiteSpace(account))
-        {
-            configured[account.Trim()] = "Editor";
-        }
+        await EnsureConfiguredUserAsync(db, existing, account, groupIds[ApplicationGroups.Managers], cancellationToken);
     }
+
     foreach (var account in configuration.GetSection("Security:Admins").Get<string[]>() ?? [])
     {
-        if (!string.IsNullOrWhiteSpace(account))
+        await EnsureConfiguredUserAsync(db, existing, account, groupIds[ApplicationGroups.Administrators], cancellationToken);
+    }
+}
+
+static async Task<Dictionary<string, int>> EnsureDefaultGroupsAsync(ProjectTrackerDbContext db, CancellationToken cancellationToken)
+{
+    var definitions = new (string Name, string Description, bool IsSystem, IReadOnlyList<string> Permissions)[]
+    {
+        (ApplicationGroups.Administrators, "Full administrative access to project tracker.", true, ApplicationPermissions.DefaultAdministratorPermissions),
+        (ApplicationGroups.Managers, "Project management permissions across active programs.", true, ApplicationPermissions.DefaultManagerPermissions),
+        (ApplicationGroups.Engineering, "Operation and schedule maintenance for engineering users.", true, ApplicationPermissions.DefaultEngineeringPermissions),
+        (ApplicationGroups.Sales, "Commercial updates for customer-facing users.", true, ApplicationPermissions.DefaultSalesPermissions),
+    };
+
+    var groups = await db.Groups
+        .Include(group => group.Permissions)
+        .ToDictionaryAsync(group => group.Name, StringComparer.OrdinalIgnoreCase, cancellationToken);
+
+    foreach (var definition in definitions)
+    {
+        if (!groups.TryGetValue(definition.Name, out var group))
         {
-            configured[account.Trim()] = "Admin";
+            group = new AppGroup
+            {
+                Name = definition.Name,
+                Description = definition.Description,
+                IsSystemGroup = definition.IsSystem
+            };
+            db.Groups.Add(group);
+            groups[definition.Name] = group;
+        }
+        else
+        {
+            group.Description = definition.Description;
+            group.IsSystemGroup = definition.IsSystem;
+            group.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+
+        var existingPermissions = group.Permissions.Select(permission => permission.PermissionKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var permission in definition.Permissions.Where(permission => !existingPermissions.Contains(permission)))
+        {
+            group.Permissions.Add(new AppGroupPermission { PermissionKey = permission });
         }
     }
 
-    foreach (var (account, role) in configured)
-    {
-        if (existing.ContainsKey(account))
-        {
-            continue;
-        }
+    await db.SaveChangesAsync(cancellationToken);
+    return groups.ToDictionary(pair => pair.Key, pair => pair.Value.Id, StringComparer.OrdinalIgnoreCase);
+}
 
-        var slashIndex = account.LastIndexOf('\\');
-        db.Users.Add(new AppUser
+static Task EnsureConfiguredUserAsync(
+    ProjectTrackerDbContext db,
+    IDictionary<string, AppUser> existing,
+    string? rawAccount,
+    int groupId,
+    CancellationToken cancellationToken)
+{
+    if (string.IsNullOrWhiteSpace(rawAccount))
+    {
+        return Task.CompletedTask;
+    }
+
+    var account = rawAccount.Trim();
+    if (!existing.TryGetValue(account, out var user))
+    {
+        user = new AppUser
         {
             AccountName = account,
-            DisplayName = slashIndex >= 0 ? account[(slashIndex + 1)..] : account,
-            Role = role,
+            DisplayName = DefaultDisplayName(account),
+            IsActive = true,
             LastSeenAt = DateTimeOffset.UnixEpoch
-        });
+        };
+        user.GroupMemberships.Add(new AppUserGroupMembership { AppGroupId = groupId });
+        db.Users.Add(user);
+        existing[account] = user;
+        return Task.CompletedTask;
     }
+
+    user.IsActive = true;
+    if (user.GroupMemberships.All(membership => membership.AppGroupId != groupId))
+    {
+        user.GroupMemberships.Add(new AppUserGroupMembership { AppGroupId = groupId });
+    }
+    return Task.CompletedTask;
+}
+
+static string DefaultDisplayName(string accountName)
+{
+    var slashIndex = accountName.LastIndexOf('\\');
+    return slashIndex >= 0 ? accountName[(slashIndex + 1)..] : accountName;
+}
+
+static string? FindDeniedProjectPermission(Project project, ProjectUpsertDto dto, CurrentUserService currentUser)
+{
+    if (!string.Equals(project.ProgramName, dto.ProgramName?.Trim(), StringComparison.Ordinal)
+        && !currentUser.HasPermission(ApplicationPermissions.ProjectEditProgramName))
+    {
+        return ApplicationPermissions.ProjectEditProgramName;
+    }
+
+    if (!string.Equals(project.ProgramManager, Clean(dto.ProgramManager), StringComparison.Ordinal)
+        && !currentUser.HasPermission(ApplicationPermissions.ProjectEditProgramManager))
+    {
+        return ApplicationPermissions.ProjectEditProgramManager;
+    }
+
+    if (!string.Equals(project.Engineer, Clean(dto.Engineer), StringComparison.Ordinal)
+        && !currentUser.HasPermission(ApplicationPermissions.ProjectEditEngineer))
+    {
+        return ApplicationPermissions.ProjectEditEngineer;
+    }
+
+    if (!string.Equals(project.CustomerName, Clean(dto.CustomerName), StringComparison.Ordinal)
+        && !currentUser.HasPermission(ApplicationPermissions.ProjectEditCustomerName))
+    {
+        return ApplicationPermissions.ProjectEditCustomerName;
+    }
+
+    if (!string.Equals(project.SalesOrderNumber, Clean(dto.SalesOrderNumber), StringComparison.Ordinal)
+        && !currentUser.HasPermission(ApplicationPermissions.ProjectEditSalesOrderNumber))
+    {
+        return ApplicationPermissions.ProjectEditSalesOrderNumber;
+    }
+
+    return null;
+}
+
+static string? FindDeniedTaskPermission(ProjectTask? task, TaskUpsertDto dto, CurrentUserService currentUser)
+{
+    if (task is null)
+    {
+        return currentUser.HasPermission(ApplicationPermissions.TaskCreate) ? null : ApplicationPermissions.TaskCreate;
+    }
+
+    if (!string.Equals(task.Title, dto.Title?.Trim(), StringComparison.Ordinal) && !currentUser.HasPermission(ApplicationPermissions.TaskEditTitle)) return ApplicationPermissions.TaskEditTitle;
+    if (!string.Equals(task.WorkStation, Clean(dto.WorkStation), StringComparison.Ordinal) && !currentUser.HasPermission(ApplicationPermissions.TaskEditWorkStation)) return ApplicationPermissions.TaskEditWorkStation;
+    if (task.DependencyTaskId != dto.DependencyTaskId && !currentUser.HasPermission(ApplicationPermissions.TaskEditDependency)) return ApplicationPermissions.TaskEditDependency;
+    if (task.StartDateLocked != dto.StartDateLocked && !currentUser.HasPermission(ApplicationPermissions.TaskEditStartDateLocked)) return ApplicationPermissions.TaskEditStartDateLocked;
+    if (task.StartDate != dto.StartDate && !currentUser.HasPermission(ApplicationPermissions.TaskEditStartDate)) return ApplicationPermissions.TaskEditStartDate;
+    if (task.EndDate != dto.EndDate && !currentUser.HasPermission(ApplicationPermissions.TaskEditEndDate)) return ApplicationPermissions.TaskEditEndDate;
+    if (task.OriginalStartDate != dto.OriginalStartDate && !currentUser.HasPermission(ApplicationPermissions.TaskEditOriginalStartDate)) return ApplicationPermissions.TaskEditOriginalStartDate;
+    if (task.OriginalEndDate != dto.OriginalEndDate && !currentUser.HasPermission(ApplicationPermissions.TaskEditOriginalEndDate)) return ApplicationPermissions.TaskEditOriginalEndDate;
+    if (task.EstimatedDuration != dto.EstimatedDuration && !currentUser.HasPermission(ApplicationPermissions.TaskEditEstimatedDuration)) return ApplicationPermissions.TaskEditEstimatedDuration;
+    if (task.ActualDuration != dto.ActualDuration && !currentUser.HasPermission(ApplicationPermissions.TaskEditActualDuration)) return ApplicationPermissions.TaskEditActualDuration;
+    if (task.Sequence != dto.Sequence && !currentUser.HasPermission(ApplicationPermissions.TaskReorder)) return ApplicationPermissions.TaskReorder;
+    if (task.PercentComplete != Math.Clamp(dto.PercentComplete, 0m, 1m) && !currentUser.HasPermission(ApplicationPermissions.TaskEditPercentComplete)) return ApplicationPermissions.TaskEditPercentComplete;
+    if (!string.Equals(task.Notes, Clean(dto.Notes), StringComparison.Ordinal) && !currentUser.HasPermission(ApplicationPermissions.TaskEditNotes)) return ApplicationPermissions.TaskEditNotes;
+    if (OvertimeDaysChanged(task, dto) && !currentUser.HasPermission(ApplicationPermissions.TaskEditOvertimeDays)) return ApplicationPermissions.TaskEditOvertimeDays;
+
+    return null;
+}
+
+static bool OvertimeDaysChanged(ProjectTask task, TaskUpsertDto dto)
+{
+    var current = task.OvertimeDays
+        .Select(day => $"{day.Date:yyyy-MM-dd}|{Clean(day.Note) ?? string.Empty}")
+        .OrderBy(value => value, StringComparer.Ordinal)
+        .ToArray();
+    var proposed = (dto.OvertimeDays ?? [])
+        .Select(day => $"{day.Date:yyyy-MM-dd}|{Clean(day.Note) ?? string.Empty}")
+        .Distinct(StringComparer.Ordinal)
+        .OrderBy(value => value, StringComparer.Ordinal)
+        .ToArray();
+    return !current.SequenceEqual(proposed, StringComparer.Ordinal);
 }
 
 static async Task SeedWorkCentersFromTasksAsync(ProjectTrackerDbContext db, CancellationToken cancellationToken)

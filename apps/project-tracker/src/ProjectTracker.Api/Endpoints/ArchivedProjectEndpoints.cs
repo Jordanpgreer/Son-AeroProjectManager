@@ -28,7 +28,7 @@ public static class ArchivedProjectEndpoints
                     project.DeletedAt!.Value,
                     project.DeletedByDisplayName))
                 .ToList();
-        }).RequireAuthorization("AdminOnly");
+        }).RequireAuthorization("RestoreArchived");
 
         api.MapPost("/admin/archived-projects/{id:int}/restore", async (
             int id,
@@ -75,7 +75,7 @@ public static class ArchivedProjectEndpoints
                 [new ProjectAuditChange("Archived at", archivedAt?.ToString("O"), null)]);
             await db.SaveChangesAsync(cancellationToken);
             return Results.NoContent();
-        }).RequireAuthorization("AdminOnly");
+        }).RequireAuthorization("RestoreArchived");
 
         return api;
     }

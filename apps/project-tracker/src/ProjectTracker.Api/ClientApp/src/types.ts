@@ -7,7 +7,10 @@ export type DayOfWeekName = 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thu
 export type User = {
   accountName: string
   displayName: string
-  role: string
+  isRegistered: boolean
+  isActive: boolean
+  groups: string[]
+  permissions: string[]
   canEdit: boolean
   isAdmin: boolean
 }
@@ -156,14 +159,35 @@ export type ProjectAuditChange = {
   newValue: string | null
 }
 
-export type ApplicationRole = 'Admin' | 'Editor' | 'Viewer'
-
-export type AdminUser = {
+export type RegisteredUser = {
   id: number
   accountName: string
   displayName: string
-  role: ApplicationRole
+  isActive: boolean
   lastSeenAt: string
+  groupIds: number[]
+}
+
+export type AccessGroup = {
+  id: number
+  name: string
+  description: string | null
+  isSystemGroup: boolean
+  permissions: string[]
+  userCount: number
+}
+
+export type PermissionDefinition = {
+  key: string
+  label: string
+  description: string
+  category: string
+}
+
+export type AccessOverview = {
+  users: RegisteredUser[]
+  groups: AccessGroup[]
+  permissions: PermissionDefinition[]
 }
 
 export type ArchivedProject = {
