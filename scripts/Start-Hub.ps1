@@ -1,9 +1,10 @@
 <#
     Start-Hub.ps1 — SON-AERO Internal Hub local launcher.
 
-    Starts Project Tracker (http://localhost:5135) and the Portal (http://localhost:5140),
-    rebuilding each frontend only when its source changed, waits for both to become healthy,
-    then opens the portal homepage. Startup problems are shown in a dialog (not a blank
+    Starts Project Tracker (http://localhost:5135), Engineering Hub (http://localhost:5150),
+    and the Portal (http://localhost:5140), rebuilding each frontend only when its source
+    changed, waits for each to become healthy, then opens the portal homepage. Startup
+    problems are shown in a dialog (not a blank
     window). All generated logs and build stamps are written under <repo>\logs (git-ignored).
 #>
 $ErrorActionPreference = 'Stop'
@@ -24,6 +25,14 @@ $apps = @(
         ApiRoot    = Join-Path $repoRoot 'apps\project-tracker\src\ProjectTracker.Api'
         Url        = 'http://localhost:5135'
         Port       = 5135
+        HealthPath = '/api/health'
+    },
+    [pscustomobject]@{
+        Name       = 'Engineering Hub'
+        Key        = 'engineering-hub'
+        ApiRoot    = Join-Path $repoRoot 'apps\engineering-hub\src\EngineeringHub.Api'
+        Url        = 'http://localhost:5150'
+        Port       = 5150
         HealthPath = '/api/health'
     },
     [pscustomobject]@{

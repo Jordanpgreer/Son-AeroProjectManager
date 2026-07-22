@@ -11,13 +11,16 @@ import {
   Database,
   GanttChart,
   LayoutGrid,
+  Moon,
   Search,
   Settings,
   ShieldCheck,
+  SunMedium,
   Truck,
   Wrench,
 } from 'lucide-react'
 import './index.css'
+import { persistTheme, readThemePreference } from './theme'
 
 type AppStatus = 'active' | 'comingSoon' | 'maintenance'
 
@@ -108,6 +111,7 @@ function initials(name: string) {
 }
 
 export default function App() {
+  const [theme, setTheme] = useState(() => readThemePreference())
   const [me, setMe] = useState<Me | null>(null)
   const [apps, setApps] = useState<PortalApp[] | null>(null)
   const [preview, setPreview] = useState<TrackerPreview | null>(null)
@@ -153,6 +157,23 @@ export default function App() {
 
   useEffect(() => {
     void load()
+  }, [])
+
+  useEffect(() => {
+    persistTheme(theme)
+  }, [theme])
+
+  useEffect(() => {
+    const syncTheme = () => setTheme(readThemePreference())
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') syncTheme()
+    }
+    window.addEventListener('focus', syncTheme)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('focus', syncTheme)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [])
 
   useEffect(() => {
@@ -301,7 +322,17 @@ export default function App() {
           <span className="brand-divider" aria-hidden="true" />
           <span className="brand-kicker">Internal Hub</span>
         </div>
-        <div className="portal-user" aria-live="polite">
+        <div className="portal-user-actions">
+          <button
+            type="button"
+            className="ghost-button theme-toggle"
+            onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? <SunMedium size={15} aria-hidden="true" /> : <Moon size={15} aria-hidden="true" />}
+            {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+          </button>
+          <div className="portal-user" aria-live="polite">
           {me ? (
             <>
               <div className="portal-user-text">
@@ -315,6 +346,7 @@ export default function App() {
           ) : (
             <span className="portal-user-name muted">Signing in…</span>
           )}
+          </div>
         </div>
       </header>
 

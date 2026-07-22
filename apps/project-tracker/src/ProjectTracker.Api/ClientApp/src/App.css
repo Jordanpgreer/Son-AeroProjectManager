@@ -338,6 +338,17 @@ nav { display: grid; gap: 3px; }
 .button.danger { color: var(--red-700); background: var(--surface); border-color: var(--red-tint-2); }
 .button.danger:hover { background: var(--red-tint); border-color: var(--red); box-shadow: var(--shadow-1); }
 
+:root[data-theme='dark'] .button:not(.ghost):not(.danger):not(.danger-solid):not(.complete-solid) {
+  color: #fff;
+  background: var(--red);
+  border-color: var(--red);
+}
+
+:root[data-theme='dark'] .button:not(.ghost):not(.danger):not(.danger-solid):not(.complete-solid):hover {
+  background: var(--red-600);
+  border-color: var(--red-600);
+}
+
 input, select, textarea {
   min-height: 36px;
   padding: 0 11px;

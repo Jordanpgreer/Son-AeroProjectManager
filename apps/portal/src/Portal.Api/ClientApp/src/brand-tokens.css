@@ -11,6 +11,7 @@
  * Update tokens HERE, then run scripts/Sync-Branding.ps1 to propagate.
  */
 :root {
+  color-scheme: light;
   /* ---- Type ------------------------------------------------------------ */
   --font-display: 'Archivo', 'IBM Plex Sans', system-ui, sans-serif;
   --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -81,4 +82,59 @@
   /* ---- Elevation ------------------------------------------------------- */
   --shadow-1: 0 1px 1px rgba(16, 24, 33, 0.04), 0 1px 2px rgba(16, 24, 33, 0.05);
   --shadow-2: 0 1px 2px rgba(16, 24, 33, 0.05), 0 10px 22px -14px rgba(16, 24, 33, 0.30);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #0f151c;
+  --bg-deep: #151d27;
+  --surface: #18212b;
+  --surface-2: #1f2a36;
+  --surface-3: #293746;
+
+  --ink: #edf2f7;
+  --ink-2: #c7d1dc;
+  --muted: #96a4b3;
+  --faint: #738190;
+
+  --line: #253240;
+  --line-2: #324354;
+  --line-3: #445769;
+
+  --red: #ef5c4d;
+  --red-600: #de4b3d;
+  --red-700: #ffb0a6;
+  --red-tint: #35201e;
+  --red-tint-2: #4a2a26;
+
+  --steel: #69a4d6;
+  --steel-700: #acd0ef;
+  --steel-tint: #1b2a39;
+
+  --ok: #78c59d;
+  --ok-700: #bce7cf;
+  --ok-tint: #1a2d25;
+  --warn: #d3a354;
+  --warn-700: #f0cc8a;
+  --warn-tint: #332818;
+  --risk: #ef5c4d;
+  --risk-700: #ffb0a6;
+  --risk-tint: #341d1b;
+  --done: #4fbb7f;
+  --done-700: #abe0c2;
+  --done-tint: #193024;
+  --idle: #8c98a5;
+  --idle-tint: #1d2731;
+
+  --nav-1: #0a0f14;
+  --nav-2: #101821;
+  --nav-3: #070b10;
+  --nav-text: #d4dde7;
+  --nav-strong: #ffffff;
+  --nav-muted: #85929e;
+  --nav-line: rgba(255, 255, 255, 0.10);
+
+  --shadow-1: 0 1px 1px rgba(0, 0, 0, 0.32), 0 1px 2px rgba(0, 0, 0, 0.34);
+  --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.34), 0 18px 32px -18px rgba(0, 0, 0, 0.55);
 }

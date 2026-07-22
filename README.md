@@ -15,6 +15,9 @@ SonAeroInternalHub/
 │   ├── project-tracker/        # existing aerospace program tracker (ASP.NET Core + React)
 │   │   ├── src/ tests/ docs/ deployment/
 │   │   └── ProjectTrackerApp.sln
+│   ├── engineering-hub/        # admin-only engineering workspace under test
+│   │   ├── src/
+│   │   └── README.md
 │   └── portal/                 # new internal application launcher
 │       ├── src/ tests/
 │       └── PortalApp.sln
@@ -37,6 +40,7 @@ SonAeroInternalHub/
 |---|---|---|
 | Portal | http://localhost:5140 | Hub homepage / launcher |
 | Project Tracker | http://localhost:5135 | First registered application |
+| Engineering Hub | http://localhost:5150 | Admin-only engineering module under test |
 
 ## Prerequisites
 
@@ -62,8 +66,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Start-Hub.ps1
 1. Resolves the repo root reliably (paths with spaces supported).
 2. Locates the .NET 8 SDK and Node.js/npm.
 3. Rebuilds each frontend only when its source changed.
-4. Starts Project Tracker on **5135** and the Portal on **5140** (skips any already running).
-5. Waits for both to report healthy, then opens the portal homepage.
+4. Starts Project Tracker on **5135**, Engineering Hub on **5150**, and the Portal on **5140** (skips any already running).
+5. Waits for each to report healthy, then opens the portal homepage.
 6. On failure it shows an error dialog and writes `logs\<app>.err.log` (never a blank window).
 
 Generated logs and build stamps live under `logs\` (git-ignored).
@@ -91,6 +95,16 @@ cd apps\portal\src\Portal.Api\ClientApp
 npm install; npm run build
 cd ..
 dotnet run --launch-profile http        # http://localhost:5140
+```
+
+**Engineering Hub only:**
+
+```powershell
+$env:DOTNET_ROOT="$env:USERPROFILE\.dotnet"
+cd apps\engineering-hub\src\EngineeringHub.Api\ClientApp
+npm install; npm run build
+cd ..
+dotnet run --launch-profile http        # http://localhost:5150
 ```
 
 During frontend development you can also run the Vite dev server (`npm run dev`) in either

@@ -17,6 +17,7 @@ import {
   formFromTask,
   emptyTaskForm,
 } from './lib'
+import { persistTheme, readThemePreference } from './theme'
 import { emptyDashboard, defaultScheduleSettings } from './types'
 import type {
   Screen,
@@ -90,6 +91,7 @@ function projectMetadataFrom(project: ProjectDetail | null): ProjectMetadataDraf
 }
 
 function App() {
+  const [theme, setTheme] = useState(() => readThemePreference())
   const [user, setUser] = useState<User | null>(null)
   const [dashboard, setDashboard] = useState<Dashboard>(emptyDashboard)
   const [selectedProject, setSelectedProject] = useState<ProjectDetail | null>(null)
@@ -182,6 +184,23 @@ function App() {
     const showConflict = (event: Event) => setConcurrencyConflict((event as CustomEvent<ConcurrencyConflict>).detail)
     window.addEventListener('project-tracker:concurrency-conflict', showConflict)
     return () => window.removeEventListener('project-tracker:concurrency-conflict', showConflict)
+  }, [])
+
+  useEffect(() => {
+    persistTheme(theme)
+  }, [theme])
+
+  useEffect(() => {
+    const syncTheme = () => setTheme(readThemePreference())
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') syncTheme()
+    }
+    window.addEventListener('focus', syncTheme)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('focus', syncTheme)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [])
 
   async function loadDashboard() {
@@ -788,6 +807,8 @@ function App() {
 
       <main className="main-area">
         <PageHeader
+          theme={theme}
+          onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
           screen={screen}
           selectedProject={selectedProject}
           canEdit={canEdit}

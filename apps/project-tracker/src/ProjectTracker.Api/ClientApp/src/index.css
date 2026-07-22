@@ -28,6 +28,11 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+:root[data-theme='dark'] {
+  --grid-line: rgba(255, 255, 255, 0.045);
+  --shadow-pop: 0 28px 80px -24px rgba(0, 0, 0, 0.72);
+}
+
 * {
   box-sizing: border-box;
 }

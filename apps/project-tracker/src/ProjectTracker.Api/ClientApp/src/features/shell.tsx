@@ -10,11 +10,13 @@ import {
   History,
   LayoutDashboard,
   ListChecks,
+  Moon,
   Pencil,
   Plus,
   RefreshCw,
   Search,
   Settings2,
+  SunMedium,
   UploadCloud,
 } from 'lucide-react'
 import {
@@ -28,6 +30,7 @@ import type {
   User,
   ProjectDetail,
 } from '../types'
+import type { AppTheme } from '../theme'
 
 function hasPermission(user: User | null, permission: string) {
   return Boolean(user?.permissions?.includes(permission))
@@ -114,6 +117,8 @@ export function NavButton({
 
 
 export function PageHeader({
+  theme,
+  onToggleTheme,
   screen,
   selectedProject,
   canEdit,
@@ -128,6 +133,8 @@ export function PageHeader({
   onAddProject,
   onOpenActivity,
 }: {
+  theme: AppTheme
+  onToggleTheme: () => void
   screen: Screen
   selectedProject: ProjectDetail | null
   canEdit: boolean
@@ -165,6 +172,15 @@ export function PageHeader({
         {subtitle && <p>{subtitle}</p>}
       </div>
       <div className="topbar-actions">
+        <button
+          className="button ghost"
+          type="button"
+          onClick={onToggleTheme}
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {theme === 'dark' ? <SunMedium size={15} /> : <Moon size={15} />}
+          {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+        </button>
         <button className="button ghost" onClick={refresh} title="Reload tracker data">
           <RefreshCw size={15} /> Refresh
         </button>

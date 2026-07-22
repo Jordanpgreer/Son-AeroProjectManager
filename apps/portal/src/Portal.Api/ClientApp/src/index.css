@@ -16,6 +16,11 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+:root[data-theme='dark'] {
+  --grid-line: rgba(255, 255, 255, 0.05);
+  --shadow-pop: 0 30px 80px -28px rgba(0, 0, 0, 0.72);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -141,6 +146,11 @@ body {
   align-items: center;
   gap: 11px;
   white-space: nowrap;
+}
+.portal-user-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .portal-user-text {
   display: flex;
@@ -1093,6 +1103,11 @@ body {
   outline-offset: 2px;
 }
 
+.theme-toggle {
+  min-height: 34px;
+  padding: 0 12px;
+}
+
 /* ===================================================================== */
 /* Zoom-into-app transition                                               */
 /* ===================================================================== */
@@ -1248,5 +1263,9 @@ body {
   }
   .portal-user-text {
     display: none;
+  }
+  .portal-user-actions {
+    width: 100%;
+    justify-content: flex-end;
   }
 }
