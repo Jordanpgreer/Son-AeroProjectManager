@@ -47,17 +47,18 @@
   --steel-tint: #e8eff6;
 
   /* ---- Status ---------------------------------------------------------- */
-  --ok: #1f7a4d;
-  --ok-700: #155c39;
-  --ok-tint: #e5f2ea;
+  --ok: #68a986;
+  --ok-700: #326b4d;
+  --ok-tint: #edf7f1;
   --warn: #b5731a;
   --warn-700: #8a560f;
   --warn-tint: #fbf1de;
   --risk: #e23b2c;
   --risk-700: #a92317;
   --risk-tint: #fcebe8;
-  --done: #46586b;
-  --done-tint: #e9edf1;
+  --done: #1f7a4d;
+  --done-700: #155c39;
+  --done-tint: #e5f2ea;
   --idle: #7d8893;
   --idle-tint: #edf0f3;
 

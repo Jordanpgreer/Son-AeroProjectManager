@@ -28,6 +28,7 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
             project.Progress = 1m;
             project.Status = ProjectStatus.Complete;
             project.CurrentTask = "Program Complete";
+            project.DaysBehind = null;
             if (updateVersions) UpdateProjectVersion(project, projectState);
             return;
         }
@@ -85,7 +86,59 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
                 .Max()
                 ?? today;
         }
+        project.DaysBehind = CalculateProjectDaysBehind(project, calendar, today);
         if (updateVersions) UpdateProjectVersion(project, projectState);
+    }
+
+    private int? CalculateProjectDaysBehind(Project project, ScheduleCalendar calendar, DateOnly today)
+    {
+        if (project.Status != ProjectStatus.Behind)
+        {
+            return null;
+        }
+
+        var taskDelays = project.Tasks
+            .Where(task => task.Status == TaskScheduleStatus.Behind)
+            .Select(task => CalculateTaskDaysBehind(task, calendar, today))
+            .Where(days => days is not null)
+            .Select(days => days!.Value)
+            .ToList();
+
+        return taskDelays.Count == 0 ? null : Math.Max(1, taskDelays.Max());
+    }
+
+    private int? CalculateTaskDaysBehind(ProjectTask task, ScheduleCalendar calendar, DateOnly today)
+    {
+        if (task.EndDate is null)
+        {
+            return null;
+        }
+
+        var overtimeDates = task.OvertimeDays.Select(day => day.Date).ToHashSet();
+        var totalWorkDays = task.EstimatedDuration is > 0
+            ? task.EstimatedDuration.Value
+            : task.StartDate is not null
+                ? scheduleCalculator.CountWorkingDays(task.StartDate.Value, task.EndDate.Value, calendar, overtimeDates)
+                : 1;
+        totalWorkDays = Math.Max(1, totalWorkDays);
+
+        var remainingWorkDays = Math.Max(1, (int)Math.Ceiling((1m - Math.Clamp(task.PercentComplete, 0m, 1m)) * totalWorkDays));
+        var projectionStart = NextWorkingDay(today, calendar, overtimeDates);
+        var projectedFinish = scheduleCalculator.AddWorkingDaysInclusive(projectionStart, remainingWorkDays, calendar, overtimeDates);
+        var projectedDelay = projectedFinish > task.EndDate.Value
+            ? scheduleCalculator.CountWorkingDays(task.EndDate.Value.AddDays(1), projectedFinish, calendar, overtimeDates)
+            : 0;
+
+        var progressLag = 0;
+        if (task.StartDate is not null && today >= task.StartDate.Value)
+        {
+            var elapsedThrough = today < task.EndDate.Value ? today : task.EndDate.Value;
+            var expectedWorkDays = scheduleCalculator.CountWorkingDays(task.StartDate.Value, elapsedThrough, calendar, overtimeDates);
+            var completedEquivalent = Math.Clamp(task.PercentComplete, 0m, 1m) * totalWorkDays;
+            progressLag = Math.Max(0, (int)Math.Ceiling(expectedWorkDays - completedEquivalent));
+        }
+
+        return Math.Max(1, Math.Max(progressLag, projectedDelay));
     }
 
     private static void UpdateTaskVersion(ProjectTask task, TaskComputedState before)

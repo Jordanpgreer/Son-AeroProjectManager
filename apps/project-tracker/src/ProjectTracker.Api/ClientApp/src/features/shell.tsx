@@ -118,6 +118,7 @@ export function PageHeader({
   selectedProject,
   canEdit,
   editMode,
+  hasUnsavedChanges,
   onToggleEdit,
   dashboardSearch,
   setDashboardSearch,
@@ -131,6 +132,7 @@ export function PageHeader({
   selectedProject: ProjectDetail | null
   canEdit: boolean
   editMode: boolean
+  hasUnsavedChanges: boolean
   onToggleEdit: () => void
   dashboardSearch: string
   setDashboardSearch: (value: string) => void
@@ -167,8 +169,8 @@ export function PageHeader({
           <RefreshCw size={15} /> Refresh
         </button>
         {screen === 'project' && canEdit && selectedProject && selectedProject.status !== 'Complete' && (
-          <button className={`button ${editMode ? 'primary' : 'ghost'}`} onClick={onToggleEdit} title="Edit the operation grid inline">
-            {editMode ? <><Check size={15} /> Done</> : <><Pencil size={15} /> Edit</>}
+          <button className={`button ${editMode ? 'primary' : 'ghost'} ${hasUnsavedChanges ? 'has-unsaved-changes' : ''}`} onClick={onToggleEdit} title={editMode && hasUnsavedChanges ? 'Review unsaved project details before leaving edit mode' : 'Edit the operation grid inline'}>
+            {editMode ? <><Check size={15} /> Done{hasUnsavedChanges && <span className="button-dirty-dot" aria-label="Unsaved project details" />}</> : <><Pencil size={15} /> Edit</>}
           </button>
         )}
         {showExports && (

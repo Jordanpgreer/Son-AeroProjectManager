@@ -16,10 +16,10 @@ internal static class ExcelReportBuilder
     private static readonly XLColor RedTint = XLColor.FromHtml("#FCEBE8");
     private static readonly XLColor Steel = XLColor.FromHtml("#2F6195");
     private static readonly XLColor SteelTint = XLColor.FromHtml("#E8EFF6");
-    private static readonly XLColor Green = XLColor.FromHtml("#1F7A4D");
-    private static readonly XLColor GreenTint = XLColor.FromHtml("#E5F2EA");
-    private static readonly XLColor Done = XLColor.FromHtml("#46586B");
-    private static readonly XLColor DoneTint = XLColor.FromHtml("#E9EDF1");
+    private static readonly XLColor Green = XLColor.FromHtml("#68A986");
+    private static readonly XLColor GreenTint = XLColor.FromHtml("#EDF7F1");
+    private static readonly XLColor Done = XLColor.FromHtml("#1F7A4D");
+    private static readonly XLColor DoneTint = XLColor.FromHtml("#E5F2EA");
     private static readonly XLColor Idle = XLColor.FromHtml("#7D8893");
     private static readonly XLColor IdleTint = XLColor.FromHtml("#EDF0F3");
 

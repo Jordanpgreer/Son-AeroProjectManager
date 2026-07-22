@@ -84,10 +84,11 @@ const prefersReducedMotion = () =>
 
 function appendUrlParameter(url: string, name: string, value: string) {
   const separator = url.includes('?') ? '&' : '?'
-  return `${url}${separator}${name}=${value}`
+  return `${url}${separator}${encodeURIComponent(name)}=${encodeURIComponent(value)}`
 }
 
-const dashboardLaunchUrl = (url: string) => appendUrlParameter(url, 'launch', 'dashboard')
+const launchToken = new URLSearchParams(window.location.search).get('launch') ?? Date.now().toString()
+const dashboardLaunchUrl = (url: string) => appendUrlParameter(url, 'launch', launchToken)
 const dashboardEmbedUrl = (url: string) => appendUrlParameter(dashboardLaunchUrl(url), 'embed', 'portal')
 
 function hostedAppId() {
@@ -648,7 +649,7 @@ function AppCard({ application }: { application: PortalApp }) {
       <div className="app-card-foot">
         <span className="app-cat">{application.category}</span>
         {openable ? (
-          <a className="app-open" href={application.url}>
+          <a className="app-open" href={dashboardLaunchUrl(application.url)}>
             Open
             <ArrowUpRight size={15} aria-hidden="true" />
           </a>

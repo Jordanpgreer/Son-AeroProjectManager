@@ -66,7 +66,9 @@ export function DashboardView({
     switch (sort.field) {
       case 'priority': return project.priorityRank
       case 'target': return project.targetDelivery ? Date.parse(project.targetDelivery) : null
-      case 'schedule': return project.daysLeft
+      case 'schedule': return project.status === 'Behind' && project.daysBehind !== null
+        ? -project.daysBehind
+        : project.daysLeft
       case 'notes': return project.recentNote ? Date.parse(project.recentNote.at) : null
     }
   }
@@ -330,7 +332,7 @@ export function PortfolioTable({
               </td>
               <td className="col-progress"><Progress value={project.progress} status={project.status} /></td>
               <td className="cell-mono">{compactDate(project.targetDelivery)}</td>
-              <td><ScheduleChip daysLeft={project.daysLeft} status={project.status} /></td>
+              <td><ScheduleChip daysLeft={project.daysLeft} daysBehind={project.daysBehind} status={project.status} /></td>
               <td className="col-status"><StatusBadge status={project.status} /></td>
               <td className="cell-go"><ArrowRight size={16} /></td>
             </tr>

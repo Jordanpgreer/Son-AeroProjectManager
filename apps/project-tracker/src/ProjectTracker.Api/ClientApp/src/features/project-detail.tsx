@@ -39,6 +39,7 @@ import type {
   ProjectSummary,
   ProjectDetail,
   ProjectTask,
+  ProjectMetadataDraft,
 } from '../types'
 import {
   ConflictIcon,
@@ -54,10 +55,12 @@ export function ProjectPicker({
   project,
   projects,
   onSelectProject,
+  disabled = false,
 }: {
   project: ProjectDetail
   projects: ProjectSummary[]
   onSelectProject: (projectId: number) => Promise<void>
+  disabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -94,6 +97,12 @@ export function ProjectPicker({
     }
   }, [open])
 
+  useEffect(() => {
+    if (!disabled) return
+    setOpen(false)
+    setQuery('')
+  }, [disabled])
+
   const selectProject = async (projectId: number) => {
     setOpen(false)
     setQuery('')
@@ -108,6 +117,8 @@ export function ProjectPicker({
         className="project-picker-trigger"
         aria-haspopup="listbox"
         aria-expanded={open}
+        disabled={disabled}
+        title={disabled ? 'Finish editing before switching projects' : 'Select a project'}
         onClick={() => setOpen((current) => !current)}
       >
         <span>
@@ -164,11 +175,16 @@ export function ProjectView({
   conflictKeys,
   canEdit,
   editMode,
+  projectMetadata,
+  projectMetadataDirty,
+  projectMetadataSaving,
+  projectMetadataError,
+  onProjectMetadataChange,
+  onSaveProjectMetadata,
   onSelectProject,
   onEditTask,
   onAddTask,
   onDeleteTask,
-  onUpdateProject,
   onCompleteProject,
   onReopenProject,
   onDeleteProject,
@@ -185,11 +201,16 @@ export function ProjectView({
   conflictKeys: Set<string>
   canEdit: boolean
   editMode: boolean
+  projectMetadata: ProjectMetadataDraft
+  projectMetadataDirty: boolean
+  projectMetadataSaving: boolean
+  projectMetadataError: string | null
+  onProjectMetadataChange: (metadata: ProjectMetadataDraft) => void
+  onSaveProjectMetadata: () => Promise<boolean>
   onSelectProject: (projectId: number) => Promise<void>
   onEditTask: (task: ProjectTask) => void
   onAddTask: () => void
   onDeleteTask: (task: ProjectTask) => Promise<void>
-  onUpdateProject: (patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber'>>) => Promise<void>
   onCompleteProject: () => void
   onReopenProject: () => void
   onDeleteProject: () => void
@@ -203,32 +224,17 @@ export function ProjectView({
   const [noteDraft, setNoteDraft] = useState('')
   const [savingNoteId, setSavingNoteId] = useState<number | null>(null)
   const [noteSaveError, setNoteSaveError] = useState<string | null>(null)
-  const [projectMeta, setProjectMeta] = useState({
-    programManager: project.programManager ?? '',
-    engineer: project.engineer ?? '',
-    customerName: project.customerName ?? '',
-    salesOrderNumber: project.salesOrderNumber ?? '',
-  })
   const isCompleted = project.status === 'Complete'
   const canModify = canEdit && !isCompleted
   const daysLeft = calculateDaysLeft(project.targetDelivery)
   const total = project.tasks.length
-  const overdue = daysLeft !== null && daysLeft < 0
+  const behindSchedule = project.status === 'Behind'
   const hasCompletionResult = project.completedOn !== null && project.targetDelivery !== null
   const completedLate = project.completedOn && project.targetDelivery
     ? dateToMs(project.completedOn) > dateToMs(project.targetDelivery)
     : false
   const completionResult = hasCompletionResult ? (completedLate ? 'Late' : 'On time') : 'Completed'
   const operationColSpan = canModify ? 9 : 8
-
-  useEffect(() => {
-    setProjectMeta({
-      programManager: project.programManager ?? '',
-      engineer: project.engineer ?? '',
-      customerName: project.customerName ?? '',
-      salesOrderNumber: project.salesOrderNumber ?? '',
-    })
-  }, [project.id, project.programManager, project.engineer, project.customerName, project.salesOrderNumber])
 
   const toggleTaskNotes = (task: ProjectTask) => {
     if (expandedTaskId === task.id) {
@@ -255,23 +261,16 @@ export function ProjectView({
     }
   }
 
-  const saveProjectMeta = () => onUpdateProject({
-    programManager: projectMeta.programManager.trim() || null,
-    engineer: projectMeta.engineer.trim() || null,
-    customerName: projectMeta.customerName.trim() || null,
-    salesOrderNumber: projectMeta.salesOrderNumber.trim() || null,
-  })
-
   return (
     <section className="view project-view">
-      <header className="program-topbar">
+      <header className={`program-topbar ${editMode ? 'is-editing' : ''}`}>
         <div className="program-lead">
-          <ProjectPicker project={project} projects={projects} onSelectProject={onSelectProject} />
+          <ProjectPicker project={project} projects={projects} onSelectProject={onSelectProject} disabled={editMode} />
           <div className="program-sub">
             <span className="program-current-inline"><span className="dot active" />{project.currentTask ?? 'No current operation'}</span>
             <span className="program-facts">
-              <span><i>Lead</i> {project.programManager || 'Unassigned'}</span>
-              <span><i>Eng</i> {project.engineer || 'Unassigned'}</span>
+              {!editMode && <span><i>Lead</i> {project.programManager || 'Unassigned'}</span>}
+              {!editMode && <span><i>Eng</i> {project.engineer || 'Unassigned'}</span>}
               {!editMode && <span><i>Customer</i> {project.customerName || 'Not set'}</span>}
               {!editMode && <span><i>SO</i> {project.salesOrderNumber || 'Not set'}</span>}
               <span><i>Target</i> <b className="cell-mono">{compactDate(project.targetDelivery)}</b></span>
@@ -283,8 +282,8 @@ export function ProjectView({
                 <span>Contact Lead</span>
                 <input
                   className="cell-input"
-                  value={projectMeta.programManager}
-                  onChange={(event) => setProjectMeta((current) => ({ ...current, programManager: event.target.value }))}
+                  value={projectMetadata.programManager}
+                  onChange={(event) => onProjectMetadataChange({ ...projectMetadata, programManager: event.target.value })}
                   placeholder="Contact lead"
                 />
               </label>
@@ -292,8 +291,8 @@ export function ProjectView({
                 <span>Engineer</span>
                 <input
                   className="cell-input"
-                  value={projectMeta.engineer}
-                  onChange={(event) => setProjectMeta((current) => ({ ...current, engineer: event.target.value }))}
+                  value={projectMetadata.engineer}
+                  onChange={(event) => onProjectMetadataChange({ ...projectMetadata, engineer: event.target.value })}
                   placeholder="Assigned engineer"
                 />
               </label>
@@ -301,8 +300,8 @@ export function ProjectView({
                 <span>Customer Name</span>
                 <input
                   className="cell-input"
-                  value={projectMeta.customerName}
-                  onChange={(event) => setProjectMeta((current) => ({ ...current, customerName: event.target.value }))}
+                  value={projectMetadata.customerName}
+                  onChange={(event) => onProjectMetadataChange({ ...projectMetadata, customerName: event.target.value })}
                   placeholder="Customer name"
                 />
               </label>
@@ -310,12 +309,24 @@ export function ProjectView({
                 <span>Sales Order #</span>
                 <input
                   className="cell-input"
-                  value={projectMeta.salesOrderNumber}
-                  onChange={(event) => setProjectMeta((current) => ({ ...current, salesOrderNumber: event.target.value }))}
+                  value={projectMetadata.salesOrderNumber}
+                  onChange={(event) => onProjectMetadataChange({ ...projectMetadata, salesOrderNumber: event.target.value })}
                   placeholder="Sales order number"
                 />
               </label>
-              <button className="button ghost" onClick={saveProjectMeta}><Save size={14} /> Save Details</button>
+              <div className="project-detail-save-row">
+                <div className={`project-detail-save-state ${projectMetadataDirty ? 'unsaved' : 'saved'}`} role="status">
+                  {projectMetadataDirty ? <AlertTriangle size={14} /> : <Check size={14} />}
+                  <span>
+                    <strong>{projectMetadataDirty ? 'Unsaved project details' : 'Project details saved'}</strong>
+                    <small>Operation-grid changes save when you leave each field.</small>
+                  </span>
+                </div>
+                <button className="button primary project-detail-save-button" type="button" onClick={() => void onSaveProjectMetadata()} disabled={!projectMetadataDirty || projectMetadataSaving}>
+                  <Save size={15} /> {projectMetadataSaving ? 'Saving...' : 'Save Project Details'}
+                </button>
+              </div>
+              {projectMetadataError && <p className="inline-note warning project-detail-save-error" role="alert"><AlertTriangle size={14} /> {projectMetadataError}</p>}
             </div>
           )}
         </div>
@@ -327,10 +338,13 @@ export function ProjectView({
               <strong>{completionResult} <small>{compactDate(project.completedOn)}</small></strong>
             </div>
           ) : (
-            <div className={`stat-chip ${overdue ? 'is-risk' : ''}`}><span className="kicker">Schedule</span><strong>{formatDays(daysLeft)}</strong></div>
+            <div className={`stat-chip ${behindSchedule ? 'is-risk' : ''}`}>
+              <span className="kicker">Schedule</span>
+              <strong>{behindSchedule && project.daysBehind !== null ? `${project.daysBehind} day${project.daysBehind === 1 ? '' : 's'} behind` : formatDays(daysLeft)}</strong>
+            </div>
           )}
           <div className="stat-chip wide"><span className="kicker">Completion</span><Progress value={project.progress} status={project.status} /></div>
-          <div className="project-actions">
+          {!editMode && <div className="project-actions">
             <button className="button ghost" onClick={onOpenChat}><MessageSquare size={15} /> Chat</button>
             {canEdit && (
               <>
@@ -342,7 +356,7 @@ export function ProjectView({
               <button className="button danger" onClick={onDeleteProject}><Trash2 size={15} /> Archive Project</button>
               </>
             )}
-          </div>
+          </div>}
         </div>
       </header>
 

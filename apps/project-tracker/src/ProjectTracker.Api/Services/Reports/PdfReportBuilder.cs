@@ -19,10 +19,10 @@ internal static class PdfReportBuilder
     private static readonly XColor RedTint = Color("FCEBE8");
     private static readonly XColor Steel = Color("2F6195");
     private static readonly XColor SteelTint = Color("E8EFF6");
-    private static readonly XColor Green = Color("1F7A4D");
-    private static readonly XColor GreenTint = Color("E5F2EA");
-    private static readonly XColor Done = Color("46586B");
-    private static readonly XColor DoneTint = Color("E9EDF1");
+    private static readonly XColor Green = Color("68A986");
+    private static readonly XColor GreenTint = Color("EDF7F1");
+    private static readonly XColor Done = Color("1F7A4D");
+    private static readonly XColor DoneTint = Color("E5F2EA");
     private static readonly XColor Idle = Color("7D8893");
     private static readonly XColor IdleTint = Color("EDF0F3");
 

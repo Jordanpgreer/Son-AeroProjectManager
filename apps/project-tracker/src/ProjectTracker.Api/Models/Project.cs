@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace ProjectTracker.Api.Models;
 
 public sealed class Project
@@ -21,6 +23,9 @@ public sealed class Project
     public DateTimeOffset? DeletedAt { get; set; }
     public string? DeletedByAccountName { get; set; }
     public string? DeletedByDisplayName { get; set; }
+
+    [NotMapped]
+    public int? DaysBehind { get; set; }
 
     public List<ProjectTask> Tasks { get; set; } = [];
     public List<ProjectMessage> Messages { get; set; } = [];

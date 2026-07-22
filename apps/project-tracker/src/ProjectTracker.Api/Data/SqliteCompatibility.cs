@@ -6,6 +6,54 @@ namespace ProjectTracker.Api.Data;
 
 public static partial class SqliteCompatibility
 {
+    public static async Task RepairLegacySchemaAsync(ProjectTrackerDbContext db, CancellationToken cancellationToken)
+    {
+        var connection = db.Database.GetDbConnection();
+        await connection.OpenAsync(cancellationToken);
+        try
+        {
+            await using var writableSchema = connection.CreateCommand();
+            writableSchema.CommandText = "PRAGMA writable_schema=ON;";
+            await writableSchema.ExecuteNonQueryAsync(cancellationToken);
+
+            try
+            {
+                await using var tableCheck = connection.CreateCommand();
+                tableCheck.CommandText = "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name = 'StatusHistory';";
+                var statusHistoryExists = Convert.ToInt32(await tableCheck.ExecuteScalarAsync(cancellationToken)) > 0;
+                if (statusHistoryExists) return;
+
+                await using var removeOrphanedIndexes = connection.CreateCommand();
+                removeOrphanedIndexes.CommandText = """
+                    DELETE FROM sqlite_schema
+                    WHERE type = 'index'
+                      AND tbl_name = 'StatusHistory'
+                      AND name IN ('IX_StatusHistory_ProjectId', 'IX_StatusHistory_ProjectTaskId');
+                    """;
+                var removed = await removeOrphanedIndexes.ExecuteNonQueryAsync(cancellationToken);
+                if (removed == 0) return;
+
+                await using var schemaVersion = connection.CreateCommand();
+                schemaVersion.CommandText = "PRAGMA schema_version;";
+                var nextVersion = Convert.ToInt32(await schemaVersion.ExecuteScalarAsync(cancellationToken)) + 1;
+
+                await using var updateSchemaVersion = connection.CreateCommand();
+                updateSchemaVersion.CommandText = $"PRAGMA schema_version={nextVersion};";
+                await updateSchemaVersion.ExecuteNonQueryAsync(cancellationToken);
+            }
+            finally
+            {
+                await using var readOnlySchema = connection.CreateCommand();
+                readOnlySchema.CommandText = "PRAGMA writable_schema=OFF;";
+                await readOnlySchema.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+        finally
+        {
+            if (connection.State != ConnectionState.Closed) await connection.CloseAsync();
+        }
+    }
+
     public static Task EnsureTextColumnAsync(ProjectTrackerDbContext db, string table, string column, CancellationToken cancellationToken) =>
         EnsureColumnAsync(db, table, column, "TEXT NULL", cancellationToken);
 
@@ -65,6 +113,20 @@ public static partial class SqliteCompatibility
                 CONSTRAINT "FK_ProjectAuditEntries_Projects_ProjectId" FOREIGN KEY ("ProjectId") REFERENCES "Projects" ("Id") ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS "IX_ProjectAuditEntries_ProjectId_ChangedAt" ON "ProjectAuditEntries" ("ProjectId", "ChangedAt");
+            CREATE TABLE IF NOT EXISTS "StatusHistory" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_StatusHistory" PRIMARY KEY AUTOINCREMENT,
+                "ProjectId" INTEGER NOT NULL,
+                "ProjectTaskId" INTEGER NULL,
+                "EntityName" TEXT NOT NULL,
+                "OldStatus" TEXT NOT NULL,
+                "NewStatus" TEXT NOT NULL,
+                "ChangedBy" TEXT NOT NULL,
+                "ChangedAt" TEXT NOT NULL,
+                CONSTRAINT "FK_StatusHistory_Projects_ProjectId" FOREIGN KEY ("ProjectId") REFERENCES "Projects" ("Id") ON DELETE CASCADE,
+                CONSTRAINT "FK_StatusHistory_Tasks_ProjectTaskId" FOREIGN KEY ("ProjectTaskId") REFERENCES "Tasks" ("Id")
+            );
+            CREATE INDEX IF NOT EXISTS "IX_StatusHistory_ProjectId" ON "StatusHistory" ("ProjectId");
+            CREATE INDEX IF NOT EXISTS "IX_StatusHistory_ProjectTaskId" ON "StatusHistory" ("ProjectTaskId");
             """;
 
         var connection = db.Database.GetDbConnection();

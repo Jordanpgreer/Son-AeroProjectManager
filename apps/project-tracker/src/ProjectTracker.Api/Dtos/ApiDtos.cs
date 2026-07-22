@@ -83,6 +83,7 @@ public sealed record ProjectSummaryDto(
     DateOnly? TargetDelivery,
     DateOnly? FinalCompletionDate,
     int? DaysLeft,
+    int? DaysBehind,
     ProjectStatus Status,
     int TaskCount,
     int BehindTaskCount,
@@ -102,6 +103,7 @@ public sealed record ProjectDetailDto(
     DateOnly? CompletedOn,
     decimal Progress,
     ProjectStatus Status,
+    int? DaysBehind,
     IReadOnlyList<ProjectTaskDto> Tasks);
 
 public sealed record ProjectVersionDto(int Id, long Version, DateTimeOffset UpdatedAt);

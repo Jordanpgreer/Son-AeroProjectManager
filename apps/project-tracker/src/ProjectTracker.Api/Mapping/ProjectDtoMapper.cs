@@ -33,6 +33,7 @@ public static class ProjectDtoMapper
             project.TargetDelivery,
             finalCompletionDate,
             daysLeft,
+            project.DaysBehind,
             project.Status,
             project.Tasks.Count,
             project.Tasks.Count(task => task.Status == TaskScheduleStatus.Behind),
@@ -53,6 +54,7 @@ public static class ProjectDtoMapper
         project.CompletedOn,
         project.Progress,
         project.Status,
+        project.DaysBehind,
         project.Tasks.OrderBy(task => task.Sequence).Select(ToTaskDto).ToList());
 
     public static ProjectTaskDto ToTaskDto(ProjectTask task) => new(

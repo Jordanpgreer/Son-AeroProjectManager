@@ -144,4 +144,60 @@ public sealed class ProjectMetricsServiceTests
         Assert.Equal(projectVersion, project.Version);
         Assert.Equal(taskVersion, project.Tasks[0].Version);
     }
+
+    [Fact]
+    public void RefreshProject_CalculatesWorkingDaysBehindFromProgressLag()
+    {
+        var project = new Project
+        {
+            ProgramName = "Lagging project",
+            Tasks =
+            [
+                new ProjectTask
+                {
+                    Sequence = 1,
+                    Title = "Lagging operation",
+                    StartDate = new DateOnly(2026, 7, 6),
+                    StartDateLocked = true,
+                    EndDate = new DateOnly(2026, 7, 16),
+                    EstimatedDuration = 8,
+                    PercentComplete = 0.25m,
+                    PercentCompleteManual = true
+                }
+            ]
+        };
+
+        metrics.RefreshProject(project, ScheduleCalendar.Default, new DateOnly(2026, 7, 9));
+
+        Assert.Equal(ProjectStatus.Behind, project.Status);
+        Assert.Equal(2, project.DaysBehind);
+    }
+
+    [Fact]
+    public void RefreshProject_IncludesOverdueTimeInProjectedWorkingDaysBehind()
+    {
+        var project = new Project
+        {
+            ProgramName = "Overdue project",
+            Tasks =
+            [
+                new ProjectTask
+                {
+                    Sequence = 1,
+                    Title = "Overdue operation",
+                    StartDate = new DateOnly(2026, 7, 6),
+                    StartDateLocked = true,
+                    EndDate = new DateOnly(2026, 7, 9),
+                    EstimatedDuration = 4,
+                    PercentComplete = 0.5m,
+                    PercentCompleteManual = true
+                }
+            ]
+        };
+
+        metrics.RefreshProject(project, ScheduleCalendar.Default, new DateOnly(2026, 7, 14));
+
+        Assert.Equal(ProjectStatus.Behind, project.Status);
+        Assert.Equal(3, project.DaysBehind);
+    }
 }

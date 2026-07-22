@@ -77,6 +77,20 @@ builder.Services.AddDbContext<ProjectTrackerDbContext>((serviceProvider, options
 
 var app = builder.Build();
 
+app.Use(async (context, next) =>
+{
+    context.Response.OnStarting(() =>
+    {
+        if (context.Response.ContentType?.StartsWith("text/html", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            context.Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
+            context.Response.Headers["Pragma"] = "no-cache";
+            context.Response.Headers["Expires"] = "0";
+        }
+        return Task.CompletedTask;
+    });
+    await next();
+});
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
@@ -106,6 +120,8 @@ app.Use(async (context, next) =>
 });
 
 await InitializeDatabaseAsync(app);
+
+app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
 
 var api = app.MapGroup("/api").RequireAuthorization("CanView");
 api.MapProjectReadEndpoints();
@@ -972,6 +988,12 @@ static async Task InitializeDatabaseAsync(WebApplication app)
     var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
     var provider = configuration["Database:Provider"] ?? "SqlServer";
     var autoMigrate = configuration.GetValue("Database:AutoMigrate", true);
+    var isSqlite = string.Equals(provider, "Sqlite", StringComparison.OrdinalIgnoreCase);
+
+    if (isSqlite)
+    {
+        await SqliteCompatibility.RepairLegacySchemaAsync(db, cancellationToken: default);
+    }
 
     if (autoMigrate && string.Equals(provider, "SqlServer", StringComparison.OrdinalIgnoreCase))
     {
@@ -980,7 +1002,7 @@ static async Task InitializeDatabaseAsync(WebApplication app)
     else
     {
         await db.Database.EnsureCreatedAsync();
-        if (string.Equals(provider, "Sqlite", StringComparison.OrdinalIgnoreCase))
+        if (isSqlite)
         {
             await SqliteCompatibility.EnsureBooleanColumnAsync(db, "Tasks", "StartDateLocked", cancellationToken: default);
             await SqliteCompatibility.EnsureBooleanColumnAsync(db, "Tasks", "PercentCompleteManual", cancellationToken: default);

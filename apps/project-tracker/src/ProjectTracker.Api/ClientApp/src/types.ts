@@ -47,6 +47,7 @@ export type ProjectSummary = {
   targetDelivery: string | null
   finalCompletionDate: string | null
   daysLeft: number | null
+  daysBehind: number | null
   status: ProjectStatus
   taskCount: number
   behindTaskCount: number
@@ -67,7 +68,15 @@ export type ProjectDetail = {
   completedOn: string | null
   progress: number
   status: ProjectStatus
+  daysBehind: number | null
   tasks: ProjectTask[]
+}
+
+export type ProjectMetadataDraft = {
+  programManager: string
+  engineer: string
+  customerName: string
+  salesOrderNumber: string
 }
 
 export type ProjectVersion = {
@@ -255,6 +264,20 @@ export type CalOp = {
   projected: boolean
   conflict: boolean
   completedProject: boolean
+}
+
+export type CalendarMilestoneKind = 'start' | 'finish'
+
+export type CalendarMilestone = {
+  projectId: number
+  taskId: number
+  programName: string
+  workStation: string | null
+  taskTitle: string
+  status: TaskStatus
+  projected: boolean
+  completedProject: boolean
+  kind: CalendarMilestoneKind
 }
 
 export const emptyDashboard: Dashboard = {

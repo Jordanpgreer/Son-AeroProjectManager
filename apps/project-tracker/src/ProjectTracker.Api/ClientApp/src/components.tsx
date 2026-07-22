@@ -171,8 +171,9 @@ export function StatusBar({ segments, total }: { segments: { key: string; count:
 }
 
 
-export function ScheduleChip({ daysLeft, status }: { daysLeft: number | null; status: ProjectStatus }) {
+export function ScheduleChip({ daysLeft, daysBehind, status }: { daysLeft: number | null; daysBehind: number | null; status: ProjectStatus }) {
   if (status === 'Complete') return <span className="sched-chip done">Delivered</span>
+  if (status === 'Behind' && daysBehind !== null) return <span className="sched-chip overdue">{daysBehind}d behind</span>
   if (daysLeft === null) return <span className="sched-chip none">No target</span>
   if (daysLeft < 0) return <span className="sched-chip overdue">{Math.abs(daysLeft)}d overdue</span>
   if (daysLeft === 0) return <span className="sched-chip soon">Due today</span>

@@ -265,7 +265,7 @@ export function screenEyebrow(screen: Screen) {
 
 export function screenTitle(screen: Screen, project: ProjectDetail | null) {
   if (screen === 'project') return project?.programName ?? 'Project Detail'
-  if (screen === 'calendar') return 'Work Station Calendar'
+  if (screen === 'calendar') return 'Production Calendar'
   if (screen === 'pastProjects') return 'Past Projects'
   if (screen === 'settings') return 'Settings'
   if (screen === 'import') return 'Imports / Admin'
@@ -274,7 +274,7 @@ export function screenTitle(screen: Screen, project: ProjectDetail | null) {
 
 export function screenSubtitle(screen: Screen) {
   if (screen === 'project') return ''
-  if (screen === 'calendar') return 'Pick a day to see every part in production and its assigned work station.'
+  if (screen === 'calendar') return 'Review operation starts, scheduled finishes, work-center load, and scheduling conflicts.'
   if (screen === 'pastProjects') return 'Completed programs, archived out of the active development queue.'
   if (screen === 'settings') return 'Company work calendar, work centers, holidays, and user access.'
   if (screen === 'import') return 'Upload a workbook to add its programs to the tracker.'

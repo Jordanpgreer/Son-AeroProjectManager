@@ -71,6 +71,42 @@ public sealed class RoleClaimsTransformationTests
         Assert.False(principal.IsInRole("Viewer"));
     }
 
+    [Fact]
+    public async Task TransformAsync_DoesNotGrantPermissionsFromUnassignedGroups()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>().UseSqlite(connection).Options;
+        await using var db = new ProjectTrackerDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
+        var assignedGroup = new AppGroup
+        {
+            Name = "Assigned group",
+            Permissions = [new AppGroupPermission { PermissionKey = ApplicationPermissions.ModuleView }]
+        };
+        var unassignedGroup = new AppGroup
+        {
+            Name = "Unassigned group",
+            Permissions = [new AppGroupPermission { PermissionKey = ApplicationPermissions.AccessManageGroups }]
+        };
+        db.Groups.Add(unassignedGroup);
+        db.Users.Add(new AppUser
+        {
+            AccountName = "DOMAIN\\group.member",
+            DisplayName = "Group Member",
+            IsActive = true,
+            GroupMemberships = [new AppUserGroupMembership { Group = assignedGroup }]
+        });
+        await db.SaveChangesAsync();
+
+        var principal = AuthenticatedPrincipal("DOMAIN\\group.member");
+        await new RoleClaimsTransformation(db).TransformAsync(principal);
+
+        Assert.True(principal.HasClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ModuleView));
+        Assert.False(principal.HasClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.AccessManageGroups));
+    }
+
     private static ClaimsPrincipal AuthenticatedPrincipal(string accountName) =>
         new(new ClaimsIdentity([new Claim(ClaimTypes.Name, accountName)], "Test"));
 }

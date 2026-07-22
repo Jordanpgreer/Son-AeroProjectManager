@@ -23,13 +23,15 @@ $apps = @(
         Key        = 'project-tracker'
         ApiRoot    = Join-Path $repoRoot 'apps\project-tracker\src\ProjectTracker.Api'
         Url        = 'http://localhost:5135'
-        HealthPath = '/api/projects'
+        Port       = 5135
+        HealthPath = '/api/health'
     },
     [pscustomobject]@{
         Name       = 'Portal'
         Key        = 'portal'
         ApiRoot    = Join-Path $repoRoot 'apps\portal\src\Portal.Api'
         Url        = $portalUrl
+        Port       = 5140
         HealthPath = '/api/health'
     }
 )
@@ -104,6 +106,28 @@ function Get-SourceStamp($clientRoot) {
     return (($items | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum.Ticks).ToString()
 }
 
+function Get-BackendSourceStamp($app) {
+    $items = @()
+    $extensions = @('.cs', '.csproj', '.json', '.props', '.targets')
+    $items += Get-ChildItem -LiteralPath $app.ApiRoot -File -Recurse -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Extension -in $extensions -and
+            $_.FullName -notmatch '\\(bin|obj|ClientApp|wwwroot)\\'
+        }
+
+    $sharedRoot = Join-Path $repoRoot 'shared\SonAero.Platform'
+    if (Test-Path -LiteralPath $sharedRoot) {
+        $items += Get-ChildItem -LiteralPath $sharedRoot -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.Extension -in $extensions -and
+                $_.FullName -notmatch '\\(bin|obj)\\'
+            }
+    }
+
+    if ($items.Count -eq 0) { return '0' }
+    return (($items | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum.Ticks).ToString()
+}
+
 function Ensure-Frontend($app) {
     $clientRoot = Join-Path $app.ApiRoot 'ClientApp'
     $wwwroot = Join-Path $app.ApiRoot 'wwwroot'
@@ -159,12 +183,46 @@ function Get-LaunchFailureDetails($app) {
     return ($details -join [Environment]::NewLine)
 }
 
+function Get-AppListenerProcess($app) {
+    $connection = Get-NetTCPConnection -LocalPort $app.Port -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $connection) { return $null }
+    return Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $connection.OwningProcess) -ErrorAction SilentlyContinue
+}
+
+function Stop-OwnedAppProcess($app) {
+    $process = Get-AppListenerProcess $app
+    if (-not $process) { return }
+
+    $resolvedApiRoot = [System.IO.Path]::GetFullPath($app.ApiRoot)
+    $processPath = if ($process.ExecutablePath) { [System.IO.Path]::GetFullPath($process.ExecutablePath) } else { '' }
+    if (-not $processPath.StartsWith($resolvedApiRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw ("Port {0} is occupied by a process outside this checkout: {1}" -f $app.Port, $processPath)
+    }
+
+    Stop-Process -Id $process.ProcessId -Force
+    for ($i = 0; $i -lt 40; $i++) {
+        if (-not (Get-AppListenerProcess $app)) { return }
+        Start-Sleep -Milliseconds 250
+    }
+    throw ("The prior {0} process did not stop cleanly." -f $app.Name)
+}
+
 function Start-App($app, $dotnet) {
     Ensure-Frontend $app
 
-    if (Test-AppHealth $app) {
-        Write-Host ("{0} is already running." -f $app.Name)
-        return
+    $runtimeStampFile = Join-Path $logDir ("{0}.runtime-stamp" -f $app.Key)
+    $sourceStamp = Get-BackendSourceStamp $app
+    $runtimeStamp = if (Test-Path -LiteralPath $runtimeStampFile) { (Get-Content -LiteralPath $runtimeStampFile -Raw).Trim() } else { '' }
+
+    $listener = Get-AppListenerProcess $app
+    if ($listener) {
+        if ((Test-AppHealth $app) -and $runtimeStamp -eq $sourceStamp) {
+            Write-Host ("{0} is already running and current." -f $app.Name)
+            return
+        }
+        Write-Host ("Restarting {0} to apply code changes..." -f $app.Name)
+        Stop-OwnedAppProcess $app
     }
 
     $outLog = Join-Path $logDir ("{0}.out.log" -f $app.Key)
@@ -188,6 +246,7 @@ function Start-App($app, $dotnet) {
     for ($i = 0; $i -lt 240; $i++) {
         Start-Sleep -Milliseconds 500
         if (Test-AppHealth $app) {
+            Set-Content -LiteralPath $runtimeStampFile -Value $sourceStamp -Encoding ASCII
             Write-Host ("{0} is ready." -f $app.Name)
             return
         }
@@ -208,7 +267,8 @@ try {
         Start-App $app $dotnet
     }
 
-    Start-Process $portalUrl
+    $launchToken = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    Start-Process ("{0}/?launch={1}" -f $portalUrl.TrimEnd('/'), $launchToken)
     Write-Host 'SON-AERO Hub is running.'
     exit 0
 }

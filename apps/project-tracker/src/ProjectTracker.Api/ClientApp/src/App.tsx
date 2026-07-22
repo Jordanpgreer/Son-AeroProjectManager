@@ -34,6 +34,7 @@ import type {
   ConcurrencyConflict,
   ProjectCreateRequest,
   ProjectVersion,
+  ProjectMetadataDraft,
 } from './types'
 import {
   ErrorState,
@@ -52,6 +53,7 @@ import {
   ConcurrencyConflictDialog,
   ProjectChatDrawer,
   ProjectActivityDrawer,
+  UnsavedProjectDetailsDialog,
 } from './features/dialogs'
 import {
   ProjectView,
@@ -70,6 +72,23 @@ import {
   TaskModal,
 } from './features/task-modal'
 
+const emptyProjectMetadata: ProjectMetadataDraft = {
+  programManager: '',
+  engineer: '',
+  customerName: '',
+  salesOrderNumber: '',
+}
+
+function projectMetadataFrom(project: ProjectDetail | null): ProjectMetadataDraft {
+  if (!project) return emptyProjectMetadata
+  return {
+    programManager: project.programManager ?? '',
+    engineer: project.engineer ?? '',
+    customerName: project.customerName ?? '',
+    salesOrderNumber: project.salesOrderNumber ?? '',
+  }
+}
+
 function App() {
   const [user, setUser] = useState<User | null>(null)
   const [dashboard, setDashboard] = useState<Dashboard>(emptyDashboard)
@@ -87,6 +106,10 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [taskForm, setTaskForm] = useState<TaskForm | null>(null)
   const [editMode, setEditMode] = useState(false)
+  const [projectMetadata, setProjectMetadata] = useState<ProjectMetadataDraft>(emptyProjectMetadata)
+  const [projectMetadataSaving, setProjectMetadataSaving] = useState(false)
+  const [projectMetadataError, setProjectMetadataError] = useState<string | null>(null)
+  const [unsavedProjectDetailsOpen, setUnsavedProjectDetailsOpen] = useState(false)
   const [dashboardSearch, setDashboardSearch] = useState('')
   const [pastProjectsSearch, setPastProjectsSearch] = useState('')
   const [importMessage, setImportMessage] = useState('')
@@ -113,6 +136,47 @@ function App() {
     salesOrderNumber: patch.salesOrderNumber ?? project.salesOrderNumber,
     version: project.version,
   })
+
+  const projectMetadataDirty = useMemo(() => {
+    if (!selectedProject) return false
+    const saved = projectMetadataFrom(selectedProject)
+    return projectMetadata.programManager !== saved.programManager
+      || projectMetadata.engineer !== saved.engineer
+      || projectMetadata.customerName !== saved.customerName
+      || projectMetadata.salesOrderNumber !== saved.salesOrderNumber
+  }, [projectMetadata, selectedProject])
+
+  const selectedProjectMetadataId = selectedProject?.id
+  const selectedProjectProgramManager = selectedProject?.programManager ?? ''
+  const selectedProjectEngineer = selectedProject?.engineer ?? ''
+  const selectedProjectCustomerName = selectedProject?.customerName ?? ''
+  const selectedProjectSalesOrderNumber = selectedProject?.salesOrderNumber ?? ''
+
+  useEffect(() => {
+    setProjectMetadata({
+      programManager: selectedProjectProgramManager,
+      engineer: selectedProjectEngineer,
+      customerName: selectedProjectCustomerName,
+      salesOrderNumber: selectedProjectSalesOrderNumber,
+    })
+    setProjectMetadataError(null)
+  }, [
+    selectedProjectMetadataId,
+    selectedProjectProgramManager,
+    selectedProjectEngineer,
+    selectedProjectCustomerName,
+    selectedProjectSalesOrderNumber,
+  ])
+
+  useEffect(() => {
+    if (!editMode || !projectMetadataDirty) return
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warnBeforeUnload)
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload)
+  }, [editMode, projectMetadataDirty])
 
   useEffect(() => {
     const showConflict = (event: Event) => setConcurrencyConflict((event as CustomEvent<ConcurrencyConflict>).detail)
@@ -318,6 +382,34 @@ function App() {
     setDismissedProjectVersion(null)
     storeSelectedProjectId(project.id)
     await loadDashboard()
+    return project
+  }
+
+  async function saveProjectMetadata() {
+    if (!selectedProject || projectMetadataSaving) return false
+    setProjectMetadataSaving(true)
+    setProjectMetadataError(null)
+    const normalized = {
+      programManager: projectMetadata.programManager.trim(),
+      engineer: projectMetadata.engineer.trim(),
+      customerName: projectMetadata.customerName.trim(),
+      salesOrderNumber: projectMetadata.salesOrderNumber.trim(),
+    }
+    try {
+      await updateProject({
+        programManager: normalized.programManager || null,
+        engineer: normalized.engineer || null,
+        customerName: normalized.customerName || null,
+        salesOrderNumber: normalized.salesOrderNumber || null,
+      })
+      setProjectMetadata(normalized)
+      return true
+    } catch (error) {
+      setProjectMetadataError(error instanceof Error ? error.message : 'Project details could not be saved.')
+      return false
+    } finally {
+      setProjectMetadataSaving(false)
+    }
   }
 
   async function refreshCurrentUserAccess() {
@@ -453,9 +545,31 @@ function App() {
 
   function toggleEditMode() {
     if (editMode) {
-      loadDashboard()
+      if (projectMetadataDirty) {
+        setUnsavedProjectDetailsOpen(true)
+        return
+      }
+      void loadDashboard()
+      setEditMode(false)
+      return
     }
-    setEditMode(!editMode)
+    setProjectMetadata(projectMetadataFrom(selectedProject))
+    setProjectMetadataError(null)
+    setEditMode(true)
+  }
+
+  function discardProjectMetadataAndExit() {
+    setProjectMetadata(projectMetadataFrom(selectedProject))
+    setProjectMetadataError(null)
+    setUnsavedProjectDetailsOpen(false)
+    setEditMode(false)
+    void loadDashboard()
+  }
+
+  async function saveProjectMetadataAndExit() {
+    if (!await saveProjectMetadata()) return
+    setUnsavedProjectDetailsOpen(false)
+    setEditMode(false)
   }
 
   async function addHolidayRange(startDate: string, endDate: string, name: string) {
@@ -678,6 +792,7 @@ function App() {
           selectedProject={selectedProject}
           canEdit={canEdit}
           editMode={editMode}
+          hasUnsavedChanges={projectMetadataDirty}
           onToggleEdit={toggleEditMode}
           dashboardSearch={dashboardSearch}
           setDashboardSearch={setDashboardSearch}
@@ -749,11 +864,16 @@ function App() {
                   conflictKeys={workCenterConflicts}
                   canEdit={canEdit}
                   editMode={editMode}
+                  projectMetadata={projectMetadata}
+                  projectMetadataDirty={projectMetadataDirty}
+                  projectMetadataSaving={projectMetadataSaving}
+                  projectMetadataError={projectMetadataError}
+                  onProjectMetadataChange={setProjectMetadata}
+                  onSaveProjectMetadata={saveProjectMetadata}
                   onSelectProject={openProject}
                   onEditTask={(task) => setTaskForm(formFromTask(task))}
                   onAddTask={() => setTaskForm(emptyTaskForm(selectedProject))}
                   onDeleteTask={deleteTask}
-                  onUpdateProject={updateProject}
                   onCompleteProject={() => setProjectConfirmation('complete')}
                   onReopenProject={() => setProjectConfirmation('reopen')}
                   onDeleteProject={() => setProjectConfirmation('delete')}
@@ -820,6 +940,15 @@ function App() {
           pending={projectActionPending}
           onCancel={() => setProjectConfirmation(null)}
           onConfirm={confirmProjectAction}
+        />
+      )}
+      {unsavedProjectDetailsOpen && selectedProject && (
+        <UnsavedProjectDetailsDialog
+          projectName={selectedProject.programName}
+          saving={projectMetadataSaving}
+          onContinueEditing={() => setUnsavedProjectDetailsOpen(false)}
+          onDiscard={discardProjectMetadataAndExit}
+          onSave={() => void saveProjectMetadataAndExit()}
         />
       )}
       {concurrencyConflict && (

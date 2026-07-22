@@ -8,6 +8,7 @@ import {
   CalendarPlus,
   CalendarRange,
   CheckCircle2,
+  ChevronDown,
   Factory,
   Pencil,
   Plus,
@@ -533,42 +534,71 @@ function AccessGroupCard({
   saving: boolean
   onDraftChange: (permissions: string[]) => void
 }) {
+  const [expanded, setExpanded] = useState(false)
+  const panelId = `access-group-permissions-${group.id}`
+
   const togglePermission = (key: string) => {
     const next = draft.includes(key) ? draft.filter((permission) => permission !== key) : [...draft, key]
     onDraftChange(next.sort((a, b) => a.localeCompare(b)))
   }
 
   return (
-    <article className="panel access-group-card">
-      <header className="panel-head">
-        <div className="panel-head-text">
-          <span className="kicker">{group.isSystemGroup ? 'System Group' : 'Custom Group'}</span>
-          <h3>{group.name}</h3>
-          <p>{group.description || 'No description provided.'}</p>
+    <article className={`panel access-group-card ${expanded ? 'is-expanded' : ''}`}>
+      <button
+        className="access-group-toggle"
+        type="button"
+        aria-expanded={expanded}
+        aria-controls={panelId}
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <span className="access-group-icon" aria-hidden="true"><ShieldCheck size={17} /></span>
+        <span className="access-group-summary">
+          <span className="access-group-title-line">
+            <strong>{group.name}</strong>
+            <small>{group.isSystemGroup ? 'System role' : 'Custom role'}</small>
+          </span>
+          <span>{group.description || 'No description provided.'}</span>
+        </span>
+        <span className="access-group-stats">
+          <span><strong>{group.userCount}</strong> {group.userCount === 1 ? 'user' : 'users'}</span>
+          <span><strong>{draft.length}</strong> of {permissions.length} permissions</span>
+        </span>
+        <ChevronDown className="access-group-chevron" size={18} aria-hidden="true" />
+      </button>
+      {expanded && (
+        <div className="access-group-body" id={panelId}>
+          <div className="permission-grid">
+            {categories.map((category) => {
+              const categoryPermissions = permissions.filter((permission) => permission.category === category)
+              const selectedCount = categoryPermissions.filter((permission) => draft.includes(permission.key)).length
+              return (
+                <section key={category} className="permission-category">
+                  <header className="permission-category-head">
+                    <span className="section-label">{category}</span>
+                    <span>{selectedCount}/{categoryPermissions.length} enabled</span>
+                  </header>
+                  <div className="permission-category-list">
+                    {categoryPermissions.map((permission) => (
+                      <label key={permission.key} className="permission-row">
+                        <input
+                          type="checkbox"
+                          checked={draft.includes(permission.key)}
+                          onChange={() => togglePermission(permission.key)}
+                          disabled={saving}
+                        />
+                        <span>
+                          <strong>{permission.label}</strong>
+                          <small>{permission.description}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </section>
+              )
+            })}
+          </div>
         </div>
-        <span className="ot-badge">{group.userCount} users</span>
-      </header>
-      <div className="permission-grid">
-        {categories.map((category) => (
-          <section key={category} className="permission-category">
-            <span className="section-label">{category}</span>
-            {permissions.filter((permission) => permission.category === category).map((permission) => (
-              <label key={permission.key} className="permission-row">
-                <input
-                  type="checkbox"
-                  checked={draft.includes(permission.key)}
-                  onChange={() => togglePermission(permission.key)}
-                  disabled={saving}
-                />
-                <span>
-                  <strong>{permission.label}</strong>
-                  <small>{permission.description}</small>
-                </span>
-              </label>
-            ))}
-          </section>
-        ))}
-      </div>
+      )}
     </article>
   )
 }

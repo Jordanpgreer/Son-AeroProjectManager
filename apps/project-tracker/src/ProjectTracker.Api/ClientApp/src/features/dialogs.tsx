@@ -7,6 +7,7 @@ import {
   History,
   MessageSquare,
   RefreshCw,
+  Save,
   Send,
   Trash2,
   X,
@@ -80,6 +81,50 @@ export function ProjectConfirmationDialog({
           <button className={`button ${deleting ? 'danger-solid' : reopening ? 'primary' : 'complete-solid'}`} type="button" onClick={onConfirm} disabled={pending} autoFocus>
             {deleting ? <Trash2 size={15} /> : reopening ? <RefreshCw size={15} /> : <CheckCircle2 size={15} />}
             {pending ? 'Working...' : deleting ? 'Archive Project' : reopening ? 'Make Active' : 'Complete Project'}
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+export function UnsavedProjectDetailsDialog({
+  projectName,
+  saving,
+  onContinueEditing,
+  onDiscard,
+  onSave,
+}: {
+  projectName: string
+  saving: boolean
+  onContinueEditing: () => void
+  onDiscard: () => void
+  onSave: () => void
+}) {
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !saving) onContinueEditing()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [onContinueEditing, saving])
+
+  return (
+    <div className="modal-backdrop" onClick={() => !saving && onContinueEditing()}>
+      <section className="modal confirmation-modal" role="alertdialog" aria-modal="true" aria-labelledby="unsaved-project-details-title" onClick={(event) => event.stopPropagation()}>
+        <div className="confirmation-icon unsaved"><AlertTriangle size={22} /></div>
+        <div className="confirmation-copy">
+          <span className="kicker">Unsaved Project Details</span>
+          <h2 id="unsaved-project-details-title">Save before leaving edit mode?</h2>
+          <p>
+            The contact lead, engineer, customer, or sales order for <strong>{projectName}</strong> has changed. Operation-grid edits save automatically, but these project details still need to be saved.
+          </p>
+        </div>
+        <div className="modal-actions confirmation-actions unsaved-detail-actions">
+          <button className="button ghost" type="button" onClick={onContinueEditing} disabled={saving}>Continue Editing</button>
+          <button className="button danger" type="button" onClick={onDiscard} disabled={saving}>Discard &amp; Done</button>
+          <button className="button primary" type="button" onClick={onSave} disabled={saving} autoFocus>
+            <Save size={15} /> {saving ? 'Saving...' : 'Save & Done'}
           </button>
         </div>
       </section>
