@@ -261,11 +261,32 @@ export function ProjectView({
     }
   }
 
+  const projectStats = (
+    <div className="stat-strip">
+      <div className="stat-chip"><span className="kicker">Status</span><StatusBadge status={project.status} /></div>
+      {isCompleted ? (
+        <div className={`stat-chip ${completedLate ? 'is-risk' : ''}`}>
+          <span className="kicker">Result</span>
+          <strong>{completionResult} <small>{compactDate(project.completedOn)}</small></strong>
+        </div>
+      ) : (
+        <div className={`stat-chip ${behindSchedule ? 'is-risk' : ''}`}>
+          <span className="kicker">Schedule</span>
+          <strong>{behindSchedule && project.daysBehind !== null ? `${project.daysBehind} day${project.daysBehind === 1 ? '' : 's'} behind` : formatDays(daysLeft)}</strong>
+        </div>
+      )}
+      <div className="stat-chip wide"><span className="kicker">Completion</span><Progress value={project.progress} status={project.status} /></div>
+    </div>
+  )
+
   return (
     <section className="view project-view">
       <header className={`program-topbar ${editMode ? 'is-editing' : ''}`}>
         <div className="program-lead">
-          <ProjectPicker project={project} projects={projects} onSelectProject={onSelectProject} disabled={editMode} />
+          <div className="program-summary-line">
+            <ProjectPicker project={project} projects={projects} onSelectProject={onSelectProject} disabled={editMode} />
+            {!editMode && projectStats}
+          </div>
           <div className="program-sub">
             <span className="program-current-inline"><span className="dot active" />{project.currentTask ?? 'No current operation'}</span>
             <span className="program-facts">
@@ -329,35 +350,21 @@ export function ProjectView({
               {projectMetadataError && <p className="inline-note warning project-detail-save-error" role="alert"><AlertTriangle size={14} /> {projectMetadataError}</p>}
             </div>
           )}
+          {editMode && projectStats}
         </div>
-        <div className="stat-strip">
-          <div className="stat-chip"><span className="kicker">Status</span><StatusBadge status={project.status} /></div>
-          {isCompleted ? (
-            <div className={`stat-chip ${completedLate ? 'is-risk' : ''}`}>
-              <span className="kicker">Result</span>
-              <strong>{completionResult} <small>{compactDate(project.completedOn)}</small></strong>
-            </div>
-          ) : (
-            <div className={`stat-chip ${behindSchedule ? 'is-risk' : ''}`}>
-              <span className="kicker">Schedule</span>
-              <strong>{behindSchedule && project.daysBehind !== null ? `${project.daysBehind} day${project.daysBehind === 1 ? '' : 's'} behind` : formatDays(daysLeft)}</strong>
-            </div>
-          )}
-          <div className="stat-chip wide"><span className="kicker">Completion</span><Progress value={project.progress} status={project.status} /></div>
-          {!editMode && <div className="project-actions">
-            <button className="button ghost" onClick={onOpenChat}><MessageSquare size={15} /> Chat</button>
-            {canEdit && (
-              <>
-              {isCompleted ? (
-                <button className="button ghost" onClick={onReopenProject}><RefreshCw size={15} /> Make Active</button>
-              ) : (
-                <button className="button ghost" onClick={onCompleteProject}><CheckCircle2 size={15} /> Complete Project</button>
-              )}
-              <button className="button danger" onClick={onDeleteProject}><Trash2 size={15} /> Archive Project</button>
-              </>
+        {!editMode && <div className="project-actions">
+          <button className="button ghost" onClick={onOpenChat}><MessageSquare size={15} /> Chat</button>
+          {canEdit && (
+            <>
+            {isCompleted ? (
+              <button className="button ghost" onClick={onReopenProject}><RefreshCw size={15} /> Make Active</button>
+            ) : (
+              <button className="button ghost" onClick={onCompleteProject}><CheckCircle2 size={15} /> Complete Project</button>
             )}
-          </div>}
-        </div>
+            <button className="button danger" onClick={onDeleteProject}><Trash2 size={15} /> Archive Project</button>
+            </>
+          )}
+        </div>}
       </header>
 
       {editMode && canModify ? (
