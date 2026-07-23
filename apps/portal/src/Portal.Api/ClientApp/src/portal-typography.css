@@ -1,0 +1,96 @@
+/*
+ * Portal typography.
+ *
+ * Kept app-local so Project Tracker, Engineering, and shared brand assets
+ * remain independently configurable.
+ */
+@import '@fontsource/ibm-plex-mono/latin-400.css';
+@import '@fontsource/ibm-plex-mono/latin-500.css';
+@import '@fontsource/ibm-plex-mono/latin-600.css';
+
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+.portal {
+  --portal-font-sans: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --portal-font-id: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
+  --font-display: var(--portal-font-sans);
+  --font-sans: var(--portal-font-sans);
+  --font-mono: var(--portal-font-sans);
+  --font-id: var(--portal-font-id);
+
+  font-family: var(--portal-font-sans);
+  font-weight: 400;
+}
+
+.portal :where(button, input, select, textarea) {
+  font-family: var(--portal-font-sans);
+}
+
+.portal :where(
+  button,
+  input,
+  label,
+  .kicker,
+  .brand-kicker,
+  .portal-user-name,
+  .portal-user-role,
+  .status-readout dt,
+  .chip,
+  .featured-metrics .metric i,
+  .featured-meta dt,
+  .featured-meta dd,
+  .mini-kicker,
+  .mini-kpi i,
+  .app-cat,
+  .app-pending,
+  .status-badge
+) {
+  font-weight: 500;
+}
+
+.portal :where(
+  h1,
+  h2,
+  h3,
+  .brand-word,
+  .portal-avatar,
+  .featured-info h2,
+  .mini-h1,
+  .app-name,
+  .featured-hint,
+  .app-open,
+  .portal-state-title,
+  .foot-mark
+) {
+  font-family: var(--portal-font-sans);
+  font-weight: 600;
+}
+
+.portal .portal-head h1,
+.portal .featured-info h2,
+.portal .mini-h1 {
+  font-weight: 600;
+}
+
+.portal :where(
+  .status-readout dd,
+  .featured-metrics .metric b,
+  .mini-kpi b
+) {
+  font-family: var(--portal-font-sans);
+  font-weight: 700;
+}
+
+/* The preview row name represents a project part/program identifier. */
+.portal .mini-name {
+  font-family: var(--portal-font-id);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}

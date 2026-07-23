@@ -1,0 +1,202 @@
+/*
+ * Portal dark theme.
+ *
+ * Mirrors the Project Tracker's restrained aerospace palette while remaining
+ * local to the Hub bundle.
+ */
+:root[data-theme='dark'] {
+  --bg: #0a1017;
+  --bg-deep: #0e1620;
+  --surface: #141e29;
+  --surface-2: #192632;
+  --surface-3: #223241;
+
+  --ink: #f3f7fa;
+  --ink-2: #cdd6df;
+  --muted: #9aa8b7;
+  --faint: #7f8d9d;
+
+  --line: #22303d;
+  --line-2: #314355;
+  --line-3: #455b70;
+  --grid-line: rgba(151, 165, 180, 0.055);
+
+  --red: #d23a2b;
+  --red-600: #b92f24;
+  --red-700: #ffb5ac;
+  --red-tint: #331d1a;
+  --red-tint-2: #512a25;
+
+  --steel: #64a4d7;
+  --steel-700: #b4d9f5;
+  --steel-tint: #14283b;
+
+  --ok: #7bc9a4;
+  --ok-700: #bdeccf;
+  --ok-tint: #1a3329;
+  --warn: #d6a84e;
+  --warn-700: #f5d38c;
+  --warn-tint: #322715;
+  --risk: #f06a5b;
+  --risk-700: #ffb5ac;
+  --risk-tint: #331d1a;
+  --done: #36a46a;
+  --done-700: #b9e9cb;
+  --done-tint: #152e22;
+  --idle: #8b99a8;
+  --idle-tint: #1c2834;
+
+  --nav-1: #0e1620;
+  --nav-2: #111b25;
+  --nav-3: #070b10;
+  --nav-text: #cdd6df;
+  --nav-strong: #ffffff;
+  --nav-muted: #8c9aa8;
+  --nav-line: rgba(255, 255, 255, 0.10);
+
+  --shadow-1: 0 1px 1px rgba(0, 0, 0, 0.30), 0 8px 20px -16px rgba(0, 0, 0, 0.88);
+  --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.38), 0 18px 36px -22px rgba(0, 0, 0, 0.92);
+  --shadow-pop: 0 28px 80px -24px rgba(0, 0, 0, 0.88);
+}
+
+:root[data-theme='dark'] body {
+  background: var(--bg);
+}
+
+:root[data-theme='dark'] .portal-top {
+  background:
+    radial-gradient(90% 180% at 0% 0%, rgba(210, 58, 43, 0.10), transparent 56%),
+    var(--nav-1);
+  border-bottom-color: var(--red);
+  box-shadow: 0 10px 28px -24px rgba(0, 0, 0, 0.9);
+}
+
+:root[data-theme='dark'] .portal-user-role {
+  color: var(--red-700);
+}
+
+:root[data-theme='dark'] .portal-avatar {
+  color: var(--red-700);
+  background: var(--red-tint);
+  border-color: var(--red-tint-2);
+}
+
+:root[data-theme='dark'] :where(
+  .status-readout,
+  .featured-card,
+  .app-card,
+  .portal-state
+) {
+  box-shadow: var(--shadow-1);
+}
+
+:root[data-theme='dark'] .search-field {
+  background: #111b25;
+  border-color: var(--line-2);
+}
+
+:root[data-theme='dark'] .search-field:focus-within {
+  border-color: var(--steel);
+  box-shadow: 0 0 0 3px rgba(100, 164, 215, 0.12);
+}
+
+:root[data-theme='dark'] .chip {
+  color: var(--ink-2);
+  background: var(--surface);
+  border-color: var(--line-2);
+}
+
+:root[data-theme='dark'] .chip:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+  border-color: var(--line-3);
+}
+
+:root[data-theme='dark'] .chip.is-active {
+  color: #fff;
+  background: var(--red);
+  border-color: var(--red);
+}
+
+:root[data-theme='dark'] .ghost-button {
+  color: var(--ink);
+  background: var(--surface-3);
+  border-color: var(--line-2);
+}
+
+:root[data-theme='dark'] .ghost-button:hover:not(:disabled) {
+  color: var(--ink);
+  background: #2a3b4b;
+  border-color: var(--line-3);
+}
+
+:root[data-theme='dark'] .featured-card,
+:root[data-theme='dark'] .app-card {
+  background: var(--surface);
+  border-color: var(--line-2);
+}
+
+:root[data-theme='dark'] .featured-card:hover,
+:root[data-theme='dark'] .app-card:hover {
+  border-color: var(--line-3);
+  box-shadow: var(--shadow-2);
+}
+
+:root[data-theme='dark'] .featured-preview,
+:root[data-theme='dark'] .preview-placeholder,
+:root[data-theme='dark'] .mini {
+  background: var(--bg-deep);
+  border-color: var(--line-2);
+}
+
+:root[data-theme='dark'] .mini-rail {
+  background: linear-gradient(180deg, #111b25 0%, #070b10 100%);
+}
+
+:root[data-theme='dark'] .mini-tr:hover {
+  background: #1d2b38;
+}
+
+:root[data-theme='dark'] .app-icon {
+  color: var(--red-700);
+  background: var(--red-tint);
+  border-color: var(--red-tint-2);
+}
+
+:root[data-theme='dark'] .app-open {
+  color: #fff;
+  background: var(--red);
+  border-color: var(--red);
+}
+
+:root[data-theme='dark'] .app-open:hover {
+  background: var(--red-600);
+  border-color: var(--red-600);
+}
+
+:root[data-theme='dark'] .status-badge.ok {
+  color: var(--ok-700);
+  background: var(--ok-tint);
+  border-color: #31664b;
+}
+
+:root[data-theme='dark'] .status-badge.warn {
+  color: var(--warn-700);
+  background: var(--warn-tint);
+  border-color: #705b2c;
+}
+
+:root[data-theme='dark'] .status-badge.soon {
+  color: var(--muted);
+  background: var(--idle-tint);
+  border-color: #405166;
+}
+
+:root[data-theme='dark'] .portal-foot {
+  background: rgba(14, 22, 32, 0.72);
+  border-top-color: var(--line-2);
+}
+
+:root[data-theme='dark'] .is-skeleton::after {
+  background: linear-gradient(90deg, transparent, rgba(205, 214, 223, 0.12), transparent);
+}

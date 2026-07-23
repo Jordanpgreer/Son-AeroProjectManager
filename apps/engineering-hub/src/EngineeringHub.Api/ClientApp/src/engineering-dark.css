@@ -1,0 +1,147 @@
+/*
+ * Engineering-only dark theme. Values mirror the Project Tracker operations
+ * palette while retaining Engineering's existing structure and behavior.
+ */
+:root[data-theme='dark'] .engineering-app {
+  --bg: #0a1017;
+  --bg-deep: #0e1620;
+  --surface: #141e29;
+  --surface-2: #192632;
+  --surface-3: #223241;
+
+  --ink: #f3f7fa;
+  --ink-2: #cdd6df;
+  --muted: #9aa8b7;
+  --faint: #7f8d9d;
+
+  --line: #22303d;
+  --line-2: #314355;
+  --line-3: #455b70;
+  --grid-line: rgba(151, 165, 180, 0.055);
+
+  --red: #d23a2b;
+  --red-600: #b92f24;
+  --red-700: #ffb5ac;
+  --red-tint: #331d1a;
+  --red-tint-2: #512a25;
+
+  --steel: #64a4d7;
+  --steel-700: #b4d9f5;
+  --steel-tint: #14283b;
+
+  --ok: #7bc9a4;
+  --ok-700: #bdeccf;
+  --ok-tint: #1a3329;
+  --warn: #d6a84e;
+  --warn-700: #f5d38c;
+  --warn-tint: #322715;
+  --risk: #f06a5b;
+  --risk-700: #ffb5ac;
+  --risk-tint: #331d1a;
+  --done: #36a46a;
+  --done-700: #b9e9cb;
+  --done-tint: #152e22;
+  --idle: #8b99a8;
+  --idle-tint: #1c2834;
+
+  --shadow-1: 0 1px 1px rgba(0, 0, 0, 0.3), 0 8px 20px -16px rgba(0, 0, 0, 0.88);
+  --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.38), 0 18px 36px -22px rgba(0, 0, 0, 0.92);
+
+  background: var(--bg);
+}
+
+:root[data-theme='dark'] .engineering-app .sidebar {
+  background:
+    radial-gradient(100% 48% at 0% 0%, rgba(210, 58, 43, 0.11), transparent 62%),
+    linear-gradient(184deg, #111b25 0%, #0b1219 50%, #070b10 100%);
+}
+
+:root[data-theme='dark'] .engineering-app .topbar {
+  background: rgba(14, 22, 32, 0.94);
+  border-bottom-color: var(--line-2);
+  box-shadow: 0 10px 28px -24px rgba(0, 0, 0, 0.9);
+}
+
+:root[data-theme='dark'] .engineering-app .main-scroll {
+  background-color: var(--bg);
+}
+
+:root[data-theme='dark'] .engineering-app :where(.panel, .kpi, .delete-dialog, .review-card, .result-card) {
+  box-shadow: var(--shadow-1);
+}
+
+:root[data-theme='dark'] .engineering-app :where(
+  .drawing-row:hover,
+  .drawing-row.selected,
+  .area-row:hover,
+  .work-item:hover:not(:disabled),
+  .result-card.clickable:hover
+) {
+  background: #1d2b38;
+}
+
+:root[data-theme='dark'] .engineering-app .button:not(.ghost):not(.danger) {
+  color: var(--ink);
+  background: var(--surface-3);
+  border-color: var(--line-2);
+}
+
+:root[data-theme='dark'] .engineering-app .button:not(.ghost):not(.danger):hover {
+  color: var(--ink);
+  background: #2a3b4b;
+  border-color: var(--line-3);
+}
+
+:root[data-theme='dark'] .engineering-app :where(input, select, textarea) {
+  color-scheme: dark;
+}
+
+:root[data-theme='dark'] .engineering-app .status-approved {
+  color: var(--ok-700);
+  background: var(--ok-tint);
+  border-color: #31664b;
+}
+
+:root[data-theme='dark'] .engineering-app .status-underreview {
+  color: var(--warn-700);
+  background: var(--warn-tint);
+  border-color: #705b2c;
+}
+
+:root[data-theme='dark'] .engineering-app :where(.status-superseded, .status-obsolete) {
+  color: var(--muted);
+  background: var(--idle-tint);
+  border-color: #405166;
+}
+
+:root[data-theme='dark'] .engineering-app :where(.inline-alert, .delete-warning) {
+  color: var(--risk-700);
+  background: var(--risk-tint);
+  border-color: #713a35;
+}
+
+:root[data-theme='dark'] .engineering-app .storage-mode.available {
+  color: var(--ok-700);
+  background: var(--ok-tint);
+  border-color: #31664b;
+}
+
+:root[data-theme='dark'] .engineering-app .storage-mode.unavailable,
+:root[data-theme='dark'] .engineering-app .metadata-only-badge {
+  color: var(--warn-700);
+  background: var(--warn-tint);
+  border-color: #705b2c;
+}
+
+:root[data-theme='dark'] .engineering-app .delete-dialog-backdrop {
+  background: rgba(3, 7, 11, 0.76);
+}
+
+:root[data-theme='dark'] .engineering-app .delete-dialog-header {
+  background: #111b25;
+  border-bottom-color: var(--line-2);
+}
+
+:root[data-theme='dark'] .engineering-app .skeleton-line::after {
+  background: linear-gradient(90deg, transparent, rgba(205, 214, 223, 0.12), transparent);
+}

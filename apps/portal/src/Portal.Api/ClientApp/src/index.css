@@ -185,7 +185,7 @@ body {
   border: 1px solid rgba(226, 59, 44, 0.45);
   color: #fff;
   font-family: var(--font-display);
-  font-weight: 700;
+  font-weight: 600;
   font-size: 12.5px;
   letter-spacing: 0.02em;
 }
@@ -212,7 +212,7 @@ body {
 }
 .portal-head h1 {
   font-family: var(--font-display);
-  font-weight: 700;
+  font-weight: 600;
   font-size: 27px;
   letter-spacing: -0.015em;
   margin: 0 0 6px;
@@ -542,7 +542,7 @@ body {
 }
 .featured-info h2 {
   font-family: var(--font-display);
-  font-weight: 700;
+  font-weight: 600;
   font-size: 23px;
   letter-spacing: -0.01em;
   margin: 0;
@@ -732,7 +732,7 @@ body {
 }
 .mini-h1 {
   font-family: var(--font-display);
-  font-weight: 700;
+  font-weight: 600;
   font-size: 15px;
   color: var(--ink);
   line-height: 1;
@@ -1103,79 +1103,9 @@ body {
   outline-offset: 2px;
 }
 
-.theme-toggle {
-  min-height: 34px;
-  padding: 0 12px;
-}
-
 /* ===================================================================== */
 /* Zoom-into-app transition                                               */
 /* ===================================================================== */
-
-/* Back-to-Hub control shown over an opened app (portal chrome is hidden). */
-.app-exit {
-  position: fixed;
-  top: 16px;
-  left: 16px;
-  z-index: 130;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--nav-strong);
-  background: rgba(13, 18, 24, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: var(--r-pill);
-  padding: 8px 10px 8px 12px;
-  cursor: pointer;
-  box-shadow: var(--shadow-pop);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  transition: background 0.14s, border-color 0.14s, transform 0.14s;
-}
-.app-exit:hover {
-  background: var(--red);
-  border-color: var(--red-600);
-  transform: translateX(-1px);
-}
-.app-exit:focus-visible {
-  outline: 2px solid #fff;
-  outline-offset: 2px;
-}
-.app-exit kbd {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  color: var(--nav-text);
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: var(--r-xs);
-  padding: 2px 5px;
-  line-height: 1;
-}
-.app-exit:hover kbd {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.18);
-  border-color: rgba(255, 255, 255, 0.28);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .app-exit {
-    animation: exitIn 0.3s ease 0.1s backwards;
-  }
-}
-@keyframes exitIn {
-  from {
-    opacity: 0;
-    transform: translateY(-6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
 
 /* Solid layer that fades in behind the growing preview so the page reflow behind it is
    hidden while the live dashboard scales up to fill the viewport. */
@@ -1250,6 +1180,8 @@ body {
   .portal-top {
     padding: 12px 16px;
   }
+  .brand-word,
+  .brand-divider,
   .brand-kicker {
     display: none;
   }
@@ -1267,5 +1199,162 @@ body {
   .portal-user-actions {
     width: 100%;
     justify-content: flex-end;
+  }
+}
+
+/* Compact, accessible adaptation of Galahhad's Uiverse day/night switch (MIT). */
+.theme-switch {
+  --toggle-size: 10px;
+  --container-width: 5.625em;
+  --container-height: 2.5em;
+  --container-radius: 6.25em;
+  --container-light-bg: #4d82a8;
+  --container-night-bg: #151c27;
+  --circle-container-diameter: 3.375em;
+  --sun-moon-diameter: 2.125em;
+  --sun-bg: #e8bb3e;
+  --moon-bg: #d8dde5;
+  --spot-color: #919baa;
+  --circle-container-offset: calc((var(--circle-container-diameter) - var(--container-height)) / 2 * -1);
+  --switch-transition: 320ms cubic-bezier(0.2, 0, 0.2, 1);
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 64px;
+  min-width: 64px;
+  height: 36px;
+  cursor: pointer;
+}
+.theme-switch,
+.theme-switch *,
+.theme-switch *::before,
+.theme-switch *::after { box-sizing: border-box; }
+.theme-switch__checkbox {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.theme-switch__container {
+  position: relative;
+  display: block;
+  width: var(--container-width);
+  height: var(--container-height);
+  overflow: hidden;
+  border: 1px solid rgba(11, 25, 39, 0.18);
+  border-radius: var(--container-radius);
+  background: var(--container-light-bg);
+  box-shadow: inset 0 1px 2px rgba(11, 25, 39, 0.25), 0 1px 2px rgba(11, 25, 39, 0.14);
+  font-size: var(--toggle-size);
+  transition: background var(--switch-transition), border-color var(--switch-transition);
+}
+.theme-switch__checkbox:focus-visible + .theme-switch__container {
+  outline: 2px solid var(--steel);
+  outline-offset: 3px;
+}
+.theme-switch__circle-container {
+  position: absolute;
+  z-index: 2;
+  top: var(--circle-container-offset);
+  left: var(--circle-container-offset);
+  display: flex;
+  width: var(--circle-container-diameter);
+  height: var(--circle-container-diameter);
+  border-radius: var(--container-radius);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 0.625em rgba(255, 255, 255, 0.08), 0 0 0 1.25em rgba(255, 255, 255, 0.06);
+  transition: left var(--switch-transition);
+}
+.theme-switch__sun-moon-container {
+  position: relative;
+  width: var(--sun-moon-diameter);
+  height: var(--sun-moon-diameter);
+  margin: auto;
+  overflow: hidden;
+  border-radius: var(--container-radius);
+  background: var(--sun-bg);
+  box-shadow: inset 1px 1px 1px rgba(255, 249, 218, 0.65), inset 0 -1px 1px #9f7c1d, 0 2px 3px rgba(11, 25, 39, 0.28);
+  transition: background var(--switch-transition);
+}
+.theme-switch__moon {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--moon-bg);
+  box-shadow: inset 1px 1px 1px rgba(255, 255, 255, 0.7), inset 0 -1px 1px #99a1ad;
+  transform: translateX(100%);
+  transition: transform var(--switch-transition);
+}
+.theme-switch__spot {
+  position: absolute;
+  top: 0.75em;
+  left: 0.312em;
+  width: 0.75em;
+  height: 0.75em;
+  border-radius: 50%;
+  background: var(--spot-color);
+  box-shadow: inset 0 0.4px 1px rgba(11, 25, 39, 0.28);
+}
+.theme-switch__spot:nth-child(2) { top: 0.937em; left: 1.375em; width: 0.375em; height: 0.375em; }
+.theme-switch__spot:nth-child(3) { top: 0.312em; left: 0.812em; width: 0.25em; height: 0.25em; }
+.theme-switch__clouds {
+  position: absolute;
+  bottom: -0.625em;
+  left: 0.312em;
+  width: 1.25em;
+  height: 1.25em;
+  border-radius: var(--container-radius);
+  background: #f3fdff;
+  box-shadow:
+    0.937em 0.312em #f3fdff,
+    -0.312em -0.312em #aacadf,
+    1.437em 0.375em #f3fdff,
+    0.5em -0.125em #aacadf,
+    2.187em 0 #f3fdff,
+    1.25em -0.062em #aacadf,
+    2.937em 0.312em #f3fdff,
+    2em -0.312em #aacadf,
+    3.625em -0.062em #f3fdff;
+  transition: bottom var(--switch-transition);
+}
+.theme-switch__stars-container {
+  position: absolute;
+  top: -100%;
+  left: 0.7em;
+  width: 2.4em;
+  height: 2em;
+  color: #fff;
+  transition: top var(--switch-transition), transform var(--switch-transition);
+}
+.theme-switch__stars-container i {
+  position: absolute;
+  width: 0.32em;
+  height: 0.32em;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0.4em rgba(255, 255, 255, 0.5);
+}
+.theme-switch__stars-container i:nth-child(1) { top: 0.2em; left: 0.1em; }
+.theme-switch__stars-container i:nth-child(2) { top: 1.25em; left: 0.75em; width: 0.22em; height: 0.22em; }
+.theme-switch__stars-container i:nth-child(3) { top: 0.65em; left: 1.55em; width: 0.2em; height: 0.2em; }
+.theme-switch__stars-container i:nth-child(4) { top: 0.1em; left: 2.05em; width: 0.18em; height: 0.18em; }
+.theme-switch__checkbox:checked + .theme-switch__container { border-color: rgba(255, 255, 255, 0.16); background: var(--container-night-bg); }
+.theme-switch__checkbox:checked + .theme-switch__container .theme-switch__circle-container {
+  left: calc(100% - var(--circle-container-offset) - var(--circle-container-diameter));
+}
+.theme-switch__checkbox:checked + .theme-switch__container .theme-switch__moon { transform: translateX(0); }
+.theme-switch__checkbox:checked + .theme-switch__container .theme-switch__clouds { bottom: -4.062em; }
+.theme-switch__checkbox:checked + .theme-switch__container .theme-switch__stars-container { top: 50%; transform: translateY(-50%); }
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-switch__container,
+  .theme-switch__circle-container,
+  .theme-switch__moon,
+  .theme-switch__clouds,
+  .theme-switch__stars-container {
+    transition: none;
   }
 }

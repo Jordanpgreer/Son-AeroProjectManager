@@ -3,7 +3,6 @@ import type { MouseEvent as ReactMouseEvent } from 'react'
 import {
   AlertTriangle,
   AppWindow,
-  ArrowLeft,
   ArrowUpRight,
   Boxes,
   Calculator,
@@ -11,16 +10,17 @@ import {
   Database,
   GanttChart,
   LayoutGrid,
-  Moon,
   Search,
   Settings,
   ShieldCheck,
-  SunMedium,
   Truck,
   Wrench,
 } from 'lucide-react'
 import './index.css'
+import './portal-typography.css'
+import './portal-dark.css'
 import { persistTheme, readThemePreference } from './theme'
+import type { AppTheme } from './theme'
 
 type AppStatus = 'active' | 'comingSoon' | 'maintenance'
 
@@ -208,9 +208,8 @@ export default function App() {
     setActiveAppId(null)
   }
 
-  // Esc exits the opened app. Only fires when focus is in the portal document
-  // (a cross-origin app iframe swallows its own key events), so the visible
-  // Back-to-Hub control is the primary affordance.
+  // Esc remains a secondary keyboard shortcut. Each embedded app owns its
+  // visible "All Applications" navigation, avoiding duplicate portal chrome.
   useEffect(() => {
     if (!activeAppId) return
     const onKey = (event: KeyboardEvent) => {
@@ -323,15 +322,10 @@ export default function App() {
           <span className="brand-kicker">Internal Hub</span>
         </div>
         <div className="portal-user-actions">
-          <button
-            type="button"
-            className="ghost-button theme-toggle"
-            onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
-            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {theme === 'dark' ? <SunMedium size={15} aria-hidden="true" /> : <Moon size={15} aria-hidden="true" />}
-            {theme === 'dark' ? 'Light mode' : 'Dark mode'}
-          </button>
+          <ThemeSwitch
+            theme={theme}
+            onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+          />
           <div className="portal-user" aria-live="polite">
           {me ? (
             <>
@@ -473,15 +467,48 @@ export default function App() {
       </footer>
 
       {zooming && <div className="zoom-scrim" aria-hidden="true" />}
-
-      {activeAppId && (
-        <button type="button" className="app-exit" onClick={exitApp}>
-          <ArrowLeft size={16} aria-hidden="true" />
-          Back to Hub
-          <kbd aria-hidden="true">Esc</kbd>
-        </button>
-      )}
     </div>
+  )
+}
+
+function ThemeSwitch({
+  theme,
+  onToggleTheme,
+}: {
+  theme: AppTheme
+  onToggleTheme: () => void
+}) {
+  const dark = theme === 'dark'
+  const actionLabel = dark ? 'Switch to light mode' : 'Switch to dark mode'
+
+  return (
+    <label className="theme-switch" title={actionLabel}>
+      <input
+        type="checkbox"
+        className="theme-switch__checkbox"
+        checked={dark}
+        onChange={onToggleTheme}
+        aria-label={actionLabel}
+      />
+      <span className="theme-switch__container" aria-hidden="true">
+        <span className="theme-switch__clouds" />
+        <span className="theme-switch__stars-container">
+          <i />
+          <i />
+          <i />
+          <i />
+        </span>
+        <span className="theme-switch__circle-container">
+          <span className="theme-switch__sun-moon-container">
+            <span className="theme-switch__moon">
+              <i className="theme-switch__spot" />
+              <i className="theme-switch__spot" />
+              <i className="theme-switch__spot" />
+            </span>
+          </span>
+        </span>
+      </span>
+    </label>
   )
 }
 

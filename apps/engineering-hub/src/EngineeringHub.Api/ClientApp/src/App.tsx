@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  ArrowLeft,
   Beaker,
   Boxes,
   ChevronRight,
@@ -7,16 +8,17 @@ import {
   FlaskConical,
   LoaderCircle,
   Lock,
-  Moon,
   RefreshCw,
   ShieldCheck,
-  SunMedium,
   Wrench,
 } from 'lucide-react'
 import './index.css'
 import { persistTheme, readThemePreference } from './theme'
+import type { AppTheme } from './theme'
 import DrawingWorkspace from './DrawingWorkspace'
 import EngineeringDashboard from './EngineeringDashboard'
+
+const hubUrl = import.meta.env.VITE_HUB_URL ?? `${window.location.protocol}//${window.location.hostname}:5140`
 
 interface Me {
   accountName: string
@@ -74,6 +76,47 @@ function initials(name: string) {
   if (parts.length === 0) return '?'
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
   return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+}
+
+function ThemeSwitch({
+  theme,
+  onToggleTheme,
+}: {
+  theme: AppTheme
+  onToggleTheme: () => void
+}) {
+  const dark = theme === 'dark'
+  const actionLabel = dark ? 'Switch to light mode' : 'Switch to dark mode'
+
+  return (
+    <label className="theme-switch" title={actionLabel}>
+      <input
+        type="checkbox"
+        className="theme-switch__checkbox"
+        checked={dark}
+        onChange={onToggleTheme}
+        aria-label={actionLabel}
+      />
+      <span className="theme-switch__container" aria-hidden="true">
+        <span className="theme-switch__clouds" />
+        <span className="theme-switch__stars-container">
+          <i />
+          <i />
+          <i />
+          <i />
+        </span>
+        <span className="theme-switch__circle-container">
+          <span className="theme-switch__sun-moon-container">
+            <span className="theme-switch__moon">
+              <i className="theme-switch__spot" />
+              <i className="theme-switch__spot" />
+              <i className="theme-switch__spot" />
+            </span>
+          </span>
+        </span>
+      </span>
+    </label>
+  )
 }
 
 export default function App() {
@@ -136,10 +179,17 @@ export default function App() {
   )
 
   return (
-    <div className="engineering-shell">
+    <div className="engineering-shell engineering-app">
       <aside className="sidebar">
-        <a className="brand" href="http://localhost:5140" target="_top" aria-label="Return to SON-AERO Internal Hub">
+        <div className="brand">
           <img src="/brand/son-aero-lockup-dark.png" alt="Son-Aero — Sonfarrel Aerospace" />
+        </div>
+        <a className="hub-return" href={hubUrl} target="_top">
+          <ArrowLeft size={15} />
+          <span>
+            <strong>All Applications</strong>
+            <small>Return to Son-Aero Hub</small>
+          </span>
         </a>
 
         <div className="nav-section">
@@ -190,15 +240,13 @@ export default function App() {
             <p>{moduleData?.summary ?? 'Loading module overview...'}</p>
           </div>
           <div className="topbar-actions">
-            <button
-              className="button ghost"
-              type="button"
-              onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
-              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            >
-              {theme === 'dark' ? <SunMedium size={15} /> : <Moon size={15} />}
-              {theme === 'dark' ? 'Light mode' : 'Dark mode'}
-            </button>
+            <a className="topbar-hub" href={hubUrl} target="_top">
+              <ArrowLeft size={15} /> All Applications
+            </a>
+            <ThemeSwitch
+              theme={theme}
+              onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+            />
             <button className="button ghost" type="button" onClick={() => window.location.reload()}>
               <RefreshCw size={15} /> Refresh
             </button>

@@ -1,0 +1,128 @@
+/*
+ * Engineering typography is intentionally app-scoped. The Hub, Project
+ * Tracker, and other modules keep their own independent font configuration.
+ */
+@import '@fontsource/ibm-plex-mono/latin-400.css';
+@import '@fontsource/ibm-plex-mono/latin-500.css';
+@import '@fontsource/ibm-plex-mono/latin-600.css';
+
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+.engineering-app {
+  --engineering-font-sans: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --engineering-font-id: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
+  --font-display: var(--engineering-font-sans);
+  --font-sans: var(--engineering-font-sans);
+  --font-mono: var(--engineering-font-sans);
+  --font-id: var(--engineering-font-id);
+
+  font-family: var(--engineering-font-sans);
+  font-weight: 400;
+}
+
+.engineering-app :where(button, input, select, textarea, summary) {
+  font-family: var(--engineering-font-sans);
+}
+
+.engineering-app :where(
+  button,
+  summary,
+  label,
+  .eyebrow,
+  .nav-heading,
+  .kpi-label,
+  .status-pill,
+  .result-category,
+  .result-meta dt,
+  .dashboard-filters label,
+  .work-item small,
+  .linked-record-grid small
+) {
+  font-weight: 500;
+}
+
+.engineering-app :where(
+  h1,
+  h2,
+  h3,
+  h4,
+  .panel-title,
+  .drawing-row strong,
+  .review-card-title strong,
+  .result-head strong,
+  .work-item strong,
+  .area-copy strong
+) {
+  font-family: var(--engineering-font-sans);
+  font-weight: 600;
+}
+
+.engineering-app :where(.kpi-value, .upload-progress strong) {
+  font-family: var(--engineering-font-sans);
+  font-weight: 700;
+}
+
+/* Dates, statuses, labels, metadata, and ordinary record text remain Inter. */
+.engineering-app :where(
+  .eyebrow,
+  .nav-heading,
+  .nav-flag,
+  .status-pill,
+  .detail-kpis small,
+  .history-line,
+  .audit-row,
+  time,
+  input[type='date']
+) {
+  font-family: var(--engineering-font-sans);
+}
+
+/* IBM Plex Mono is reserved for genuine drawing and system identifiers. */
+.engineering-app :is(
+  .technical-id,
+  .technical-id-input,
+  .result-id,
+  .drawing-row > span:first-child > strong,
+  .drawing-row > span:nth-child(2) > small:last-child,
+  .drawing-row > span:last-child > strong,
+  .review-card-title strong,
+  .revision-row > div:first-child > strong,
+  .linked-record-grid button,
+  .delete-confirmation-field code
+) {
+  font-family: var(--engineering-font-id);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.engineering-app :where(
+  input[name='drawingNumber'],
+  input[name='partNumbers'],
+  input[name='specifications'],
+  input[name='workOrders'],
+  input[name='workInstructions'],
+  input[name='supplementalDocuments'],
+  input[name='revisionNumber']
+) {
+  font-family: var(--engineering-font-id);
+  font-variant-numeric: tabular-nums;
+}
+
+.engineering-app .technical-id-input::placeholder,
+.engineering-app :where(
+  input[name='drawingNumber'],
+  input[name='partNumbers'],
+  input[name='specifications'],
+  input[name='workOrders'],
+  input[name='workInstructions'],
+  input[name='supplementalDocuments'],
+  input[name='revisionNumber']
+)::placeholder {
+  font-family: var(--engineering-font-sans);
+}
