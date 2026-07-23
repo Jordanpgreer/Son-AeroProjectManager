@@ -19,7 +19,25 @@ public sealed record EngineeringSectionDto(
 public sealed record EngineeringDashboardDto(
     string SearchHint,
     IReadOnlyList<EngineeringSearchCategoryDto> Categories,
-    IReadOnlyList<EngineeringSearchResultDto> Results);
+    IReadOnlyList<EngineeringSearchResultDto> Results,
+    EngineeringOperationalSummaryDto Summary,
+    IReadOnlyList<EngineeringWorkItemDto> WorkItems,
+    IReadOnlyList<string> Customers);
+
+public sealed record EngineeringOperationalSummaryDto(
+    int TotalDrawings,
+    int DraftDrawings,
+    int AwaitingReview,
+    int ApprovedDrawings,
+    int CheckedOutMylars);
+
+public sealed record EngineeringWorkItemDto(
+    string Id,
+    string Kind,
+    string Title,
+    string Detail,
+    string Tone,
+    int? DrawingId);
 
 public sealed record EngineeringSearchCategoryDto(
     string Id,
@@ -38,6 +56,7 @@ public sealed record EngineeringSearchResultDto(
     string? WorkOrder,
     string? ReportNumber,
     IReadOnlyList<string> Tags,
-    string Note);
+    string Note,
+    int? DrawingId = null);
 
 public sealed record ErrorDto(string Code, string Message);

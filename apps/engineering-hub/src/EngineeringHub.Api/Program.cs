@@ -14,7 +14,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<EngineeringUserService>();
 builder.Services.AddScoped<IEngineeringRoleStore, EngineeringRoleStore>();
-builder.Services.AddSingleton<EngineeringSearchService>();
+builder.Services.AddScoped<EngineeringSearchService>();
+builder.Services.AddScoped<EngineeringDemoDataSeeder>();
 builder.Services.Configure<DrawingStorageOptions>(builder.Configuration.GetSection(DrawingStorageOptions.SectionName));
 builder.Services.AddSingleton<IDrawingFileStore, DrawingFileStore>();
 builder.Services.AddDbContext<EngineeringDbContext>((serviceProvider, options) =>
@@ -67,6 +68,8 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     await scope.ServiceProvider.GetRequiredService<EngineeringDbContext>().Database.EnsureCreatedAsync();
+    if (app.Environment.IsDevelopment() && builder.Configuration.GetValue("Engineering:SeedDemoData", true))
+        await scope.ServiceProvider.GetRequiredService<EngineeringDemoDataSeeder>().SeedAsync(CancellationToken.None);
 }
 
 app.Use(async (context, next) =>
@@ -121,14 +124,21 @@ app.UseStaticFiles();
 
 var api = app.MapGroup("/api");
 api.MapDrawingEndpoints();
+api.MapDrawingOperationalEndpoints();
 
 api.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
 api.MapGet("/me", async (EngineeringUserService users, HttpContext httpContext, CancellationToken cancellationToken) =>
     await users.CurrentAsync(httpContext.User, cancellationToken));
 
-api.MapGet("/dashboard", (string? query, EngineeringSearchService search) =>
-    Results.Ok(search.GetDashboard(query)));
+api.MapGet("/dashboard", async (
+    string? query,
+    string? category,
+    string? customer,
+    string? status,
+    EngineeringSearchService search,
+    CancellationToken cancellationToken) =>
+    Results.Ok(await search.GetDashboardAsync(query, category, customer, status, cancellationToken)));
 
 api.MapGet("/navigation", () => Results.Ok(new EngineeringModuleDto(
     "engineering-hub",

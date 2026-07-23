@@ -2,7 +2,7 @@ namespace EngineeringHub.Api.Models;
 
 public enum DrawingApprovalStatus { Draft, UnderReview, Approved, Obsolete }
 public enum DrawingRevisionStatus { Draft, UnderReview, Approved, Superseded, Obsolete }
-public enum DrawingDocumentKind { Specification, SupplementalDocument, WorkInstruction }
+public enum DrawingDocumentKind { Specification, SupplementalDocument, WorkInstruction, WorkOrder }
 public enum MylarTransactionType { CheckedOut, Returned }
 
 public sealed class Drawing

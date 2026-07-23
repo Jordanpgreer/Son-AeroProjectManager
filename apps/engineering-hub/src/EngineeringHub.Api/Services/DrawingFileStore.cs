@@ -105,6 +105,7 @@ public sealed class DrawingFileStore(IOptions<DrawingStorageOptions> options) : 
 
     public async Task<bool> VerifyHashAsync(string relativePath, string expectedHash, CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(relativePath) || string.IsNullOrWhiteSpace(expectedHash)) return false;
         var path = ResolvePath(relativePath);
         if (!File.Exists(path)) return false;
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);

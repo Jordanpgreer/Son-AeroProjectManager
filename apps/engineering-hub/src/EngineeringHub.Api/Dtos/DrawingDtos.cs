@@ -10,12 +10,33 @@ public sealed record DrawingCreateDto(
     IReadOnlyList<DrawingDocumentLinkCreateDto>? RelatedDocuments);
 
 public sealed record DrawingDocumentLinkCreateDto(string Kind, string ReferenceNumber, string? Title, string? Location);
-public sealed record RevisionStatusUpdateDto(string Status);
+public sealed record DrawingUpdateDto(
+    string Title,
+    string Customer,
+    IReadOnlyList<string>? PartNumbers,
+    string? Notes,
+    string? PhysicalMylarLocation,
+    IReadOnlyList<DrawingDocumentLinkCreateDto>? RelatedDocuments);
+public sealed record RevisionStatusUpdateDto(string Status, string? Comments = null);
 public sealed record RevisionApprovalDto(DateTime? EffectiveDate, string? Comments);
 public sealed record RevisionDeleteDto(bool Confirmed, string FileName);
 public sealed record DrawingDeleteDto(bool Confirmed, string DrawingNumber);
+public sealed record DrawingObsoleteDto(string Reason);
 public sealed record MylarActionDto(string Person, string? Purpose, string? Location);
 public sealed record ValidationCreateDto(string ValidationType, string Result, string? Notes);
+public sealed record DrawingReviewQueueDto(
+    int RevisionId,
+    int DrawingId,
+    string DrawingNumber,
+    string DrawingTitle,
+    string Customer,
+    string RevisionNumber,
+    DateTime RevisionDate,
+    DateTime UploadedAt,
+    string UploadedBy,
+    string ChangeDescription,
+    string? Notes,
+    bool HasPdf);
 
 public sealed record DrawingListDto(
     int Id,
@@ -61,7 +82,7 @@ public sealed record DrawingDetailDto(
 public sealed record DrawingRevisionDto(
     int Id, string RevisionNumber, DateTime RevisionDate, DateTime UploadedAt,
     DateTime? EffectiveDate, DateTime? ApprovalDate, string ChangeDescription, string Status,
-    string OriginalFileName, string FileType, long FileSize, string FileHash, bool HasSourceFile,
+    string OriginalFileName, string FileType, long FileSize, string FileHash, bool HasPdf, bool HasSourceFile,
     string UploadedBy, string? ApprovedBy, string? ApprovalComments,
     DateTime? SupersededOrObsoleteAt, string? Notes);
 

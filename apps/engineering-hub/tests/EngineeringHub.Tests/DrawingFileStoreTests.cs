@@ -10,6 +10,26 @@ namespace EngineeringHub.Tests;
 public sealed class DrawingFileStoreTests
 {
     [Fact]
+    public async Task MissingMetadataOnlyFileFailsIntegrityCheckWithoutThrowing()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "drawing-store-tests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new DrawingFileStore(Options.Create(new DrawingStorageOptions
+            {
+                RootPath = root,
+                RequireUncPath = false
+            }));
+
+            Assert.False(await store.VerifyHashAsync(string.Empty, string.Empty, CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task UploadCreatesPermanentPackageAndReturnsRelativeReferences()
     {
         var root = Path.Combine(Path.GetTempPath(), $"engineering-file-store-{Guid.NewGuid():N}");

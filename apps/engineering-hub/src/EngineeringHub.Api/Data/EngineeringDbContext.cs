@@ -81,9 +81,9 @@ public sealed class EngineeringDbContext(DbContextOptions<EngineeringDbContext> 
                 if (originalStatus == DrawingRevisionStatus.Approved)
                 {
                     var allowed = new[] { nameof(DrawingRevision.Status), nameof(DrawingRevision.SupersededOrObsoleteAt) };
-                    if (entry.Entity.Status != DrawingRevisionStatus.Superseded ||
+                    if (entry.Entity.Status is not (DrawingRevisionStatus.Superseded or DrawingRevisionStatus.Obsolete) ||
                         entry.Properties.Any(p => p.IsModified && !allowed.Contains(p.Metadata.Name)))
-                        throw new InvalidOperationException("An approved revision may only transition to Superseded.");
+                        throw new InvalidOperationException("An approved revision may only transition to Superseded or Obsolete.");
                 }
             }
         }
