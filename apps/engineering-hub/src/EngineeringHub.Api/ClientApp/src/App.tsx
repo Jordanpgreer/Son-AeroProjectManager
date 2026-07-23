@@ -9,14 +9,14 @@ import {
   Lock,
   Moon,
   RefreshCw,
-  Search,
   ShieldCheck,
   SunMedium,
   Wrench,
 } from 'lucide-react'
 import './index.css'
 import { persistTheme, readThemePreference } from './theme'
-import DrawingControl from './DrawingControl'
+import DrawingWorkspace from './DrawingWorkspace'
+import EngineeringDashboard from './EngineeringDashboard'
 
 interface Me {
   accountName: string
@@ -38,33 +38,6 @@ interface EngineeringModule {
   summary: string
   accessNotice: string
   sections: ModuleSection[]
-}
-
-interface SearchCategory {
-  id: string
-  title: string
-  count: number
-}
-
-interface SearchResult {
-  id: string
-  category: string
-  categoryLabel: string
-  title: string
-  identifier: string
-  subtitle: string
-  customer: string | null
-  specificationNumber: string | null
-  workOrder: string | null
-  reportNumber: string | null
-  tags: string[]
-  note: string
-}
-
-interface DashboardData {
-  searchHint: string
-  categories: SearchCategory[]
-  results: SearchResult[]
 }
 
 const ICONS: Record<string, typeof FileStack> = {
@@ -107,10 +80,7 @@ export default function App() {
   const [theme, setTheme] = useState(() => readThemePreference())
   const [me, setMe] = useState<Me | null>(null)
   const [moduleData, setModuleData] = useState<EngineeringModule | null>(null)
-  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
-  const [searchLoading, setSearchLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -133,7 +103,6 @@ export default function App() {
         setMe(meData)
         setModuleData(navData)
         setActiveSectionId((current) => current ?? navData.sections[0]?.id ?? null)
-        await loadDashboard('')
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : 'Unable to load the engineering module.')
       } finally {
@@ -143,19 +112,6 @@ export default function App() {
 
     void load()
   }, [])
-
-  async function loadDashboard(query: string) {
-    setSearchLoading(true)
-    try {
-      const response = await fetch(`/api/dashboard?query=${encodeURIComponent(query)}`, { credentials: 'include' })
-      if (!response.ok) {
-        throw new Error(`Engineering dashboard responded ${response.status}.`)
-      }
-      setDashboardData((await response.json()) as DashboardData)
-    } finally {
-      setSearchLoading(false)
-    }
-  }
 
   useEffect(() => {
     persistTheme(theme)
@@ -178,24 +134,6 @@ export default function App() {
     () => moduleData?.sections.find((section) => section.id === activeSectionId) ?? moduleData?.sections[0] ?? null,
     [activeSectionId, moduleData],
   )
-
-  const groupedResults = useMemo(() => {
-    if (!dashboardData) return []
-    return dashboardData.categories
-      .map((category) => ({
-        category,
-        items: dashboardData.results.filter((result) => result.category === category.id),
-      }))
-      .filter((group) => group.items.length > 0 || !search.trim())
-  }, [dashboardData, search])
-
-  useEffect(() => {
-    if (!moduleData || activeSectionId !== 'dashboard') return
-    const handle = window.setTimeout(() => {
-      void loadDashboard(search)
-    }, 180)
-    return () => window.clearTimeout(handle)
-  }, [activeSectionId, moduleData, search])
 
   return (
     <div className="engineering-shell">
@@ -323,90 +261,12 @@ export default function App() {
                 </section>
 
                 {activeSection.id === 'drawing-document-control' ? (
-                  <DrawingControl />
+                  <DrawingWorkspace />
                 ) : activeSection.id === 'dashboard' ? (
-                  <>
-                    <section className="panel dashboard-search-panel">
-                      <div className="panel-head compact">
-                        <div className="panel-head-text">
-                          <span className="eyebrow">Global search</span>
-                          <h2>Engineering record lookup</h2>
-                          <p>{dashboardData?.searchHint ?? 'Loading search guidance...'}</p>
-                        </div>
-                      </div>
-                      <label className="topbar-search engineering-search" aria-label="Search engineering records">
-                        <Search size={15} />
-                        <input
-                          value={search}
-                          onChange={(event) => setSearch(event.target.value)}
-                          placeholder="Search part, tool, drawing, compound, customer, spec, work order, report, or notes"
-                        />
-                      </label>
-                    </section>
-
-                    <section className="kpi-row">
-                      {(dashboardData?.categories ?? []).map((category) => (
-                        <article key={category.id} className="kpi tone-steel">
-                          <div className="kpi-top">
-                            <span className="kpi-label">{category.title}</span>
-                            <span className="kpi-icon"><Boxes size={18} /></span>
-                          </div>
-                          <div className="kpi-value">{category.count}</div>
-                          <div className="kpi-hint">Indexed engineering records</div>
-                        </article>
-                      ))}
-                    </section>
-
-                    <section className="dashboard-results">
-                      {searchLoading ? (
-                        <section className="panel skeleton-panel">
-                          <div className="skeleton-line lg" />
-                          <div className="skeleton-line" />
-                          <div className="skeleton-line" style={{ width: '75%' }} />
-                        </section>
-                      ) : groupedResults.length > 0 ? (
-                        groupedResults.map((group) => (
-                          <article key={group.category.id} className="panel results-group">
-                            <div className="panel-head compact">
-                              <div className="panel-head-text">
-                                <span className="eyebrow">{group.category.title}</span>
-                                <h2>{group.items.length} result{group.items.length === 1 ? '' : 's'}</h2>
-                              </div>
-                            </div>
-                            <div className="results-list">
-                              {group.items.map((item) => (
-                                <div key={item.id} className="result-card">
-                                  <div className="result-head">
-                                    <div>
-                                      <strong>{item.title}</strong>
-                                      <span className="result-id">{item.identifier}</span>
-                                    </div>
-                                    <span className="result-category">{item.categoryLabel}</span>
-                                  </div>
-                                  <p className="result-subtitle">{item.subtitle}</p>
-                                  <dl className="result-meta">
-                                    {item.customer && <div><dt>Customer</dt><dd>{item.customer}</dd></div>}
-                                    {item.specificationNumber && <div><dt>Spec</dt><dd>{item.specificationNumber}</dd></div>}
-                                    {item.workOrder && <div><dt>Work order</dt><dd>{item.workOrder}</dd></div>}
-                                    {item.reportNumber && <div><dt>Report</dt><dd>{item.reportNumber}</dd></div>}
-                                  </dl>
-                                  <div className="token-list">
-                                    {item.tags.map((tag) => <span key={tag} className="token-chip">{tag}</span>)}
-                                  </div>
-                                  <p className="result-note">{item.note}</p>
-                                </div>
-                              ))}
-                            </div>
-                          </article>
-                        ))
-                      ) : (
-                        <section className="panel empty-search-state">
-                          <strong>No engineering records matched this search</strong>
-                          <p>Try a part number, tool number, drawing number, compound name, customer, work order, report number, or note keyword.</p>
-                        </section>
-                      )}
-                    </section>
-                  </>
+                  <EngineeringDashboard onOpenDrawing={(drawingId) => {
+                    sessionStorage.setItem('engineering:open-drawing', String(drawingId))
+                    setActiveSectionId('drawing-document-control')
+                  }}/>
                 ) : (
                   <>
                 <section className="kpi-row">
