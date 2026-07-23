@@ -18,6 +18,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<CurrentUserService>();
 builder.Services.AddScoped<ProjectAuditService>();
+builder.Services.AddScoped<MentionNotificationService>();
+builder.Services.AddScoped<NotificationReadService>();
+builder.Services.AddScoped<AccessControlSeeder>();
 builder.Services.AddSingleton<ScheduleCalculator>();
 builder.Services.AddScoped<ProjectMetricsService>();
 builder.Services.AddScoped<ProjectReadService>();
@@ -50,6 +53,7 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("ProjectComplete", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectComplete));
     options.AddPolicy("ProjectReopen", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectReopen));
     options.AddPolicy("ProjectArchive", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectArchive));
+    options.AddPolicy("ProjectActivityView", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ProjectTrackerPermissions.ProjectActivityView));
     options.AddPolicy("TaskCreate", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.TaskCreate));
     options.AddPolicy("TaskDelete", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.TaskDelete));
     options.AddPolicy("ManageCalendar", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.SettingsWorkCalendarManage));
@@ -127,6 +131,7 @@ var api = app.MapGroup("/api").RequireAuthorization("CanView");
 api.MapProjectReadEndpoints();
 api.MapArchivedProjectEndpoints();
 api.MapUserEndpoints();
+api.MapNotificationEndpoints();
 api.MapReportEndpoints();
 api.MapImportEndpoints();
 
@@ -172,11 +177,12 @@ api.MapGet("/projects/{id:int}/activity", async (int id, ProjectTrackerDbContext
         .AsNoTracking()
         .ToListAsync(cancellationToken);
     return Results.Ok(entries.Select(ToAuditEntryDto).ToList());
-});
+}).RequireAuthorization("ProjectActivityView");
 
-api.MapPost("/projects/{id:int}/messages", async (int id, ProjectMessageCreateDto dto, ProjectTrackerDbContext db, CurrentUserService currentUser, CancellationToken cancellationToken) =>
+api.MapPost("/projects/{id:int}/messages", async (int id, ProjectMessageCreateDto dto, ProjectTrackerDbContext db, CurrentUserService currentUser, MentionNotificationService notifications, CancellationToken cancellationToken) =>
 {
-    if (!await db.Projects.AnyAsync(project => project.Id == id, cancellationToken))
+    var project = await db.Projects.FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+    if (project is null)
     {
         return Results.NotFound();
     }
@@ -199,6 +205,13 @@ api.MapPost("/projects/{id:int}/messages", async (int id, ProjectMessageCreateDt
         Body = body
     };
     db.ProjectMessages.Add(message);
+    await notifications.AddForProjectMessageAsync(
+        db,
+        message,
+        project.ProgramName,
+        currentUser.AccountName,
+        currentUser.DisplayName,
+        cancellationToken);
     await db.SaveChangesAsync(cancellationToken);
     return Results.Created($"/api/projects/{id}/messages/{message.Id}", ToMessageDto(message));
 });
@@ -208,8 +221,9 @@ api.MapGet("/users/mentions", async (ProjectTrackerDbContext db, CancellationTok
     var users = await db.Users
         .OrderBy(user => user.DisplayName)
         .ThenBy(user => user.AccountName)
+        .Where(user => user.IsActive)
         .ToListAsync(cancellationToken);
-    return users.Select(user => new MentionableUserDto(user.AccountName, user.DisplayName, MentionHandle(user.AccountName))).ToList();
+    return users.Select(user => new MentionableUserDto(user.AccountName, user.DisplayName, MentionNotificationService.MentionHandle(user.AccountName))).ToList();
 });
 
 api.MapPost("/projects", async (ProjectCreateDto dto, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
@@ -237,6 +251,7 @@ api.MapPost("/projects", async (ProjectCreateDto dto, ProjectTrackerDbContext db
         Engineer = Clean(dto.Engineer),
         CustomerName = Clean(dto.CustomerName),
         SalesOrderNumber = Clean(dto.SalesOrderNumber),
+        JobNumber = Clean(dto.JobNumber),
         ProgramStart = dto.ProgramStart,
         PriorityRank = nextPriority
     };
@@ -502,7 +517,7 @@ api.MapDelete("/projects/{id:int}", async (
     return Results.NoContent();
 }).RequireAuthorization("ProjectArchive");
 
-api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertDto dto, ProjectTrackerDbContext db, CurrentUserService currentUser, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
+api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertDto dto, ProjectTrackerDbContext db, CurrentUserService currentUser, ProjectMetricsService metrics, ProjectAuditService audit, MentionNotificationService notifications, CancellationToken cancellationToken) =>
 {
     var project = await db.Projects.Include(project => project.Tasks).ThenInclude(task => task.OvertimeDays).FirstOrDefaultAsync(project => project.Id == projectId, cancellationToken);
     if (project is null)
@@ -524,12 +539,15 @@ api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertD
     }
 
     var previousSequences = project.Tasks.ToDictionary(candidate => candidate.Id, candidate => candidate.Sequence);
-    var task = ApplyTaskDto(new ProjectTask { ProjectId = projectId }, dto);
+    var task = ApplyTaskDto(new ProjectTask { ProjectId = projectId, Project = project }, dto);
     project.Tasks.Add(task);
     var desiredPosition = dto.Sequence > 0 ? dto.Sequence : project.Tasks.Count;
     ResequenceTasks(project, task, desiredPosition);
     BumpSequenceVersions(project.Tasks, previousSequences, task.Id);
-    NormalizeTaskDependency(project, task);
+    if (ValidateTaskDependency(project, task) is { } dependencyError)
+    {
+        return Results.BadRequest(dependencyError);
+    }
     project.Version++;
     project.UpdatedAt = DateTimeOffset.UtcNow;
     await EnsurePhaseAsync(db, task.Phase, cancellationToken);
@@ -543,11 +561,23 @@ api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertD
             .Where(field => !string.IsNullOrWhiteSpace(field.Value))
             .Select(field => new ProjectAuditChange(field.Key, null, field.Value))
             .ToList());
+    if (!string.IsNullOrWhiteSpace(task.Notes))
+    {
+        await notifications.AddForOperationNoteAsync(
+            db,
+            task,
+            project.ProgramName,
+            task.Notes,
+            null,
+            currentUser.AccountName,
+            currentUser.DisplayName,
+            cancellationToken);
+    }
     await db.SaveChangesAsync(cancellationToken);
     return Results.Created($"/api/projects/{projectId}", ToTaskDto(task));
 }).RequireAuthorization("TaskCreate");
 
-api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectTrackerDbContext db, CurrentUserService currentUser, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
+api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectTrackerDbContext db, CurrentUserService currentUser, ProjectMetricsService metrics, ProjectAuditService audit, MentionNotificationService notifications, CancellationToken cancellationToken) =>
 {
     var task = await db.Tasks
         .Include(task => task.OvertimeDays)
@@ -576,12 +606,16 @@ api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectT
     }
 
     var before = ProjectAuditService.CaptureTask(task);
+    var previousNote = task.Notes;
     var previousSequences = task.Project.Tasks.ToDictionary(candidate => candidate.Id, candidate => candidate.Sequence);
     ApplyTaskDto(task, dto);
     task.Version++;
     ResequenceTasks(task.Project, task, dto.Sequence);
     BumpSequenceVersions(task.Project.Tasks, previousSequences, task.Id);
-    NormalizeTaskDependency(task.Project, task);
+    if (ValidateTaskDependency(task.Project, task) is { } dependencyError)
+    {
+        return Results.BadRequest(dependencyError);
+    }
     task.Project.Version++;
     task.Project.UpdatedAt = DateTimeOffset.UtcNow;
     await EnsurePhaseAsync(db, task.Phase, cancellationToken);
@@ -591,11 +625,23 @@ api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectT
     {
         audit.Record(db, task.Project, "OperationUpdated", $"Updated operation {task.Sequence}: {task.Title}", changes, task.Id);
     }
+    if (!string.Equals(previousNote, task.Notes, StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(task.Notes))
+    {
+        await notifications.AddForOperationNoteAsync(
+            db,
+            task,
+            task.Project.ProgramName,
+            task.Notes,
+            previousNote,
+            currentUser.AccountName,
+            currentUser.DisplayName,
+            cancellationToken);
+    }
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(ToTaskDto(task));
 }).RequireAuthorization("CanView");
 
-api.MapDelete("/tasks/{taskId:int}", async (int taskId, long version, long projectVersion, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
+api.MapDelete("/tasks/{taskId:int}", async (int taskId, long version, long projectVersion, bool? detachDependents, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
     var task = await db.Tasks
         .Include(task => task.Project).ThenInclude(project => project.Tasks).ThenInclude(projectTask => projectTask.OvertimeDays)
@@ -619,10 +665,29 @@ api.MapDelete("/tasks/{taskId:int}", async (int taskId, long version, long proje
     }
 
     var project = task.Project;
+    var dependents = project.Tasks
+        .Where(candidate => candidate.DependencyTaskId == task.Id)
+        .OrderBy(candidate => candidate.Sequence)
+        .ToList();
+    if (dependents.Count > 0 && detachDependents != true)
+    {
+        return Results.Conflict(new OperationDependencyConflictDto(
+            "OperationHasDependents",
+            $"This operation is used as a dependency by {dependents.Count} later operation{(dependents.Count == 1 ? string.Empty : "s")}.",
+            task.Id,
+            dependents.Select(candidate => new OperationDependentDto(candidate.Id, candidate.Sequence, candidate.Title)).ToList()));
+    }
+
     var previousSequences = project.Tasks.ToDictionary(candidate => candidate.Id, candidate => candidate.Sequence);
     var deletedSequence = task.Sequence;
     var deletedTitle = task.Title;
     var deletedValues = ProjectAuditService.CaptureTask(task);
+    foreach (var dependent in dependents)
+    {
+        dependent.DependencyTaskId = null;
+        dependent.Version++;
+        dependent.UpdatedAt = DateTimeOffset.UtcNow;
+    }
     project.Tasks.Remove(task);
     db.Tasks.Remove(task);
     RenumberTasks(project);
@@ -784,6 +849,7 @@ static void ApplyProjectDto(Project project, ProjectUpsertDto dto)
     project.Engineer = Clean(dto.Engineer);
     project.CustomerName = Clean(dto.CustomerName);
     project.SalesOrderNumber = Clean(dto.SalesOrderNumber);
+    project.JobNumber = Clean(dto.JobNumber);
     project.UpdatedAt = DateTimeOffset.UtcNow;
 }
 
@@ -799,7 +865,7 @@ static ProjectTask ApplyTaskDto(ProjectTask task, TaskUpsertDto dto)
     task.Title = dto.Title.Trim();
     task.Phase = string.IsNullOrWhiteSpace(dto.Phase) ? null : dto.Phase.Trim();
     task.WorkStation = string.IsNullOrWhiteSpace(dto.WorkStation) ? null : dto.WorkStation.Trim();
-    task.DependencyTaskId = dto.DependencyTaskId == task.Id ? null : dto.DependencyTaskId;
+    task.DependencyTaskId = dto.DependencyTaskId;
     task.StartDate = dto.StartDate;
     task.StartDateLocked = dto.StartDateLocked;
     task.OriginalStartDate = dto.OriginalStartDate;
@@ -808,7 +874,7 @@ static ProjectTask ApplyTaskDto(ProjectTask task, TaskUpsertDto dto)
     task.EstimatedDuration = dto.EstimatedDuration;
     task.ActualDuration = dto.ActualDuration;
     task.PercentComplete = Math.Clamp(dto.PercentComplete, 0m, 1m);
-    task.PercentCompleteManual = dto.PercentCompleteManual;
+    task.PercentCompleteManual = true;
     var notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
     if (!string.Equals(task.Notes, notes, StringComparison.Ordinal))
     {
@@ -867,13 +933,6 @@ static void BumpPriorityVersions(
 
 static bool IsArchived(Project project) => project.CompletedOn is not null || project.Status == ProjectStatus.Complete;
 
-static string MentionHandle(string accountName)
-{
-    var slashIndex = accountName.LastIndexOf('\\');
-    var handle = slashIndex >= 0 ? accountName[(slashIndex + 1)..] : accountName;
-    return new string(handle.Select(character => char.IsLetterOrDigit(character) || character is '.' or '_' or '-' ? character : '.').ToArray());
-}
-
 static void NormalizeProjectPriorities(IReadOnlyCollection<Project> projects)
 {
     var active = projects
@@ -895,18 +954,27 @@ static void NormalizeProjectPriorities(IReadOnlyCollection<Project> projects)
     }
 }
 
-static void NormalizeTaskDependency(Project project, ProjectTask task)
+static string? ValidateTaskDependency(Project project, ProjectTask task)
 {
     if (task.DependencyTaskId is null)
     {
-        return;
+        return null;
     }
 
     var dependency = project.Tasks.FirstOrDefault(candidate => candidate.Id == task.DependencyTaskId.Value);
-    if (dependency is null || dependency.Id == task.Id || dependency.Sequence >= task.Sequence)
+    if (dependency is null)
     {
-        task.DependencyTaskId = null;
+        return "The selected dependency does not belong to this project or no longer exists.";
     }
+
+    if (dependency.Id == task.Id)
+    {
+        return "An operation cannot depend on itself.";
+    }
+
+    return dependency.Sequence >= task.Sequence
+        ? "An operation can only depend on an earlier operation in the schedule."
+        : null;
 }
 
 // Steps are numbered 1..N by position. "Step Order" is the desired position; moving a step
@@ -1006,12 +1074,15 @@ static async Task InitializeDatabaseAsync(WebApplication app)
         {
             await SqliteCompatibility.EnsureBooleanColumnAsync(db, "Tasks", "StartDateLocked", cancellationToken: default);
             await SqliteCompatibility.EnsureBooleanColumnAsync(db, "Tasks", "PercentCompleteManual", cancellationToken: default);
+            await db.Database.ExecuteSqlRawAsync(
+                """UPDATE "Tasks" SET "PercentCompleteManual" = 1 WHERE "PercentCompleteManual" = 0;""");
             await SqliteCompatibility.EnsureNullableIntegerColumnAsync(db, "Tasks", "DependencyTaskId", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Tasks", "NoteUpdatedAt", cancellationToken: default);
             await SqliteCompatibility.EnsureLongColumnAsync(db, "Projects", "Version", cancellationToken: default);
             await SqliteCompatibility.EnsureLongColumnAsync(db, "Tasks", "Version", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "CustomerName", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "SalesOrderNumber", cancellationToken: default);
+            await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "JobNumber", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "CompletedOn", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "DeletedAt", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "DeletedByAccountName", cancellationToken: default);
@@ -1020,10 +1091,12 @@ static async Task InitializeDatabaseAsync(WebApplication app)
             await SqliteCompatibility.EnsureBooleanColumnAsync(db, "Users", "IsActive", cancellationToken: default);
             await SqliteCompatibility.EnsureLegacyTablesAsync(db, cancellationToken: default);
             await SqliteCompatibility.EnsureAccessControlTablesAsync(db, cancellationToken: default);
+            await SqliteCompatibility.EnsureLocalPermissionSeedAsync(db, cancellationToken: default);
         }
     }
 
-    await SeedConfiguredUsersAsync(db, configuration, cancellationToken: default);
+    var accessSeeder = scope.ServiceProvider.GetRequiredService<AccessControlSeeder>();
+    await accessSeeder.SeedAsync(db, configuration);
     await ProjectNoteService.BackfillUpdatedAtAsync(db, cancellationToken: default);
     await BackfillCompletedDatesAsync(db, cancellationToken: default);
     NormalizeProjectPriorities(await db.Projects.ToListAsync());
@@ -1040,6 +1113,12 @@ static async Task InitializeDatabaseAsync(WebApplication app)
         {
             await importer.ImportAsync(db, workbookPath, replaceExisting: true);
         }
+    }
+
+    if (app.Environment.IsDevelopment() && configuration.GetValue("DemoData:Enabled", false))
+    {
+        var notifications = scope.ServiceProvider.GetRequiredService<MentionNotificationService>();
+        await DemoDataSeeder.SeedAsync(db, notifications, cancellationToken: default);
     }
 
     await SeedWorkCentersFromTasksAsync(db, cancellationToken: default);
@@ -1065,111 +1144,6 @@ static async Task BackfillCompletedDatesAsync(ProjectTrackerDbContext db, Cancel
     {
         await db.SaveChangesAsync(cancellationToken);
     }
-}
-
-static async Task SeedConfiguredUsersAsync(ProjectTrackerDbContext db, IConfiguration configuration, CancellationToken cancellationToken)
-{
-    var groupIds = await EnsureDefaultGroupsAsync(db, cancellationToken);
-    var existing = await db.Users
-        .Include(user => user.GroupMemberships)
-        .ToDictionaryAsync(user => user.AccountName, StringComparer.OrdinalIgnoreCase, cancellationToken);
-
-    foreach (var account in configuration.GetSection("Security:Editors").Get<string[]>() ?? [])
-    {
-        await EnsureConfiguredUserAsync(db, existing, account, groupIds[ApplicationGroups.Managers], cancellationToken);
-    }
-
-    foreach (var account in configuration.GetSection("Security:Admins").Get<string[]>() ?? [])
-    {
-        await EnsureConfiguredUserAsync(db, existing, account, groupIds[ApplicationGroups.Administrators], cancellationToken);
-    }
-}
-
-static async Task<Dictionary<string, int>> EnsureDefaultGroupsAsync(ProjectTrackerDbContext db, CancellationToken cancellationToken)
-{
-    var definitions = new (string Name, string Description, bool IsSystem, IReadOnlyList<string> Permissions)[]
-    {
-        (ApplicationGroups.Administrators, "Full administrative access to project tracker.", true, ApplicationPermissions.DefaultAdministratorPermissions),
-        (ApplicationGroups.Managers, "Project management permissions across active programs.", true, ApplicationPermissions.DefaultManagerPermissions),
-        (ApplicationGroups.Engineering, "Operation and schedule maintenance for engineering users.", true, ApplicationPermissions.DefaultEngineeringPermissions),
-        (ApplicationGroups.Sales, "Commercial updates for customer-facing users.", true, ApplicationPermissions.DefaultSalesPermissions),
-    };
-
-    var groups = await db.Groups
-        .Include(group => group.Permissions)
-        .ToDictionaryAsync(group => group.Name, StringComparer.OrdinalIgnoreCase, cancellationToken);
-
-    foreach (var definition in definitions)
-    {
-        if (!groups.TryGetValue(definition.Name, out var group))
-        {
-            group = new AppGroup
-            {
-                Name = definition.Name,
-                Description = definition.Description,
-                IsSystemGroup = definition.IsSystem
-            };
-            db.Groups.Add(group);
-            groups[definition.Name] = group;
-        }
-        else
-        {
-            group.Description = definition.Description;
-            group.IsSystemGroup = definition.IsSystem;
-            group.UpdatedAt = DateTimeOffset.UtcNow;
-        }
-
-        var existingPermissions = group.Permissions.Select(permission => permission.PermissionKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var permission in definition.Permissions.Where(permission => !existingPermissions.Contains(permission)))
-        {
-            group.Permissions.Add(new AppGroupPermission { PermissionKey = permission });
-        }
-    }
-
-    await db.SaveChangesAsync(cancellationToken);
-    return groups.ToDictionary(pair => pair.Key, pair => pair.Value.Id, StringComparer.OrdinalIgnoreCase);
-}
-
-static Task EnsureConfiguredUserAsync(
-    ProjectTrackerDbContext db,
-    IDictionary<string, AppUser> existing,
-    string? rawAccount,
-    int groupId,
-    CancellationToken cancellationToken)
-{
-    if (string.IsNullOrWhiteSpace(rawAccount))
-    {
-        return Task.CompletedTask;
-    }
-
-    var account = rawAccount.Trim();
-    if (!existing.TryGetValue(account, out var user))
-    {
-        user = new AppUser
-        {
-            AccountName = account,
-            DisplayName = DefaultDisplayName(account),
-            IsActive = true,
-            LastSeenAt = DateTimeOffset.UnixEpoch
-        };
-        user.GroupMemberships.Add(new AppUserGroupMembership { AppGroupId = groupId });
-        db.Users.Add(user);
-        existing[account] = user;
-        return Task.CompletedTask;
-    }
-
-    user.IsActive = true;
-    if (user.GroupMemberships.All(membership => membership.AppGroupId != groupId))
-    {
-        user.GroupMemberships.Add(new AppUserGroupMembership { AppGroupId = groupId });
-    }
-    return Task.CompletedTask;
-}
-
-static string DefaultDisplayName(string accountName)
-{
-    var slashIndex = accountName.LastIndexOf('\\');
-    return slashIndex >= 0 ? accountName[(slashIndex + 1)..] : accountName;
 }
 
 static string? FindDeniedProjectPermission(Project project, ProjectUpsertDto dto, CurrentUserService currentUser)
@@ -1202,6 +1176,12 @@ static string? FindDeniedProjectPermission(Project project, ProjectUpsertDto dto
         && !currentUser.HasPermission(ApplicationPermissions.ProjectEditSalesOrderNumber))
     {
         return ApplicationPermissions.ProjectEditSalesOrderNumber;
+    }
+
+    if (!string.Equals(project.JobNumber, Clean(dto.JobNumber), StringComparison.Ordinal)
+        && !currentUser.HasPermission(ProjectTrackerPermissions.ProjectEditJobNumber))
+    {
+        return ProjectTrackerPermissions.ProjectEditJobNumber;
     }
 
     return null;

@@ -84,8 +84,13 @@ export function ArchivedProjectsPanel() {
               <div className="workcenter-row" key={project.id}>
                 <ArchiveRestore size={16} />
                 <span>
-                  <strong>{project.programName}</strong>
-                  <small>{[project.customerName, project.salesOrderNumber].filter(Boolean).join(' / ') || 'No customer or sales order'} · Archived {compactDate(project.deletedAt.slice(0, 10))}{project.deletedByDisplayName ? ` by ${project.deletedByDisplayName}` : ''}</small>
+                  <strong className="technical-id">{project.programName}</strong>
+                  <small>
+                    {project.customerName || 'Customer not set'}
+                    {project.salesOrderNumber && <> / <span className="technical-id">{project.salesOrderNumber}</span></>}
+                    {' · '}Archived {compactDate(project.deletedAt.slice(0, 10))}
+                    {project.deletedByDisplayName ? ` by ${project.deletedByDisplayName}` : ''}
+                  </small>
                 </span>
                 <div className="workcenter-actions">
                   <button className="button ghost" type="button" onClick={() => setConfirming(project)}><RotateCcw size={14} /> Restore</button>

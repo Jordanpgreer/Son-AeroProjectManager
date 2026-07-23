@@ -10,6 +10,7 @@ public sealed class Project
     public string? Engineer { get; set; }
     public string? CustomerName { get; set; }
     public string? SalesOrderNumber { get; set; }
+    public string? JobNumber { get; set; }
     public DateOnly? ProgramStart { get; set; }
     public DateOnly? TargetDelivery { get; set; }
     public DateOnly? CompletedOn { get; set; }
@@ -30,4 +31,5 @@ public sealed class Project
     public List<ProjectTask> Tasks { get; set; } = [];
     public List<ProjectMessage> Messages { get; set; } = [];
     public List<ProjectAuditEntry> AuditEntries { get; set; } = [];
+    public List<UserNotification> Notifications { get; set; } = [];
 }

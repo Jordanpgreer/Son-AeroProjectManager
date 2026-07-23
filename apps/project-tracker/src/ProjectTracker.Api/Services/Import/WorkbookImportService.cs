@@ -166,6 +166,7 @@ public sealed class WorkbookImportService(ProjectMetricsService metricsService)
                 EstimatedDuration = ParseInteger(rows.GetValue(row, "I")),
                 ActualDuration = ParseInteger(rows.GetValue(row, "J")),
                 PercentComplete = ParseDecimal(rows.GetValue(row, "K")) ?? 0m,
+                PercentCompleteManual = true,
                 Status = ParseStatus(rows.GetValue(row, "L")),
                 Notes = rows.GetValue(row, "M")
             });

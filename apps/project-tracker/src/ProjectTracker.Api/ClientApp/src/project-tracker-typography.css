@@ -1,0 +1,121 @@
+/*
+ * Project Tracker typography.
+ *
+ * This remains app-scoped so the Son-Aero Hub, Engineering module, and shared
+ * brand typography retain their own independent configurations.
+ */
+@import '@fontsource/ibm-plex-mono/latin-400.css';
+@import '@fontsource/ibm-plex-mono/latin-500.css';
+@import '@fontsource/ibm-plex-mono/latin-600.css';
+
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+.project-tracker-app {
+  --tracker-font-sans: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --tracker-font-id: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
+  --font-display: var(--tracker-font-sans);
+  --font-sans: var(--tracker-font-sans);
+  --font-mono: var(--tracker-font-sans);
+  --font-id: var(--tracker-font-id);
+
+  font-family: var(--tracker-font-sans);
+  font-weight: 400;
+}
+
+.project-tracker-app :where(button, input, select, textarea, summary) {
+  font-family: var(--tracker-font-sans);
+}
+
+.project-tracker-app :where(
+  button,
+  summary,
+  label,
+  .field > span,
+  .kicker,
+  .eyebrow,
+  .nav-heading,
+  .kpi-label,
+  .section-label,
+  .data-table th,
+  .gantt-table th,
+  .cal-dow
+) {
+  font-weight: 500;
+}
+
+.project-tracker-app :where(h1, h2, h3, h4, .panel-title, .op-title, .cell-op, .gantt-task-title, .day-milestone-task, .cal-op) {
+  font-family: var(--tracker-font-sans);
+  font-weight: 600;
+}
+
+.project-tracker-app :where(
+  .kpi-value,
+  .stat-chip > strong,
+  .slider-value,
+  .progress strong,
+  .schedule-late strong
+) {
+  font-family: var(--tracker-font-sans);
+  font-weight: 700;
+}
+
+.project-tracker-app :where(
+  .notification-count,
+  .status-badge,
+  .ot-badge,
+  .seq-num,
+  .cell-pct,
+  .sched-chip,
+  .gantt-bar-label,
+  .cal-legend-item,
+  .cal-date,
+  .cal-count,
+  .cal-milestone-chip,
+  .day-summary-count,
+  .day-milestone-kind,
+  .projected-badge,
+  .completed-project-badge,
+  .role-avatar,
+  .operation-section-index,
+  .progress-presets button
+) {
+  font-weight: 500;
+}
+
+/* Dates, durations, percentages, labels, metadata, and workstation names use Inter. */
+.project-tracker-app :where(
+  .cell-mono,
+  .recent-note-meta,
+  .station-tag,
+  .gantt-legend,
+  .gantt-axis,
+  .axis-month,
+  .axis-week,
+  .axis-today,
+  .cal-date,
+  .cal-count,
+  .cal-milestone-chip,
+  .day-milestone-station,
+  time,
+  input[type='date']
+) {
+  font-family: var(--tracker-font-sans);
+}
+
+/* IBM Plex Mono is reserved for genuine technical identifiers. */
+.project-tracker-app :where(.mono-id, .technical-id, .technical-id-input) {
+  font-family: var(--tracker-font-id);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.project-tracker-app .technical-id-input::placeholder {
+  font-family: var(--tracker-font-sans);
+}

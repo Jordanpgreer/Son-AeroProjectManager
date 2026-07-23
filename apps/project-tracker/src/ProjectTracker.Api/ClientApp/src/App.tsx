@@ -1,4 +1,6 @@
 import './App.css'
+import './project-tracker-typography.css'
+import './project-tracker-dark.css'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import type { FormEvent } from 'react'
 import { RefreshCw } from 'lucide-react'
@@ -51,6 +53,7 @@ import {
 } from './features/dashboard'
 import {
   ProjectConfirmationDialog,
+  OperationDeleteDialog,
   ConcurrencyConflictDialog,
   ProjectChatDrawer,
   ProjectActivityDrawer,
@@ -72,12 +75,20 @@ import {
   AddProjectWizard,
   TaskModal,
 } from './features/task-modal'
+import {
+  hasAnyPermission,
+  hasPermission,
+  permissionKeys,
+  projectMetadataEditPermissions,
+  taskFieldEditPermissions,
+} from './permissions'
 
 const emptyProjectMetadata: ProjectMetadataDraft = {
   programManager: '',
   engineer: '',
   customerName: '',
   salesOrderNumber: '',
+  jobNumber: '',
 }
 
 function projectMetadataFrom(project: ProjectDetail | null): ProjectMetadataDraft {
@@ -87,6 +98,7 @@ function projectMetadataFrom(project: ProjectDetail | null): ProjectMetadataDraf
     engineer: project.engineer ?? '',
     customerName: project.customerName ?? '',
     salesOrderNumber: project.salesOrderNumber ?? '',
+    jobNumber: project.jobNumber ?? '',
   }
 }
 
@@ -107,6 +119,11 @@ function App() {
   const [projectLoading, setProjectLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [taskForm, setTaskForm] = useState<TaskForm | null>(null)
+  const [taskSaving, setTaskSaving] = useState(false)
+  const [taskFormError, setTaskFormError] = useState<string | null>(null)
+  const [taskDeleteTarget, setTaskDeleteTarget] = useState<ProjectTask | null>(null)
+  const [taskDeletePending, setTaskDeletePending] = useState(false)
+  const [taskDeleteError, setTaskDeleteError] = useState<string | null>(null)
   const [editMode, setEditMode] = useState(false)
   const [projectMetadata, setProjectMetadata] = useState<ProjectMetadataDraft>(emptyProjectMetadata)
   const [projectMetadataSaving, setProjectMetadataSaving] = useState(false)
@@ -126,16 +143,20 @@ function App() {
   const [dismissedProjectVersion, setDismissedProjectVersion] = useState<number | null>(null)
   const referenceDataLoaded = useRef(false)
   const calendarDataLoaded = useRef(false)
+  const selectedProjectRef = useRef<ProjectDetail | null>(null)
+  const projectMutationTail = useRef<Promise<void>>(Promise.resolve())
+  const pendingNavigationRef = useRef<(() => void | Promise<void>) | null>(null)
 
   const projectPayload = (
     project: ProjectDetail,
-    patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber'>> = {},
+    patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber' | 'jobNumber'>> = {},
   ) => ({
     programName: patch.programName ?? project.programName,
     programManager: patch.programManager ?? project.programManager,
     engineer: patch.engineer ?? project.engineer,
     customerName: patch.customerName ?? project.customerName,
     salesOrderNumber: patch.salesOrderNumber ?? project.salesOrderNumber,
+    jobNumber: patch.jobNumber ?? project.jobNumber ?? null,
     version: project.version,
   })
 
@@ -146,6 +167,7 @@ function App() {
       || projectMetadata.engineer !== saved.engineer
       || projectMetadata.customerName !== saved.customerName
       || projectMetadata.salesOrderNumber !== saved.salesOrderNumber
+      || projectMetadata.jobNumber !== saved.jobNumber
   }, [projectMetadata, selectedProject])
 
   const selectedProjectMetadataId = selectedProject?.id
@@ -153,6 +175,11 @@ function App() {
   const selectedProjectEngineer = selectedProject?.engineer ?? ''
   const selectedProjectCustomerName = selectedProject?.customerName ?? ''
   const selectedProjectSalesOrderNumber = selectedProject?.salesOrderNumber ?? ''
+  const selectedProjectJobNumber = selectedProject?.jobNumber ?? ''
+
+  useEffect(() => {
+    selectedProjectRef.current = selectedProject
+  }, [selectedProject])
 
   useEffect(() => {
     setProjectMetadata({
@@ -160,6 +187,7 @@ function App() {
       engineer: selectedProjectEngineer,
       customerName: selectedProjectCustomerName,
       salesOrderNumber: selectedProjectSalesOrderNumber,
+      jobNumber: selectedProjectJobNumber,
     })
     setProjectMetadataError(null)
   }, [
@@ -168,6 +196,7 @@ function App() {
     selectedProjectEngineer,
     selectedProjectCustomerName,
     selectedProjectSalesOrderNumber,
+    selectedProjectJobNumber,
   ])
 
   useEffect(() => {
@@ -232,6 +261,31 @@ function App() {
     if (calendarDataLoaded.current && !force) return
     setScheduleProjects(await api<ProjectDetail[]>('/api/calendar'))
     calendarDataLoaded.current = true
+  }
+
+  function enqueueProjectMutation<T>(mutation: () => Promise<T>): Promise<T> {
+    const run = projectMutationTail.current
+      .catch(() => undefined)
+      .then(mutation)
+    projectMutationTail.current = run.then(() => undefined, () => undefined)
+    return run
+  }
+
+  async function refreshProjectWorkspace(projectId: number) {
+    const [data, project, calendarData] = await Promise.all([
+      api<Dashboard>('/api/dashboard'),
+      api<ProjectDetail>(`/api/projects/${projectId}`),
+      api<ProjectDetail[]>('/api/calendar'),
+    ])
+    setDashboard(data)
+    setSelectedProject(project)
+    selectedProjectRef.current = project
+    setScheduleProjects(calendarData)
+    calendarDataLoaded.current = true
+    setProjectChangeNotice(null)
+    setDismissedProjectVersion(null)
+    storeSelectedProjectId(project.id)
+    return project
   }
 
   async function loadScreenData(target: Screen, force = false) {
@@ -353,44 +407,81 @@ function App() {
 
   async function saveTask(event: FormEvent) {
     event.preventDefault()
-    if (!selectedProject || !taskForm) return
-    const payload = {
-      sequence: taskForm.sequence,
-      externalTaskId: taskForm.externalTaskId || null,
-      title: taskForm.title,
-      phase: taskForm.phase || null,
-      workStation: taskForm.workStation || null,
-      dependencyTaskId: taskForm.dependencyTaskId ? Number(taskForm.dependencyTaskId) : null,
-      startDate: taskForm.startDate || null,
-      startDateLocked: taskForm.startDateLocked,
-      originalStartDate: taskForm.originalStartDate || null,
-      endDate: taskForm.endDate || null,
-      originalEndDate: taskForm.originalEndDate || null,
-      estimatedDuration: taskForm.estimatedDuration ? Number(taskForm.estimatedDuration) : null,
-      actualDuration: taskForm.actualDuration ? Number(taskForm.actualDuration) : null,
-      percentComplete: Number(taskForm.percentComplete || 0) / 100,
-      percentCompleteManual: taskForm.percentCompleteManual,
-      notes: taskForm.notes || null,
-      overtimeDays: taskForm.overtimeDays.map((day) => ({ date: day.date, note: day.note })),
-      version: taskForm.version,
-      projectVersion: selectedProject.version,
+    if (!selectedProjectRef.current || !taskForm || taskSaving) return
+    const form = taskForm
+    setTaskSaving(true)
+    setTaskFormError(null)
+    try {
+      await enqueueProjectMutation(async () => {
+        const project = selectedProjectRef.current
+        if (!project) throw new Error('The project is no longer available.')
+        const latestTask = form.id ? project.tasks.find((task) => task.id === form.id) : null
+        const payload = {
+          sequence: form.sequence,
+          externalTaskId: form.externalTaskId || null,
+          title: form.title,
+          phase: form.phase || null,
+          workStation: form.workStation || null,
+          dependencyTaskId: form.dependencyTaskId ? Number(form.dependencyTaskId) : null,
+          startDate: form.startDate || null,
+          startDateLocked: form.startDateLocked,
+          originalStartDate: form.originalStartDate || null,
+          endDate: form.endDate || null,
+          originalEndDate: form.originalEndDate || null,
+          estimatedDuration: form.estimatedDuration ? Number(form.estimatedDuration) : null,
+          actualDuration: form.actualDuration ? Number(form.actualDuration) : null,
+          percentComplete: Number(form.percentComplete || 0) / 100,
+          percentCompleteManual: true,
+          notes: form.notes || null,
+          overtimeDays: form.overtimeDays.map((day) => ({ date: day.date, note: day.note })),
+          version: latestTask?.version ?? form.version,
+          projectVersion: project.version,
+        }
+        const url = form.id ? `/api/tasks/${form.id}` : `/api/projects/${project.id}/tasks`
+        await api<ProjectTask>(url, {
+          method: form.id ? 'PUT' : 'POST',
+          body: JSON.stringify(payload),
+        })
+        await refreshProjectWorkspace(project.id)
+      })
+      setTaskForm(null)
+    } catch (error) {
+      setTaskFormError(error instanceof Error ? error.message : 'The operation could not be saved.')
+    } finally {
+      setTaskSaving(false)
     }
-    const url = taskForm.id ? `/api/tasks/${taskForm.id}` : `/api/projects/${selectedProject.id}/tasks`
-    await api<ProjectTask>(url, {
-      method: taskForm.id ? 'PUT' : 'POST',
-      body: JSON.stringify(payload),
-    })
-    setTaskForm(null)
-    await loadDashboard()
   }
 
-  async function deleteTask(task: ProjectTask) {
-    if (!selectedProject) return
-    await api<void>(`/api/tasks/${task.id}?version=${task.version}&projectVersion=${selectedProject.version}`, { method: 'DELETE' })
-    await loadDashboard()
+  function requestDeleteTask(task: ProjectTask) {
+    setTaskDeleteError(null)
+    setTaskDeleteTarget(task)
   }
 
-  async function updateProject(patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber'>>) {
+  async function confirmDeleteTask() {
+    if (!taskDeleteTarget || taskDeletePending) return
+    setTaskDeletePending(true)
+    setTaskDeleteError(null)
+    try {
+      await enqueueProjectMutation(async () => {
+        const project = selectedProjectRef.current
+        if (!project) throw new Error('The project is no longer available.')
+        const task = project.tasks.find((candidate) => candidate.id === taskDeleteTarget.id)
+        if (!task) throw new Error('This operation was already removed by another user.')
+        await api<void>(
+          `/api/tasks/${task.id}?version=${task.version}&projectVersion=${project.version}&detachDependents=true`,
+          { method: 'DELETE' },
+        )
+        await refreshProjectWorkspace(project.id)
+      })
+      setTaskDeleteTarget(null)
+    } catch (error) {
+      setTaskDeleteError(error instanceof Error ? error.message : 'The operation could not be deleted.')
+    } finally {
+      setTaskDeletePending(false)
+    }
+  }
+
+  async function updateProject(patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber' | 'jobNumber'>>) {
     if (!selectedProject) return
     const project = await api<ProjectDetail>(`/api/projects/${selectedProject.id}`, {
       method: 'PUT',
@@ -413,6 +504,7 @@ function App() {
       engineer: projectMetadata.engineer.trim(),
       customerName: projectMetadata.customerName.trim(),
       salesOrderNumber: projectMetadata.salesOrderNumber.trim(),
+      jobNumber: projectMetadata.jobNumber.trim(),
     }
     try {
       await updateProject({
@@ -420,6 +512,7 @@ function App() {
         engineer: normalized.engineer || null,
         customerName: normalized.customerName || null,
         salesOrderNumber: normalized.salesOrderNumber || null,
+        jobNumber: normalized.jobNumber || null,
       })
       setProjectMetadata(normalized)
       return true
@@ -519,7 +612,31 @@ function App() {
     }
   }
 
-  function taskToPayload(task: ProjectTask) {
+  function taskWithAuthorizedChanges(task: ProjectTask, saved: ProjectTask) {
+    const permissions = user?.permissions ?? []
+    const allowed = (permission: string) => hasPermission(permissions, permission)
+    return {
+      ...saved,
+      sequence: allowed(permissionKeys.taskReorder) ? task.sequence : saved.sequence,
+      externalTaskId: allowed(permissionKeys.taskReorder) ? task.externalTaskId : saved.externalTaskId,
+      title: allowed(permissionKeys.taskEditTitle) ? task.title : saved.title,
+      workStation: allowed(permissionKeys.taskEditWorkStation) ? task.workStation : saved.workStation,
+      dependencyTaskId: allowed(permissionKeys.taskEditDependency) ? task.dependencyTaskId : saved.dependencyTaskId,
+      startDateLocked: allowed(permissionKeys.taskEditStartDateLocked) ? task.startDateLocked : saved.startDateLocked,
+      startDate: allowed(permissionKeys.taskEditStartDate) ? task.startDate : saved.startDate,
+      endDate: allowed(permissionKeys.taskEditEndDate) ? task.endDate : saved.endDate,
+      originalStartDate: allowed(permissionKeys.taskEditOriginalStartDate) ? task.originalStartDate : saved.originalStartDate,
+      originalEndDate: allowed(permissionKeys.taskEditOriginalEndDate) ? task.originalEndDate : saved.originalEndDate,
+      estimatedDuration: allowed(permissionKeys.taskEditEstimatedDuration) ? task.estimatedDuration : saved.estimatedDuration,
+      actualDuration: allowed(permissionKeys.taskEditActualDuration) ? task.actualDuration : saved.actualDuration,
+      percentComplete: allowed(permissionKeys.taskEditPercentComplete) ? task.percentComplete : saved.percentComplete,
+      percentCompleteManual: true,
+      notes: allowed(permissionKeys.taskEditNotes) ? task.notes : saved.notes,
+      overtimeDays: allowed(permissionKeys.taskEditOvertimeDays) ? task.overtimeDays : saved.overtimeDays,
+    }
+  }
+
+  function taskToPayload(task: ProjectTask, projectVersion: number) {
     return {
       sequence: task.sequence,
       externalTaskId: task.externalTaskId,
@@ -535,41 +652,73 @@ function App() {
       estimatedDuration: task.estimatedDuration,
       actualDuration: task.actualDuration,
       percentComplete: task.percentComplete,
-      percentCompleteManual: task.percentCompleteManual,
+      percentCompleteManual: true,
       notes: task.notes,
       overtimeDays: task.overtimeDays.map((day) => ({ date: day.date, note: day.note })),
       version: task.version,
-      projectVersion: selectedProject?.version ?? 0,
+      projectVersion,
     }
   }
 
   async function saveTaskRow(row: ProjectTask): Promise<ProjectTask> {
-    const updated = await api<ProjectTask>(`/api/tasks/${row.id}`, { method: 'PUT', body: JSON.stringify(taskToPayload(row)) })
-    const project = await api<ProjectDetail>(`/api/projects/${updated.projectId}`)
-    setSelectedProject(project)
-    setProjectChangeNotice(null)
-    setDismissedProjectVersion(null)
-    setScheduleProjects((current) => current.map((item) => (item.id === project.id ? project : item)))
-    return project.tasks.find((task) => task.id === updated.id) ?? updated
+    return enqueueProjectMutation(async () => {
+      const project = selectedProjectRef.current
+      if (!project || project.id !== row.projectId) throw new Error('The project changed before this operation could be saved.')
+      const latestTask = project.tasks.find((task) => task.id === row.id)
+      if (!latestTask) throw new Error('This operation no longer exists.')
+      const pendingRow = { ...taskWithAuthorizedChanges(row, latestTask), version: latestTask.version }
+      const updated = await api<ProjectTask>(`/api/tasks/${row.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(taskToPayload(pendingRow, project.version)),
+      })
+      const refreshed = await api<ProjectDetail>(`/api/projects/${updated.projectId}`)
+      setSelectedProject(refreshed)
+      selectedProjectRef.current = refreshed
+      setProjectChangeNotice(null)
+      setDismissedProjectVersion(null)
+      setScheduleProjects((current) => current.map((item) => (item.id === refreshed.id ? refreshed : item)))
+      return refreshed.tasks.find((task) => task.id === updated.id) ?? updated
+    })
   }
 
   async function reorderTaskRow(row: ProjectTask, position: number): Promise<void> {
-    const updated = await api<ProjectTask>(`/api/tasks/${row.id}`, { method: 'PUT', body: JSON.stringify({ ...taskToPayload(row), sequence: position }) })
-    const project = await api<ProjectDetail>(`/api/projects/${updated.projectId}`)
-    setSelectedProject(project)
-    setProjectChangeNotice(null)
-    setDismissedProjectVersion(null)
-    setScheduleProjects((current) => current.map((item) => (item.id === project.id ? project : item)))
+    await enqueueProjectMutation(async () => {
+      const project = selectedProjectRef.current
+      if (!project || project.id !== row.projectId) throw new Error('The project changed before this operation could be reordered.')
+      const latestTask = project.tasks.find((task) => task.id === row.id)
+      if (!latestTask) throw new Error('This operation no longer exists.')
+      const updated = await api<ProjectTask>(`/api/tasks/${row.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          ...taskToPayload({ ...taskWithAuthorizedChanges(row, latestTask), version: latestTask.version }, project.version),
+          sequence: position,
+        }),
+      })
+      const refreshed = await api<ProjectDetail>(`/api/projects/${updated.projectId}`)
+      setSelectedProject(refreshed)
+      selectedProjectRef.current = refreshed
+      setProjectChangeNotice(null)
+      setDismissedProjectVersion(null)
+      setScheduleProjects((current) => current.map((item) => (item.id === refreshed.id ? refreshed : item)))
+    })
+  }
+
+  function requestNavigation(action: () => void | Promise<void>): Promise<void> {
+    if (editMode && projectMetadataDirty) {
+      pendingNavigationRef.current = action
+      setUnsavedProjectDetailsOpen(true)
+      return Promise.resolve()
+    }
+
+    return Promise.resolve(action())
   }
 
   function toggleEditMode() {
     if (editMode) {
-      if (projectMetadataDirty) {
-        setUnsavedProjectDetailsOpen(true)
-        return
-      }
-      void loadDashboard()
-      setEditMode(false)
+      void requestNavigation(async () => {
+        await loadDashboard()
+        setEditMode(false)
+      })
       return
     }
     setProjectMetadata(projectMetadataFrom(selectedProject))
@@ -577,18 +726,28 @@ function App() {
     setEditMode(true)
   }
 
+  function continueEditingProjectMetadata() {
+    pendingNavigationRef.current = null
+    setUnsavedProjectDetailsOpen(false)
+  }
+
   function discardProjectMetadataAndExit() {
+    const navigation = pendingNavigationRef.current
+    pendingNavigationRef.current = null
     setProjectMetadata(projectMetadataFrom(selectedProject))
     setProjectMetadataError(null)
     setUnsavedProjectDetailsOpen(false)
     setEditMode(false)
-    void loadDashboard()
+    if (navigation) void navigation()
   }
 
   async function saveProjectMetadataAndExit() {
     if (!await saveProjectMetadata()) return
+    const navigation = pendingNavigationRef.current
+    pendingNavigationRef.current = null
     setUnsavedProjectDetailsOpen(false)
     setEditMode(false)
+    if (navigation) await navigation()
   }
 
   async function addHolidayRange(startDate: string, endDate: string, name: string) {
@@ -787,21 +946,34 @@ function App() {
     }
   }, [screen, user])
 
-  const canEdit = Boolean(user?.canEdit)
+  const userPermissions = user?.permissions ?? []
+  const canEnterProjectEdit = hasAnyPermission(userPermissions, [
+    ...projectMetadataEditPermissions,
+    ...taskFieldEditPermissions,
+    permissionKeys.taskCreate,
+    permissionKeys.taskDelete,
+  ])
+  const canCreateProject = hasPermission(userPermissions, permissionKeys.projectCreate)
+  const canReorderPriority = hasPermission(userPermissions, permissionKeys.projectEditPriority)
+  const canViewActivity = Boolean(userPermissions.includes('project.activity.view'))
   const isProjectScreen = screen === 'project'
   const holidaySet = useMemo(() => new Set(holidays.map((holiday) => holiday.date)), [holidays])
   const workingDaySet = useMemo(() => new Set(scheduleSettings.workingDays.map(dayNameToIndex)), [scheduleSettings.workingDays])
   const knownWorkStations = useMemo(() => workCenters.map((workCenter) => workCenter.name), [workCenters])
   const workCenterConflicts = useMemo(() => buildWorkCenterConflictSet(scheduleProjects, holidaySet, workingDaySet), [scheduleProjects, holidaySet, workingDaySet])
 
+  useEffect(() => {
+    if (!canViewActivity) setActivityOpen(false)
+  }, [canViewActivity])
+
   return (
-    <div className="app-shell">
+    <div className="app-shell project-tracker-app">
       <Sidebar
         screen={screen}
-        setScreen={setScreen}
+        setScreen={(target) => { void requestNavigation(() => setScreen(target)) }}
         selectedProject={selectedProject}
         hasActiveProjects={dashboard.projects.some((project) => project.status !== 'Complete')}
-        onOpenActiveProjects={openActiveProjectWorkspace}
+        onOpenActiveProjects={() => requestNavigation(openActiveProjectWorkspace)}
         user={user}
       />
 
@@ -811,7 +983,8 @@ function App() {
           onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
           screen={screen}
           selectedProject={selectedProject}
-          canEdit={canEdit}
+          canEnterProjectEdit={canEnterProjectEdit}
+          canCreateProject={canCreateProject}
           editMode={editMode}
           hasUnsavedChanges={projectMetadataDirty}
           onToggleEdit={toggleEditMode}
@@ -819,8 +992,10 @@ function App() {
           setDashboardSearch={setDashboardSearch}
           pastProjectsSearch={pastProjectsSearch}
           setPastProjectsSearch={setPastProjectsSearch}
-          refresh={refreshCurrent}
+          refresh={() => requestNavigation(refreshCurrent)}
           onAddProject={() => void openProjectWizard()}
+          user={user}
+          onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))}
           onOpenActivity={() => {
             setChatOpen(false)
             setActivityOpen(true)
@@ -873,7 +1048,7 @@ function App() {
           {!loading && !screenDataLoading && !error && !projectLoading && (
             <>
               {screen === 'dashboard' && (
-                <DashboardView dashboard={dashboard} search={dashboardSearch} canEdit={canEdit} onOpenProject={openProject} onMovePriority={updateProjectPriority} />
+                <DashboardView dashboard={dashboard} search={dashboardSearch} canReorderPriority={canReorderPriority} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} onMovePriority={updateProjectPriority} />
               )}
               {isProjectScreen && selectedProject && (
                 <ProjectView
@@ -883,7 +1058,7 @@ function App() {
                   workingDaySet={workingDaySet}
                   workStations={knownWorkStations}
                   conflictKeys={workCenterConflicts}
-                  canEdit={canEdit}
+                  permissions={userPermissions}
                   editMode={editMode}
                   projectMetadata={projectMetadata}
                   projectMetadataDirty={projectMetadataDirty}
@@ -891,10 +1066,10 @@ function App() {
                   projectMetadataError={projectMetadataError}
                   onProjectMetadataChange={setProjectMetadata}
                   onSaveProjectMetadata={saveProjectMetadata}
-                  onSelectProject={openProject}
-                  onEditTask={(task) => setTaskForm(formFromTask(task))}
-                  onAddTask={() => setTaskForm(emptyTaskForm(selectedProject))}
-                  onDeleteTask={deleteTask}
+                  onSelectProject={(projectId) => requestNavigation(() => openProject(projectId))}
+                  onEditTask={(task) => { setTaskFormError(null); setTaskForm(formFromTask(task)) }}
+                  onAddTask={() => { setTaskFormError(null); setTaskForm(emptyTaskForm(selectedProject)) }}
+                  onDeleteTask={requestDeleteTask}
                   onCompleteProject={() => setProjectConfirmation('complete')}
                   onReopenProject={() => setProjectConfirmation('reopen')}
                   onDeleteProject={() => setProjectConfirmation('delete')}
@@ -907,8 +1082,8 @@ function App() {
                   onReorder={reorderTaskRow}
                 />
               )}
-              {screen === 'calendar' && <CalendarView data={scheduleProjects} holidaySet={holidaySet} workingDaySet={workingDaySet} onOpenProject={openProject} />}
-              {screen === 'pastProjects' && <PastProjectsView projects={dashboard.projects} search={pastProjectsSearch} onOpenProject={openProject} />}
+              {screen === 'calendar' && <CalendarView data={scheduleProjects} holidaySet={holidaySet} workingDaySet={workingDaySet} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} />}
+              {screen === 'pastProjects' && <PastProjectsView projects={dashboard.projects} search={pastProjectsSearch} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} />}
               {screen === 'settings' && (
                 <SettingsView
                   scheduleSettings={scheduleSettings}
@@ -934,7 +1109,7 @@ function App() {
       </main>
 
       {taskForm && (
-        <TaskModal form={taskForm} setForm={setTaskForm} saveTask={saveTask} onClose={() => setTaskForm(null)} tasks={selectedProject?.tasks ?? []} workStations={knownWorkStations} holidaySet={holidaySet} workingDaySet={workingDaySet} />
+        <TaskModal form={taskForm} setForm={setTaskForm} saveTask={saveTask} onClose={() => { if (!taskSaving) setTaskForm(null) }} tasks={selectedProject?.tasks ?? []} workStations={knownWorkStations} holidaySet={holidaySet} workingDaySet={workingDaySet} permissions={userPermissions} saving={taskSaving} error={taskFormError} />
       )}
       {overtimeTask && (
         <OvertimeDialog
@@ -963,11 +1138,27 @@ function App() {
           onConfirm={confirmProjectAction}
         />
       )}
+      {taskDeleteTarget && selectedProject && (
+        <OperationDeleteDialog
+          task={taskDeleteTarget}
+          dependents={selectedProject.tasks
+            .filter((task) => task.dependencyTaskId === taskDeleteTarget.id)
+            .map((task) => ({ id: task.id, sequence: task.sequence, title: task.title }))}
+          pending={taskDeletePending}
+          error={taskDeleteError}
+          onCancel={() => {
+            if (taskDeletePending) return
+            setTaskDeleteTarget(null)
+            setTaskDeleteError(null)
+          }}
+          onConfirm={confirmDeleteTask}
+        />
+      )}
       {unsavedProjectDetailsOpen && selectedProject && (
         <UnsavedProjectDetailsDialog
           projectName={selectedProject.programName}
           saving={projectMetadataSaving}
-          onContinueEditing={() => setUnsavedProjectDetailsOpen(false)}
+          onContinueEditing={continueEditingProjectMetadata}
           onDiscard={discardProjectMetadataAndExit}
           onSave={() => void saveProjectMetadataAndExit()}
         />
@@ -988,7 +1179,7 @@ function App() {
       {chatOpen && selectedProject && user && (
         <ProjectChatDrawer project={selectedProject} currentUser={user} onClose={() => setChatOpen(false)} />
       )}
-      {activityOpen && selectedProject && (
+      {activityOpen && selectedProject && canViewActivity && (
         <ProjectActivityDrawer project={selectedProject} onClose={() => setActivityOpen(false)} />
       )}
     </div>

@@ -1,0 +1,293 @@
+/*
+ * Project Tracker dark theme.
+ *
+ * App-scoped by design: these values do not alter the Hub, Engineering
+ * module, Portal, or shared brand tokens.
+ */
+:root[data-theme='dark'] .project-tracker-app {
+  --bg: #0a1017;
+  --bg-deep: #0e1620;
+  --surface: #141e29;
+  --surface-2: #192632;
+  --surface-3: #223241;
+
+  --ink: #f3f7fa;
+  --ink-2: #cdd6df;
+  --muted: #9aa8b7;
+  --faint: #7f8d9d;
+
+  --line: #22303d;
+  --line-2: #314355;
+  --line-3: #455b70;
+  --grid-line: rgba(151, 165, 180, 0.055);
+
+  --red: #d23a2b;
+  --red-600: #b92f24;
+  --red-700: #ffb5ac;
+  --red-tint: #331d1a;
+  --red-tint-2: #512a25;
+
+  --steel: #64a4d7;
+  --steel-700: #b4d9f5;
+  --steel-tint: #14283b;
+  --steel-tint-2: #2b4d68;
+
+  --ok: #7bc9a4;
+  --ok-700: #bdeccf;
+  --ok-tint: #1a3329;
+  --warn: #d6a84e;
+  --warn-700: #f5d38c;
+  --warn-tint: #322715;
+  --risk: #f06a5b;
+  --risk-700: #ffb5ac;
+  --risk-tint: #331d1a;
+  --done: #36a46a;
+  --done-700: #b9e9cb;
+  --done-tint: #152e22;
+  --idle: #8b99a8;
+  --idle-tint: #1c2834;
+
+  --shadow-1: 0 1px 1px rgba(0, 0, 0, 0.30), 0 8px 20px -16px rgba(0, 0, 0, 0.88);
+  --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.38), 0 18px 36px -22px rgba(0, 0, 0, 0.92);
+  --shadow-pop: 0 28px 80px -24px rgba(0, 0, 0, 0.88);
+
+  background: var(--bg);
+}
+
+:root[data-theme='dark'] .project-tracker-app .sidebar {
+  background:
+    radial-gradient(100% 48% at 0% 0%, rgba(210, 58, 43, 0.11), transparent 62%),
+    linear-gradient(184deg, #111b25 0%, #0b1219 50%, #070b10 100%);
+}
+
+:root[data-theme='dark'] .project-tracker-app .topbar {
+  background: rgba(14, 22, 32, 0.94);
+  border-bottom-color: var(--line-2);
+  box-shadow: 0 10px 28px -24px rgba(0, 0, 0, 0.9);
+}
+
+:root[data-theme='dark'] .project-tracker-app .main-scroll {
+  background-color: var(--bg);
+}
+
+:root[data-theme='dark'] .project-tracker-app :where(.panel, .kpi, .modal, .project-chat, .notifications-popover) {
+  box-shadow: var(--shadow-1);
+}
+
+:root[data-theme='dark'] .project-tracker-app .data-table tbody tr:hover,
+:root[data-theme='dark'] .project-tracker-app .project-picker-option:hover,
+:root[data-theme='dark'] .project-tracker-app .notification-item:hover {
+  background: #1d2b38;
+}
+
+:root[data-theme='dark'] .project-tracker-app .button:not(.ghost):not(.primary):not(.danger):not(.danger-solid):not(.complete-solid) {
+  color: var(--ink);
+  background: var(--surface-3);
+  border-color: var(--line-2);
+}
+
+:root[data-theme='dark'] .project-tracker-app .button:not(.ghost):not(.primary):not(.danger):not(.danger-solid):not(.complete-solid):hover {
+  color: var(--ink);
+  background: #2a3b4b;
+  border-color: var(--line-3);
+}
+
+:root[data-theme='dark'] .project-tracker-app .button.primary,
+:root[data-theme='dark'] .project-tracker-app .button.danger-solid {
+  color: #fff;
+  background: var(--red);
+  border-color: var(--red);
+}
+
+:root[data-theme='dark'] .project-tracker-app .button.primary:hover,
+:root[data-theme='dark'] .project-tracker-app .button.danger-solid:hover {
+  background: var(--red-600);
+  border-color: var(--red-600);
+}
+
+:root[data-theme='dark'] .project-tracker-app .button.complete-solid {
+  color: #fff;
+  background: #287a50;
+  border-color: #287a50;
+}
+
+:root[data-theme='dark'] .project-tracker-app .button.complete-solid:hover {
+  background: #226c46;
+  border-color: #226c46;
+}
+
+:root[data-theme='dark'] .project-tracker-app :where(input, select, textarea) {
+  color-scheme: dark;
+}
+
+:root[data-theme='dark'] .project-tracker-app :where(.export-menu-list, .project-picker-menu, .work-station-menu, .mention-menu) {
+  border-color: var(--line-2);
+  background: #111b25;
+  box-shadow: var(--shadow-pop);
+}
+
+:root[data-theme='dark'] .project-tracker-app .access-save-bar {
+  border-color: var(--line-2);
+  background: rgba(20, 30, 41, 0.94);
+  box-shadow: var(--shadow-2);
+}
+
+:root[data-theme='dark'] .project-tracker-app .notification-source.note,
+:root[data-theme='dark'] .project-tracker-app .priority-badge.tier-high,
+:root[data-theme='dark'] .project-tracker-app .confirmation-icon.unsaved {
+  color: var(--warn-700);
+  background: var(--warn-tint);
+  border-color: #705b2c;
+}
+
+:root[data-theme='dark'] .project-tracker-app .ot-badge,
+:root[data-theme='dark'] .project-tracker-app .overtime-day {
+  color: var(--warn-700);
+  background: #2b2417;
+  border-color: #6f5a2b;
+}
+
+:root[data-theme='dark'] .project-tracker-app .overtime-day > svg {
+  color: var(--warn);
+}
+
+:root[data-theme='dark'] .project-tracker-app :where(.inline-save-error, .chat-error, .state-warning) {
+  color: var(--warn-700);
+  border-color: #705b2c;
+  background: linear-gradient(180deg, #2d2618 0%, #282116 100%);
+}
+
+:root[data-theme='dark'] .project-tracker-app .state-warning > svg {
+  color: var(--warn);
+}
+
+:root[data-theme='dark'] .project-tracker-app .status.on-track {
+  color: var(--ok-700);
+  background: var(--ok-tint);
+  border-color: #31664b;
+}
+
+:root[data-theme='dark'] .project-tracker-app .status.behind {
+  color: var(--risk-700);
+  background: var(--risk-tint);
+  border-color: #713a35;
+}
+
+:root[data-theme='dark'] .project-tracker-app .status.complete {
+  color: var(--done-700);
+  background: var(--done-tint);
+  border-color: #2f6548;
+}
+
+:root[data-theme='dark'] .project-tracker-app .status.not-started {
+  color: var(--muted);
+  background: var(--idle-tint);
+  border-color: #405166;
+}
+
+:root[data-theme='dark'] .project-tracker-app .stat-chip.is-risk {
+  background: var(--risk-tint);
+  border-color: #713a35;
+}
+
+:root[data-theme='dark'] .project-tracker-app .gantt-note {
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border-color: var(--steel-tint-2);
+}
+
+:root[data-theme='dark'] .project-tracker-app .gantt-shade.weekend {
+  background: rgba(255, 255, 255, 0.024);
+}
+
+:root[data-theme='dark'] .project-tracker-app .gantt-shade.holiday {
+  background: rgba(240, 106, 91, 0.075);
+}
+
+:root[data-theme='dark'] .project-tracker-app .role-viewer .role-lane-icon,
+:root[data-theme='dark'] .project-tracker-app .confirmation-icon.complete,
+:root[data-theme='dark'] .project-tracker-app .activity-marker.action-complete,
+:root[data-theme='dark'] .project-tracker-app .progress-presets button.active {
+  color: var(--ok-700);
+  background: var(--ok-tint);
+  border-color: #31664b;
+}
+
+:root[data-theme='dark'] .project-tracker-app :where(.role-avatar, .chat-avatar) {
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border: 1px solid var(--steel-tint-2);
+}
+
+:root[data-theme='dark'] .project-tracker-app .wizard-steps .complete span {
+  color: #07130d;
+  background: var(--ok);
+  border-color: var(--ok);
+}
+
+:root[data-theme='dark'] .project-tracker-app .slider::-webkit-slider-thumb {
+  background: var(--ink);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
+}
+
+:root[data-theme='dark'] .project-tracker-app .slider::-moz-range-thumb {
+  background: var(--ink);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
+}
+
+:root[data-theme='dark'] .project-tracker-app .skeleton-line::after,
+:root[data-theme='dark'] .project-tracker-app .skeleton-block::after {
+  background: linear-gradient(90deg, transparent, rgba(205, 214, 223, 0.12), transparent);
+}
+
+:root[data-theme='dark'] .project-tracker-app .calendar-view {
+  --calendar-start: #5db989;
+  --calendar-start-ink: #bceacf;
+  --calendar-start-tint: #142d23;
+  --calendar-start-line: #2f674b;
+  --calendar-finish: #d6a84e;
+  --calendar-finish-ink: #f5d38c;
+  --calendar-finish-tint: #322715;
+  --calendar-finish-line: #76602c;
+}
+
+:root[data-theme='dark'] .project-tracker-app .cal-cell.non-working:not(.holiday) {
+  background: #111a24;
+}
+
+:root[data-theme='dark'] .project-tracker-app .cal-cell.holiday {
+  background: var(--risk-tint);
+  border-color: #713a35;
+}
+
+:root[data-theme='dark'] .project-tracker-app .day-summary-count.load.has {
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border-color: var(--steel-tint-2);
+}
+
+:root[data-theme='dark'] .project-tracker-app .week-overview .has-conflict {
+  background: var(--risk-tint);
+  border-color: #713a35;
+}
+
+:root[data-theme='dark'] .project-tracker-app .day-milestone.start .day-milestone-icon {
+  color: #07130d;
+}
+
+:root[data-theme='dark'] .project-tracker-app .day-milestone.finish .day-milestone-icon {
+  color: #241a05;
+}
+
+:root[data-theme='dark'] .project-tracker-app .conflict-icon {
+  color: var(--warn-700);
+  fill: var(--warn);
+  stroke: var(--risk-700);
+}
+
+:root[data-theme='dark'] .conflict-tooltip {
+  color: #f5d38c;
+  background: #2d281a;
+  border-color: #7c6223;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.48);
+}

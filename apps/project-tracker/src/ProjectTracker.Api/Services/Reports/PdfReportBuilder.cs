@@ -92,6 +92,73 @@ internal static class PdfReportBuilder
         return Save(document);
     }
 
+    public static byte[] BuildProjectActivity(
+        Project project,
+        IReadOnlyList<ProjectAuditEntry> entries,
+        string? logoPath)
+    {
+        EnsureFonts();
+        using var document = CreateDocument($"{project.ProgramName} Activity Log");
+        document.Info.Subject = "Internal project activity and change history";
+        using var logo = LoadLogo(logoPath);
+        var ordered = entries.OrderByDescending(entry => entry.ChangedAt).ThenByDescending(entry => entry.Id).ToList();
+        var pageNumber = 1;
+
+        if (ordered.Count == 0)
+        {
+            DrawProjectActivityPage(document, project, [], 0, logo, pageNumber, true);
+        }
+        else
+        {
+            for (var offset = 0; offset < ordered.Count; offset += 17)
+            {
+                DrawProjectActivityPage(document, project, ordered.Skip(offset).Take(17).ToList(), offset, logo, pageNumber++, offset == 0);
+            }
+        }
+
+        return Save(document);
+    }
+
+    private static void DrawProjectActivityPage(
+        PdfDocument document,
+        Project project,
+        IReadOnlyList<ProjectAuditEntry> entries,
+        int offset,
+        XImage? logo,
+        int pageNumber,
+        bool firstPage)
+    {
+        var page = AddLandscapePage(document);
+        using var graphics = XGraphics.FromPdfPage(page);
+        DrawBrandHeader(graphics, page, logo, "PROJECT ACTIVITY", pageNumber);
+        DrawText(
+            graphics,
+            firstPage ? $"{project.ProgramName} Activity Log" : $"{project.ProgramName} Activity Log - Continued",
+            firstPage ? Fonts.Title : Fonts.PageTitle,
+            Ink,
+            28,
+            82,
+            600,
+            28);
+        DrawText(graphics, $"Generated {DateTime.Now:MMM d, yyyy h:mm tt}", Fonts.Small, Muted, 28, 108, 520, 16);
+
+        DrawMetadata(graphics, 28, 130, 736, new[]
+        {
+            ("PART NUMBER", project.ProgramName),
+            ("JOB NUMBER", project.JobNumber ?? "Not set"),
+            ("CUSTOMER", project.CustomerName ?? "Not set"),
+            ("TOTAL ACTIVITY", project.AuditEntries.Count > 0 ? project.AuditEntries.Count.ToString() : entries.Count.ToString())
+        });
+
+        DrawSectionLabel(
+            graphics,
+            entries.Count == 0 ? "NO ACTIVITY RECORDED" : $"ACTIVITY {offset + 1}-{offset + entries.Count}",
+            28,
+            176);
+        DrawActivityTable(graphics, entries, 28, 194, 736, 20.5);
+        DrawFooter(graphics, page, pageNumber, $"{project.ProgramName} | Confidential internal activity log");
+    }
+
     private static void DrawProjectOverviewPage(PdfDocument document, Project project, IReadOnlyList<ProjectTask> tasks, int offset, ScheduleCalendar calendar, XImage? logo, int pageNumber)
     {
         var page = AddLandscapePage(document);
@@ -104,6 +171,7 @@ internal static class PdfReportBuilder
         {
             ("CUSTOMER", project.CustomerName ?? "Not set"),
             ("SALES ORDER", project.SalesOrderNumber ?? "Not set"),
+            ("JOB NUMBER", project.JobNumber ?? "Not set"),
             ("PROGRAM MANAGER", project.ProgramManager ?? "Not set"),
             ("CURRENT OPERATION", project.CurrentTask ?? "Not set")
         });
@@ -304,6 +372,71 @@ internal static class PdfReportBuilder
             }
             graphics.DrawLine(new XPen(Line, 0.35), x, rowY + rowHeight, x + width, rowY + rowHeight);
         }
+    }
+
+    private static void DrawActivityTable(
+        XGraphics graphics,
+        IReadOnlyList<ProjectAuditEntry> entries,
+        double x,
+        double y,
+        double width,
+        double rowHeight)
+    {
+        var columns = new[]
+        {
+            new PdfColumn("Date / Time", 105),
+            new PdfColumn("User", 105),
+            new PdfColumn("Action", 105),
+            new PdfColumn("Summary", 205),
+            new PdfColumn("Changes", 216)
+        };
+        DrawTableHeader(graphics, columns, x, y, rowHeight + 2);
+        for (var index = 0; index < entries.Count; index++)
+        {
+            var entry = entries[index];
+            var rowY = y + rowHeight + 2 + (index * rowHeight);
+            graphics.DrawRectangle(new XSolidBrush(index % 2 == 0 ? XColors.White : Surface2), x, rowY, width, rowHeight);
+            graphics.DrawRectangle(new XSolidBrush(Steel), x, rowY, 3, rowHeight);
+            var values = new[]
+            {
+                entry.ChangedAt.LocalDateTime.ToString("MMM d, yyyy h:mm tt"),
+                entry.ChangedByDisplayName,
+                FriendlyAction(entry.Action),
+                entry.Summary,
+                DescribeChanges(entry)
+            };
+            var cellX = x;
+            for (var column = 0; column < columns.Length; column++)
+            {
+                var font = column is 1 or 2 ? Fonts.TableBold : Fonts.Table;
+                DrawText(
+                    graphics,
+                    FitText(graphics, values[column], font, columns[column].Width - 10),
+                    font,
+                    column == 2 ? Steel : Ink2,
+                    cellX + 5,
+                    rowY + 6,
+                    columns[column].Width - 10,
+                    rowHeight - 5);
+                cellX += columns[column].Width;
+            }
+            graphics.DrawLine(new XPen(Line, 0.35), x, rowY + rowHeight, x + width, rowY + rowHeight);
+        }
+    }
+
+    private static string DescribeChanges(ProjectAuditEntry entry)
+    {
+        var changes = ProjectAuditService.ReadChanges(entry.ChangesJson);
+        return changes.Count == 0
+            ? "No field-level changes"
+            : string.Join("; ", changes.Select(change =>
+                $"{change.Field}: {change.OldValue ?? "blank"} -> {change.NewValue ?? "blank"}"));
+    }
+
+    private static string FriendlyAction(string action)
+    {
+        return string.Concat(action.Select((character, index) =>
+            index > 0 && char.IsUpper(character) ? $" {character}" : character.ToString()));
     }
 
     private static void DrawTableHeader(XGraphics graphics, IReadOnlyList<PdfColumn> columns, double x, double y, double height)

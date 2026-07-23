@@ -36,13 +36,13 @@ import {
 export function DashboardView({
   dashboard,
   search,
-  canEdit,
+  canReorderPriority,
   onOpenProject,
   onMovePriority,
 }: {
   dashboard: Dashboard
   search: string
-  canEdit: boolean
+  canReorderPriority: boolean
   onOpenProject: (projectId: number) => Promise<void>
   onMovePriority: (projectId: number, priorityRank: number) => Promise<void>
 }) {
@@ -117,7 +117,7 @@ export function DashboardView({
             body={query ? 'Try another part number, sales order number, or customer name.' : 'Import or add programs to begin tracking schedule progress.'}
           />
         ) : (
-          <PortfolioTable projects={visible} maxPriority={active.length} canEdit={canEdit} sort={sort} onSort={handleSort} onOpenProject={onOpenProject} onMovePriority={onMovePriority} />
+          <PortfolioTable projects={visible} maxPriority={active.length} canReorderPriority={canReorderPriority} sort={sort} onSort={handleSort} onOpenProject={onOpenProject} onMovePriority={onMovePriority} />
         )}
       </section>
     </section>
@@ -163,7 +163,7 @@ export function PastProjectsView({ projects, search, onOpenProject }: { projects
         {visible.length === 0 ? (
           <EmptyState
             title={query ? 'No matching completed programs' : 'No completed programs yet'}
-            body={query ? 'Try another part number, sales order number, or customer name.' : 'A program moves here automatically once every operation is marked complete.'}
+            body={query ? 'Try another part number, sales order number, or customer name.' : 'A project moves here after an authorized user confirms it is complete.'}
           />
         ) : (
           <PastProjectsTable projects={visible} onOpenProject={onOpenProject} />
@@ -220,13 +220,13 @@ export function PastProjectsTable({ projects, onOpenProject }: { projects: Proje
 export function PriorityControl({
   rank,
   maxPriority,
-  canEdit,
+  canReorderPriority,
   programName,
   onMove,
 }: {
   rank: number | null
   maxPriority: number
-  canEdit: boolean
+  canReorderPriority: boolean
   programName: string
   onMove: (rank: number) => Promise<void>
 }) {
@@ -234,7 +234,7 @@ export function PriorityControl({
   return (
     <div className="priority-cell">
       <span className={`priority-badge tier-${tier}`} title={rank ? `Priority ${rank}` : 'No priority'}>{rank ?? '–'}</span>
-      {canEdit && rank && (
+      {canReorderPriority && rank && (
         <span className="priority-move">
           <button type="button" onClick={() => void onMove(rank - 1)} disabled={rank <= 1} aria-label={`Raise priority of ${programName}`} title="Higher priority"><ChevronUp size={13} /></button>
           <button type="button" onClick={() => void onMove(rank + 1)} disabled={rank >= maxPriority} aria-label={`Lower priority of ${programName}`} title="Lower priority"><ChevronDown size={13} /></button>
@@ -278,7 +278,7 @@ export function SortableHeader({
 export function PortfolioTable({
   projects,
   maxPriority,
-  canEdit,
+  canReorderPriority,
   sort,
   onSort,
   onOpenProject,
@@ -286,7 +286,7 @@ export function PortfolioTable({
 }: {
   projects: ProjectSummary[]
   maxPriority: number
-  canEdit: boolean
+  canReorderPriority: boolean
   sort: DashboardSort
   onSort: (field: DashboardSortField) => void
   onOpenProject: (projectId: number) => Promise<void>
@@ -314,7 +314,7 @@ export function PortfolioTable({
           {projects.map((project) => (
             <tr key={project.id} className={`clickable-row rail-${statusClass(project.status)}`} onClick={() => onOpenProject(project.id)}>
               <td className="col-priority" onClick={(event) => event.stopPropagation()}>
-                <PriorityControl rank={project.priorityRank} maxPriority={maxPriority} canEdit={canEdit} programName={project.programName} onMove={(rank) => onMovePriority(project.id, rank)} />
+                <PriorityControl rank={project.priorityRank} maxPriority={maxPriority} canReorderPriority={canReorderPriority} programName={project.programName} onMove={(rank) => onMovePriority(project.id, rank)} />
               </td>
               <td>
                 <span className="mono-id">{project.programName}</span>

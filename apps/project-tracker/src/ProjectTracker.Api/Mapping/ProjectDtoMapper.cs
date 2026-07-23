@@ -8,6 +8,7 @@ public static class ProjectDtoMapper
 {
     public static ProjectSummaryDto ToSummaryDto(Project project)
     {
+        var schedule = ProjectScheduleContext.From(project);
         var today = DateOnly.FromDateTime(DateTime.Today);
         var daysLeft = project.TargetDelivery is null ? (int?)null : project.TargetDelivery.Value.DayNumber - today.DayNumber;
         var finalCompletionDate = project.Status == ProjectStatus.Complete ? project.CompletedOn : null;
@@ -27,6 +28,7 @@ public static class ProjectDtoMapper
             project.Engineer,
             project.CustomerName,
             project.SalesOrderNumber,
+            project.JobNumber,
             project.CurrentTask,
             project.PriorityRank,
             project.Progress,
@@ -37,25 +39,42 @@ public static class ProjectDtoMapper
             project.Status,
             project.Tasks.Count,
             project.Tasks.Count(task => task.Status == TaskScheduleStatus.Behind),
-            recentNote);
+            recentNote,
+            schedule.PlannedStart,
+            schedule.PlannedFinish,
+            schedule.ActualStart,
+            schedule.ActualFinish,
+            schedule.VarianceDays,
+            schedule.Performance);
     }
 
-    public static ProjectDetailDto ToDetailDto(Project project) => new(
-        project.Id,
-        project.Version,
-        project.ProgramName,
-        project.ProgramManager,
-        project.Engineer,
-        project.CustomerName,
-        project.SalesOrderNumber,
-        project.CurrentTask,
-        project.ProgramStart,
-        project.TargetDelivery,
-        project.CompletedOn,
-        project.Progress,
-        project.Status,
-        project.DaysBehind,
-        project.Tasks.OrderBy(task => task.Sequence).Select(ToTaskDto).ToList());
+    public static ProjectDetailDto ToDetailDto(Project project)
+    {
+        var schedule = ProjectScheduleContext.From(project);
+        return new ProjectDetailDto(
+            project.Id,
+            project.Version,
+            project.ProgramName,
+            project.ProgramManager,
+            project.Engineer,
+            project.CustomerName,
+            project.SalesOrderNumber,
+            project.JobNumber,
+            project.CurrentTask,
+            project.ProgramStart,
+            project.TargetDelivery,
+            project.CompletedOn,
+            project.Progress,
+            project.Status,
+            project.DaysBehind,
+            project.Tasks.OrderBy(task => task.Sequence).Select(ToTaskDto).ToList(),
+            schedule.PlannedStart,
+            schedule.PlannedFinish,
+            schedule.ActualStart,
+            schedule.ActualFinish,
+            schedule.VarianceDays,
+            schedule.Performance);
+    }
 
     public static ProjectTaskDto ToTaskDto(ProjectTask task) => new(
         task.Id,

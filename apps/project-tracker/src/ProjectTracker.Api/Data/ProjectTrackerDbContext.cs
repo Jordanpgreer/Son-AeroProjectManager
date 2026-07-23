@@ -8,6 +8,7 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<ProjectMessage> ProjectMessages => Set<ProjectMessage>();
     public DbSet<ProjectAuditEntry> ProjectAuditEntries => Set<ProjectAuditEntry>();
+    public DbSet<UserNotification> UserNotifications => Set<UserNotification>();
     public DbSet<ProjectTask> Tasks => Set<ProjectTask>();
     public DbSet<Phase> Phases => Set<Phase>();
     public DbSet<Holiday> Holidays => Set<Holiday>();
@@ -30,6 +31,7 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
             entity.Property(project => project.Engineer).HasMaxLength(120);
             entity.Property(project => project.CustomerName).HasMaxLength(160);
             entity.Property(project => project.SalesOrderNumber).HasMaxLength(80);
+            entity.Property(project => project.JobNumber).HasMaxLength(80);
             entity.Property(project => project.Progress).HasPrecision(5, 4);
             entity.Property(project => project.Status).HasConversion<string>().HasMaxLength(24);
             entity.Property(project => project.CurrentTask).HasMaxLength(240);
@@ -56,6 +58,10 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
                 .WithMany(project => project.Tasks)
                 .HasForeignKey(task => task.ProjectId)
                 .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(task => task.DependencyTask)
+                .WithMany(task => task.DependentTasks)
+                .HasForeignKey(task => task.DependencyTaskId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<ProjectMessage>(entity =>
@@ -83,6 +89,35 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
                 .WithMany(project => project.AuditEntries)
                 .HasForeignKey(entry => entry.ProjectId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<UserNotification>(entity =>
+        {
+            entity.HasIndex(notification => new { notification.RecipientUserId, notification.ReadAt, notification.CreatedAt });
+            entity.HasIndex(notification => notification.ProjectMessageId);
+            entity.HasIndex(notification => notification.ProjectTaskId);
+            entity.Property(notification => notification.Kind).HasConversion<string>().HasMaxLength(40);
+            entity.Property(notification => notification.ActorAccountName).HasMaxLength(160);
+            entity.Property(notification => notification.ActorDisplayName).HasMaxLength(160);
+            entity.Property(notification => notification.Title).HasMaxLength(240);
+            entity.Property(notification => notification.BodyPreview).HasMaxLength(320);
+            entity.HasQueryFilter(notification => notification.Project.DeletedAt == null);
+            entity.HasOne(notification => notification.RecipientUser)
+                .WithMany(user => user.Notifications)
+                .HasForeignKey(notification => notification.RecipientUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(notification => notification.Project)
+                .WithMany(project => project.Notifications)
+                .HasForeignKey(notification => notification.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(notification => notification.ProjectTask)
+                .WithMany(task => task.Notifications)
+                .HasForeignKey(notification => notification.ProjectTaskId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne(notification => notification.ProjectMessage)
+                .WithMany(message => message.Notifications)
+                .HasForeignKey(notification => notification.ProjectMessageId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<TaskOvertimeDay>(entity =>
@@ -124,6 +159,8 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
             entity.HasIndex(user => user.AccountName).IsUnique();
             entity.Property(user => user.AccountName).HasMaxLength(160);
             entity.Property(user => user.DisplayName).HasMaxLength(160);
+            // Kept as a compatibility bridge for the Hub and Engineering module.
+            entity.Property<string>("Role").HasMaxLength(32).HasDefaultValue("Viewer").IsRequired();
             entity.HasMany(user => user.GroupMemberships)
                 .WithOne(membership => membership.User)
                 .HasForeignKey(membership => membership.AppUserId)
@@ -173,6 +210,36 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
                 .HasForeignKey(history => history.ProjectTaskId)
                 .OnDelete(DeleteBehavior.NoAction);
         });
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        ApplyLegacyUserRoleDefaults();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess,
+        CancellationToken cancellationToken = default)
+    {
+        ApplyLegacyUserRoleDefaults();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    public void SetLegacyRole(AppUser user, string role)
+    {
+        Entry(user).Property<string>("Role").CurrentValue = role;
+    }
+
+    private void ApplyLegacyUserRoleDefaults()
+    {
+        foreach (var entry in ChangeTracker.Entries<AppUser>().Where(entry => entry.State == EntityState.Added))
+        {
+            if (string.IsNullOrWhiteSpace(entry.Property<string>("Role").CurrentValue))
+            {
+                entry.Property<string>("Role").CurrentValue = "Viewer";
+            }
+        }
     }
 }
 

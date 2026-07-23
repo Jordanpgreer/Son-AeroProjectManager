@@ -467,7 +467,7 @@ export function formFromTask(task: ProjectTask): TaskForm {
     estimatedDuration: task.estimatedDuration?.toString() ?? '',
     actualDuration: task.actualDuration?.toString() ?? '',
     percentComplete: Math.round(task.percentComplete * 100).toString(),
-    percentCompleteManual: task.percentCompleteManual,
+    percentCompleteManual: true,
     notes: task.notes ?? '',
     overtimeDays: task.overtimeDays,
   }
@@ -491,7 +491,7 @@ export function emptyTaskForm(project: ProjectDetail): TaskForm {
     estimatedDuration: '',
     actualDuration: '',
     percentComplete: '0',
-    percentCompleteManual: false,
+    percentCompleteManual: true,
     notes: '',
     overtimeDays: [],
   }

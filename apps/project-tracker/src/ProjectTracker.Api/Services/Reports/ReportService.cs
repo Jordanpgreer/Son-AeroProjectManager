@@ -53,6 +53,20 @@ public sealed class ReportService(ProjectTrackerDbContext db)
         return new ReportFile(content, PdfContentType, $"{SafeName(data.Project.ProgramName)}-schedule.pdf");
     }
 
+    public async Task<ReportFile> ProjectActivityPdfAsync(int projectId, CancellationToken cancellationToken = default)
+    {
+        var project = await db.Projects
+            .Include(candidate => candidate.AuditEntries)
+            .FirstOrDefaultAsync(candidate => candidate.Id == projectId, cancellationToken)
+            ?? throw new KeyNotFoundException("Project not found.");
+        var entries = project.AuditEntries
+            .OrderByDescending(entry => entry.ChangedAt)
+            .ThenByDescending(entry => entry.Id)
+            .ToList();
+        var content = PdfReportBuilder.BuildProjectActivity(project, entries, ReportAssets.LogoPath);
+        return new ReportFile(content, PdfContentType, $"{SafeName(project.ProgramName)}-activity-log.pdf");
+    }
+
     private async Task<(IReadOnlyList<Project> Projects, ScheduleCalendar Calendar)> LoadPortfolioAsync(CancellationToken cancellationToken)
     {
         var projects = await db.Projects

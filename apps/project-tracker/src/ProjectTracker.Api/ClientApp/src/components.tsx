@@ -1,5 +1,5 @@
 import './App.css'
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useId, useMemo, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -23,8 +23,69 @@ import type {
   Screen,
 } from './types'
 
-export function ConflictIcon({ className = '' }: { className?: string }) {
-  return <AlertTriangle className={`conflict-icon ${className}`.trim()} size={14} aria-label="Work center date conflict" />
+export function ConflictIcon({
+  className = '',
+  focusable = true,
+  message = 'Work-center conflict: another active project is scheduled at this work center during the same dates.',
+}: {
+  className?: string
+  focusable?: boolean
+  message?: string
+}) {
+  const anchorRef = useRef<HTMLSpanElement>(null)
+  const tooltipId = useId()
+  const [tooltip, setTooltip] = useState<{ left: number; top: number; below: boolean } | null>(null)
+
+  const showTooltip = () => {
+    const rect = anchorRef.current?.getBoundingClientRect()
+    if (!rect) return
+    setTooltip({
+      left: Math.min(Math.max(rect.left + rect.width / 2, 152), window.innerWidth - 152),
+      top: rect.top < 84 ? rect.bottom + 9 : rect.top - 9,
+      below: rect.top < 84,
+    })
+  }
+
+  useEffect(() => {
+    if (!tooltip) return
+    const hideTooltip = () => setTooltip(null)
+    window.addEventListener('resize', hideTooltip)
+    window.addEventListener('scroll', hideTooltip, true)
+    return () => {
+      window.removeEventListener('resize', hideTooltip)
+      window.removeEventListener('scroll', hideTooltip, true)
+    }
+  }, [tooltip])
+
+  return (
+    <>
+      <span
+        ref={anchorRef}
+        className={`conflict-indicator ${className}`.trim()}
+        role="img"
+        tabIndex={focusable ? 0 : undefined}
+        aria-label={message}
+        aria-describedby={tooltip ? tooltipId : undefined}
+        onMouseEnter={showTooltip}
+        onMouseLeave={() => setTooltip(null)}
+        onFocus={showTooltip}
+        onBlur={() => setTooltip(null)}
+      >
+        <AlertTriangle className="conflict-icon" size={14} aria-hidden="true" />
+      </span>
+      {tooltip && createPortal(
+        <span
+          id={tooltipId}
+          className={`conflict-tooltip ${tooltip.below ? 'below' : 'above'}`}
+          role="tooltip"
+          style={{ left: tooltip.left, top: tooltip.top }}
+        >
+          {message}
+        </span>,
+        document.body,
+      )}
+    </>
+  )
 }
 
 
@@ -33,11 +94,15 @@ export function WorkStationPicker({
   options,
   onChange,
   onCommit,
+  disabled = false,
+  title,
 }: {
   value: string
   options: string[]
   onChange: (value: string) => void
   onCommit?: () => void
+  disabled?: boolean
+  title?: string
 }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -79,21 +144,22 @@ export function WorkStationPicker({
   }, [open])
 
   return (
-    <div className="work-station-picker" ref={rootRef}>
+    <div className={`work-station-picker ${disabled ? 'is-disabled' : ''}`} ref={rootRef} title={title}>
       <div className="work-station-control" ref={controlRef}>
         <Search size={15} />
         <input
           role="combobox"
           aria-autocomplete="list"
           aria-expanded={open}
+          disabled={disabled}
           value={value}
           onChange={(event) => { onChange(event.target.value); setOpen(true) }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => { if (!disabled) setOpen(true) }}
           onBlur={() => onCommit?.()}
           onKeyDown={(event) => { if (event.key === 'Enter') setOpen(false) }}
           placeholder="Search or select work center"
         />
-        <button type="button" aria-label="Show work centers" tabIndex={-1} onMouseDown={(event) => { event.preventDefault(); setOpen((current) => !current) }}>
+        <button type="button" aria-label="Show work centers" tabIndex={-1} disabled={disabled} onMouseDown={(event) => { event.preventDefault(); if (!disabled) setOpen((current) => !current) }}>
           <ChevronDown size={15} />
         </button>
       </div>

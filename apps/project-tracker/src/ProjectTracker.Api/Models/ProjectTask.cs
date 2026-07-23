@@ -11,6 +11,8 @@ public sealed class ProjectTask
     public string? Phase { get; set; }
     public string? WorkStation { get; set; }
     public int? DependencyTaskId { get; set; }
+    public ProjectTask? DependencyTask { get; set; }
+    public List<ProjectTask> DependentTasks { get; set; } = [];
     public DateOnly? StartDate { get; set; }
     public bool StartDateLocked { get; set; }
     public DateOnly? OriginalStartDate { get; set; }
@@ -27,5 +29,6 @@ public sealed class ProjectTask
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     public List<TaskOvertimeDay> OvertimeDays { get; set; } = [];
+    public List<UserNotification> Notifications { get; set; } = [];
 }
 

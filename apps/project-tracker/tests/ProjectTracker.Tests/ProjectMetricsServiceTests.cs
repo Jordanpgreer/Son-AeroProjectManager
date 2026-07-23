@@ -91,7 +91,7 @@ public sealed class ProjectMetricsServiceTests
     }
 
     [Fact]
-    public void RefreshProject_RecordsFinalScheduledDateWhenProjectAutomaticallyCompletes()
+    public void RefreshProject_DoesNotCompleteOperationBecauseItsEndDatePassed()
     {
         var finalDate = new DateOnly(2026, 6, 23);
         var project = new Project
@@ -112,8 +112,57 @@ public sealed class ProjectMetricsServiceTests
 
         metrics.RefreshProject(project, ScheduleCalendar.Default, new DateOnly(2026, 6, 29));
 
-        Assert.Equal(ProjectStatus.Complete, project.Status);
-        Assert.Equal(finalDate, project.CompletedOn);
+        Assert.Equal(0m, project.Tasks[0].PercentComplete);
+        Assert.Equal(TaskScheduleStatus.Behind, project.Tasks[0].Status);
+        Assert.Equal(ProjectStatus.Behind, project.Status);
+        Assert.Null(project.CompletedOn);
+    }
+
+    [Fact]
+    public void RefreshProject_KeepsFullyReportedProjectActiveUntilItIsFormallyClosed()
+    {
+        var project = new Project
+        {
+            ProgramName = "Ready to close",
+            Tasks =
+            [
+                new ProjectTask
+                {
+                    Sequence = 1,
+                    Title = "Final operation",
+                    StartDate = new DateOnly(2026, 6, 22),
+                    EndDate = new DateOnly(2026, 6, 23),
+                    EstimatedDuration = 2,
+                    PercentComplete = 1m,
+                    PercentCompleteManual = true
+                }
+            ]
+        };
+
+        metrics.RefreshProject(project, ScheduleCalendar.Default, new DateOnly(2026, 6, 29));
+
+        Assert.Equal(1m, project.Progress);
+        Assert.Equal(ProjectStatus.OnTrack, project.Status);
+        Assert.Equal("Ready to close", project.CurrentTask);
+        Assert.Null(project.CompletedOn);
+    }
+
+    [Fact]
+    public void RefreshProject_IncludesZeroDurationOperationsInProgress()
+    {
+        var project = new Project
+        {
+            ProgramName = "Milestone project",
+            Tasks =
+            [
+                new ProjectTask { Sequence = 1, Title = "Production", EstimatedDuration = 4, PercentComplete = 1m },
+                new ProjectTask { Sequence = 2, Title = "Final approval", EstimatedDuration = 0, PercentComplete = 0m }
+            ]
+        };
+
+        metrics.RefreshProject(project, ScheduleCalendar.Default, new DateOnly(2026, 6, 20));
+
+        Assert.Equal(0.8m, project.Progress);
     }
 
     [Fact]

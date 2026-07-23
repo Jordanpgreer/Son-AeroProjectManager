@@ -64,4 +64,42 @@ public sealed class ReportServiceTests
         Assert.True(document.PageCount >= 2);
         Assert.Equal("TEST-1001 Project Schedule", document.Info.Title);
     }
+
+    [Fact]
+    public async Task ActivityPdf_IsBrandedAndContainsProjectActivity()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>().UseSqlite(connection).Options;
+        await using var db = new ProjectTrackerDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        var project = new Project
+        {
+            ProgramName = "TEST-ACTIVITY",
+            JobNumber = "JOB-9001",
+            CustomerName = "Test Customer",
+            AuditEntries =
+            [
+                new ProjectAuditEntry
+                {
+                    Action = "ProjectUpdated",
+                    Summary = "Updated project details",
+                    ChangesJson = "[{\"field\":\"Job number\",\"oldValue\":null,\"newValue\":\"JOB-9001\"}]",
+                    ChangedByAccountName = @"SON-AERO\reviewer",
+                    ChangedByDisplayName = "Project Reviewer"
+                }
+            ]
+        };
+        db.Projects.Add(project);
+        await db.SaveChangesAsync();
+
+        var report = await new ReportService(db).ProjectActivityPdfAsync(project.Id);
+
+        Assert.Equal("application/pdf", report.ContentType);
+        Assert.Equal("TEST-ACTIVITY-activity-log.pdf", report.FileName);
+        using var document = PdfReader.Open(new MemoryStream(report.Content), PdfDocumentOpenMode.Import);
+        Assert.True(document.PageCount >= 1);
+        Assert.Equal("TEST-ACTIVITY Activity Log", document.Info.Title);
+        Assert.Equal("SON-AERO", document.Info.Author);
+    }
 }

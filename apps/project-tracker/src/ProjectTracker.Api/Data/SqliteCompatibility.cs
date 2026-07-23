@@ -113,6 +113,27 @@ public static partial class SqliteCompatibility
                 CONSTRAINT "FK_ProjectAuditEntries_Projects_ProjectId" FOREIGN KEY ("ProjectId") REFERENCES "Projects" ("Id") ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS "IX_ProjectAuditEntries_ProjectId_ChangedAt" ON "ProjectAuditEntries" ("ProjectId", "ChangedAt");
+            CREATE TABLE IF NOT EXISTS "UserNotifications" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_UserNotifications" PRIMARY KEY AUTOINCREMENT,
+                "RecipientUserId" INTEGER NOT NULL,
+                "ProjectId" INTEGER NOT NULL,
+                "ProjectTaskId" INTEGER NULL,
+                "ProjectMessageId" INTEGER NULL,
+                "Kind" TEXT NOT NULL,
+                "ActorAccountName" TEXT NOT NULL,
+                "ActorDisplayName" TEXT NOT NULL,
+                "Title" TEXT NOT NULL,
+                "BodyPreview" TEXT NOT NULL,
+                "CreatedAt" TEXT NOT NULL,
+                "ReadAt" TEXT NULL,
+                CONSTRAINT "FK_UserNotifications_Users_RecipientUserId" FOREIGN KEY ("RecipientUserId") REFERENCES "Users" ("Id") ON DELETE CASCADE,
+                CONSTRAINT "FK_UserNotifications_Projects_ProjectId" FOREIGN KEY ("ProjectId") REFERENCES "Projects" ("Id") ON DELETE CASCADE,
+                CONSTRAINT "FK_UserNotifications_Tasks_ProjectTaskId" FOREIGN KEY ("ProjectTaskId") REFERENCES "Tasks" ("Id") ON DELETE SET NULL,
+                CONSTRAINT "FK_UserNotifications_ProjectMessages_ProjectMessageId" FOREIGN KEY ("ProjectMessageId") REFERENCES "ProjectMessages" ("Id") ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS "IX_UserNotifications_ProjectMessageId" ON "UserNotifications" ("ProjectMessageId");
+            CREATE INDEX IF NOT EXISTS "IX_UserNotifications_ProjectTaskId" ON "UserNotifications" ("ProjectTaskId");
+            CREATE INDEX IF NOT EXISTS "IX_UserNotifications_RecipientUserId_ReadAt_CreatedAt" ON "UserNotifications" ("RecipientUserId", "ReadAt", "CreatedAt");
             CREATE TABLE IF NOT EXISTS "StatusHistory" (
                 "Id" INTEGER NOT NULL CONSTRAINT "PK_StatusHistory" PRIMARY KEY AUTOINCREMENT,
                 "ProjectId" INTEGER NOT NULL,
@@ -171,6 +192,55 @@ public static partial class SqliteCompatibility
                 CONSTRAINT "PK_GroupPermissions" PRIMARY KEY ("AppGroupId", "PermissionKey"),
                 CONSTRAINT "FK_GroupPermissions_Groups_AppGroupId" FOREIGN KEY ("AppGroupId") REFERENCES "Groups" ("Id") ON DELETE CASCADE
             );
+            """;
+
+        var connection = db.Database.GetDbConnection();
+        await connection.OpenAsync(cancellationToken);
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = commandText;
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        finally
+        {
+            await connection.CloseAsync();
+        }
+    }
+
+    public static async Task EnsureLocalPermissionSeedAsync(ProjectTrackerDbContext db, CancellationToken cancellationToken)
+    {
+        const string commandText = """
+            CREATE TABLE IF NOT EXISTS "ProjectTrackerSchemaState" (
+                "Key" TEXT NOT NULL CONSTRAINT "PK_ProjectTrackerSchemaState" PRIMARY KEY,
+                "AppliedAt" TEXT NOT NULL
+            );
+            INSERT INTO "GroupPermissions" ("AppGroupId", "PermissionKey", "CreatedAt")
+            SELECT source."AppGroupId", 'project.activity.view', CURRENT_TIMESTAMP
+            FROM "GroupPermissions" source
+            WHERE source."PermissionKey" = 'module.view'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM "GroupPermissions" existing
+                  WHERE existing."AppGroupId" = source."AppGroupId"
+                    AND existing."PermissionKey" = 'project.activity.view')
+              AND NOT EXISTS (
+                  SELECT 1 FROM "ProjectTrackerSchemaState" state
+                  WHERE state."Key" = '20260723-local-permissions');
+            INSERT INTO "GroupPermissions" ("AppGroupId", "PermissionKey", "CreatedAt")
+            SELECT source."AppGroupId", 'project.edit.jobNumber', CURRENT_TIMESTAMP
+            FROM "GroupPermissions" source
+            WHERE source."PermissionKey" = 'project.edit.salesOrderNumber'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM "GroupPermissions" existing
+                  WHERE existing."AppGroupId" = source."AppGroupId"
+                    AND existing."PermissionKey" = 'project.edit.jobNumber')
+              AND NOT EXISTS (
+                  SELECT 1 FROM "ProjectTrackerSchemaState" state
+                  WHERE state."Key" = '20260723-local-permissions');
+            INSERT OR IGNORE INTO "ProjectTrackerSchemaState" ("Key", "AppliedAt")
+            VALUES ('20260723-local-permissions', CURRENT_TIMESTAMP);
             """;
 
         var connection = db.Database.GetDbConnection();

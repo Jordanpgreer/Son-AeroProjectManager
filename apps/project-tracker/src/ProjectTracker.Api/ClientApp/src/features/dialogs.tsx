@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronRight,
+  FileDown,
   History,
   MessageSquare,
   RefreshCw,
@@ -30,6 +31,8 @@ import type {
   ProjectAuditEntry,
   ProjectMessage,
   MentionableUser,
+  ProjectTask,
+  OperationDependent,
 } from '../types'
 import {
   SkeletonLine,
@@ -88,6 +91,64 @@ export function ProjectConfirmationDialog({
   )
 }
 
+export function OperationDeleteDialog({
+  task,
+  dependents,
+  pending,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  task: ProjectTask
+  dependents: OperationDependent[]
+  pending: boolean
+  error: string | null
+  onCancel: () => void
+  onConfirm: () => Promise<void>
+}) {
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !pending) onCancel()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [onCancel, pending])
+
+  return (
+    <div className="modal-backdrop" onClick={() => !pending && onCancel()}>
+      <section className="modal confirmation-modal" role="alertdialog" aria-modal="true" aria-labelledby="operation-delete-title" onClick={(event) => event.stopPropagation()}>
+        <div className="confirmation-icon danger"><AlertTriangle size={22} /></div>
+        <div className="confirmation-copy">
+          <span className="kicker">Schedule Change</span>
+          <h2 id="operation-delete-title">Delete operation {task.sequence}: {task.title}?</h2>
+          {dependents.length > 0 ? (
+            <>
+              <p>
+                {dependents.length} later operation{dependents.length === 1 ? '' : 's'} currently depend{dependents.length === 1 ? 's' : ''} on this operation.
+                Deleting it will reset those dependencies to the normal previous-operation sequence and recalculate the remaining schedule.
+              </p>
+              <ul className="confirmation-dependent-list">
+                {dependents.map((dependent) => (
+                  <li key={dependent.id}>Operation {dependent.sequence}: {dependent.title}</li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p>The operation will be permanently removed, the remaining steps will be renumbered, and their schedule dates will be recalculated. This cannot be undone.</p>
+          )}
+          {error && <p className="inline-note warning" role="alert"><AlertTriangle size={14} /> {error}</p>}
+        </div>
+        <div className="modal-actions confirmation-actions">
+          <button className="button ghost" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
+          <button className="button danger-solid" type="button" onClick={onConfirm} disabled={pending} autoFocus>
+            <Trash2 size={15} /> {pending ? 'Deleting...' : dependents.length > 0 ? 'Delete & Reset Dependencies' : 'Delete Operation'}
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 export function UnsavedProjectDetailsDialog({
   projectName,
   saving,
@@ -115,16 +176,16 @@ export function UnsavedProjectDetailsDialog({
         <div className="confirmation-icon unsaved"><AlertTriangle size={22} /></div>
         <div className="confirmation-copy">
           <span className="kicker">Unsaved Project Details</span>
-          <h2 id="unsaved-project-details-title">Save before leaving edit mode?</h2>
+          <h2 id="unsaved-project-details-title">Save before continuing?</h2>
           <p>
             The contact lead, engineer, customer, or sales order for <strong>{projectName}</strong> has changed. Operation-grid edits save automatically, but these project details still need to be saved.
           </p>
         </div>
         <div className="modal-actions confirmation-actions unsaved-detail-actions">
           <button className="button ghost" type="button" onClick={onContinueEditing} disabled={saving}>Continue Editing</button>
-          <button className="button danger" type="button" onClick={onDiscard} disabled={saving}>Discard &amp; Done</button>
+          <button className="button danger" type="button" onClick={onDiscard} disabled={saving}>Discard &amp; Continue</button>
           <button className="button primary" type="button" onClick={onSave} disabled={saving} autoFocus>
-            <Save size={15} /> {saving ? 'Saving...' : 'Save & Done'}
+            <Save size={15} /> {saving ? 'Saving...' : 'Save & Continue'}
           </button>
         </div>
       </section>
@@ -411,6 +472,13 @@ export function ProjectActivityDrawer({ project, onClose }: { project: ProjectDe
             <p>{project.programName}</p>
           </div>
           <div className="drawer-head-actions">
+            <a
+              className="button ghost activity-export"
+              href={`/api/reports/projects/${project.id}/activity.pdf`}
+              title="Export branded activity log as PDF"
+            >
+              <FileDown size={15} /> Export PDF
+            </a>
             <button className="icon-button" type="button" onClick={() => void loadActivity()} aria-label="Refresh activity log" title="Refresh activity log"><RefreshCw size={16} /></button>
             <button className="icon-button" type="button" onClick={onClose} aria-label="Close activity log"><X size={17} /></button>
           </div>

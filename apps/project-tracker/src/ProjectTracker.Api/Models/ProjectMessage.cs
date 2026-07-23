@@ -9,4 +9,5 @@ public sealed class ProjectMessage
     public string AuthorDisplayName { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public ICollection<UserNotification> Notifications { get; set; } = [];
 }

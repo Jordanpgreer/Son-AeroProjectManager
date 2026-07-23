@@ -59,9 +59,8 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
                 task.EndDate = scheduleCalculator.AddWorkingDaysInclusive(task.StartDate.Value, task.EstimatedDuration.Value, calendar, overtimeDates);
             }
 
-            task.PercentComplete = task.PercentCompleteManual
-                ? Math.Clamp(task.PercentComplete, 0m, 1m)
-                : CalculateAutomaticPercent(task, calendar, today);
+            task.PercentComplete = Math.Clamp(task.PercentComplete, 0m, 1m);
+            task.PercentCompleteManual = true;
             task.Status = scheduleCalculator.CalculateTaskStatus(task, calendar, today);
             if (updateVersions) UpdateTaskVersion(task, taskState);
 
@@ -76,16 +75,10 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
         }
         project.TargetDelivery = activeTasks.Select(task => task.EndDate).Where(date => date is not null).Max();
         project.Progress = CalculateWeightedProgress(activeTasks);
-        project.CurrentTask = activeTasks.FirstOrDefault(task => task.Status != TaskScheduleStatus.Complete)?.Title ?? "Program Complete";
-        project.Status = CalculateProjectStatus(activeTasks, project.Progress);
-        if (project.Status == ProjectStatus.Complete)
-        {
-            project.CompletedOn = activeTasks
-                .Select(task => task.EndDate)
-                .Where(date => date is not null)
-                .Max()
-                ?? today;
-        }
+        project.CurrentTask = activeTasks.All(task => task.PercentComplete >= 1m)
+            ? "Ready to close"
+            : activeTasks.FirstOrDefault(task => task.Status != TaskScheduleStatus.Complete)?.Title;
+        project.Status = CalculateProjectStatus(activeTasks);
         project.DaysBehind = CalculateProjectDaysBehind(project, calendar, today);
         if (updateVersions) UpdateProjectVersion(project, projectState);
     }
@@ -163,34 +156,6 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
         project.UpdatedAt = DateTimeOffset.UtcNow;
     }
 
-    private decimal CalculateAutomaticPercent(ProjectTask task, ScheduleCalendar calendar, DateOnly today)
-    {
-        if (task.StartDate is null || task.EndDate is null)
-        {
-            return 0m;
-        }
-
-        if (today < task.StartDate.Value)
-        {
-            return 0m;
-        }
-
-        if (today >= task.EndDate.Value)
-        {
-            return 1m;
-        }
-
-        var overtimeDates = task.OvertimeDays.Select(day => day.Date).ToHashSet();
-        var total = scheduleCalculator.CountWorkingDays(task.StartDate.Value, task.EndDate.Value, calendar, overtimeDates);
-        if (total <= 0)
-        {
-            return 0m;
-        }
-
-        var elapsed = scheduleCalculator.CountWorkingDays(task.StartDate.Value, today, calendar, overtimeDates);
-        return Math.Clamp((decimal)elapsed / total, 0m, 1m);
-    }
-
     private DateOnly NextWorkingDay(DateOnly date, ScheduleCalendar calendar, IReadOnlySet<DateOnly> overtimeDates)
     {
         var next = date;
@@ -216,27 +181,26 @@ public sealed class ProjectMetricsService(ScheduleCalculator scheduleCalculator)
 
     private static decimal CalculateWeightedProgress(IReadOnlyCollection<ProjectTask> tasks)
     {
-        var weightedTasks = tasks.Where(task => task.EstimatedDuration is > 0).ToList();
-        var denominator = weightedTasks.Sum(task => task.EstimatedDuration!.Value);
-        if (denominator == 0)
+        if (tasks.Count == 0)
         {
-            return tasks.Count > 0 && tasks.All(task => task.PercentComplete >= 1m) ? 1m : 0m;
+            return 0m;
         }
 
-        var numerator = weightedTasks.Sum(task => task.EstimatedDuration!.Value * task.PercentComplete);
+        var denominator = tasks.Sum(task => Math.Max(1, task.EstimatedDuration ?? 1));
+        var numerator = tasks.Sum(task => Math.Max(1, task.EstimatedDuration ?? 1) * Math.Clamp(task.PercentComplete, 0m, 1m));
         return Math.Clamp(numerator / denominator, 0m, 1m);
     }
 
-    private static ProjectStatus CalculateProjectStatus(IReadOnlyCollection<ProjectTask> tasks, decimal progress)
+    private static ProjectStatus CalculateProjectStatus(IReadOnlyCollection<ProjectTask> tasks)
     {
         if (tasks.Count == 0)
         {
             return ProjectStatus.NotStarted;
         }
 
-        if (progress >= 1m || tasks.All(task => task.Status == TaskScheduleStatus.Complete))
+        if (tasks.All(task => task.Status == TaskScheduleStatus.Complete))
         {
-            return ProjectStatus.Complete;
+            return ProjectStatus.OnTrack;
         }
 
         if (tasks.Any(task => task.Status == TaskScheduleStatus.Behind))

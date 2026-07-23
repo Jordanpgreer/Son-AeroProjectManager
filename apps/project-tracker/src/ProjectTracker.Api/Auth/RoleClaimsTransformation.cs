@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using ProjectTracker.Api.Data;
+using ProjectTracker.Api.Models;
 using SonAero.Platform.Security;
 
 namespace ProjectTracker.Api.Auth;
@@ -25,14 +26,53 @@ public sealed class RoleClaimsTransformation(ProjectTrackerDbContext db) : IClai
         var account = principal.Identity.Name;
         var normalizedAccount = account.ToUpperInvariant();
         var access = await db.Users
-            .AsNoTracking()
             .Include(user => user.GroupMemberships)
                 .ThenInclude(membership => membership.Group)
                     .ThenInclude(group => group.Permissions)
-            .FirstOrDefaultAsync(user => user.AccountName.ToUpper() == normalizedAccount && user.IsActive);
+            .FirstOrDefaultAsync(user => user.AccountName.ToUpper() == normalizedAccount);
         var identity = new ClaimsIdentity(ApplicationRoleIdentity);
 
         if (access is null)
+        {
+            var viewOnlyGroup = await db.Groups
+                .Include(group => group.Permissions)
+                .FirstOrDefaultAsync(group => group.Name == ProjectTrackerGroups.ViewOnly);
+            if (viewOnlyGroup is null)
+            {
+                principal.AddIdentity(identity);
+                return principal;
+            }
+
+            access = new AppUser
+            {
+                AccountName = account,
+                DisplayName = DefaultDisplayName(account),
+                IsActive = true,
+                LastSeenAt = DateTimeOffset.UtcNow,
+                GroupMemberships = [new AppUserGroupMembership { Group = viewOnlyGroup }]
+            };
+            db.Users.Add(access);
+            db.SetLegacyRole(access, "Viewer");
+            try
+            {
+                await db.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                db.ChangeTracker.Clear();
+                access = await db.Users
+                    .Include(user => user.GroupMemberships)
+                        .ThenInclude(membership => membership.Group)
+                            .ThenInclude(group => group.Permissions)
+                    .FirstOrDefaultAsync(user => user.AccountName.ToUpper() == normalizedAccount);
+                if (access is null)
+                {
+                    throw;
+                }
+            }
+        }
+
+        if (access?.IsActive != true)
         {
             principal.AddIdentity(identity);
             return principal;
@@ -64,5 +104,11 @@ public sealed class RoleClaimsTransformation(ProjectTrackerDbContext db) : IClai
 
         principal.AddIdentity(identity);
         return principal;
+    }
+
+    private static string DefaultDisplayName(string accountName)
+    {
+        var slashIndex = accountName.LastIndexOf('\\');
+        return slashIndex >= 0 ? accountName[(slashIndex + 1)..] : accountName;
     }
 }

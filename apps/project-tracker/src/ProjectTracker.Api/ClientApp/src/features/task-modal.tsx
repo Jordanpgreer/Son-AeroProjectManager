@@ -34,6 +34,10 @@ import {
 import {
   OvertimeDateEditor,
 } from './settings'
+import {
+  hasPermission,
+  permissionKeys,
+} from '../permissions'
 
 export function AddProjectWizard({
   projects,
@@ -56,6 +60,7 @@ export function AddProjectWizard({
     programName: '',
     customerName: '',
     salesOrderNumber: '',
+    jobNumber: '',
     programManager: defaultManager,
     programStart: todayIso(),
     templateProjectId: '',
@@ -74,6 +79,7 @@ export function AddProjectWizard({
         programName: form.programName.trim(),
         customerName: form.customerName.trim() || null,
         salesOrderNumber: form.salesOrderNumber.trim() || null,
+        jobNumber: form.jobNumber.trim() || null,
         programManager: form.programManager.trim() || null,
         programStart: form.programStart || null,
         templateProjectId: sourceMode === 'copy' ? Number(form.templateProjectId) : null,
@@ -102,14 +108,15 @@ export function AddProjectWizard({
           {step === 1 && (
             <section className="form-section">
               <div className="field-row">
-                <label className="field"><span>Part Number</span><input value={form.programName} onChange={(event) => setForm({ ...form, programName: event.target.value })} placeholder="Required" autoFocus /></label>
-                <label className="field"><span>Sales Order #</span><input value={form.salesOrderNumber} onChange={(event) => setForm({ ...form, salesOrderNumber: event.target.value })} placeholder="Optional" /></label>
+                <label className="field"><span>Part Number</span><input className="technical-id-input" value={form.programName} onChange={(event) => setForm({ ...form, programName: event.target.value })} placeholder="Required" autoFocus /></label>
+                <label className="field"><span>Sales Order #</span><input className="technical-id-input" value={form.salesOrderNumber} onChange={(event) => setForm({ ...form, salesOrderNumber: event.target.value })} placeholder="Optional" /></label>
               </div>
               {duplicate && <p className="inline-note warning"><AlertTriangle size={14} /> A project with this part number already exists.</p>}
               <div className="field-row">
                 <label className="field"><span>Customer</span><input value={form.customerName} onChange={(event) => setForm({ ...form, customerName: event.target.value })} placeholder="Customer name" /></label>
                 <label className="field"><span>Project Manager</span><input value={form.programManager} onChange={(event) => setForm({ ...form, programManager: event.target.value })} placeholder="Project owner" /></label>
               </div>
+              <label className="field"><span>Job Number</span><input className="technical-id-input" value={form.jobNumber} onChange={(event) => setForm({ ...form, jobNumber: event.target.value })} placeholder="Optional internal job number" /></label>
             </section>
           )}
 
@@ -130,7 +137,7 @@ export function AddProjectWizard({
                         className={Number(form.templateProjectId) === project.id ? 'selected' : ''}
                         onClick={() => setForm({ ...form, templateProjectId: String(project.id) })}
                       >
-                        <span><strong>{project.programName}</strong><small>{project.tasks.length} operations · {project.customerName || 'Customer not set'}</small></span>
+                        <span><strong className="technical-id">{project.programName}</strong><small>{project.tasks.length} operations · {project.customerName || 'Customer not set'}</small></span>
                         {Number(form.templateProjectId) === project.id && <Check size={15} />}
                       </button>
                     ))}
@@ -143,9 +150,10 @@ export function AddProjectWizard({
 
           {step === 3 && (
             <section className="review-grid">
-              <div><span>Part Number</span><strong>{form.programName}</strong></div>
+              <div><span>Part Number</span><strong className={form.programName ? 'technical-id' : undefined}>{form.programName || 'Not set'}</strong></div>
               <div><span>Customer</span><strong>{form.customerName || 'Not set'}</strong></div>
-              <div><span>Sales Order</span><strong>{form.salesOrderNumber || 'Not set'}</strong></div>
+              <div><span>Sales Order</span><strong className={form.salesOrderNumber ? 'technical-id' : undefined}>{form.salesOrderNumber || 'Not set'}</strong></div>
+              <div><span>Job Number</span><strong className={form.jobNumber ? 'technical-id' : undefined}>{form.jobNumber || 'Not set'}</strong></div>
               <div><span>Project Manager</span><strong>{form.programManager || 'Unassigned'}</strong></div>
               <div><span>Start Date</span><strong>{compactDate(form.programStart)}</strong></div>
               <div><span>Operations</span><strong>{sourceMode === 'copy' ? `${template?.tasks.length ?? 0} copied from ${template?.programName}` : 'Blank schedule'}</strong></div>
@@ -178,6 +186,9 @@ export function TaskModal({
   workStations,
   holidaySet,
   workingDaySet,
+  permissions,
+  saving,
+  error,
 }: {
   form: TaskForm
   setForm: (form: TaskForm) => void
@@ -187,10 +198,13 @@ export function TaskModal({
   workStations: string[]
   holidaySet: Set<string>
   workingDaySet: Set<number>
+  permissions: string[]
+  saving: boolean
+  error: string | null
 }) {
-  const [showAdvanced, setShowAdvanced] = useState(
-    Boolean(form.actualDuration || form.originalStartDate || form.originalEndDate),
-  )
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const creating = !form.id
+  const canField = (permission: string) => creating || hasPermission(permissions, permission)
   const pct = Math.round(clamp(Number(form.percentComplete) || 0, 0, 100))
   const overtimeDates = useMemo(() => new Set(form.overtimeDays.map((day) => day.date)), [form.overtimeDays])
 
@@ -199,11 +213,11 @@ export function TaskModal({
     const duration = next.estimatedDuration ? Number(next.estimatedDuration) : null
     const durationChanged = Object.prototype.hasOwnProperty.call(patch, 'estimatedDuration')
 
-    if (durationChanged && next.startDate && duration && duration > 0) {
+    if (durationChanged && canField(permissionKeys.taskEditEndDate) && next.startDate && duration && duration > 0) {
       next.endDate = calculateEndDate(next.startDate, duration, holidaySet, workingDaySet, overtimeDates) ?? ''
-    } else if (next.startDate && next.endDate) {
+    } else if (canField(permissionKeys.taskEditEstimatedDuration) && next.startDate && next.endDate) {
       next.estimatedDuration = String(calculateDuration(next.startDate, next.endDate, holidaySet, workingDaySet, overtimeDates))
-    } else if (next.startDate && duration && duration > 0) {
+    } else if (canField(permissionKeys.taskEditEndDate) && next.startDate && duration && duration > 0) {
       next.endDate = calculateEndDate(next.startDate, duration, holidaySet, workingDaySet, overtimeDates) ?? ''
     }
 
@@ -211,26 +225,31 @@ export function TaskModal({
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <form className="modal" onSubmit={saveTask} onClick={(event) => event.stopPropagation()}>
-        <header className="modal-head">
+    <div className="modal-backdrop" onClick={() => !saving && onClose()}>
+      <form className="modal operation-modal" onSubmit={saveTask} onClick={(event) => event.stopPropagation()}>
+        <header className="modal-head operation-modal-head">
           <div className="panel-head-text">
             <span className="kicker">Operation Editor</span>
             <h2>{form.id ? 'Edit Operation' : 'Add Operation'}</h2>
+            <p>Update routing, schedule, progress, and notes for this operation.</p>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="Close"><X size={16} /></button>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close" disabled={saving}><X size={16} /></button>
         </header>
 
-        <div className="modal-body">
-          <section className="form-section">
+        <div className="modal-body operation-modal-body">
+          <section className="form-section operation-modal-section identity">
+            <div className="operation-section-heading">
+              <span className="operation-section-index">01</span>
+              <div><span className="section-label">Operation</span><small>Name and routing assignment</small></div>
+            </div>
             <label className="field"><span>Operation Name</span>
-              <input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="e.g. CNC Production" required autoFocus />
+              <input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="e.g. CNC Production" required autoFocus disabled={!canField(permissionKeys.taskEditTitle) || saving} />
             </label>
             <div className="field"><span>Work Station</span>
-              <WorkStationPicker value={form.workStation} options={workStations} onChange={(workStation) => setForm({ ...form, workStation })} />
+              <WorkStationPicker value={form.workStation} options={workStations} onChange={(workStation) => setForm({ ...form, workStation })} disabled={!canField(permissionKeys.taskEditWorkStation) || saving} />
             </div>
             <label className="field"><span>Dependency</span>
-              <select value={form.dependencyTaskId} onChange={(event) => setForm({ ...form, dependencyTaskId: event.target.value })}>
+              <select value={form.dependencyTaskId} onChange={(event) => setForm({ ...form, dependencyTaskId: event.target.value })} disabled={!canField(permissionKeys.taskEditDependency) || saving}>
                 <option value="">Default: previous operation</option>
                 {tasks.filter((task) => task.id !== form.id && task.sequence < form.sequence).map((task) => (
                   <option key={task.id} value={task.id}>{task.externalTaskId || task.sequence}. {task.title || 'Untitled operation'}</option>
@@ -239,17 +258,21 @@ export function TaskModal({
             </label>
           </section>
 
-          <section className="form-section">
-            <span className="section-label">Schedule</span>
+          <section className="form-section operation-modal-section">
+            <div className="operation-section-heading">
+              <span className="operation-section-index">02</span>
+              <div><span className="section-label">Schedule</span><small>Dates use the company work calendar</small></div>
+            </div>
             <div className="field-row schedule-row">
               <label className="field"><span>Start Date</span>
-                <input type="date" value={form.startDate} onChange={(event) => updateSchedule({ startDate: event.target.value, startDateLocked: Boolean(event.target.value) })} />
+                <input type="date" value={form.startDate} onChange={(event) => updateSchedule({ startDate: event.target.value, startDateLocked: Boolean(event.target.value) })} disabled={!canField(permissionKeys.taskEditStartDate) || saving} />
               </label>
               <label className="field lock-field"><span>Start Lock</span>
                 <button
                   className={`icon-button lock-button ${form.startDateLocked ? 'active' : ''}`}
                   type="button"
                   onClick={() => setForm({ ...form, startDateLocked: !form.startDateLocked })}
+                  disabled={!canField(permissionKeys.taskEditStartDateLocked) || saving}
                   title={form.startDateLocked ? 'Unlock start date' : 'Lock start date'}
                 >
                   {form.startDateLocked ? <Lock size={14} /> : <Unlock size={14} />}
@@ -258,26 +281,29 @@ export function TaskModal({
               </label>
               <label className="field"><span>Duration</span>
                 <div className="input-suffix">
-                  <input type="number" min="0" value={form.estimatedDuration} onChange={(event) => updateSchedule({ estimatedDuration: event.target.value })} placeholder="0" />
+                  <input type="number" min="0" value={form.estimatedDuration} onChange={(event) => updateSchedule({ estimatedDuration: event.target.value })} placeholder="0" disabled={!canField(permissionKeys.taskEditEstimatedDuration) || saving} />
                   <span>days</span>
                 </div>
               </label>
               <label className="field"><span>End Date</span>
-                <input type="date" value={form.endDate} onChange={(event) => updateSchedule({ endDate: event.target.value })} />
+                <input type="date" value={form.endDate} onChange={(event) => updateSchedule({ endDate: event.target.value })} disabled={!canField(permissionKeys.taskEditEndDate) || saving} />
               </label>
             </div>
             <p className="field-hint">End date is calculated using the configured company work week, holidays, and approved overtime dates.</p>
-            <OvertimeDateEditor
+            {canField(permissionKeys.taskEditOvertimeDays) && <OvertimeDateEditor
               days={form.overtimeDays}
               holidaySet={holidaySet}
               workingDaySet={workingDaySet}
               onChange={(overtimeDays) => setForm({ ...form, overtimeDays })}
-            />
+            />}
           </section>
 
-          <section className="form-section">
+          <section className="form-section operation-modal-section">
             <div className="section-head-row">
-              <span className="section-label">Progress</span>
+              <div className="operation-section-heading">
+                <span className="operation-section-index">03</span>
+                <div><span className="section-label">Progress</span><small>Report the operation's actual progress</small></div>
+              </div>
               <strong className="slider-value">{pct}%</strong>
             </div>
             <input
@@ -286,16 +312,17 @@ export function TaskModal({
               min="0"
               max="100"
               value={pct}
+              disabled={!canField(permissionKeys.taskEditPercentComplete) || saving}
               onChange={(event) => setForm({ ...form, percentComplete: event.target.value, percentCompleteManual: true })}
               style={{ background: `linear-gradient(to right, var(--ok) ${pct}%, var(--surface-3) ${pct}%)` }}
             />
             <div className="progress-presets">
               {[0, 25, 50, 75, 100].map((value) => (
-                <button type="button" key={value} className={pct === value ? 'active' : ''} onClick={() => setForm({ ...form, percentComplete: String(value), percentCompleteManual: true })}>{value}%</button>
+                <button type="button" key={value} className={pct === value ? 'active' : ''} onClick={() => setForm({ ...form, percentComplete: String(value), percentCompleteManual: true })} disabled={!canField(permissionKeys.taskEditPercentComplete) || saving}>{value}%</button>
               ))}
-              <button type="button" className={!form.percentCompleteManual ? 'active' : ''} onClick={() => setForm({ ...form, percentCompleteManual: false })}>Auto</button>
               <button
                 type="button"
+                disabled={!canField(permissionKeys.taskEditPercentComplete) || saving}
                 onClick={() => {
                   const today = todayIso()
                   setForm({
@@ -313,35 +340,40 @@ export function TaskModal({
             </div>
           </section>
 
-          <section className="form-section">
+          <section className="form-section operation-modal-section notes">
+            <div className="operation-section-heading">
+              <span className="operation-section-index">04</span>
+              <div><span className="section-label">Notes</span><small>Record exceptions, handoffs, or context</small></div>
+            </div>
             <label className="field"><span>Notes</span>
-              <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Optional notes or exceptions" />
+              <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Optional notes or exceptions" disabled={!canField(permissionKeys.taskEditNotes) || saving} />
             </label>
           </section>
 
-          <section className="form-section">
-            <button type="button" className="advanced-toggle" onClick={() => setShowAdvanced((open) => !open)} aria-expanded={showAdvanced}>
-              <ChevronDown size={15} className={showAdvanced ? 'open' : ''} /> Advanced details
+          <section className={`form-section operation-advanced ${showAdvanced ? 'open' : ''}`}>
+            <button type="button" className="advanced-toggle operation-advanced-toggle" onClick={() => setShowAdvanced((open) => !open)} aria-expanded={showAdvanced}>
+              <span><ChevronDown size={15} className={showAdvanced ? 'open' : ''} /> Advanced details</span>
+              <small>Original baseline dates, duration, and step order</small>
             </button>
             {showAdvanced && (
               <div className="advanced-grid">
                 <label className="field"><span>Step Order</span>
-                  <input type="number" min="1" value={form.sequence} onChange={(event) => setForm({ ...form, sequence: Number(event.target.value) })} />
+                  <input type="number" min="1" value={form.sequence} onChange={(event) => setForm({ ...form, sequence: Number(event.target.value) })} disabled={!canField(permissionKeys.taskReorder) || saving} />
                   <em className="field-note">The step number — change it to move this step up or down</em>
                 </label>
                 <label className="field"><span>Original Duration</span>
                   <div className="input-suffix">
-                    <input type="number" min="0" value={form.actualDuration} onChange={(event) => setForm({ ...form, actualDuration: event.target.value })} placeholder="0" />
+                    <input type="number" min="0" value={form.actualDuration} onChange={(event) => setForm({ ...form, actualDuration: event.target.value })} placeholder="0" disabled={!canField(permissionKeys.taskEditActualDuration) || saving} />
                     <span>days</span>
                   </div>
                   <em className="field-note">Originally planned duration</em>
                 </label>
                 <label className="field"><span>Original Start</span>
-                  <input type="date" value={form.originalStartDate} onChange={(event) => setForm({ ...form, originalStartDate: event.target.value })} />
+                  <input type="date" value={form.originalStartDate} onChange={(event) => setForm({ ...form, originalStartDate: event.target.value })} disabled={!canField(permissionKeys.taskEditOriginalStartDate) || saving} />
                   <em className="field-note">Original planned start</em>
                 </label>
                 <label className="field"><span>Original End</span>
-                  <input type="date" value={form.originalEndDate} onChange={(event) => setForm({ ...form, originalEndDate: event.target.value })} />
+                  <input type="date" value={form.originalEndDate} onChange={(event) => setForm({ ...form, originalEndDate: event.target.value })} disabled={!canField(permissionKeys.taskEditOriginalEndDate) || saving} />
                   <em className="field-note">Original planned end</em>
                 </label>
               </div>
@@ -349,9 +381,10 @@ export function TaskModal({
           </section>
         </div>
 
-        <div className="modal-actions">
-          <button type="button" className="button ghost" onClick={onClose}>Cancel</button>
-          <button type="submit" className="button primary"><Save size={15} /> Save Operation</button>
+        {error && <p className="inline-note warning operation-modal-error" role="alert"><AlertTriangle size={14} /> {error}</p>}
+        <div className="modal-actions operation-modal-actions">
+          <button type="button" className="button ghost" onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="submit" className="button primary" disabled={saving}><Save size={15} /> {saving ? 'Saving...' : 'Save Operation'}</button>
         </div>
       </form>
     </div>

@@ -120,9 +120,10 @@ public sealed class ProjectReadServiceTests
                         Sequence = 1,
                         Title = "Active task",
                         StartDate = DateOnly.FromDateTime(DateTime.Today.AddDays(-1)),
-                        EndDate = DateOnly.FromDateTime(DateTime.Today.AddDays(3)),
-                        EstimatedDuration = 5,
-                        PercentComplete = 0.6m
+                        EndDate = DateOnly.FromDateTime(DateTime.Today.AddDays(7)),
+                        EstimatedDuration = 6,
+                        PercentComplete = 0.6m,
+                        PercentCompleteManual = true
                     }
                 ]
             },

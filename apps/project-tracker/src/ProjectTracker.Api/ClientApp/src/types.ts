@@ -41,6 +41,7 @@ export type ProjectSummary = {
   engineer: string | null
   customerName: string | null
   salesOrderNumber: string | null
+  jobNumber?: string | null
   currentTask: string | null
   priorityRank: number | null
   progress: number
@@ -52,6 +53,12 @@ export type ProjectSummary = {
   taskCount: number
   behindTaskCount: number
   recentNote: ProjectNote | null
+  plannedStart?: string | null
+  plannedFinish?: string | null
+  actualStart?: string | null
+  actualFinish?: string | null
+  scheduleVarianceDays?: number | null
+  schedulePerformance?: string | null
 }
 
 export type ProjectDetail = {
@@ -62,6 +69,7 @@ export type ProjectDetail = {
   engineer: string | null
   customerName: string | null
   salesOrderNumber: string | null
+  jobNumber?: string | null
   currentTask: string | null
   programStart: string | null
   targetDelivery: string | null
@@ -70,6 +78,12 @@ export type ProjectDetail = {
   status: ProjectStatus
   daysBehind: number | null
   tasks: ProjectTask[]
+  plannedStart?: string | null
+  plannedFinish?: string | null
+  actualStart?: string | null
+  actualFinish?: string | null
+  scheduleVarianceDays?: number | null
+  schedulePerformance?: string | null
 }
 
 export type ProjectMetadataDraft = {
@@ -77,6 +91,7 @@ export type ProjectMetadataDraft = {
   engineer: string
   customerName: string
   salesOrderNumber: string
+  jobNumber: string
 }
 
 export type ProjectVersion = {
@@ -226,6 +241,7 @@ export type ProjectCreateRequest = {
   programManager: string | null
   customerName: string | null
   salesOrderNumber: string | null
+  jobNumber: string | null
   programStart: string | null
   templateProjectId: number | null
 }
@@ -264,6 +280,29 @@ export type CalOp = {
   projected: boolean
   conflict: boolean
   completedProject: boolean
+}
+
+export type OperationDependent = {
+  id: number
+  sequence: number
+  title: string
+}
+
+export type MentionNotificationKind = 'ProjectChatMention' | 'OperationNoteMention'
+
+export type MentionNotification = {
+  id: number
+  kind: MentionNotificationKind
+  projectId: number
+  projectName: string
+  projectTaskId: number | null
+  operationName: string | null
+  actorAccountName: string
+  actorDisplayName: string
+  title: string
+  bodyPreview: string
+  createdAt: string
+  readAt: string | null
 }
 
 export type CalendarMilestoneKind = 'start' | 'finish'

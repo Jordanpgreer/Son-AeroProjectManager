@@ -100,6 +100,13 @@ namespace ProjectTracker.Api.Data.Migrations
                     b.Property<DateTimeOffset>("LastSeenAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("Viewer");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AccountName")

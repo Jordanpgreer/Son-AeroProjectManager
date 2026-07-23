@@ -72,8 +72,9 @@ internal static class ExcelReportBuilder
         AddDetail(sheet, "A9", "B9:C9", "Customer", project.CustomerName ?? "Not set");
         AddDetail(sheet, "D9", "E9:F9", "Sales Order", project.SalesOrderNumber ?? "Not set");
         AddDetail(sheet, "G9", "H9:J9", "Program Manager", project.ProgramManager ?? "Not set");
-        AddDetail(sheet, "A10", "B10:F10", "Current Operation", project.CurrentTask ?? "Not set");
-        AddDetail(sheet, "G10", "H10:J10", "Schedule Window", $"{ReportText.Date(project.ProgramStart)} - {ReportText.Date(project.TargetDelivery)}");
+        AddDetail(sheet, "A10", "B10:D10", "Current Operation", project.CurrentTask ?? "Not set");
+        AddDetail(sheet, "E10", "F10:G10", "Job Number", project.JobNumber ?? "Not set");
+        AddDetail(sheet, "H10", "I10:J10", "Schedule Window", $"{ReportText.Date(project.ProgramStart)} - {ReportText.Date(project.TargetDelivery)}");
 
         AddMetric(sheet, "A12:B13", "Status", ReportText.Status(project.Status), StatusColor(project.Status), StatusTint(project.Status));
         AddMetric(sheet, "C12:D13", "Completion", ReportText.Percent(project.Progress), Steel, SteelTint);

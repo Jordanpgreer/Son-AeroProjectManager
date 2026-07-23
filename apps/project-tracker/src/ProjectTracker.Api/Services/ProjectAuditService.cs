@@ -70,6 +70,7 @@ public sealed class ProjectAuditService(CurrentUserService currentUser)
             ["Engineer"] = project.Engineer,
             ["Customer"] = project.CustomerName,
             ["Sales order"] = project.SalesOrderNumber,
+            ["Job number"] = project.JobNumber,
             ["Project start"] = Date(project.ProgramStart),
             ["Status"] = Friendly(project.Status.ToString()),
             ["Priority"] = project.PriorityRank is null ? null : $"P{project.PriorityRank}",

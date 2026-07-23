@@ -77,6 +77,7 @@ public sealed record ProjectSummaryDto(
     string? Engineer,
     string? CustomerName,
     string? SalesOrderNumber,
+    string? JobNumber,
     string? CurrentTask,
     int? PriorityRank,
     decimal Progress,
@@ -87,7 +88,13 @@ public sealed record ProjectSummaryDto(
     ProjectStatus Status,
     int TaskCount,
     int BehindTaskCount,
-    ProjectNoteDto? RecentNote);
+    ProjectNoteDto? RecentNote,
+    DateOnly? PlannedStart,
+    DateOnly? PlannedFinish,
+    DateOnly? ActualStart,
+    DateOnly? ActualFinish,
+    int? ScheduleVarianceDays,
+    string? SchedulePerformance);
 
 public sealed record ProjectDetailDto(
     int Id,
@@ -97,6 +104,7 @@ public sealed record ProjectDetailDto(
     string? Engineer,
     string? CustomerName,
     string? SalesOrderNumber,
+    string? JobNumber,
     string? CurrentTask,
     DateOnly? ProgramStart,
     DateOnly? TargetDelivery,
@@ -104,7 +112,13 @@ public sealed record ProjectDetailDto(
     decimal Progress,
     ProjectStatus Status,
     int? DaysBehind,
-    IReadOnlyList<ProjectTaskDto> Tasks);
+    IReadOnlyList<ProjectTaskDto> Tasks,
+    DateOnly? PlannedStart,
+    DateOnly? PlannedFinish,
+    DateOnly? ActualStart,
+    DateOnly? ActualFinish,
+    int? ScheduleVarianceDays,
+    string? SchedulePerformance);
 
 public sealed record ProjectVersionDto(int Id, long Version, DateTimeOffset UpdatedAt);
 
@@ -137,6 +151,7 @@ public sealed record ProjectUpsertDto(
     string? Engineer,
     string? CustomerName,
     string? SalesOrderNumber,
+    string? JobNumber,
     long Version);
 
 public sealed record ProjectCreateDto(
@@ -145,6 +160,7 @@ public sealed record ProjectCreateDto(
     string? Engineer,
     string? CustomerName,
     string? SalesOrderNumber,
+    string? JobNumber,
     DateOnly? ProgramStart,
     int? TemplateProjectId);
 
@@ -197,6 +213,14 @@ public sealed record ConcurrencyConflictDto(
     string ResourceType,
     int ResourceId);
 
+public sealed record OperationDependentDto(int Id, int Sequence, string Title);
+
+public sealed record OperationDependencyConflictDto(
+    string Code,
+    string Message,
+    int OperationId,
+    IReadOnlyList<OperationDependentDto> Dependents);
+
 public sealed record ProjectMessageDto(
     int Id,
     int ProjectId,
@@ -208,6 +232,22 @@ public sealed record ProjectMessageDto(
 public sealed record ProjectMessageCreateDto(string Body);
 
 public sealed record MentionableUserDto(string AccountName, string DisplayName, string MentionHandle);
+
+public sealed record UserNotificationDto(
+    int Id,
+    NotificationKind Kind,
+    int ProjectId,
+    string ProjectName,
+    int? ProjectTaskId,
+    string? OperationName,
+    string ActorAccountName,
+    string ActorDisplayName,
+    string Title,
+    string BodyPreview,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? ReadAt);
+
+public sealed record NotificationCountDto(int UnreadCount);
 
 public sealed record ProjectAuditChangeDto(string Field, string? OldValue, string? NewValue);
 

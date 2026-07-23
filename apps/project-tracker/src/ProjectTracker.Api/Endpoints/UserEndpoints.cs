@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ProjectTracker.Api.Auth;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Dtos;
 using ProjectTracker.Api.Models;
@@ -91,7 +92,7 @@ public static class UserEndpoints
                     group.UserMemberships.Count))
                 .ToListAsync(cancellationToken);
 
-            var permissions = ApplicationPermissions.All
+            var permissions = ProjectTrackerPermissions.All
                 .Select(permission => new PermissionDefinitionDto(permission.Key, permission.Label, permission.Description, permission.Category))
                 .ToList();
 
@@ -130,6 +131,7 @@ public static class UserEndpoints
             }
 
             db.Users.Add(user);
+            await SetLegacyRoleAsync(db, user, groupIds, cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
             return Results.Created($"/api/admin/users/{user.Id}", await ToRegisteredUserDtoAsync(db, user.Id, cancellationToken));
         }).RequireAuthorization("ManageUsers");
@@ -165,6 +167,7 @@ public static class UserEndpoints
             user.DisplayName = string.IsNullOrWhiteSpace(dto.DisplayName) ? DefaultDisplayName(accountName) : dto.DisplayName.Trim();
             user.IsActive = dto.IsActive;
             ReplaceMemberships(user, groupIds);
+            await SetLegacyRoleAsync(db, user, groupIds, cancellationToken);
             if (!await HasActiveAccessManagerAsync(db, cancellationToken))
             {
                 return Results.BadRequest("At least one active user must retain both user-management and group-management access.");
@@ -189,6 +192,7 @@ public static class UserEndpoints
             }
 
             ReplaceMemberships(user, groupIds);
+            await SetLegacyRoleAsync(db, user, groupIds, cancellationToken);
             if (!await HasActiveAccessManagerAsync(db, cancellationToken))
             {
                 return Results.BadRequest("At least one active user must retain both user-management and group-management access.");
@@ -253,6 +257,7 @@ public static class UserEndpoints
                 return Results.BadRequest("At least one active user must retain both user-management and group-management access.");
             }
             await db.SaveChangesAsync(cancellationToken);
+            await SyncLegacyRolesForGroupAsync(db, group.Id, cancellationToken);
             return Results.Ok(await ToAccessGroupDtoAsync(db, group.Id, cancellationToken));
         }).RequireAuthorization("ManageGroups");
 
@@ -324,7 +329,7 @@ public static class UserEndpoints
 
     private static List<string> NormalizePermissions(IReadOnlyList<string> permissions)
     {
-        var invalid = permissions.Where(permission => !ApplicationPermissions.AllKeys.Contains(permission)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var invalid = permissions.Where(permission => !ProjectTrackerPermissions.AllKeys.Contains(permission)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (invalid.Count > 0)
         {
             throw new BadHttpRequestException($"Unknown permission key(s): {string.Join(", ", invalid)}");
@@ -334,6 +339,53 @@ public static class UserEndpoints
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(permission => permission, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static async Task SetLegacyRoleAsync(
+        ProjectTrackerDbContext db,
+        AppUser user,
+        IReadOnlyCollection<int> groupIds,
+        CancellationToken cancellationToken)
+    {
+        var assignedGroups = await db.Groups
+            .AsNoTracking()
+            .Where(group => groupIds.Contains(group.Id))
+            .Select(group => new
+            {
+                group.Name,
+                Permissions = group.Permissions.Select(permission => permission.PermissionKey).ToList()
+            })
+            .ToListAsync(cancellationToken);
+
+        var role = assignedGroups.Any(group =>
+                string.Equals(group.Name, ApplicationGroups.Administrators, StringComparison.OrdinalIgnoreCase))
+            ? "Admin"
+            : assignedGroups.SelectMany(group => group.Permissions).Any(permission =>
+                !string.Equals(permission, ApplicationPermissions.ModuleView, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(permission, ProjectTrackerPermissions.ProjectActivityView, StringComparison.OrdinalIgnoreCase))
+                ? "Editor"
+                : "Viewer";
+        db.SetLegacyRole(user, role);
+    }
+
+    private static async Task SyncLegacyRolesForGroupAsync(
+        ProjectTrackerDbContext db,
+        int groupId,
+        CancellationToken cancellationToken)
+    {
+        var users = await db.Users
+            .Include(user => user.GroupMemberships)
+            .Where(user => user.GroupMemberships.Any(membership => membership.AppGroupId == groupId))
+            .ToListAsync(cancellationToken);
+        foreach (var user in users)
+        {
+            await SetLegacyRoleAsync(
+                db,
+                user,
+                user.GroupMemberships.Select(membership => membership.AppGroupId).ToList(),
+                cancellationToken);
+        }
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     private static string NormalizeAccountName(string value) => value.Trim();

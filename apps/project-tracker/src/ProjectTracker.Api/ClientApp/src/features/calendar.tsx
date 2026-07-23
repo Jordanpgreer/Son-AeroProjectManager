@@ -7,7 +7,9 @@ import {
   Check,
   Factory,
   Flag,
+  LayoutGrid,
   Play,
+  Rows3,
 } from 'lucide-react'
 import {
   isWorkday,
@@ -32,6 +34,7 @@ import {
 } from '../components'
 
 export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }: { data: ProjectDetail[]; holidaySet: Set<string>; workingDaySet: Set<number>; onOpenProject: (projectId: number) => Promise<void> }) {
+  const [viewMode, setViewMode] = useState<'month' | 'week'>('month')
   const [monthAnchor, setMonthAnchor] = useState<number | null>(null)
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
 
@@ -110,14 +113,31 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
   }
 
   const anchor = new Date(monthAnchor)
-  const monthLabel = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(anchor)
-  const cells = buildMonthCells(monthAnchor)
+  const selectedAnchorMs = selectedDay ? new Date(`${selectedDay}T00:00:00`).getTime() : monthAnchor
+  const cells = viewMode === 'month' ? buildMonthCells(monthAnchor) : buildWeekCells(selectedAnchorMs)
+  const periodLabel = viewMode === 'month'
+    ? new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(anchor)
+    : formatWeekRange(cells[0].ms, cells.at(-1)?.ms ?? cells[0].ms)
   const todayIso = msToIso(startOfTodayMs())
   const selectedOps = selectedDay ? (dayMap.get(selectedDay) ?? []) : []
   const selectedMilestones = selectedDay ? (milestoneMap.get(selectedDay) ?? []) : []
   const selectedMilestoneCounts = countCalendarMilestones(selectedMilestones)
+  const weekOperations = viewMode === 'week' ? cells.flatMap((cell) => dayMap.get(cell.iso) ?? []) : []
+  const weekMilestones = viewMode === 'week' ? cells.flatMap((cell) => milestoneMap.get(cell.iso) ?? []) : []
+  const weekMilestoneCounts = countCalendarMilestones(weekMilestones)
+  const weekActiveOperationCount = new Set(
+    weekOperations.map((operation) => `${operation.projectId}-${operation.taskId}`),
+  ).size
+  const weekConflictCount = new Set(weekOperations.filter((operation) => operation.conflict).map((operation) => `${operation.projectId}-${operation.taskId}`)).size
 
-  const shiftMonth = (delta: number) => {
+  const shiftPeriod = (delta: number) => {
+    if (viewMode === 'week') {
+      const next = addDays(selectedAnchorMs, delta * 7)
+      setSelectedDay(msToIso(next))
+      const date = new Date(next)
+      setMonthAnchor(new Date(date.getFullYear(), date.getMonth(), 1).getTime())
+      return
+    }
     const current = new Date(monthAnchor)
     const nextMonth = new Date(current.getFullYear(), current.getMonth() + delta, 1)
     setMonthAnchor(nextMonth.getTime())
@@ -129,6 +149,11 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
     setSelectedDay(todayIso)
   }
 
+  const changeView = (mode: 'month' | 'week') => {
+    setViewMode(mode)
+    if (!selectedDay) setSelectedDay(todayIso)
+  }
+
   return (
     <section className="view calendar-view">
       <div className="calendar-layout">
@@ -136,28 +161,34 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
           <header className="cal-head">
             <div className="panel-head-text">
               <span className="kicker">Production Calendar</span>
-              <h2>{monthLabel}</h2>
+              <h2>{periodLabel}</h2>
             </div>
-            <div className="cal-nav">
-              <button className="icon-button" onClick={() => shiftMonth(-1)} aria-label="Previous month"><ChevronLeft size={16} /></button>
+            <div className="cal-head-actions">
+              <div className="calendar-view-toggle" role="group" aria-label="Calendar view">
+                <button className={viewMode === 'month' ? 'active' : ''} type="button" onClick={() => changeView('month')}><LayoutGrid size={14} /> Month</button>
+                <button className={viewMode === 'week' ? 'active' : ''} type="button" onClick={() => changeView('week')}><Rows3 size={14} /> Week</button>
+              </div>
+              <div className="cal-nav">
+              <button className="icon-button" onClick={() => shiftPeriod(-1)} aria-label={`Previous ${viewMode}`}><ChevronLeft size={16} /></button>
               <button className="icon-button" onClick={goToday}>Today</button>
-              <button className="icon-button" onClick={() => shiftMonth(1)} aria-label="Next month"><ChevronRight size={16} /></button>
+              <button className="icon-button" onClick={() => shiftPeriod(1)} aria-label={`Next ${viewMode}`}><ChevronRight size={16} /></button>
+              </div>
             </div>
           </header>
           <div className="cal-legend" aria-label="Calendar legend">
             <span className="cal-legend-item start"><Play size={11} aria-hidden="true" /> Scheduled start</span>
             <span className="cal-legend-item finish"><Flag size={11} aria-hidden="true" /> Scheduled finish</span>
             <span className="cal-legend-item load"><Factory size={11} aria-hidden="true" /> Active work center</span>
-            <span className="cal-legend-item conflict"><ConflictIcon /> Work-center conflict</span>
+            <span className="cal-legend-item conflict"><ConflictIcon message="Work-center conflict: two or more active projects overlap at the same work center." /> Work-center conflict</span>
           </div>
-          <div className="cal-grid">
+          <div className={`cal-grid ${viewMode === 'week' ? 'week-mode' : 'month-mode'}`}>
             {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((dow) => <div className="cal-dow" key={dow}>{dow}</div>)}
             {cells.map((cell) => {
               const ops = dayMap.get(cell.iso) ?? []
               const milestones = milestoneMap.get(cell.iso) ?? []
               const milestoneCounts = countCalendarMilestones(milestones)
               const stations = stationsForDay(ops)
-              const visibleStationCount = milestones.length > 0 ? 2 : 3
+              const visibleStationCount = viewMode === 'week' ? (milestones.length > 0 ? 4 : 5) : (milestones.length > 0 ? 2 : 3)
               const hasConflict = ops.some((op) => op.conflict)
               const classes = [
                 'cal-cell',
@@ -171,10 +202,10 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
                 hasConflict ? 'has-conflict' : '',
               ].join(' ')
               return (
-                <button key={cell.iso} className={classes} onClick={() => setSelectedDay(cell.iso)} aria-label={calendarCellLabel(cell.iso, ops.length, milestoneCounts.start, milestoneCounts.finish)}>
+                <button key={cell.iso} className={classes} onClick={() => setSelectedDay(cell.iso)} aria-label={`${calendarCellLabel(cell.iso, ops.length, milestoneCounts.start, milestoneCounts.finish)}${hasConflict ? ', work-center conflict' : ''}`}>
                   <span className="cal-date">{new Date(cell.ms).getDate()}</span>
                   {ops.length > 0 && <span className="cal-count" title={`${ops.length} active operation${ops.length === 1 ? '' : 's'}`}><Factory size={9} aria-hidden="true" />{ops.length}</span>}
-                  {hasConflict && <ConflictIcon className="cal-conflict" />}
+                  {hasConflict && <ConflictIcon className="cal-conflict" focusable={false} message="Work-center conflict: two or more active projects use the same work center on this date." />}
                   {milestones.length > 0 && (
                     <span className="cal-milestones" aria-hidden="true">
                       {milestoneCounts.start > 0 && <span className="cal-milestone-chip start"><Play size={9} />{milestoneCounts.start} start{milestoneCounts.start === 1 ? '' : 's'}</span>}
@@ -207,6 +238,14 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
               <span className={`day-summary-count load ${selectedOps.length ? 'has' : ''}`} title="Active operations"><Factory size={10} />{selectedOps.length}</span>
             </div>
           </header>
+          {viewMode === 'week' && (
+            <section className="week-overview" aria-label="Week schedule summary">
+              <div><span>Starts</span><strong>{weekMilestoneCounts.start}</strong></div>
+              <div><span>Finishes</span><strong>{weekMilestoneCounts.finish}</strong></div>
+              <div><span>Active Ops</span><strong>{weekActiveOperationCount}</strong></div>
+              <div className={weekConflictCount ? 'has-conflict' : ''}><span>Conflicts</span><strong>{weekConflictCount}</strong></div>
+            </section>
+          )}
           {selectedOps.length === 0 && selectedMilestones.length === 0 ? (
             <div className="day-empty">
               <CalendarRange size={20} />
@@ -249,7 +288,10 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
               {groupByStation(selectedOps).map((group) => (
                 <div className="day-group" key={group.station}>
                   <div className="day-group-head">
-                    <span className={`day-station ${group.unassigned ? 'unset' : ''}`}>{group.station}{group.conflict && <ConflictIcon />}</span>
+                    <span className={`day-station ${group.unassigned ? 'unset' : ''}`}>
+                      {group.station}
+                      {group.conflict && <ConflictIcon message={`Work-center conflict: ${group.station} has overlapping project operations on this date.`} />}
+                    </span>
                     <span className="day-group-count">{group.ops.length}</span>
                   </div>
                   <div className="day-group-ops">
@@ -361,6 +403,27 @@ export function buildMonthCells(monthAnchorMs: number) {
     cells.push({ ms: date.getTime(), iso: msToIso(date.getTime()), inMonth: date.getMonth() === month })
   }
   return cells
+}
+
+function buildWeekCells(anchorMs: number) {
+  const anchor = new Date(anchorMs)
+  const mondayOffset = (anchor.getDay() + 6) % 7
+  const monday = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() - mondayOffset)
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + index)
+    return { ms: date.getTime(), iso: msToIso(date.getTime()), inMonth: true }
+  })
+}
+
+function formatWeekRange(startMs: number, endMs: number) {
+  const start = new Date(startMs)
+  const end = new Date(endMs)
+  const sameMonth = start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth()
+  const startLabel = new Intl.DateTimeFormat(undefined, sameMonth
+    ? { month: 'long', day: 'numeric' }
+    : { month: 'short', day: 'numeric' }).format(start)
+  const endLabel = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(end)
+  return `${startLabel} – ${endLabel}`
 }
 
 /* ---------------------------------------------------------------------- */
