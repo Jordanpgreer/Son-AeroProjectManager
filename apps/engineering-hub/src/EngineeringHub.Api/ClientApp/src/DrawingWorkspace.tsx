@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
+import { useEffect, useId, useState } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import {
-  AlertTriangle, CheckCircle2, ClipboardCheck, Database, Edit3, FilePlus2, FileText,
+  AlertTriangle, CheckCircle2, ChevronDown, ClipboardCheck, Database, Edit3, FilePlus2, FileText,
   History, Link2, MapPin, Plus, Search, ShieldCheck, Trash2, Upload, X,
 } from 'lucide-react'
 
@@ -68,6 +68,51 @@ const linksFromForm = (form: FormData) => [
   ...commaValues(form.get('supplementalDocuments')).map(referenceNumber => ({ kind: 'SupplementalDocument', referenceNumber, title: null, location: null })),
 ]
 const linksOfKind = (drawing: DrawingDetail, kind: string) => drawing.relatedDocuments.filter(link => link.kind === kind).map(link => link.referenceNumber).join(', ')
+
+type SectionTone = 'steel' | 'gold' | 'graphite' | 'teal' | 'green' | 'red'
+
+interface CollapsibleSectionProps {
+  eyebrow: string
+  title: string
+  icon: ReactNode
+  tone: SectionTone
+  defaultOpen?: boolean
+  className?: string
+  children: ReactNode
+}
+
+function CollapsibleSection({
+  eyebrow,
+  title,
+  icon,
+  tone,
+  defaultOpen = true,
+  className = '',
+  children,
+}: CollapsibleSectionProps) {
+  const [open, setOpen] = useState(defaultOpen)
+  const contentId = useId()
+
+  return <section className={`panel collapsible-section section-tone-${tone} ${open ? 'is-open' : 'is-collapsed'} ${className}`.trim()}>
+    <button
+      type="button"
+      className="section-titlebar"
+      aria-expanded={open}
+      aria-controls={contentId}
+      onClick={() => setOpen(value => !value)}
+    >
+      <span className="section-titlebar-copy">
+        <span className="eyebrow">{eyebrow}</span>
+        <span className="section-title" role="heading" aria-level={2}>{title}</span>
+      </span>
+      <span className="section-titlebar-tools" aria-hidden="true">
+        {icon}
+        <ChevronDown className="section-chevron" size={17}/>
+      </span>
+    </button>
+    <div id={contentId} className="section-content" hidden={!open}>{children}</div>
+  </section>
+}
 
 export default function DrawingWorkspace() {
   const [drawings, setDrawings] = useState<DrawingList[]>([])
@@ -308,19 +353,35 @@ export default function DrawingWorkspace() {
 
         <section className="detail-kpis"><div><small>Current revision</small><strong>{selected.revisions.find(revision => revision.id === selected.currentApprovedRevisionId)?.revisionNumber ?? 'None'}</strong></div><div><small>Effective date</small><strong>{date(selected.effectiveDate)}</strong></div><div><small>Linked parts</small><strong>{selected.partNumbers.length}</strong></div><div><small>Mylar</small><strong>{selected.isMylarCheckedOut ? `Out: ${selected.mylarCheckedOutBy ?? 'Unknown'}` : selected.physicalMylarLocation || 'Not tracked'}</strong></div></section>
 
-        <section className="panel linked-records"><div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Cross references</span><h2>Linked engineering records</h2></div><Link2 size={18}/></div><div className="linked-record-grid"><div><small>Parts</small>{selected.partNumbers.map(item => <button key={item} type="button" onClick={() => setQuery(item)}>{item}</button>)}</div>{['Specification', 'WorkOrder', 'WorkInstruction', 'SupplementalDocument'].map(kind => <div key={kind}><small>{kind.replace(/([A-Z])/g, ' $1').trim()}</small>{selected.relatedDocuments.filter(link => link.kind === kind).map(link => <button key={link.id} type="button" title={link.title ?? undefined} onClick={() => setQuery(link.referenceNumber)}>{link.referenceNumber}</button>)}</div>)}</div></section>
+        <CollapsibleSection eyebrow="Cross references" title="Linked engineering records" icon={<Link2 size={18}/>} tone="steel" className="linked-records">
+          <div className="linked-record-grid"><div><small>Parts</small>{selected.partNumbers.map(item => <button key={item} type="button" onClick={() => setQuery(item)}>{item}</button>)}</div>{['Specification', 'WorkOrder', 'WorkInstruction', 'SupplementalDocument'].map(kind => <div key={kind}><small>{kind.replace(/([A-Z])/g, ' $1').trim()}</small>{selected.relatedDocuments.filter(link => link.kind === kind).map(link => <button key={link.id} type="button" title={link.title ?? undefined} onClick={() => setQuery(link.referenceNumber)}>{link.referenceNumber}</button>)}</div>)}</div>
+        </CollapsibleSection>
 
-        {selected.currentApprovedRevisionId && selected.revisions.some(revision => revision.id === selected.currentApprovedRevisionId && revision.hasPdf) && <section className="panel pdf-panel"><div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Approved PDF</span><h2>Controlled viewer</h2></div><a className="button ghost" href={`/api/drawing-revisions/${selected.currentApprovedRevisionId}/file`} target="_blank">Open PDF</a></div><iframe title="Approved drawing PDF" src={`/api/drawing-revisions/${selected.currentApprovedRevisionId}/file#toolbar=1`}/></section>}
+        {selected.currentApprovedRevisionId && selected.revisions.some(revision => revision.id === selected.currentApprovedRevisionId && revision.hasPdf) && <CollapsibleSection eyebrow="Approved PDF" title="Controlled viewer" icon={<FileText size={18}/>} tone="steel" className="pdf-panel">
+          <div className="section-inline-actions"><a className="button ghost" href={`/api/drawing-revisions/${selected.currentApprovedRevisionId}/file`} target="_blank">Open PDF</a></div>
+          <iframe title="Approved drawing PDF" src={`/api/drawing-revisions/${selected.currentApprovedRevisionId}/file#toolbar=1`}/>
+        </CollapsibleSection>}
 
-        {!selected.isObsolete && <form className="panel record-form" onSubmit={uploadRevision}><div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Permanent revision record</span><h2>Upload drawing revision</h2></div><Upload size={18}/></div><div className="form-grid"><label>Revision number<input name="revisionNumber" required/></label><label>Revision date<input name="revisionDate" type="date" required/></label><label>Effective date<input name="effectiveDate" type="date"/></label><label>Approved-view PDF<input name="pdf" type="file" accept="application/pdf,.pdf" required/></label><label>Original source file<input name="source" type="file"/></label><label className="wide">Change description<textarea name="changeDescription" required rows={2}/></label><label className="wide">Notes<textarea name="notes" rows={2}/></label></div><button className="button" disabled={busy}><FilePlus2 size={15}/> Store revision</button></form>}
+        {!selected.isObsolete && <CollapsibleSection eyebrow="Permanent revision record" title="Upload drawing revision" icon={<Upload size={18}/>} tone="gold" defaultOpen={false}>
+          <form className="record-form" onSubmit={uploadRevision}><div className="form-grid"><label>Revision number<input name="revisionNumber" required/></label><label>Revision date<input name="revisionDate" type="date" required/></label><label>Effective date<input name="effectiveDate" type="date"/></label><label>Approved-view PDF<input name="pdf" type="file" accept="application/pdf,.pdf" required/></label><label>Original source file<input name="source" type="file"/></label><label className="wide">Change description<textarea name="changeDescription" required rows={2}/></label><label className="wide">Notes<textarea name="notes" rows={2}/></label></div><button className="button" disabled={busy}><FilePlus2 size={15}/> Store revision</button></form>
+        </CollapsibleSection>}
 
-        <section className="panel"><div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Permanent history</span><h2>Drawing revisions</h2></div><History size={18}/></div><div className="revision-list">{selected.revisions.map(revision => <div className="revision-row" key={revision.id}><div><strong>Rev {revision.revisionNumber}</strong><small>{revision.changeDescription}</small><small>Uploaded {date(revision.uploadedAt)} by {revision.uploadedBy}{revision.fileHash && <> · SHA-256 <span className="technical-id">{revision.fileHash.slice(0, 12)}…</span></>}</small>{!revision.hasPdf && <span className="metadata-only-badge">Metadata-only demo revision</span>}</div><span className={`status-pill status-${revision.status.toLowerCase()}`}>{revision.status}</span><div className="revision-actions">{revision.hasPdf && <a className="button ghost" href={`/api/drawing-revisions/${revision.id}/file`} target="_blank">PDF</a>}{revision.hasSourceFile && <a className="button ghost" href={`/api/drawing-revisions/${revision.id}/source`}>Source</a>}{revision.status === 'Draft' && <button className="button ghost" type="button" disabled={busy || !revision.hasPdf} title={!revision.hasPdf ? 'Upload a real PDF as a new revision before review.' : undefined} onClick={() => void setRevisionStatus(revision, 'UnderReview')}>Submit review</button>}{revision.status === 'UnderReview' && <><textarea className="inline-review-comment" value={reviewComments[revision.id] ?? ''} onChange={event => setReviewComments(current => ({ ...current, [revision.id]: event.target.value }))} placeholder="Review comments"/><button className="button ghost" type="button" disabled={busy} onClick={() => void setRevisionStatus(revision, 'Draft')}>Return</button><button className="button" type="button" disabled={busy || !revision.hasPdf} onClick={() => void approveRevision(revision)}><CheckCircle2 size={14}/> Approve</button></>}{(revision.status === 'Draft' || revision.status === 'UnderReview') && <button className="button danger" type="button" disabled={busy} onClick={() => requestRevisionDelete(revision)}><Trash2 size={14}/> Delete</button>}</div></div>)}</div></section>
+        <CollapsibleSection eyebrow="Permanent history" title="Drawing revisions" icon={<History size={18}/>} tone="graphite">
+          <div className="revision-list">{selected.revisions.map(revision => <div className="revision-row" key={revision.id}><div><strong>Rev {revision.revisionNumber}</strong><small>{revision.changeDescription}</small><small>Uploaded {date(revision.uploadedAt)} by {revision.uploadedBy}{revision.fileHash && <> · SHA-256 <span className="technical-id">{revision.fileHash.slice(0, 12)}…</span></>}</small>{!revision.hasPdf && <span className="metadata-only-badge">Metadata-only demo revision</span>}</div><span className={`status-pill status-${revision.status.toLowerCase()}`}>{revision.status}</span><div className="revision-actions">{revision.hasPdf && <a className="button ghost" href={`/api/drawing-revisions/${revision.id}/file`} target="_blank">PDF</a>}{revision.hasSourceFile && <a className="button ghost" href={`/api/drawing-revisions/${revision.id}/source`}>Source</a>}{revision.status === 'Draft' && <button className="button ghost" type="button" disabled={busy || !revision.hasPdf} title={!revision.hasPdf ? 'Upload a real PDF as a new revision before review.' : undefined} onClick={() => void setRevisionStatus(revision, 'UnderReview')}>Submit review</button>}{revision.status === 'UnderReview' && <><textarea className="inline-review-comment" value={reviewComments[revision.id] ?? ''} onChange={event => setReviewComments(current => ({ ...current, [revision.id]: event.target.value }))} placeholder="Review comments"/><button className="button ghost" type="button" disabled={busy} onClick={() => void setRevisionStatus(revision, 'Draft')}>Return</button><button className="button" type="button" disabled={busy || !revision.hasPdf} onClick={() => void approveRevision(revision)}><CheckCircle2 size={14}/> Approve</button></>}{(revision.status === 'Draft' || revision.status === 'UnderReview') && <button className="button danger" type="button" disabled={busy} onClick={() => requestRevisionDelete(revision)}><Trash2 size={14}/> Delete</button>}</div></div>)}</div>
+        </CollapsibleSection>
 
-        <section className="detail-columns"><section className="panel"><div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Physical control</span><h2>Mylar tracking</h2></div><MapPin size={18}/></div><p className="section-copy">Location: {selected.physicalMylarLocation || 'Not recorded'}{selected.mylarCheckedOutBy ? ` · Held by ${selected.mylarCheckedOutBy}` : ''}</p>{selected.mylarHistory.map(item => <div className="history-line" key={item.id}><strong>{item.type}</strong><span>{item.person} · {date(item.recordedAt)}</span></div>)}</section><section className="panel"><div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Traceability</span><h2>Validations</h2></div><ShieldCheck size={18}/></div>{selected.validations.length ? selected.validations.map(item => <div className="history-line" key={item.id}><strong>{item.validationType}: {item.result}</strong><span>{item.validatedBy} · {date(item.validatedAt)}</span></div>) : <p className="section-copy">No validation records yet.</p>}</section></section>
+        <section className="detail-columns">
+          <CollapsibleSection eyebrow="Physical control" title="Mylar tracking" icon={<MapPin size={18}/>} tone="teal" defaultOpen={false}><p className="section-copy">Location: {selected.physicalMylarLocation || 'Not recorded'}{selected.mylarCheckedOutBy ? ` · Held by ${selected.mylarCheckedOutBy}` : ''}</p>{selected.mylarHistory.map(item => <div className="history-line" key={item.id}><strong>{item.type}</strong><span>{item.person} · {date(item.recordedAt)}</span></div>)}</CollapsibleSection>
+          <CollapsibleSection eyebrow="Traceability" title="Validations" icon={<ShieldCheck size={18}/>} tone="green" defaultOpen={false}>{selected.validations.length ? selected.validations.map(item => <div className="history-line" key={item.id}><strong>{item.validationType}: {item.result}</strong><span>{item.validatedBy} · {date(item.validatedAt)}</span></div>) : <p className="section-copy">No validation records yet.</p>}</CollapsibleSection>
+        </section>
 
-        {!selected.isObsolete && <section className="panel obsolete-control"><div><span className="eyebrow">Lifecycle control</span><h2>Obsolete this drawing</h2><p>Preserves all records and permanently closes active revisions.</p></div><button className="button ghost" type="button" onClick={() => setShowObsolete(value => !value)}>Start obsolescence</button>{showObsolete && <form onSubmit={obsoleteDrawing}><label>Required reason<textarea name="reason" required rows={2}/></label><div className="form-actions"><button className="button danger" disabled={busy}>Mark obsolete</button><button className="button ghost" type="button" onClick={() => setShowObsolete(false)}>Cancel</button></div></form>}</section>}
+        {!selected.isObsolete && <CollapsibleSection eyebrow="Lifecycle control" title="Obsolete this drawing" icon={<AlertTriangle size={18}/>} tone="red" defaultOpen={false} className="obsolete-control">
+          <p>Preserves all records and permanently closes active revisions.</p><button className="button ghost" type="button" onClick={() => setShowObsolete(value => !value)}>Start obsolescence</button>{showObsolete && <form onSubmit={obsoleteDrawing}><label>Required reason<textarea name="reason" required rows={2}/></label><div className="form-actions"><button className="button danger" disabled={busy}>Mark obsolete</button><button className="button ghost" type="button" onClick={() => setShowObsolete(false)}>Cancel</button></div></form>}
+        </CollapsibleSection>}
 
-        <section className="panel"><div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Append-only log</span><h2>Complete audit history</h2></div><ShieldCheck size={18}/></div><div className="audit-list">{selected.auditHistory.map(item => <div className="audit-row" key={item.id}><span className="audit-dot"/><div><strong>{item.action}{item.revisionNumber ? ` · Rev ${item.revisionNumber}` : ''}</strong><p>{item.details}</p><small>{item.actor} · {new Date(item.occurredAt).toLocaleString()}</small></div></div>)}</div></section>
+        <CollapsibleSection eyebrow="Append-only log" title="Complete audit history" icon={<ShieldCheck size={18}/>} tone="graphite" defaultOpen={false}>
+          <div className="audit-list">{selected.auditHistory.map(item => <div className="audit-row" key={item.id}><span className="audit-dot"/><div><strong>{item.action}{item.revisionNumber ? ` · Rev ${item.revisionNumber}` : ''}</strong><p>{item.details}</p><small>{item.actor} · {new Date(item.occurredAt).toLocaleString()}</small></div></div>)}</div>
+        </CollapsibleSection>
       </article>}
     </section>
 
