@@ -16,6 +16,7 @@ builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ApplicationRegistry>();
 builder.Services.AddScoped<PortalUserService>();
 builder.Services.AddScoped<IPortalRoleStore, PortalRoleStore>();
+builder.Services.AddScoped<ApplicationNotificationService>();
 builder.Services.AddHttpClient<TrackerPreviewService>();
 builder.Services.AddDbContext<PortalRoleDbContext>((serviceProvider, options) =>
 {
@@ -89,6 +90,15 @@ api.MapGet("/apps", async (PortalUserService users, ApplicationRegistry registry
 {
     var role = (await users.CurrentAsync(cancellationToken)).Role;
     return registry.GetVisibleFor(role).Select(ToApplicationDto).ToList();
+}).RequireAuthorization();
+
+api.MapGet("/application-notifications", async (
+    PortalUserService users,
+    ApplicationNotificationService notifications,
+    CancellationToken cancellationToken) =>
+{
+    var currentUser = await users.CurrentAsync(cancellationToken);
+    return await notifications.GetUnreadCountsAsync(currentUser.AccountName, cancellationToken);
 }).RequireAuthorization();
 
 // Live "minimized dashboard" data for the Project Tracker card. Best-effort and read-only.

@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   AppWindow,
   ArrowUpRight,
+  Bell,
   Boxes,
   Calculator,
   Clock,
@@ -24,7 +25,6 @@ import { persistTheme, readThemePreference } from './theme'
 import type { AppTheme } from './theme'
 
 type AppStatus = 'active' | 'comingSoon' | 'maintenance'
-type StatusFilter = 'all' | 'active' | 'planned'
 
 interface PortalApp {
   id: string
@@ -44,6 +44,11 @@ interface Me {
   role: string
 }
 
+interface ApplicationNotification {
+  applicationId: string
+  unreadCount: number
+}
+
 const ICONS: Record<string, typeof AppWindow> = {
   'gantt-chart': GanttChart,
   'shield-check': ShieldCheck,
@@ -57,20 +62,12 @@ const ICONS: Record<string, typeof AppWindow> = {
   calculator: Calculator,
 }
 
-const STATUS_META: Record<AppStatus, { label: string; detail: string; cls: string }> = {
-  active: { label: 'Available', detail: 'Ready to open', cls: 'available' },
-  comingSoon: { label: 'Planned', detail: 'In development', cls: 'planned' },
-  maintenance: { label: 'Maintenance', detail: 'Temporarily unavailable', cls: 'maintenance' },
-}
-
 const CAPABILITIES: Record<string, string[]> = {
   'project-tracker': ['Scheduling', 'Gantt timelines', 'Operations'],
   'engineering-hub': ['Drawing control', 'Tooling', 'Technical records'],
   'estimating-dashboard': ['Quoting', 'Cost roll-ups', 'Bid tracking'],
   'admin-console': ['Application catalog', 'Access control', 'Configuration'],
 }
-
-const ALL_CATEGORIES = 'all'
 
 function iconFor(key: string) {
   return ICONS[key] ?? AppWindow
@@ -105,8 +102,7 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [category, setCategory] = useState<string>(ALL_CATEGORIES)
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [notificationCounts, setNotificationCounts] = useState<Record<string, number>>({})
   const [launchingAppId, setLaunchingAppId] = useState<string | null>(null)
 
   async function load() {
@@ -129,8 +125,26 @@ export default function App() {
     }
   }
 
+  async function loadApplicationNotifications() {
+    try {
+      const response = await fetch('/api/application-notifications', { credentials: 'include' })
+      if (!response.ok) return
+      const notifications = await response.json() as ApplicationNotification[]
+      setNotificationCounts(Object.fromEntries(
+        notifications.map((notification) => [notification.applicationId, notification.unreadCount]),
+      ))
+    } catch {
+      // Notification badges are best-effort and must never block the application catalog.
+    }
+  }
+
   useEffect(() => {
     void load()
+    void loadApplicationNotifications()
+    const notificationInterval = window.setInterval(() => {
+      void loadApplicationNotifications()
+    }, 20_000)
+    return () => window.clearInterval(notificationInterval)
   }, [])
 
   useEffect(() => {
@@ -150,18 +164,10 @@ export default function App() {
     }
   }, [])
 
-  const categories = useMemo(() => {
-    if (!apps) return []
-    return Array.from(new Set(apps.map((application) => application.category))).sort((a, b) => a.localeCompare(b))
-  }, [apps])
-
   const filtered = useMemo(() => {
     if (!apps) return []
     const query = search.trim().toLowerCase()
     return apps.filter((application) => {
-      if (category !== ALL_CATEGORIES && application.category !== category) return false
-      if (statusFilter === 'active' && application.status !== 'active') return false
-      if (statusFilter === 'planned' && application.status === 'active') return false
       if (!query) return true
       return (
         application.name.toLowerCase().includes(query) ||
@@ -170,13 +176,9 @@ export default function App() {
         capabilityLabels(application).some((label) => label.toLowerCase().includes(query))
       )
     })
-  }, [apps, search, category, statusFilter])
+  }, [apps, search])
 
-  const availableApplications = filtered.filter((application) => application.status === 'active')
-  const plannedApplications = filtered.filter((application) => application.status !== 'active')
-  const availableCount = apps?.filter((application) => application.status === 'active').length ?? 0
-  const plannedCount = apps?.filter((application) => application.status !== 'active').length ?? 0
-  const hasFilters = search.length > 0 || category !== ALL_CATEGORIES || statusFilter !== 'all'
+  const hasFilters = search.length > 0
 
   function launchApplication(application: PortalApp, event: ReactMouseEvent<HTMLAnchorElement>) {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.button === 1 || prefersReducedMotion()) return
@@ -190,8 +192,6 @@ export default function App() {
 
   function clearFilters() {
     setSearch('')
-    setCategory(ALL_CATEGORIES)
-    setStatusFilter('all')
   }
 
   return (
@@ -231,18 +231,8 @@ export default function App() {
           <div className="catalog-intro-copy">
             <span className="kicker">SON-AERO Internal Systems</span>
             <h1 id="catalog-title">Applications</h1>
-            <p>Choose an internal workspace available to your account.</p>
+            <p>Choose an internal workspace for your account.</p>
           </div>
-          <dl className="catalog-readout" aria-label="Application catalog summary">
-            <div>
-              <dt>Available</dt>
-              <dd>{loading ? '-' : availableCount}</dd>
-            </div>
-            <div>
-              <dt>Planned</dt>
-              <dd>{loading ? '-' : plannedCount}</dd>
-            </div>
-          </dl>
         </section>
 
         <section className="catalog-toolbar" aria-label="Application catalog filters">
@@ -256,34 +246,6 @@ export default function App() {
               placeholder="Search applications and capabilities"
             />
           </label>
-          <div className="status-filter" role="group" aria-label="Filter by availability">
-            {([
-              ['all', 'All'],
-              ['active', 'Available'],
-              ['planned', 'Planned'],
-            ] as const).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                className={statusFilter === value ? 'is-active' : ''}
-                aria-pressed={statusFilter === value}
-                onClick={() => setStatusFilter(value)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          {categories.length > 1 && (
-            <label className="category-filter">
-              <span>Category</span>
-              <select value={category} onChange={(event) => setCategory(event.target.value)}>
-                <option value={ALL_CATEGORIES}>All categories</option>
-                {categories.map((name) => (
-                  <option key={name} value={name}>{name}</option>
-                ))}
-              </select>
-            </label>
-          )}
           {hasFilters && (
             <button type="button" className="catalog-clear" onClick={clearFilters}>
               Clear
@@ -314,32 +276,21 @@ export default function App() {
           <section className="catalog-state" aria-live="polite">
             <AppWindow size={27} />
             <h2>No applications match</h2>
-            <p>Try a different search term, availability, or category.</p>
+            <p>Try a different search term.</p>
             <button type="button" className="ghost-button" onClick={clearFilters}>
               Clear filters
             </button>
           </section>
         ) : (
           <div className="catalog-results" aria-live="polite">
-            {availableApplications.length > 0 && (
-              <ApplicationSection
-                title="Available applications"
-                description="Ready to use"
-                applications={availableApplications}
-                launchingAppId={launchingAppId}
-                onLaunch={launchApplication}
-              />
-            )}
-            {plannedApplications.length > 0 && (
-              <ApplicationSection
-                title="Planned applications"
-                description="In development or temporarily unavailable"
-                applications={plannedApplications}
-                launchingAppId={launchingAppId}
-                onLaunch={launchApplication}
-                subdued
-              />
-            )}
+            <ApplicationSection
+              title="Application catalog"
+              description="Company tools and workspaces"
+              applications={filtered}
+              notificationCounts={notificationCounts}
+              launchingAppId={launchingAppId}
+              onLaunch={launchApplication}
+            />
           </div>
         )}
       </main>
@@ -358,31 +309,31 @@ function ApplicationSection({
   title,
   description,
   applications,
+  notificationCounts,
   launchingAppId,
   onLaunch,
-  subdued = false,
 }: {
   title: string
   description: string
   applications: PortalApp[]
+  notificationCounts: Record<string, number>
   launchingAppId: string | null
   onLaunch: (application: PortalApp, event: ReactMouseEvent<HTMLAnchorElement>) => void
-  subdued?: boolean
 }) {
   return (
-    <section className={`catalog-section ${subdued ? 'is-subdued' : ''}`.trim()}>
+    <section className="catalog-section">
       <header className="catalog-section-heading">
         <div>
           <h2>{title}</h2>
           <p>{description}</p>
         </div>
-        <span>{applications.length}</span>
       </header>
       <ul className="catalog-grid">
         {applications.map((application) => (
           <ApplicationCard
             key={application.id}
             application={application}
+            unreadCount={notificationCounts[application.id] ?? 0}
             launching={launchingAppId === application.id}
             onLaunch={onLaunch}
           />
@@ -394,15 +345,16 @@ function ApplicationSection({
 
 function ApplicationCard({
   application,
+  unreadCount,
   launching,
   onLaunch,
 }: {
   application: PortalApp
+  unreadCount: number
   launching: boolean
   onLaunch: (application: PortalApp, event: ReactMouseEvent<HTMLAnchorElement>) => void
 }) {
   const Icon = iconFor(application.icon)
-  const status = STATUS_META[application.status]
   const openable = application.status === 'active' && application.url.length > 0
   const content = (
     <>
@@ -410,7 +362,16 @@ function ApplicationCard({
         <span className="catalog-app-icon" aria-hidden="true">
           <Icon size={24} strokeWidth={1.7} />
         </span>
-        <span className={`catalog-status ${status.cls}`}>{status.label}</span>
+        {unreadCount > 0 && (
+          <span
+            className="catalog-notification"
+            title={`${unreadCount} unread notification${unreadCount === 1 ? '' : 's'} in ${application.name}`}
+            aria-label={`${unreadCount} unread notification${unreadCount === 1 ? '' : 's'}`}
+          >
+            <Bell size={15} aria-hidden="true" />
+            <strong>{unreadCount > 99 ? '99+' : unreadCount}</strong>
+          </span>
+        )}
       </div>
       <div className="catalog-card-copy">
         <span className="catalog-category">{application.category}</span>
@@ -420,18 +381,14 @@ function ApplicationCard({
       <ul className="catalog-capabilities" aria-label={`${application.name} capabilities`}>
         {capabilityLabels(application).map((label) => <li key={label}>{label}</li>)}
       </ul>
-      <div className="catalog-card-footer">
-        <span className="catalog-service">
-          <i className={status.cls} aria-hidden="true" />
-          {status.detail}
-        </span>
-        {openable && (
+      {openable && (
+        <div className="catalog-card-footer">
           <span className="catalog-open">
             {launching ? 'Opening...' : 'Open application'}
             <ArrowUpRight size={16} aria-hidden="true" />
           </span>
-        )}
-      </div>
+        </div>
+      )}
     </>
   )
 
@@ -447,7 +404,8 @@ function ApplicationCard({
           {content}
         </a>
       ) : (
-        <article className="catalog-app-card" data-status={application.status}>
+        <article className="catalog-app-card" data-status={application.status} aria-disabled="true">
+          <span className="sr-only">This application cannot currently be opened.</span>
           {content}
         </article>
       )}

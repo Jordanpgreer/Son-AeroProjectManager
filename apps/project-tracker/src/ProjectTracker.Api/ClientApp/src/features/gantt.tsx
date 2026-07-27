@@ -15,6 +15,8 @@ import {
   msToIso,
   formatDuration,
   clamp,
+  addDays,
+  isWorkday,
 } from '../lib'
 import { dayMs } from '../types'
 import type {
@@ -196,11 +198,32 @@ export function Gantt({
           </div>
 
           {/* Rows */}
-          {items.map(({ task, startMs, endMs, projected, left, width }) => {
+          {items.map(({ task, startMs, endMs, projected, left, width }, index) => {
+            const nextItem = items[index + 1]
+            const gapStarts = addDays(endMs, 1)
+            let bridgeWidth = 0
+            if (nextItem && gapStarts < nextItem.startMs) {
+              let day = gapStarts
+              let calendarBreakOnly = true
+              while (day < nextItem.startMs) {
+                if (isWorkday(day, holidaySet, workingDaySet)) {
+                  calendarBreakOnly = false
+                  break
+                }
+                day = addDays(day, 1)
+              }
+              if (calendarBreakOnly) {
+                bridgeWidth = Math.max(0, nextItem.left - (left + width))
+              }
+            }
+
             const barPx = (width / 100) * trackWidth
             const narrow = barPx < 48
             const label = formatPercent(task.percentComplete)
             const tip = `${task.title}\n${compactDate(msToIso(startMs))} – ${compactDate(msToIso(endMs))}\n${label} complete${projected ? ' · projected' : ''}`
+            const status = statusClass(task.status)
+            const bridgeFilled = clamp(task.percentComplete, 0, 1) >= 1
+            const visualRight = left + width + bridgeWidth
             return (
               <div className="gantt-row" key={task.id}>
                 <div className="gantt-label">
@@ -217,15 +240,22 @@ export function Gantt({
                   ))}
                   {todayLeft !== null && <span className="gantt-today-line" style={{ left: `${todayLeft}%` }} />}
                   <div
-                    className={`gantt-bar ${statusClass(task.status)} ${projected ? 'projected' : ''}`}
+                    className={`gantt-bar ${status} ${projected ? 'projected' : ''} ${bridgeWidth > 0 ? 'has-calendar-bridge' : ''}`}
                     style={{ left: `${left}%`, width: `${width}%` }}
                     title={tip}
                   >
                     <span className="gantt-fill" style={{ width: `${Math.round(clamp(task.percentComplete, 0, 1) * 100)}%` }} />
                     {!narrow && <span className="gantt-bar-label">{label}</span>}
                   </div>
+                  {bridgeWidth > 0 && (
+                    <span
+                      className={`gantt-calendar-bridge ${status} ${projected ? 'projected' : ''} ${bridgeFilled ? 'is-filled' : ''}`}
+                      style={{ left: `${left + width}%`, width: `${bridgeWidth}%` }}
+                      aria-hidden="true"
+                    />
+                  )}
                   {narrow && (
-                    <span className={`gantt-bar-out ${statusClass(task.status)}`} style={{ left: `${left + width}%` }}>{label}</span>
+                    <span className={`gantt-bar-out ${status}`} style={{ left: `${visualRight}%` }}>{label}</span>
                   )}
                 </div>
               </div>

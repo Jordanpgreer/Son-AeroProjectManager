@@ -15,6 +15,8 @@ public sealed record ApplicationDto(
     ApplicationStatus Status,
     bool HasPreview);
 
+public sealed record ApplicationNotificationDto(string ApplicationId, int UnreadCount);
+
 /// <summary>Compact "minimized dashboard" snapshot rendered on an application card.</summary>
 public sealed record TrackerPreviewDto(
     int ActiveProjects,

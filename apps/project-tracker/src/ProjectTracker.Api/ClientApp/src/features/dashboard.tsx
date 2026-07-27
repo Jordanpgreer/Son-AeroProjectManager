@@ -86,7 +86,10 @@ export function DashboardView({
   const onTrack = visible.filter((project) => project.status === 'OnTrack').length
   const behind = visible.filter((project) => project.status === 'Behind').length
   const notStarted = visible.filter((project) => project.status === 'NotStarted').length
-  const avgCompletion = total === 0 ? 0 : visible.reduce((sum, project) => sum + project.progress, 0) / total
+  const largestDelay = visible
+    .filter((project) => project.status === 'Behind' && (project.daysBehind ?? 0) > 0)
+    .sort((a, b) => (b.daysBehind ?? 0) - (a.daysBehind ?? 0))[0]
+  const largestDelayDays = largestDelay?.daysBehind ?? 0
 
   return (
     <section className="view dashboard-view">
@@ -94,7 +97,31 @@ export function DashboardView({
         <Kpi label="Active Programs" value={total.toString()} hint="in the development queue" tone="ink" icon={<Factory size={17} />} />
         <Kpi label="On Track" value={onTrack.toString()} hint={behind > 0 ? 'some need attention' : 'all clear'} tone="ok" icon={<CheckCircle2 size={17} />} />
         <Kpi label="Behind Schedule" value={behind.toString()} hint={behind > 0 ? 'needs attention' : 'all clear'} tone="risk" icon={<AlertTriangle size={17} />} />
-        <Kpi label="Avg Completion" value={formatPercent(avgCompletion)} tone="steel" icon={<Gauge size={17} />} bar={avgCompletion} />
+        {largestDelay ? (
+          <button
+            type="button"
+            className="kpi-action"
+            onClick={() => void onOpenProject(largestDelay.id)}
+            aria-label={`Open ${largestDelay.programName}, the project with the largest delay`}
+            title={`Open ${largestDelay.programName}`}
+          >
+            <Kpi
+              label="Largest Delay"
+              value={`${largestDelayDays} ${largestDelayDays === 1 ? 'day' : 'days'}`}
+              hint={`${largestDelay.programName} is furthest behind`}
+              tone="steel"
+              icon={<Gauge size={17} />}
+            />
+          </button>
+        ) : (
+          <Kpi
+            label="Largest Delay"
+            value="0 days"
+            hint="no delayed projects"
+            tone="steel"
+            icon={<Gauge size={17} />}
+          />
+        )}
       </div>
 
       <section className="panel table-panel">

@@ -677,6 +677,31 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .kpi-hint { font-size: 11px; color: var(--muted); font-weight: 500; }
 .kpi-bar { height: 5px; border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
 .kpi-bar span { display: block; height: 100%; border-radius: var(--r-pill); background: var(--kpi-accent, var(--steel)); }
+.kpi-action {
+  display: block;
+  min-width: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-lg);
+  cursor: pointer;
+}
+.kpi-action .kpi {
+  height: 100%;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+.kpi-action:hover .kpi {
+  transform: translateY(-1px);
+  border-color: var(--steel);
+  box-shadow: var(--shadow-2);
+}
+.kpi-action:focus-visible {
+  outline: 2px solid var(--steel);
+  outline-offset: 3px;
+}
 
 /* ---------------------------------------------------------------------- */
 /* Dashboard grid + status bar                                            */
@@ -1263,10 +1288,32 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
   transition: filter 140ms ease, transform 140ms ease;
 }
 .gantt-bar:hover { filter: brightness(1.04); transform: translateY(-1px); }
-.gantt-bar.on-track { --bar: var(--ok); --bar-tint: var(--ok-tint); }
-.gantt-bar.behind { --bar: var(--risk); --bar-tint: var(--risk-tint); }
-.gantt-bar.complete { --bar: var(--done); --bar-tint: var(--done-tint); }
-.gantt-bar.not-started { --bar: var(--idle); --bar-tint: var(--idle-tint); }
+.gantt-bar.on-track, .gantt-calendar-bridge.on-track { --bar: var(--ok); --bar-tint: var(--ok-tint); }
+.gantt-bar.behind, .gantt-calendar-bridge.behind { --bar: var(--risk); --bar-tint: var(--risk-tint); }
+.gantt-bar.complete, .gantt-calendar-bridge.complete { --bar: var(--done); --bar-tint: var(--done-tint); }
+.gantt-bar.not-started, .gantt-calendar-bridge.not-started { --bar: var(--idle); --bar-tint: var(--idle-tint); }
+
+.gantt-bar.has-calendar-bridge {
+  border-right: 0;
+  border-radius: 5px 0 0 5px;
+}
+
+.gantt-calendar-bridge {
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  z-index: 1;
+  min-width: 0;
+  pointer-events: none;
+  background: var(--bar-tint, var(--idle-tint));
+  border: 1px solid color-mix(in srgb, var(--bar, var(--idle)) 32%, transparent);
+  border-left: 0;
+  border-radius: 0 5px 5px 0;
+  box-shadow: 0 2px 5px -2px rgba(16, 24, 33, 0.4);
+}
+.gantt-calendar-bridge.is-filled {
+  background: var(--bar, var(--idle));
+}
 
 .gantt-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--bar, var(--idle)); z-index: 0; }
 .gantt-bar-label { position: relative; z-index: 1; padding: 1px 4px; border-radius: 3px; background: rgba(16, 24, 33, 0.58); font-family: var(--font-mono); font-size: 10px; font-weight: 600; color: #fff; white-space: nowrap; }
@@ -1291,6 +1338,18 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
   border-style: dashed;
   border-color: color-mix(in srgb, var(--bar) 55%, #fff);
   box-shadow: none;
+}
+.gantt-calendar-bridge.projected {
+  background:
+    repeating-linear-gradient(45deg, var(--bar-tint) 0 4px, color-mix(in srgb, var(--bar-tint) 72%, #fff) 4px 8px);
+  border-style: dashed;
+  border-left: 0;
+  border-color: color-mix(in srgb, var(--bar) 55%, #fff);
+  box-shadow: none;
+}
+.gantt-calendar-bridge.projected.is-filled {
+  background:
+    repeating-linear-gradient(45deg, var(--bar) 0 4px, color-mix(in srgb, var(--bar) 76%, #fff) 4px 8px);
 }
 .gantt-bar.projected .gantt-fill {
   background: repeating-linear-gradient(45deg, var(--bar) 0 4px, color-mix(in srgb, var(--bar) 76%, #fff) 4px 8px);
