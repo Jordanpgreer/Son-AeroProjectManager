@@ -115,6 +115,23 @@ function Get-SourceStamp($clientRoot) {
     return (($items | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum.Ticks).ToString()
 }
 
+function Get-DependencyStamp($clientRoot) {
+    $lockFile = Join-Path $clientRoot 'package-lock.json'
+    $packageFile = Join-Path $clientRoot 'package.json'
+    $manifest = if (Test-Path -LiteralPath $lockFile) { $lockFile } else { $packageFile }
+    if (-not (Test-Path -LiteralPath $manifest)) { return '0' }
+
+    $stream = [System.IO.File]::OpenRead($manifest)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return [System.BitConverter]::ToString($sha256.ComputeHash($stream)).Replace('-', '')
+    }
+    finally {
+        $sha256.Dispose()
+        $stream.Dispose()
+    }
+}
+
 function Get-BackendSourceStamp($app) {
     $items = @()
     $extensions = @('.cs', '.csproj', '.json', '.props', '.targets')
@@ -142,16 +159,27 @@ function Ensure-Frontend($app) {
     $wwwroot = Join-Path $app.ApiRoot 'wwwroot'
     $index = Join-Path $wwwroot 'index.html'
     $stampFile = Join-Path $logDir ("{0}.build-stamp" -f $app.Key)
+    $dependencyStampFile = Join-Path $logDir ("{0}.dependency-stamp" -f $app.Key)
 
     $sourceStamp = Get-SourceStamp $clientRoot
     $installedStamp = if (Test-Path -LiteralPath $stampFile) { (Get-Content -LiteralPath $stampFile -Raw).Trim() } else { '' }
+    $dependencyStamp = Get-DependencyStamp $clientRoot
+    $installedDependencyStamp = if (Test-Path -LiteralPath $dependencyStampFile) {
+        (Get-Content -LiteralPath $dependencyStampFile -Raw).Trim()
+    }
+    else {
+        ''
+    }
 
     if ((Test-Path -LiteralPath $index) -and $installedStamp -eq $sourceStamp) { return }
 
     Write-Host ("Preparing the {0} interface..." -f $app.Name)
     if (-not $script:npm) { $script:npm = Find-Npm }
 
-    if (-not (Test-Path -LiteralPath (Join-Path $clientRoot 'node_modules'))) {
+    if (
+        -not (Test-Path -LiteralPath (Join-Path $clientRoot 'node_modules')) -or
+        $installedDependencyStamp -ne $dependencyStamp
+    ) {
         if (Test-Path -LiteralPath (Join-Path $clientRoot 'package-lock.json')) {
             & $script:npm ci --prefix $clientRoot
         }
@@ -159,6 +187,7 @@ function Ensure-Frontend($app) {
             & $script:npm install --prefix $clientRoot
         }
         if ($LASTEXITCODE -ne 0) { throw ("npm dependency installation failed for {0}." -f $app.Name) }
+        Set-Content -LiteralPath $dependencyStampFile -Value $dependencyStamp -Encoding ASCII
     }
 
     & $script:npm run build --prefix $clientRoot
@@ -278,10 +307,16 @@ try {
 
     $launchToken = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     Start-Process ("{0}/?launch={1}" -f $portalUrl.TrimEnd('/'), $launchToken)
+    Set-Content -LiteralPath (Join-Path $logDir 'hub-launch-success.log') `
+        -Value ([DateTimeOffset]::Now.ToString('O')) `
+        -Encoding ASCII
     Write-Host 'SON-AERO Hub is running.'
     exit 0
 }
 catch {
+    Set-Content -LiteralPath (Join-Path $logDir 'hub-launch-failure.log') `
+        -Value $_.Exception.ToString() `
+        -Encoding UTF8
     Show-HubMessage $_.Exception.Message
     exit 1
 }
