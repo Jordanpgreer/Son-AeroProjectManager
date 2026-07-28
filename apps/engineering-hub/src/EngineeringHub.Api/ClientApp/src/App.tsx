@@ -15,8 +15,10 @@ import {
 import './index.css'
 import { persistTheme, readThemePreference } from './theme'
 import type { AppTheme } from './theme'
+import DrawingDashboard from './DrawingDashboard'
 import DrawingWorkspace from './DrawingWorkspace'
 import EngineeringDashboard from './EngineeringDashboard'
+import type { EngineeringSearchResult } from './EngineeringDashboard'
 
 const hubUrl = import.meta.env.VITE_HUB_URL ?? `${window.location.protocol}//${window.location.hostname}:5140`
 
@@ -124,6 +126,10 @@ export default function App() {
   const [me, setMe] = useState<Me | null>(null)
   const [moduleData, setModuleData] = useState<EngineeringModule | null>(null)
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null)
+  const [drawingScreen, setDrawingScreen] = useState<'dashboard' | 'record'>('dashboard')
+  const [drawingId, setDrawingId] = useState<number | null>(null)
+  const [creatingDrawing, setCreatingDrawing] = useState(false)
+  const [selectedModuleRecord, setSelectedModuleRecord] = useState<EngineeringSearchResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -161,6 +167,41 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
+    const applyDrawingRoute = () => {
+      const route = window.location.hash.replace(/^#\/?/, '')
+      if (route === 'drawing-record/new') {
+        setActiveSectionId('drawing-document-control')
+        setDrawingScreen('record')
+        setDrawingId(null)
+        setCreatingDrawing(true)
+        return
+      }
+      if (route === 'drawing-record') {
+        setActiveSectionId('drawing-document-control')
+        setDrawingScreen('record')
+        setDrawingId(null)
+        setCreatingDrawing(false)
+        return
+      }
+      const match = route.match(/^drawing-record\/(\d+)$/)
+      if (match) {
+        setActiveSectionId('drawing-document-control')
+        setDrawingScreen('record')
+        setDrawingId(Number(match[1]))
+        setCreatingDrawing(false)
+      } else if (route === 'drawing-dashboard') {
+        setActiveSectionId('drawing-document-control')
+        setDrawingScreen('dashboard')
+        setDrawingId(null)
+        setCreatingDrawing(false)
+      }
+    }
+    applyDrawingRoute()
+    window.addEventListener('hashchange', applyDrawingRoute)
+    return () => window.removeEventListener('hashchange', applyDrawingRoute)
+  }, [])
+
+  useEffect(() => {
     const syncTheme = () => setTheme(readThemePreference())
     const onVisibility = () => {
       if (document.visibilityState === 'visible') syncTheme()
@@ -177,6 +218,61 @@ export default function App() {
     () => moduleData?.sections.find((section) => section.id === activeSectionId) ?? moduleData?.sections[0] ?? null,
     [activeSectionId, moduleData],
   )
+
+  function openDrawingDashboard() {
+    setSelectedModuleRecord(null)
+    setActiveSectionId('drawing-document-control')
+    setDrawingScreen('dashboard')
+    setDrawingId(null)
+    setCreatingDrawing(false)
+    window.location.hash = 'drawing-dashboard'
+  }
+
+  function openDrawingRecord(id: number) {
+    setSelectedModuleRecord(null)
+    setActiveSectionId('drawing-document-control')
+    setDrawingScreen('record')
+    setDrawingId(id)
+    setCreatingDrawing(false)
+    window.location.hash = `drawing-record/${id}`
+  }
+
+  function openDrawingEditor() {
+    setSelectedModuleRecord(null)
+    setActiveSectionId('drawing-document-control')
+    setDrawingScreen('record')
+    setDrawingId(null)
+    setCreatingDrawing(false)
+    window.location.hash = 'drawing-record'
+  }
+
+  function openDrawingCreation() {
+    setSelectedModuleRecord(null)
+    setActiveSectionId('drawing-document-control')
+    setDrawingScreen('record')
+    setDrawingId(null)
+    setCreatingDrawing(true)
+    window.location.hash = 'drawing-record/new'
+  }
+
+  function openEngineeringResult(result: EngineeringSearchResult) {
+    if (result.drawingId) {
+      setSelectedModuleRecord(null)
+      openDrawingRecord(result.drawingId)
+      return
+    }
+
+    setSelectedModuleRecord(result)
+    if (result.category === 'tools') {
+      setActiveSectionId('tooling-management')
+      window.location.hash = `tooling-record/${result.id}`
+    } else if (result.category === 'compounds' || result.category === 'test-reports') {
+      setActiveSectionId('compound-test-data-management')
+      window.location.hash = `compound-record/${result.id}`
+    } else {
+      openDrawingEditor()
+    }
+  }
 
   return (
     <div className="engineering-shell engineering-app">
@@ -202,17 +298,29 @@ export default function App() {
             const Icon = ICONS[section.id] ?? Beaker
             const active = section.id === activeSection?.id
             return (
-              <button
-                key={section.id}
-                type="button"
-                className={`nav-button ${active ? 'active' : ''}`.trim()}
-                onClick={() => setActiveSectionId(section.id)}
-              >
-                <span className="nav-icon">
-                  <Icon size={17} />
-                </span>
-                {section.title}
-              </button>
+              <div className="engineering-nav-item" key={section.id}>
+                <button
+                  type="button"
+                  className={`nav-button ${active ? 'active' : ''}`.trim()}
+                  onClick={() => {
+                    if (section.id === 'drawing-document-control') openDrawingDashboard()
+                    else {
+                      setSelectedModuleRecord(null)
+                      setActiveSectionId(section.id)
+                      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+                    }
+                  }}
+                >
+                  <span className="nav-icon">
+                    <Icon size={17} />
+                  </span>
+                  {section.title}
+                </button>
+                {section.id === 'drawing-document-control' && active && <div className="drawing-subnav">
+                  <button type="button" className={drawingScreen === 'dashboard' ? 'active' : ''} onClick={openDrawingDashboard}>Drawing register</button>
+                  <button type="button" className={drawingScreen === 'record' ? 'active' : ''} onClick={() => drawingId ? openDrawingRecord(drawingId) : openDrawingEditor()}>Record editor</button>
+                </div>}
+              </div>
             )
           })}
           </nav>
@@ -298,7 +406,9 @@ export default function App() {
                   <div className="panel-head">
                     <div className="panel-head-text">
                       <span className="eyebrow">{moduleData?.accessNotice}</span>
-                      <h2>{activeSection.title}</h2>
+                      <h2>{activeSection.id === 'drawing-document-control'
+                        ? drawingScreen === 'dashboard' ? 'Drawing register' : 'Drawing record editor'
+                        : activeSection.title}</h2>
                       <p>{activeSection.summary}</p>
                     </div>
                     <div className="hero-callout">
@@ -309,14 +419,40 @@ export default function App() {
                 </section>
 
                 {activeSection.id === 'drawing-document-control' ? (
-                  <DrawingWorkspace />
+                  drawingScreen === 'dashboard' ? (
+                    <DrawingDashboard onEditDrawing={openDrawingRecord} onCreateDrawing={openDrawingCreation}/>
+                  ) : (
+                    <DrawingWorkspace
+                      drawingId={drawingId}
+                      initialCreate={creatingDrawing}
+                      onOpenDrawing={openDrawingRecord}
+                      onBackToDashboard={openDrawingDashboard}
+                    />
+                  )
                 ) : activeSection.id === 'dashboard' ? (
-                  <EngineeringDashboard onOpenDrawing={(drawingId) => {
-                    sessionStorage.setItem('engineering:open-drawing', String(drawingId))
-                    setActiveSectionId('drawing-document-control')
-                  }}/>
+                  <EngineeringDashboard
+                    onOpenDrawing={openDrawingRecord}
+                    onOpenResult={openEngineeringResult}
+                  />
                 ) : (
                   <>
+                {selectedModuleRecord && (
+                  (activeSection.id === 'tooling-management' && selectedModuleRecord.category === 'tools') ||
+                  (activeSection.id === 'compound-test-data-management' && ['compounds', 'test-reports'].includes(selectedModuleRecord.category))
+                ) && <section className="panel module-record-route">
+                  <div>
+                    <span className="eyebrow">{selectedModuleRecord.categoryLabel} record editor</span>
+                    <h2><span className="technical-id">{selectedModuleRecord.identifier}</span> · {selectedModuleRecord.title}</h2>
+                    <p>{selectedModuleRecord.subtitle}</p>
+                  </div>
+                  <dl>
+                    <div><dt>Customer</dt><dd>{selectedModuleRecord.customer ?? 'Not assigned'}</dd></div>
+                    <div><dt>Specification</dt><dd>{selectedModuleRecord.specificationNumber ?? 'Not linked'}</dd></div>
+                    <div><dt>Work order</dt><dd>{selectedModuleRecord.workOrder ?? 'Not linked'}</dd></div>
+                    <div><dt>Record type</dt><dd>{selectedModuleRecord.categoryLabel}</dd></div>
+                  </dl>
+                  <p className="module-record-notice">This is the owning record page. The tooling and compound-specific edit forms will be added as those modules are built out.</p>
+                </section>}
                 <section className="kpi-row">
                   <article className={`kpi ${SECTION_TONES[activeSection.id] ?? 'tone-steel'}`}>
                     <div className="kpi-top">

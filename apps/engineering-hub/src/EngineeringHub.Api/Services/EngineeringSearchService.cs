@@ -219,7 +219,10 @@ public sealed class EngineeringSearchService(EngineeringDbContext db)
             .ToListAsync(cancellationToken);
 
         var liveRecords = drawings.SelectMany(ToSearchRecords).ToList();
-        var records = Records.Where(x => x.Category != "drawings").Concat(liveRecords).ToList();
+        var catalogRecords = Records
+            .Where(x => x.Category != "drawings")
+            .Select(record => record with { DrawingId = ResolveDrawingLink(record, drawings) });
+        var records = catalogRecords.Concat(liveRecords).ToList();
         var normalized = query?.Trim();
         var filtered = records.AsEnumerable();
         if (!string.IsNullOrWhiteSpace(normalized))
@@ -369,6 +372,23 @@ public sealed class EngineeringSearchService(EngineeringDbContext db)
                 "ok",
                 drawing.Id)));
         return items.Take(12).ToList();
+    }
+
+    private static int? ResolveDrawingLink(
+        EngineeringSearchResultDto record,
+        IReadOnlyList<Drawing> drawings)
+    {
+        if (record.Category == "parts")
+            return drawings.FirstOrDefault(drawing =>
+                drawing.Parts.Any(part =>
+                    string.Equals(part.PartNumber, record.Identifier, StringComparison.OrdinalIgnoreCase)))?.Id;
+
+        if (record.Category is "specifications" or "documents")
+            return drawings.FirstOrDefault(drawing =>
+                drawing.DocumentLinks.Any(link =>
+                    string.Equals(link.ReferenceNumber, record.Identifier, StringComparison.OrdinalIgnoreCase)))?.Id;
+
+        return null;
     }
 
     private static bool Matches(EngineeringSearchResultDto record, string query)

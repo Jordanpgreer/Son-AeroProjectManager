@@ -51,7 +51,11 @@ public sealed record DrawingListDto(
     bool IsObsolete,
     string? PhysicalMylarLocation,
     bool IsMylarCheckedOut,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    int RevisionCount,
+    int? AttachmentRevisionId,
+    string? AttachmentFileName,
+    string? AttachmentStatus);
 
 public sealed record DrawingDetailDto(
     int Id,

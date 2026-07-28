@@ -46,9 +46,28 @@ public static class DrawingEndpoints
         }
         var records = await drawings.OrderBy(x => x.DrawingNumber).Select(x => new DrawingListDto(
             x.Id, x.DrawingNumber, x.Title, x.Customer, x.Parts.OrderBy(p => p.PartNumber).Select(p => p.PartNumber).ToList(),
-            x.ApprovalStatus.ToString(), x.CurrentApprovedRevision == null ? null : x.CurrentApprovedRevision.RevisionNumber,
-            x.CurrentApprovedRevision == null ? null : x.CurrentApprovedRevision.RevisionDate, x.EffectiveDate,
-            x.IsObsolete, x.PhysicalMylarLocation, x.IsMylarCheckedOut, x.CreatedAt)).ToListAsync(ct);
+            x.ApprovalStatus.ToString(),
+            x.CurrentApprovedRevision != null
+                ? x.CurrentApprovedRevision.RevisionNumber
+                : x.Revisions.OrderByDescending(r => r.UploadedAt).Select(r => r.RevisionNumber).FirstOrDefault(),
+            x.CurrentApprovedRevision != null
+                ? x.CurrentApprovedRevision.RevisionDate
+                : x.Revisions.OrderByDescending(r => r.UploadedAt).Select(r => (DateTime?)r.RevisionDate).FirstOrDefault(),
+            x.EffectiveDate, x.IsObsolete, x.PhysicalMylarLocation, x.IsMylarCheckedOut, x.CreatedAt,
+            x.Revisions.Count,
+            x.CurrentApprovedRevision != null && x.CurrentApprovedRevision.FileSize > 0 && x.CurrentApprovedRevision.StoredFilePath != string.Empty
+                ? x.CurrentApprovedRevision.Id
+                : x.Revisions.Where(r => r.FileSize > 0 && r.StoredFilePath != string.Empty)
+                    .OrderByDescending(r => r.UploadedAt).Select(r => (int?)r.Id).FirstOrDefault(),
+            x.CurrentApprovedRevision != null && x.CurrentApprovedRevision.FileSize > 0 && x.CurrentApprovedRevision.StoredFilePath != string.Empty
+                ? x.CurrentApprovedRevision.OriginalFileName
+                : x.Revisions.Where(r => r.FileSize > 0 && r.StoredFilePath != string.Empty)
+                    .OrderByDescending(r => r.UploadedAt).Select(r => r.OriginalFileName).FirstOrDefault(),
+            x.CurrentApprovedRevision != null && x.CurrentApprovedRevision.FileSize > 0 && x.CurrentApprovedRevision.StoredFilePath != string.Empty
+                ? x.CurrentApprovedRevision.Status.ToString()
+                : x.Revisions.Where(r => r.FileSize > 0 && r.StoredFilePath != string.Empty)
+                    .OrderByDescending(r => r.UploadedAt).Select(r => r.Status.ToString()).FirstOrDefault()))
+            .ToListAsync(ct);
         return Results.Ok(records);
     }
 

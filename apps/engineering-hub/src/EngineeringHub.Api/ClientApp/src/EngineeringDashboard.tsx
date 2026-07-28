@@ -1,8 +1,8 @@
 import { useDeferredValue, useEffect, useState } from 'react'
-import { AlertCircle, Boxes, CheckCircle2, ClipboardCheck, FileSearch, Search } from 'lucide-react'
+import { AlertCircle, ArrowRight, Boxes, CheckCircle2, ClipboardCheck, FileSearch, Pencil, Search } from 'lucide-react'
 
 interface SearchCategory { id: string; title: string; count: number }
-interface SearchResult {
+export interface EngineeringSearchResult {
   id: string; category: string; categoryLabel: string; title: string; identifier: string; subtitle: string
   customer: string | null; specificationNumber: string | null; workOrder: string | null; reportNumber: string | null
   tags: string[]; note: string; drawingId: number | null
@@ -11,13 +11,19 @@ interface WorkItem { id: string; kind: string; title: string; detail: string; to
 interface DashboardData {
   searchHint: string
   categories: SearchCategory[]
-  results: SearchResult[]
+  results: EngineeringSearchResult[]
   summary: { totalDrawings: number; draftDrawings: number; awaitingReview: number; approvedDrawings: number; checkedOutMylars: number }
   workItems: WorkItem[]
   customers: string[]
 }
 
-export default function EngineeringDashboard({ onOpenDrawing }: { onOpenDrawing: (drawingId: number) => void }) {
+export default function EngineeringDashboard({
+  onOpenDrawing,
+  onOpenResult,
+}: {
+  onOpenDrawing: (drawingId: number) => void
+  onOpenResult: (result: EngineeringSearchResult) => void
+}) {
   const [data, setData] = useState<DashboardData | null>(null)
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
@@ -89,7 +95,7 @@ export default function EngineeringDashboard({ onOpenDrawing }: { onOpenDrawing:
 
     <section className="dashboard-results">
       {loading ? <section className="panel skeleton-panel"><div className="skeleton-line lg"/><div className="skeleton-line"/><div className="skeleton-line" style={{ width: '72%' }}/></section> :
-        grouped.length ? grouped.map(group => <article key={group.category.id} className="panel results-group"><div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">{group.category.title}</span><h2>{group.results.length} result{group.results.length === 1 ? '' : 's'}</h2></div></div><div className="results-list">{group.results.map(item => <button key={item.id} type="button" className={`result-card ${item.drawingId ? 'clickable' : ''}`} disabled={!item.drawingId} onClick={() => item.drawingId && onOpenDrawing(item.drawingId)}><div className="result-head"><div><strong>{item.title}</strong><span className="result-id">{item.identifier}</span></div><span className="result-category">{item.categoryLabel}</span></div><p className="result-subtitle">{item.subtitle}</p><dl className="result-meta">{item.customer && <div><dt>Customer</dt><dd>{item.customer}</dd></div>}{item.specificationNumber && <div><dt>Spec</dt><dd className="technical-id">{item.specificationNumber}</dd></div>}{item.workOrder && <div><dt>Work order</dt><dd className="technical-id">{item.workOrder}</dd></div>}{item.reportNumber && <div><dt>Report</dt><dd className="technical-id">{item.reportNumber}</dd></div>}</dl><div className="token-list">{item.tags.map(tag => <span key={tag} className="token-chip">{tag}</span>)}</div><p className="result-note">{item.note}</p></button>)}</div></article>) :
+        grouped.length ? grouped.map(group => <article key={group.category.id} className="panel results-group"><div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">{group.category.title}</span><h2>{group.results.length} result{group.results.length === 1 ? '' : 's'}</h2></div></div><div className="results-list">{group.results.map(item => <button key={item.id} type="button" className="result-card clickable" onClick={() => onOpenResult(item)}><div className="result-head"><div><strong>{item.title}</strong><span className="result-id">{item.identifier}</span></div><span className="result-category">{item.categoryLabel}</span></div><p className="result-subtitle">{item.subtitle}</p><dl className="result-meta">{item.customer && <div><dt>Customer</dt><dd>{item.customer}</dd></div>}{item.specificationNumber && <div><dt>Spec</dt><dd className="technical-id">{item.specificationNumber}</dd></div>}{item.workOrder && <div><dt>Work order</dt><dd className="technical-id">{item.workOrder}</dd></div>}{item.reportNumber && <div><dt>Report</dt><dd className="technical-id">{item.reportNumber}</dd></div>}</dl><div className="token-list">{item.tags.map(tag => <span key={tag} className="token-chip">{tag}</span>)}</div><p className="result-note">{item.note}</p><span className="result-edit-action">{item.drawingId ? <Pencil size={13}/> : <ArrowRight size={13}/>} {item.drawingId ? 'Edit linked drawing' : 'Open owning module'}</span></button>)}</div></article>) :
         <section className="panel empty-search-state"><strong>No engineering records matched</strong><p>Adjust the filters or try another identifier, customer, or note keyword.</p></section>}
     </section>
   </>

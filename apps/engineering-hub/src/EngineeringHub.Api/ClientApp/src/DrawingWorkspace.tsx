@@ -1,14 +1,15 @@
 import { useEffect, useId, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import {
-  AlertTriangle, CheckCircle2, ChevronDown, ClipboardCheck, Database, Edit3, FilePlus2, FileText,
-  History, Link2, MapPin, Plus, Search, ShieldCheck, Trash2, Upload, X,
+  AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, Edit3, FilePlus2, FileText,
+  History, Link2, MapPin, Plus, ShieldCheck, Trash2, Upload, X,
 } from 'lucide-react'
 
 interface DrawingList {
   id: number; drawingNumber: string; title: string; customer: string; partNumbers: string[]; approvalStatus: string
   currentRevision: string | null; currentRevisionDate: string | null; effectiveDate: string | null; isObsolete: boolean
   physicalMylarLocation: string | null; isMylarCheckedOut: boolean; createdAt: string
+  revisionCount: number; attachmentRevisionId: number | null; attachmentFileName: string | null; attachmentStatus: string | null
 }
 interface Revision {
   id: number; revisionNumber: string; revisionDate: string; uploadedAt: string; effectiveDate: string | null
@@ -25,12 +26,13 @@ interface DrawingDetail extends DrawingList {
   createdBy: string; approvedBy: string | null; approvedAt: string | null; currentApprovedRevisionId: number | null
   revisions: Revision[]; relatedDocuments: DocumentLink[]; validations: Validation[]; mylarHistory: MylarEvent[]; auditHistory: Audit[]
 }
-interface StorageStatus { configured: boolean; isNetworkPath: boolean; available: boolean; message: string }
-interface ReviewItem {
-  revisionId: number; drawingId: number; drawingNumber: string; drawingTitle: string; customer: string; revisionNumber: string
-  revisionDate: string; uploadedAt: string; uploadedBy: string; changeDescription: string; notes: string | null; hasPdf: boolean
-}
 interface DeleteTarget { kind: 'drawing' | 'revision'; id: number; label: string; matchValue: string }
+interface DrawingWorkspaceProps {
+  drawingId: number | null
+  initialCreate?: boolean
+  onOpenDrawing: (drawingId: number) => void
+  onBackToDashboard: () => void
+}
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'include', ...init })
@@ -114,15 +116,17 @@ function CollapsibleSection({
   </section>
 }
 
-export default function DrawingWorkspace() {
+export default function DrawingWorkspace({
+  drawingId,
+  initialCreate = false,
+  onOpenDrawing,
+  onBackToDashboard,
+}: DrawingWorkspaceProps) {
   const [drawings, setDrawings] = useState<DrawingList[]>([])
   const [selected, setSelected] = useState<DrawingDetail | null>(null)
-  const [reviews, setReviews] = useState<ReviewItem[]>([])
-  const [query, setQuery] = useState('')
-  const [showCreate, setShowCreate] = useState(false)
+  const [showCreate, setShowCreate] = useState(initialCreate)
   const [showEdit, setShowEdit] = useState(false)
   const [showObsolete, setShowObsolete] = useState(false)
-  const [storage, setStorage] = useState<StorageStatus | null>(null)
   const [busy, setBusy] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -132,31 +136,29 @@ export default function DrawingWorkspace() {
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
-  async function loadList(search = query) {
-    const records = await api<DrawingList[]>(`/api/drawings?query=${encodeURIComponent(search)}`)
-    setDrawings(records)
+  async function loadList() { setDrawings(await api<DrawingList[]>('/api/drawings?query=')) }
+  async function open(id: number) {
+    setSelected(await api<DrawingDetail>(`/api/drawings/${id}`))
+    setShowEdit(false)
+    setShowObsolete(false)
   }
-  async function loadReviews() { setReviews(await api<ReviewItem[]>('/api/drawing-review-queue')) }
-  async function open(id: number) { setSelected(await api<DrawingDetail>(`/api/drawings/${id}`)); setShowEdit(false); setShowObsolete(false) }
   async function refresh() {
-    await Promise.all([loadList(), loadReviews()])
+    await loadList()
     if (selected) await open(selected.id)
   }
 
   useEffect(() => {
-    void Promise.all([
-      loadList(''),
-      loadReviews(),
-      api<StorageStatus>('/api/drawing-storage/status').then(setStorage),
-    ]).then(() => {
-      const pendingId = Number(sessionStorage.getItem('engineering:open-drawing'))
-      if (pendingId) { sessionStorage.removeItem('engineering:open-drawing'); void open(pendingId) }
-    }).catch(cause => setError(cause instanceof Error ? cause.message : 'Unable to load drawing control.'))
+    void loadList().catch(cause => setError(cause instanceof Error ? cause.message : 'Unable to load drawing records.'))
   }, [])
   useEffect(() => {
-    const timer = window.setTimeout(() => void loadList(query).catch(cause => setError(cause.message)), 180)
-    return () => window.clearTimeout(timer)
-  }, [query])
+    if (drawingId) {
+      setShowCreate(false)
+      void open(drawingId).catch(cause => setError(cause instanceof Error ? cause.message : 'Unable to open drawing record.'))
+    } else {
+      setSelected(null)
+      setShowCreate(initialCreate)
+    }
+  }, [drawingId, initialCreate])
   useEffect(() => {
     if (!deleteTarget) return
     const close = (event: KeyboardEvent) => { if (event.key === 'Escape' && !busy) closeDeleteDialog() }
@@ -178,7 +180,8 @@ export default function DrawingWorkspace() {
       const created = await uploadWithProgress<{ id: number }>('/api/drawings/create-with-revision', form, setUploadProgress)
       event.currentTarget.reset()
       setShowCreate(false)
-      await Promise.all([loadList(''), loadReviews()])
+      await loadList()
+      onOpenDrawing(created.id)
       await open(created.id)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to create drawing.') }
     finally { setBusy(false); setUploadProgress(null) }
@@ -220,8 +223,8 @@ export default function DrawingWorkspace() {
     finally { setBusy(false); setUploadProgress(null) }
   }
 
-  async function setRevisionStatus(revision: Revision | ReviewItem, status: 'Draft' | 'UnderReview') {
-    const revisionId = 'id' in revision ? revision.id : revision.revisionId
+  async function setRevisionStatus(revision: Revision, status: 'Draft' | 'UnderReview') {
+    const revisionId = revision.id
     setBusy(true); setError(null)
     try {
       await api(`/api/drawing-revisions/${revisionId}/status`, {
@@ -234,8 +237,8 @@ export default function DrawingWorkspace() {
     finally { setBusy(false) }
   }
 
-  async function approveRevision(revision: Revision | ReviewItem) {
-    const revisionId = 'id' in revision ? revision.id : revision.revisionId
+  async function approveRevision(revision: Revision) {
+    const revisionId = revision.id
     const hasPdf = revision.hasPdf
     if (!hasPdf) { setError('A metadata-only demo revision cannot be approved. Upload a real PDF revision first.'); return }
     setBusy(true); setError(null)
@@ -243,7 +246,7 @@ export default function DrawingWorkspace() {
       await api(`/api/drawing-revisions/${revisionId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ effectiveDate: 'effectiveDate' in revision ? revision.effectiveDate : null, comments: reviewComments[revisionId] ?? '' }),
+        body: JSON.stringify({ effectiveDate: revision.effectiveDate, comments: reviewComments[revisionId] ?? '' }),
       })
       await refresh()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to approve revision.') }
@@ -291,18 +294,35 @@ export default function DrawingWorkspace() {
         body: JSON.stringify(revision ? { confirmed: true, fileName: deleteConfirmation } : { confirmed: true, drawingNumber: deleteConfirmation }),
       })
       closeDeleteDialog()
-      if (!revision) setSelected(null)
-      await refresh()
+      if (!revision) {
+        setSelected(null)
+        await loadList()
+        onBackToDashboard()
+      } else {
+        await refresh()
+      }
     } catch (cause) { setDeleteError(cause instanceof Error ? cause.message : 'Unable to permanently delete this item.') }
     finally { setBusy(false) }
   }
 
   return <div className="drawing-workspace">
     {error && <div className="inline-alert" role="alert">{error}<button type="button" onClick={() => setError(null)}><X size={15}/></button></div>}
-    <section className="drawing-toolbar">
-      <label className="topbar-search drawing-search"><Search size={15}/><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search drawing, title, customer, part, spec, work order, or notes"/></label>
-      {storage && <span className={`storage-mode ${storage.available ? 'available' : 'unavailable'}`} title={storage.message}><Database size={14}/>{storage.isNetworkPath ? 'Network storage' : 'Local test storage'}</span>}
-      <button className="button" type="button" onClick={() => setShowCreate(value => !value)}><Plus size={15}/> New drawing</button>
+    <section className="panel drawing-editor-toolbar">
+      <button className="button ghost" type="button" onClick={onBackToDashboard}><ArrowLeft size={15}/> Drawing register</button>
+      <label className="record-selector">
+        <span>Open record</span>
+        <select
+          value={selected?.id ?? ''}
+          onChange={event => {
+            const id = Number(event.target.value)
+            if (id) onOpenDrawing(id)
+          }}
+        >
+          <option value="">Select a drawing record</option>
+          {drawings.map(drawing => <option key={drawing.id} value={drawing.id}>{drawing.drawingNumber} · {drawing.title}</option>)}
+        </select>
+      </label>
+      <button className="button" type="button" onClick={() => { setSelected(null); setShowCreate(true) }}><Plus size={15}/> New drawing</button>
     </section>
 
     {uploadProgress !== null && <div className="upload-progress" role="status"><span style={{ width: `${uploadProgress}%` }}/><strong>{uploadProgress}%</strong><small>Transferring controlled file package</small></div>}
@@ -321,22 +341,10 @@ export default function DrawingWorkspace() {
         <label className="wide">Drawing notes<textarea name="notes" rows={2}/></label>
         <label className="wide">Revision notes<textarea name="revisionNotes" rows={2}/></label>
       </div>
-      <div className="form-actions"><button className="button" disabled={busy}><FilePlus2 size={15}/> Create drawing</button><button className="button ghost" type="button" onClick={() => setShowCreate(false)}>Cancel</button></div>
+      <div className="form-actions"><button className="button" disabled={busy}><FilePlus2 size={15}/> Create drawing</button><button className="button ghost" type="button" onClick={() => { setShowCreate(false); if (!selected) onBackToDashboard() }}>Cancel</button></div>
     </form>}
 
-    {reviews.length > 0 && <section className="panel review-queue">
-      <div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Approval work queue</span><h2>{reviews.length} revision{reviews.length === 1 ? '' : 's'} under review</h2></div><ClipboardCheck size={19}/></div>
-      <div className="review-queue-list">{reviews.map(item => <article key={item.revisionId} className="review-card"><button type="button" className="review-card-title" onClick={() => void open(item.drawingId)}><strong>{item.drawingNumber} · Rev {item.revisionNumber}</strong><span>{item.customer} · {item.drawingTitle}</span></button><p>{item.changeDescription}</p>{!item.hasPdf && <span className="metadata-only-badge">PDF required before approval</span>}<textarea value={reviewComments[item.revisionId] ?? ''} onChange={event => setReviewComments(current => ({ ...current, [item.revisionId]: event.target.value }))} placeholder="Reviewer comments"/><div className="form-actions"><button className="button ghost" type="button" disabled={busy} onClick={() => void setRevisionStatus(item, 'Draft')}>Return to draft</button><button className="button" type="button" disabled={busy || !item.hasPdf} onClick={() => void approveRevision(item)}><CheckCircle2 size={14}/> Approve</button></div></article>)}</div>
-    </section>}
-
-    <section className="drawing-layout">
-      <article className="panel drawing-register">
-        <div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Drawing register</span><h2>{drawings.length} controlled record{drawings.length === 1 ? '' : 's'}</h2></div></div>
-        <div className="drawing-list">{drawings.map(item => <button key={item.id} type="button" className={`drawing-row ${selected?.id === item.id ? 'selected' : ''}`} onClick={() => void open(item.id)}><span><strong>{item.drawingNumber}</strong><small>{item.title}</small></span><span><small>{item.customer}</small><small>{item.partNumbers.join(', ') || 'No linked parts'}</small></span><span className={`status-pill status-${item.approvalStatus.toLowerCase()}`}>{item.approvalStatus}</span><span><strong>{item.currentRevision ?? '—'}</strong><small>Current rev</small></span></button>)}</div>
-        {!drawings.length && <div className="empty-search-state"><strong>No drawings found</strong><p>Create a drawing or adjust the search.</p></div>}
-      </article>
-
-      {!selected ? <article className="panel drawing-empty"><FileText size={30}/><h2>Select a drawing</h2><p>Open a record to manage metadata, references, revisions, review status, and audit history.</p></article> : <article className="drawing-detail">
+    {!selected && !showCreate ? <article className="panel drawing-empty"><FileText size={30}/><h2>Select a drawing record</h2><p>Choose a record above, or return to the drawing dashboard to search the complete register.</p></article> : selected ? <article className="drawing-detail">
         <section className="panel detail-summary"><div><span className="eyebrow">{selected.customer}</span><h2><span className="technical-id">{selected.drawingNumber}</span> · {selected.title}</h2><p>{selected.notes || 'No drawing notes recorded.'}</p></div><div className="detail-summary-actions"><span className={`status-pill status-${selected.approvalStatus.toLowerCase()}`}>{selected.approvalStatus}</span><button className="button ghost" type="button" disabled={selected.isObsolete} onClick={() => setShowEdit(value => !value)}><Edit3 size={14}/> Edit metadata</button>{selected.approvalStatus === 'Draft' && selected.revisions.length === 0 && <button className="button danger" type="button" onClick={requestDrawingDelete}><Trash2 size={14}/> Delete draft</button>}</div></section>
 
         {showEdit && <form className="panel record-form metadata-edit-form" onSubmit={updateDrawing}>
@@ -354,7 +362,7 @@ export default function DrawingWorkspace() {
         <section className="detail-kpis"><div><small>Current revision</small><strong>{selected.revisions.find(revision => revision.id === selected.currentApprovedRevisionId)?.revisionNumber ?? 'None'}</strong></div><div><small>Effective date</small><strong>{date(selected.effectiveDate)}</strong></div><div><small>Linked parts</small><strong>{selected.partNumbers.length}</strong></div><div><small>Mylar</small><strong>{selected.isMylarCheckedOut ? `Out: ${selected.mylarCheckedOutBy ?? 'Unknown'}` : selected.physicalMylarLocation || 'Not tracked'}</strong></div></section>
 
         <CollapsibleSection eyebrow="Cross references" title="Linked engineering records" icon={<Link2 size={18}/>} tone="steel" className="linked-records">
-          <div className="linked-record-grid"><div><small>Parts</small>{selected.partNumbers.map(item => <button key={item} type="button" onClick={() => setQuery(item)}>{item}</button>)}</div>{['Specification', 'WorkOrder', 'WorkInstruction', 'SupplementalDocument'].map(kind => <div key={kind}><small>{kind.replace(/([A-Z])/g, ' $1').trim()}</small>{selected.relatedDocuments.filter(link => link.kind === kind).map(link => <button key={link.id} type="button" title={link.title ?? undefined} onClick={() => setQuery(link.referenceNumber)}>{link.referenceNumber}</button>)}</div>)}</div>
+          <div className="linked-record-grid"><div><small>Parts</small>{selected.partNumbers.map(item => <span className="linked-record-chip" key={item}>{item}</span>)}</div>{['Specification', 'WorkOrder', 'WorkInstruction', 'SupplementalDocument'].map(kind => <div key={kind}><small>{kind.replace(/([A-Z])/g, ' $1').trim()}</small>{selected.relatedDocuments.filter(link => link.kind === kind).map(link => <span className="linked-record-chip" key={link.id} title={link.title ?? undefined}>{link.referenceNumber}</span>)}</div>)}</div>
         </CollapsibleSection>
 
         {selected.currentApprovedRevisionId && selected.revisions.some(revision => revision.id === selected.currentApprovedRevisionId && revision.hasPdf) && <CollapsibleSection eyebrow="Approved PDF" title="Controlled viewer" icon={<FileText size={18}/>} tone="steel" className="pdf-panel">
@@ -382,8 +390,7 @@ export default function DrawingWorkspace() {
         <CollapsibleSection eyebrow="Append-only log" title="Complete audit history" icon={<ShieldCheck size={18}/>} tone="graphite" defaultOpen={false}>
           <div className="audit-list">{selected.auditHistory.map(item => <div className="audit-row" key={item.id}><span className="audit-dot"/><div><strong>{item.action}{item.revisionNumber ? ` · Rev ${item.revisionNumber}` : ''}</strong><p>{item.details}</p><small>{item.actor} · {new Date(item.occurredAt).toLocaleString()}</small></div></div>)}</div>
         </CollapsibleSection>
-      </article>}
-    </section>
+      </article> : null}
 
     {deleteTarget && <div className="delete-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) closeDeleteDialog() }}><section className="delete-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" aria-describedby="delete-dialog-description"><header className="delete-dialog-header"><span className="delete-dialog-icon"><AlertTriangle size={21}/></span><div><span className="eyebrow">Permanent deletion</span><h2 id="delete-dialog-title">Delete {deleteTarget.label}?</h2></div><button type="button" className="delete-dialog-close" aria-label="Close deletion dialog" disabled={busy} onClick={closeDeleteDialog}><X size={18}/></button></header><div className="delete-warning" id="delete-dialog-description"><strong>This action cannot be undone.</strong><p>{deleteTarget.kind === 'revision' ? 'The eligible draft revision and any stored file package will be removed.' : 'This empty draft drawing record will be permanently removed.'}</p></div><form className="delete-dialog-form" onSubmit={confirmDelete}><label className="delete-acknowledgment"><input type="checkbox" checked={deleteAcknowledged} onChange={event => setDeleteAcknowledged(event.target.checked)}/><span><strong>I understand this deletion is permanent</strong><small>This is the first required confirmation.</small></span></label><label className="delete-confirmation-field"><span>Type the exact {deleteTarget.kind === 'revision' ? 'filename' : 'drawing number'}</span><code>{deleteTarget.matchValue}</code><input autoFocus autoComplete="off" spellCheck={false} value={deleteConfirmation} onChange={event => setDeleteConfirmation(event.target.value)} placeholder={deleteTarget.matchValue}/>{deleteConfirmation && deleteConfirmation !== deleteTarget.matchValue && <small className="delete-match-error">The value does not match exactly.</small>}</label>{deleteError && <div className="inline-alert" role="alert">{deleteError}</div>}<div className="delete-dialog-actions"><button type="button" className="button ghost" disabled={busy} onClick={closeDeleteDialog}>Cancel</button><button type="submit" className="button danger" disabled={busy || !deleteAcknowledged || deleteConfirmation !== deleteTarget.matchValue}><Trash2 size={15}/>{busy ? 'Deleting…' : 'Permanently delete'}</button></div></form></section></div>}
   </div>
