@@ -4,6 +4,7 @@ import {
   Beaker,
   Boxes,
   ChevronRight,
+  Edit3,
   FileStack,
   FlaskConical,
   LoaderCircle,
@@ -17,6 +18,7 @@ import { persistTheme, readThemePreference } from './theme'
 import type { AppTheme } from './theme'
 import DrawingDashboard from './DrawingDashboard'
 import DrawingWorkspace from './DrawingWorkspace'
+import type { DrawingRecordHeader } from './DrawingWorkspace'
 import EngineeringDashboard from './EngineeringDashboard'
 import type { EngineeringSearchResult } from './EngineeringDashboard'
 
@@ -80,6 +82,15 @@ function initials(name: string) {
   return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
 }
 
+function shortDate(value: string | null) {
+  return value ? new Date(value).toLocaleDateString() : 'Not set'
+}
+
+function mylarSummary(drawing: DrawingRecordHeader) {
+  if (drawing.isMylarCheckedOut) return `Checked out to ${drawing.mylarCheckedOutBy ?? 'Unknown holder'}`
+  return drawing.physicalMylarLocation || 'Not tracked'
+}
+
 function ThemeSwitch({
   theme,
   onToggleTheme,
@@ -121,6 +132,32 @@ function ThemeSwitch({
   )
 }
 
+function UserProfile({ me, className = '' }: { me: Me | null; className?: string }) {
+  return <div className={`user-chip ${className}`.trim()} aria-live="polite">
+    {me ? (
+      <>
+        <div className="user-copy">
+          <strong>{me.displayName}</strong>
+          <span>{me.role}</span>
+        </div>
+        <span className="avatar" title={me.accountName}>
+          {initials(me.displayName)}
+        </span>
+      </>
+    ) : (
+      <>
+        <div className="user-copy">
+          <strong>Checking access</strong>
+          <span>Loading</span>
+        </div>
+        <span className="avatar">
+          <LoaderCircle size={16} className="spin" />
+        </span>
+      </>
+    )}
+  </div>
+}
+
 export default function App() {
   const [theme, setTheme] = useState(() => readThemePreference())
   const [me, setMe] = useState<Me | null>(null)
@@ -129,6 +166,8 @@ export default function App() {
   const [drawingScreen, setDrawingScreen] = useState<'dashboard' | 'record'>('dashboard')
   const [drawingId, setDrawingId] = useState<number | null>(null)
   const [creatingDrawing, setCreatingDrawing] = useState(false)
+  const [drawingHeader, setDrawingHeader] = useState<DrawingRecordHeader | null>(null)
+  const [drawingEditRequest, setDrawingEditRequest] = useState(0)
   const [selectedModuleRecord, setSelectedModuleRecord] = useState<EngineeringSearchResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -170,6 +209,8 @@ export default function App() {
     const applyDrawingRoute = () => {
       const route = window.location.hash.replace(/^#\/?/, '')
       if (route === 'drawing-record/new') {
+        setDrawingHeader(null)
+        setDrawingEditRequest(0)
         setActiveSectionId('drawing-document-control')
         setDrawingScreen('record')
         setDrawingId(null)
@@ -177,19 +218,26 @@ export default function App() {
         return
       }
       if (route === 'drawing-record') {
+        setDrawingHeader(null)
+        setDrawingEditRequest(0)
         setActiveSectionId('drawing-document-control')
-        setDrawingScreen('record')
+        setDrawingScreen('dashboard')
         setDrawingId(null)
         setCreatingDrawing(false)
+        window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#drawing-dashboard`)
         return
       }
       const match = route.match(/^drawing-record\/(\d+)$/)
       if (match) {
+        setDrawingHeader(null)
+        setDrawingEditRequest(0)
         setActiveSectionId('drawing-document-control')
         setDrawingScreen('record')
         setDrawingId(Number(match[1]))
         setCreatingDrawing(false)
       } else if (route === 'drawing-dashboard') {
+        setDrawingHeader(null)
+        setDrawingEditRequest(0)
         setActiveSectionId('drawing-document-control')
         setDrawingScreen('dashboard')
         setDrawingId(null)
@@ -221,6 +269,8 @@ export default function App() {
 
   function openDrawingDashboard() {
     setSelectedModuleRecord(null)
+    setDrawingHeader(null)
+    setDrawingEditRequest(0)
     setActiveSectionId('drawing-document-control')
     setDrawingScreen('dashboard')
     setDrawingId(null)
@@ -230,6 +280,8 @@ export default function App() {
 
   function openDrawingRecord(id: number) {
     setSelectedModuleRecord(null)
+    setDrawingHeader(null)
+    setDrawingEditRequest(0)
     setActiveSectionId('drawing-document-control')
     setDrawingScreen('record')
     setDrawingId(id)
@@ -239,6 +291,8 @@ export default function App() {
 
   function openDrawingEditor() {
     setSelectedModuleRecord(null)
+    setDrawingHeader(null)
+    setDrawingEditRequest(0)
     setActiveSectionId('drawing-document-control')
     setDrawingScreen('record')
     setDrawingId(null)
@@ -248,6 +302,8 @@ export default function App() {
 
   function openDrawingCreation() {
     setSelectedModuleRecord(null)
+    setDrawingHeader(null)
+    setDrawingEditRequest(0)
     setActiveSectionId('drawing-document-control')
     setDrawingScreen('record')
     setDrawingId(null)
@@ -274,18 +330,19 @@ export default function App() {
     }
   }
 
+  const showingDrawingRecord = activeSection?.id === 'drawing-document-control' && drawingScreen === 'record'
+
   return (
     <div className="engineering-shell engineering-app">
       <aside className="sidebar">
-        <div className="brand">
+        <a
+          className="brand brand-hub-link"
+          href={hubUrl}
+          target="_top"
+          aria-label="Return to All Applications"
+          title="Return to All Applications"
+        >
           <img src="/brand/son-aero-lockup-dark.png" alt="Son-Aero — Sonfarrel Aerospace" />
-        </div>
-        <a className="hub-return" href={hubUrl} target="_top">
-          <ArrowLeft size={15} />
-          <span>
-            <strong>All Applications</strong>
-            <small>Return to Son-Aero Hub</small>
-          </span>
         </a>
 
         <div className="nav-section">
@@ -316,10 +373,6 @@ export default function App() {
                   </span>
                   {section.title}
                 </button>
-                {section.id === 'drawing-document-control' && active && <div className="drawing-subnav">
-                  <button type="button" className={drawingScreen === 'dashboard' ? 'active' : ''} onClick={openDrawingDashboard}>Drawing register</button>
-                  <button type="button" className={drawingScreen === 'record' ? 'active' : ''} onClick={() => drawingId ? openDrawingRecord(drawingId) : openDrawingEditor()}>Record editor</button>
-                </div>}
               </div>
             )
           })}
@@ -327,60 +380,77 @@ export default function App() {
         </div>
 
         <div className="sidebar-foot">
-          <div className="rail-panel">
-            <span className="eyebrow">Access boundary</span>
-            <div className="secure-flag">
-              <ShieldCheck size={14} />
-              <span>Admin-only during testing</span>
-            </div>
-            <p>
-              This module is isolated from Project Tracker workflows so we can build engineering features safely before rollout.
-            </p>
-          </div>
+          <UserProfile me={me} className="sidebar-user-chip" />
         </div>
       </aside>
 
       <main className="main-area">
-        <header className="topbar">
-          <div className="page-title-block">
-            <span className="eyebrow">Standalone workspace</span>
-            <h1>{moduleData?.name ?? 'Engineering Module'}</h1>
-            <p>{moduleData?.summary ?? 'Loading module overview...'}</p>
+        <header className={`topbar ${showingDrawingRecord ? 'drawing-record-topbar' : ''}`.trim()}>
+          <div className={`page-title-block ${showingDrawingRecord ? 'drawing-record-page-title' : ''}`.trim()}>
+            {showingDrawingRecord ? (
+              <>
+                <div className="record-header-kicker">
+                  <span className="eyebrow">{creatingDrawing ? 'New controlled drawing' : 'Drawing control record'}</span>
+                </div>
+                <div className="record-header-title-row">
+                  <h1 className={drawingHeader ? 'technical-id' : ''}>
+                    {drawingHeader?.drawingNumber ?? (creatingDrawing ? 'Create drawing record' : 'Loading drawing record...')}
+                  </h1>
+                  {drawingHeader && <span className={`status-pill status-${drawingHeader.approvalStatus.toLowerCase()}`}>{drawingHeader.approvalStatus}</span>}
+                </div>
+                {drawingHeader ? (
+                  <>
+                    <p className="record-header-title">{drawingHeader.title}</p>
+                    <dl className="record-header-facts">
+                      <div><dt>Customer</dt><dd>{drawingHeader.customer}</dd></div>
+                      <div><dt>Current revision</dt><dd>{drawingHeader.currentRevision ?? 'None'}</dd></div>
+                      <div><dt>Effective date</dt><dd>{drawingHeader.effectiveDate ? <time dateTime={drawingHeader.effectiveDate}>{shortDate(drawingHeader.effectiveDate)}</time> : 'Not set'}</dd></div>
+                      <div><dt>Linked parts</dt><dd title={drawingHeader.partNumbers.join(', ') || undefined}>{drawingHeader.partNumbers.length ? drawingHeader.partNumbers.join(', ') : 'None'}</dd></div>
+                      <div><dt>Physical Mylar</dt><dd title={mylarSummary(drawingHeader)}>{mylarSummary(drawingHeader)}</dd></div>
+                    </dl>
+                  </>
+                ) : (
+                  <p className="record-header-context">
+                    {creatingDrawing
+                      ? 'Enter the drawing identity, linked records, and optional initial revision.'
+                      : 'Retrieving drawing identity and release information.'}
+                  </p>
+                )}
+                <button className="record-header-back" type="button" onClick={openDrawingDashboard}>
+                  <ArrowLeft size={15} />
+                  <span><small>Return to</small><strong>Drawing register</strong></span>
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="eyebrow">Standalone workspace</span>
+                <h1>{moduleData?.name ?? 'Engineering Module'}</h1>
+                <p>{moduleData?.summary ?? 'Loading module overview...'}</p>
+              </>
+            )}
           </div>
           <div className="topbar-actions">
-            <a className="topbar-hub" href={hubUrl} target="_top">
-              <ArrowLeft size={15} /> All Applications
+            <a
+              className="topbar-brand-link"
+              href={hubUrl}
+              target="_top"
+              aria-label="Return to All Applications"
+              title="Return to All Applications"
+            >
+              <img src="/brand/son-aero-mark.png" alt="" />
             </a>
             <ThemeSwitch
               theme={theme}
               onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
             />
-            <button className="button ghost" type="button" onClick={() => window.location.reload()}>
-              <RefreshCw size={15} /> Refresh
-            </button>
-            <div className="user-chip" aria-live="polite">
-            {me ? (
-              <>
-                <div className="user-copy">
-                  <strong>{me.displayName}</strong>
-                  <span>{me.role}</span>
-                </div>
-                <span className="avatar" title={me.accountName}>
-                  {initials(me.displayName)}
-                </span>
-              </>
-            ) : (
-              <>
-                <div className="user-copy">
-                  <strong>Checking access</strong>
-                  <span>Loading</span>
-                </div>
-                <span className="avatar">
-                  <LoaderCircle size={16} className="spin" />
-                </span>
-              </>
-            )}
-          </div>
+            {showingDrawingRecord
+              ? drawingHeader && !drawingHeader.isObsolete && <button className="button record-header-edit" type="button" onClick={() => setDrawingEditRequest(current => current + 1)}>
+                  <Edit3 size={14}/> Edit metadata
+                </button>
+              : <button className="button ghost" type="button" onClick={() => window.location.reload()}>
+                  <RefreshCw size={15} /> Refresh
+                </button>}
+            <UserProfile me={me} className="mobile-user-chip" />
           </div>
         </header>
 
@@ -402,7 +472,7 @@ export default function App() {
               </section>
             ) : activeSection ? (
               <>
-                <section className="panel engineering-hero">
+                {!showingDrawingRecord && activeSection.id !== 'dashboard' && <section className="panel engineering-hero">
                   <div className="panel-head">
                     <div className="panel-head-text">
                       <span className="eyebrow">{moduleData?.accessNotice}</span>
@@ -416,7 +486,7 @@ export default function App() {
                       <p>{PAGE_NOTES[activeSection.id]?.detail ?? 'Structure in place for the next build step.'}</p>
                     </div>
                   </div>
-                </section>
+                </section>}
 
                 {activeSection.id === 'drawing-document-control' ? (
                   drawingScreen === 'dashboard' ? (
@@ -427,6 +497,8 @@ export default function App() {
                       initialCreate={creatingDrawing}
                       onOpenDrawing={openDrawingRecord}
                       onBackToDashboard={openDrawingDashboard}
+                      onRecordChange={setDrawingHeader}
+                      editRequest={drawingEditRequest}
                     />
                   )
                 ) : activeSection.id === 'dashboard' ? (

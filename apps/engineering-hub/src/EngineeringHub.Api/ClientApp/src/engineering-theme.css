@@ -200,6 +200,15 @@
   border-color: var(--line-2);
 }
 
+.engineering-app .sidebar-user-chip {
+  color: var(--nav-text);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, .075), rgba(226, 59, 44, .055)),
+    rgba(8, 14, 21, .82);
+  border-color: rgba(255, 255, 255, .13);
+  box-shadow: 0 8px 20px -18px rgba(0, 0, 0, .95);
+}
+
 .engineering-app :where(
   .form-grid input,
   .form-grid textarea,
@@ -236,8 +245,7 @@
   border-color: color-mix(in srgb, var(--ok) 42%, var(--line-2));
 }
 
-.engineering-app .status-underreview,
-.engineering-app .metadata-only-badge {
+.engineering-app .status-underreview {
   color: var(--warn);
   background: var(--warn-tint);
   border-color: color-mix(in srgb, var(--warn) 42%, var(--line-2));

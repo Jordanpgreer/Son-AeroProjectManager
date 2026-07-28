@@ -1,9 +1,12 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import {
-  AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, Edit3, FilePlus2, FileText,
-  History, Link2, MapPin, Plus, ShieldCheck, Trash2, Upload, X,
+  AlertTriangle, CheckCircle2, ChevronDown, FilePlus2, FileText,
+  Trash2, X,
 } from 'lucide-react'
+import ActionFeedbackDialog from './ActionFeedbackDialog'
+import type { ActionFeedback } from './ActionFeedbackDialog'
+import { EngineeringDatePicker, FilePicker, RevisionUploadForm } from './EngineeringFormControls'
 
 interface DrawingList {
   id: number; drawingNumber: string; title: string; customer: string; partNumbers: string[]; approvalStatus: string
@@ -27,11 +30,27 @@ interface DrawingDetail extends DrawingList {
   revisions: Revision[]; relatedDocuments: DocumentLink[]; validations: Validation[]; mylarHistory: MylarEvent[]; auditHistory: Audit[]
 }
 interface DeleteTarget { kind: 'drawing' | 'revision'; id: number; label: string; matchValue: string }
+export interface DrawingRecordHeader {
+  drawingNumber: string
+  title: string
+  customer: string
+  approvalStatus: string
+  currentRevision: string | null
+  effectiveDate: string | null
+  partNumbers: string[]
+  isObsolete: boolean
+  isMylarCheckedOut: boolean
+  mylarCheckedOutBy: string | null
+  physicalMylarLocation: string | null
+  notes: string | null
+}
 interface DrawingWorkspaceProps {
   drawingId: number | null
   initialCreate?: boolean
   onOpenDrawing: (drawingId: number) => void
   onBackToDashboard: () => void
+  onRecordChange: (record: DrawingRecordHeader | null) => void
+  editRequest: number
 }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -62,6 +81,7 @@ function uploadWithProgress<T>(url: string, form: FormData, onProgress: (percent
 }
 
 const date = (value: string | null) => value ? new Date(value).toLocaleDateString() : '—'
+const statusLabel = (value: string) => value.replace(/([a-z])([A-Z])/g, '$1 $2')
 const commaValues = (value: FormDataEntryValue | null) => String(value ?? '').split(',').map(item => item.trim()).filter(Boolean)
 const linksFromForm = (form: FormData) => [
   ...commaValues(form.get('specifications')).map(referenceNumber => ({ kind: 'Specification', referenceNumber, title: null, location: null })),
@@ -76,7 +96,6 @@ type SectionTone = 'steel' | 'gold' | 'graphite' | 'teal' | 'green' | 'red'
 interface CollapsibleSectionProps {
   eyebrow: string
   title: string
-  icon: ReactNode
   tone: SectionTone
   defaultOpen?: boolean
   className?: string
@@ -86,7 +105,6 @@ interface CollapsibleSectionProps {
 function CollapsibleSection({
   eyebrow,
   title,
-  icon,
   tone,
   defaultOpen = true,
   className = '',
@@ -108,7 +126,6 @@ function CollapsibleSection({
         <span className="section-title" role="heading" aria-level={2}>{title}</span>
       </span>
       <span className="section-titlebar-tools" aria-hidden="true">
-        {icon}
         <ChevronDown className="section-chevron" size={17}/>
       </span>
     </button>
@@ -121,44 +138,72 @@ export default function DrawingWorkspace({
   initialCreate = false,
   onOpenDrawing,
   onBackToDashboard,
+  onRecordChange,
+  editRequest,
 }: DrawingWorkspaceProps) {
-  const [drawings, setDrawings] = useState<DrawingList[]>([])
   const [selected, setSelected] = useState<DrawingDetail | null>(null)
   const [showCreate, setShowCreate] = useState(initialCreate)
+  const [recordLoading, setRecordLoading] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
   const [showObsolete, setShowObsolete] = useState(false)
   const [busy, setBusy] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<ActionFeedback | null>(null)
   const [reviewComments, setReviewComments] = useState<Record<number, string>>({})
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [deleteAcknowledged, setDeleteAcknowledged] = useState(false)
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const handledEditRequest = useRef(0)
 
-  async function loadList() { setDrawings(await api<DrawingList[]>('/api/drawings?query=')) }
   async function open(id: number) {
     setSelected(await api<DrawingDetail>(`/api/drawings/${id}`))
     setShowEdit(false)
     setShowObsolete(false)
   }
   async function refresh() {
-    await loadList()
     if (selected) await open(selected.id)
   }
 
   useEffect(() => {
-    void loadList().catch(cause => setError(cause instanceof Error ? cause.message : 'Unable to load drawing records.'))
-  }, [])
-  useEffect(() => {
     if (drawingId) {
+      setSelected(null)
       setShowCreate(false)
-      void open(drawingId).catch(cause => setError(cause instanceof Error ? cause.message : 'Unable to open drawing record.'))
+      setRecordLoading(true)
+      void open(drawingId)
+        .catch(cause => setError(cause instanceof Error ? cause.message : 'Unable to open drawing record.'))
+        .finally(() => setRecordLoading(false))
     } else {
       setSelected(null)
+      setRecordLoading(false)
       setShowCreate(initialCreate)
     }
   }, [drawingId, initialCreate])
+  useEffect(() => {
+    onRecordChange(selected ? {
+      drawingNumber: selected.drawingNumber,
+      title: selected.title,
+      customer: selected.customer,
+      approvalStatus: selected.approvalStatus,
+      currentRevision: selected.currentRevision,
+      effectiveDate: selected.effectiveDate,
+      partNumbers: selected.partNumbers,
+      isObsolete: selected.isObsolete,
+      isMylarCheckedOut: selected.isMylarCheckedOut,
+      mylarCheckedOutBy: selected.mylarCheckedOutBy,
+      physicalMylarLocation: selected.physicalMylarLocation,
+      notes: selected.notes,
+    } : null)
+  }, [onRecordChange, selected])
+  useEffect(() => {
+    if (editRequest <= handledEditRequest.current) {
+      handledEditRequest.current = editRequest
+      return
+    }
+    handledEditRequest.current = editRequest
+    if (selected && !selected.isObsolete) setShowEdit(true)
+  }, [editRequest, selected])
   useEffect(() => {
     if (!deleteTarget) return
     const close = (event: KeyboardEvent) => { if (event.key === 'Escape' && !busy) closeDeleteDialog() }
@@ -180,9 +225,7 @@ export default function DrawingWorkspace({
       const created = await uploadWithProgress<{ id: number }>('/api/drawings/create-with-revision', form, setUploadProgress)
       event.currentTarget.reset()
       setShowCreate(false)
-      await loadList()
       onOpenDrawing(created.id)
-      await open(created.id)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to create drawing.') }
     finally { setBusy(false); setUploadProgress(null) }
   }
@@ -214,12 +257,43 @@ export default function DrawingWorkspace({
   async function uploadRevision(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!selected) return
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    const revisionNumber = String(form.get('revisionNumber') ?? '').trim()
+    const revisionDate = String(form.get('revisionDate') ?? '').trim()
+    const changeDescription = String(form.get('changeDescription') ?? '').trim()
+    const pdf = form.get('pdf')
+    const missingFields = [
+      !revisionNumber && 'revision number',
+      !revisionDate && 'revision date',
+      (!(pdf instanceof File) || pdf.size === 0) && 'approved-view PDF',
+      !changeDescription && 'change description',
+    ].filter(Boolean) as string[]
+    if (missingFields.length) {
+      setFeedback({
+        kind: 'error',
+        title: 'Complete the required revision details',
+        message: `Add ${missingFields.join(', ')} before storing this controlled revision.`,
+      })
+      return
+    }
     setBusy(true); setError(null); setUploadProgress(0)
     try {
-      await uploadWithProgress(`/api/drawings/${selected.id}/revisions`, new FormData(event.currentTarget), setUploadProgress)
-      event.currentTarget.reset()
+      await uploadWithProgress(`/api/drawings/${selected.id}/revisions`, form, setUploadProgress)
+      formElement.reset()
       await refresh()
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to upload revision.') }
+      setFeedback({
+        kind: 'success',
+        title: `Revision ${revisionNumber} stored`,
+        message: 'The controlled revision and its file package were added to the permanent drawing history.',
+      })
+    } catch (cause) {
+      setFeedback({
+        kind: 'error',
+        title: 'Revision was not stored',
+        message: cause instanceof Error ? cause.message : 'Unable to upload revision.',
+      })
+    }
     finally { setBusy(false); setUploadProgress(null) }
   }
 
@@ -296,7 +370,6 @@ export default function DrawingWorkspace({
       closeDeleteDialog()
       if (!revision) {
         setSelected(null)
-        await loadList()
         onBackToDashboard()
       } else {
         await refresh()
@@ -307,23 +380,6 @@ export default function DrawingWorkspace({
 
   return <div className="drawing-workspace">
     {error && <div className="inline-alert" role="alert">{error}<button type="button" onClick={() => setError(null)}><X size={15}/></button></div>}
-    <section className="panel drawing-editor-toolbar">
-      <button className="button ghost" type="button" onClick={onBackToDashboard}><ArrowLeft size={15}/> Drawing register</button>
-      <label className="record-selector">
-        <span>Open record</span>
-        <select
-          value={selected?.id ?? ''}
-          onChange={event => {
-            const id = Number(event.target.value)
-            if (id) onOpenDrawing(id)
-          }}
-        >
-          <option value="">Select a drawing record</option>
-          {drawings.map(drawing => <option key={drawing.id} value={drawing.id}>{drawing.drawingNumber} · {drawing.title}</option>)}
-        </select>
-      </label>
-      <button className="button" type="button" onClick={() => { setSelected(null); setShowCreate(true) }}><Plus size={15}/> New drawing</button>
-    </section>
 
     {uploadProgress !== null && <div className="upload-progress" role="status"><span style={{ width: `${uploadProgress}%` }}/><strong>{uploadProgress}%</strong><small>Transferring controlled file package</small></div>}
 
@@ -334,9 +390,9 @@ export default function DrawingWorkspace({
         <label>Customer<input name="customer" required/></label><label>Linked part numbers<input name="partNumbers" placeholder="PN-1001, PN-1002"/></label>
         <label>Specifications<input name="specifications" placeholder="SPEC-100, SPEC-200"/></label><label>Work orders<input name="workOrders" placeholder="WO-12345"/></label>
         <label>Work instructions<input name="workInstructions" placeholder="WI-100-MFG"/></label><label>Supplemental documents<input name="supplementalDocuments" placeholder="DOC-100-CALC"/></label>
-        <label>Physical Mylar location<input name="mylarLocation"/></label><label>Initial PDF<input name="pdf" type="file" accept="application/pdf,.pdf"/></label>
-        <label>Initial revision<input name="revisionNumber" placeholder="A"/></label><label>Revision date<input name="revisionDate" type="date"/></label>
-        <label>Effective date<input name="effectiveDate" type="date"/></label><label>Original source file<input name="source" type="file"/></label>
+        <label>Physical Mylar location<input name="mylarLocation"/></label><FilePicker name="pdf" label="Initial PDF" accept="application/pdf,.pdf"/>
+        <label>Initial revision<input name="revisionNumber" placeholder="A"/></label><EngineeringDatePicker name="revisionDate" label="Revision date"/>
+        <EngineeringDatePicker name="effectiveDate" label="Effective date"/><FilePicker name="source" label="Original source file"/>
         <label className="wide">Change description<textarea name="changeDescription" rows={2}/></label>
         <label className="wide">Drawing notes<textarea name="notes" rows={2}/></label>
         <label className="wide">Revision notes<textarea name="revisionNotes" rows={2}/></label>
@@ -344,8 +400,12 @@ export default function DrawingWorkspace({
       <div className="form-actions"><button className="button" disabled={busy}><FilePlus2 size={15}/> Create drawing</button><button className="button ghost" type="button" onClick={() => { setShowCreate(false); if (!selected) onBackToDashboard() }}>Cancel</button></div>
     </form>}
 
-    {!selected && !showCreate ? <article className="panel drawing-empty"><FileText size={30}/><h2>Select a drawing record</h2><p>Choose a record above, or return to the drawing dashboard to search the complete register.</p></article> : selected ? <article className="drawing-detail">
-        <section className="panel detail-summary"><div><span className="eyebrow">{selected.customer}</span><h2><span className="technical-id">{selected.drawingNumber}</span> · {selected.title}</h2><p>{selected.notes || 'No drawing notes recorded.'}</p></div><div className="detail-summary-actions"><span className={`status-pill status-${selected.approvalStatus.toLowerCase()}`}>{selected.approvalStatus}</span><button className="button ghost" type="button" disabled={selected.isObsolete} onClick={() => setShowEdit(value => !value)}><Edit3 size={14}/> Edit metadata</button>{selected.approvalStatus === 'Draft' && selected.revisions.length === 0 && <button className="button danger" type="button" onClick={requestDrawingDelete}><Trash2 size={14}/> Delete draft</button>}</div></section>
+    {recordLoading ? <article className="panel skeleton-panel drawing-record-loading" aria-label="Loading drawing record">
+      <div className="skeleton-line lg"/>
+      <div className="skeleton-line"/>
+      <div className="skeleton-line" style={{ width: '58%' }}/>
+    </article> : !selected && !showCreate ? <article className="panel drawing-empty"><FileText size={30}/><h2>No drawing selected</h2><p>Return to the drawing register to search and open a controlled record.</p><button className="button ghost" type="button" onClick={onBackToDashboard}>Open drawing register</button></article> : selected ? <article className="drawing-detail">
+        {selected.approvalStatus === 'Draft' && selected.revisions.length === 0 && <div className="record-destructive-actions"><button className="button danger" type="button" onClick={requestDrawingDelete}><Trash2 size={14}/> Delete draft</button></div>}
 
         {showEdit && <form className="panel record-form metadata-edit-form" onSubmit={updateDrawing}>
           <div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Audited metadata update</span><h2>Edit drawing record</h2></div></div>
@@ -359,39 +419,67 @@ export default function DrawingWorkspace({
           <div className="form-actions"><button className="button" disabled={busy}>Save audited changes</button><button className="button ghost" type="button" onClick={() => setShowEdit(false)}>Cancel</button></div>
         </form>}
 
-        <section className="detail-kpis"><div><small>Current revision</small><strong>{selected.revisions.find(revision => revision.id === selected.currentApprovedRevisionId)?.revisionNumber ?? 'None'}</strong></div><div><small>Effective date</small><strong>{date(selected.effectiveDate)}</strong></div><div><small>Linked parts</small><strong>{selected.partNumbers.length}</strong></div><div><small>Mylar</small><strong>{selected.isMylarCheckedOut ? `Out: ${selected.mylarCheckedOutBy ?? 'Unknown'}` : selected.physicalMylarLocation || 'Not tracked'}</strong></div></section>
-
-        <CollapsibleSection eyebrow="Cross references" title="Linked engineering records" icon={<Link2 size={18}/>} tone="steel" className="linked-records">
+        <CollapsibleSection eyebrow="Cross references" title="Linked engineering records" tone="steel" className="linked-records">
           <div className="linked-record-grid"><div><small>Parts</small>{selected.partNumbers.map(item => <span className="linked-record-chip" key={item}>{item}</span>)}</div>{['Specification', 'WorkOrder', 'WorkInstruction', 'SupplementalDocument'].map(kind => <div key={kind}><small>{kind.replace(/([A-Z])/g, ' $1').trim()}</small>{selected.relatedDocuments.filter(link => link.kind === kind).map(link => <span className="linked-record-chip" key={link.id} title={link.title ?? undefined}>{link.referenceNumber}</span>)}</div>)}</div>
         </CollapsibleSection>
 
-        {selected.currentApprovedRevisionId && selected.revisions.some(revision => revision.id === selected.currentApprovedRevisionId && revision.hasPdf) && <CollapsibleSection eyebrow="Approved PDF" title="Controlled viewer" icon={<FileText size={18}/>} tone="steel" className="pdf-panel">
+        {selected.currentApprovedRevisionId && selected.revisions.some(revision => revision.id === selected.currentApprovedRevisionId && revision.hasPdf) && <CollapsibleSection eyebrow="Approved PDF" title="Controlled viewer" tone="steel" className="pdf-panel">
           <div className="section-inline-actions"><a className="button ghost" href={`/api/drawing-revisions/${selected.currentApprovedRevisionId}/file`} target="_blank">Open PDF</a></div>
           <iframe title="Approved drawing PDF" src={`/api/drawing-revisions/${selected.currentApprovedRevisionId}/file#toolbar=1`}/>
         </CollapsibleSection>}
 
-        {!selected.isObsolete && <CollapsibleSection eyebrow="Permanent revision record" title="Upload drawing revision" icon={<Upload size={18}/>} tone="gold" defaultOpen={false}>
-          <form className="record-form" onSubmit={uploadRevision}><div className="form-grid"><label>Revision number<input name="revisionNumber" required/></label><label>Revision date<input name="revisionDate" type="date" required/></label><label>Effective date<input name="effectiveDate" type="date"/></label><label>Approved-view PDF<input name="pdf" type="file" accept="application/pdf,.pdf" required/></label><label>Original source file<input name="source" type="file"/></label><label className="wide">Change description<textarea name="changeDescription" required rows={2}/></label><label className="wide">Notes<textarea name="notes" rows={2}/></label></div><button className="button" disabled={busy}><FilePlus2 size={15}/> Store revision</button></form>
+        {!selected.isObsolete && <CollapsibleSection eyebrow="Permanent revision record" title="Upload drawing revision" tone="gold" defaultOpen={false}>
+          <RevisionUploadForm busy={busy} onSubmit={uploadRevision}/>
         </CollapsibleSection>}
 
-        <CollapsibleSection eyebrow="Permanent history" title="Drawing revisions" icon={<History size={18}/>} tone="graphite">
-          <div className="revision-list">{selected.revisions.map(revision => <div className="revision-row" key={revision.id}><div><strong>Rev {revision.revisionNumber}</strong><small>{revision.changeDescription}</small><small>Uploaded {date(revision.uploadedAt)} by {revision.uploadedBy}{revision.fileHash && <> · SHA-256 <span className="technical-id">{revision.fileHash.slice(0, 12)}…</span></>}</small>{!revision.hasPdf && <span className="metadata-only-badge">Metadata-only demo revision</span>}</div><span className={`status-pill status-${revision.status.toLowerCase()}`}>{revision.status}</span><div className="revision-actions">{revision.hasPdf && <a className="button ghost" href={`/api/drawing-revisions/${revision.id}/file`} target="_blank">PDF</a>}{revision.hasSourceFile && <a className="button ghost" href={`/api/drawing-revisions/${revision.id}/source`}>Source</a>}{revision.status === 'Draft' && <button className="button ghost" type="button" disabled={busy || !revision.hasPdf} title={!revision.hasPdf ? 'Upload a real PDF as a new revision before review.' : undefined} onClick={() => void setRevisionStatus(revision, 'UnderReview')}>Submit review</button>}{revision.status === 'UnderReview' && <><textarea className="inline-review-comment" value={reviewComments[revision.id] ?? ''} onChange={event => setReviewComments(current => ({ ...current, [revision.id]: event.target.value }))} placeholder="Review comments"/><button className="button ghost" type="button" disabled={busy} onClick={() => void setRevisionStatus(revision, 'Draft')}>Return</button><button className="button" type="button" disabled={busy || !revision.hasPdf} onClick={() => void approveRevision(revision)}><CheckCircle2 size={14}/> Approve</button></>}{(revision.status === 'Draft' || revision.status === 'UnderReview') && <button className="button danger" type="button" disabled={busy} onClick={() => requestRevisionDelete(revision)}><Trash2 size={14}/> Delete</button>}</div></div>)}</div>
+        <CollapsibleSection eyebrow="Permanent history" title="Drawing revisions" tone="graphite">
+          <div className="revision-list">{selected.revisions.map(revision => <div className="revision-row" key={revision.id}>
+            <div className="revision-info">
+              <div className="revision-heading">
+                <strong>Rev {revision.revisionNumber}</strong>
+                <span className={`revision-state revision-state-${revision.status.toLowerCase()}`}>
+                  <i aria-hidden="true"/>
+                  {statusLabel(revision.status)}
+                </span>
+              </div>
+              <small>{revision.changeDescription}</small>
+              <small>Uploaded {date(revision.uploadedAt)} by {revision.uploadedBy}{revision.fileHash && <> · SHA-256 <span className="technical-id">{revision.fileHash.slice(0, 12)}…</span></>}</small>
+              {!revision.hasPdf && <span className="revision-file-state"><AlertTriangle size={12}/> PDF required before approval</span>}
+            </div>
+            <div className="revision-review-area">
+              {revision.status === 'UnderReview' && <label className="revision-comment-field">
+                <span>Reviewer comment</span>
+                <textarea className="inline-review-comment" value={reviewComments[revision.id] ?? ''} onChange={event => setReviewComments(current => ({ ...current, [revision.id]: event.target.value }))} placeholder="Add a review comment"/>
+              </label>}
+              <div className="revision-actions">
+                {revision.hasPdf && <a className="button ghost" href={`/api/drawing-revisions/${revision.id}/file`} target="_blank">PDF</a>}
+                {revision.hasSourceFile && <a className="button ghost" href={`/api/drawing-revisions/${revision.id}/source`}>Source</a>}
+                {revision.status === 'Draft' && <button className="button ghost" type="button" disabled={busy || !revision.hasPdf} title={!revision.hasPdf ? 'Upload a real PDF as a new revision before review.' : undefined} onClick={() => void setRevisionStatus(revision, 'UnderReview')}>Submit review</button>}
+                {revision.status === 'UnderReview' && <>
+                  <button className="button ghost" type="button" disabled={busy} onClick={() => void setRevisionStatus(revision, 'Draft')}>Return</button>
+                  <button className="button" type="button" disabled={busy || !revision.hasPdf} onClick={() => void approveRevision(revision)}><CheckCircle2 size={14}/> Approve</button>
+                </>}
+                {(revision.status === 'Draft' || revision.status === 'UnderReview') && <button className="button danger" type="button" disabled={busy} onClick={() => requestRevisionDelete(revision)}><Trash2 size={14}/> Delete</button>}
+              </div>
+            </div>
+          </div>)}</div>
         </CollapsibleSection>
 
         <section className="detail-columns">
-          <CollapsibleSection eyebrow="Physical control" title="Mylar tracking" icon={<MapPin size={18}/>} tone="teal" defaultOpen={false}><p className="section-copy">Location: {selected.physicalMylarLocation || 'Not recorded'}{selected.mylarCheckedOutBy ? ` · Held by ${selected.mylarCheckedOutBy}` : ''}</p>{selected.mylarHistory.map(item => <div className="history-line" key={item.id}><strong>{item.type}</strong><span>{item.person} · {date(item.recordedAt)}</span></div>)}</CollapsibleSection>
-          <CollapsibleSection eyebrow="Traceability" title="Validations" icon={<ShieldCheck size={18}/>} tone="green" defaultOpen={false}>{selected.validations.length ? selected.validations.map(item => <div className="history-line" key={item.id}><strong>{item.validationType}: {item.result}</strong><span>{item.validatedBy} · {date(item.validatedAt)}</span></div>) : <p className="section-copy">No validation records yet.</p>}</CollapsibleSection>
+          <CollapsibleSection eyebrow="Physical control" title="Mylar tracking" tone="teal" defaultOpen={false}><p className="section-copy">Location: {selected.physicalMylarLocation || 'Not recorded'}{selected.mylarCheckedOutBy ? ` · Held by ${selected.mylarCheckedOutBy}` : ''}</p>{selected.mylarHistory.map(item => <div className="history-line" key={item.id}><strong>{item.type}</strong><span>{item.person} · {date(item.recordedAt)}</span></div>)}</CollapsibleSection>
+          <CollapsibleSection eyebrow="Traceability" title="Validations" tone="green" defaultOpen={false}>{selected.validations.length ? selected.validations.map(item => <div className="history-line" key={item.id}><strong>{item.validationType}: {item.result}</strong><span>{item.validatedBy} · {date(item.validatedAt)}</span></div>) : <p className="section-copy">No validation records yet.</p>}</CollapsibleSection>
         </section>
 
-        {!selected.isObsolete && <CollapsibleSection eyebrow="Lifecycle control" title="Obsolete this drawing" icon={<AlertTriangle size={18}/>} tone="red" defaultOpen={false} className="obsolete-control">
+        {!selected.isObsolete && <CollapsibleSection eyebrow="Lifecycle control" title="Obsolete this drawing" tone="red" defaultOpen={false} className="obsolete-control">
           <p>Preserves all records and permanently closes active revisions.</p><button className="button ghost" type="button" onClick={() => setShowObsolete(value => !value)}>Start obsolescence</button>{showObsolete && <form onSubmit={obsoleteDrawing}><label>Required reason<textarea name="reason" required rows={2}/></label><div className="form-actions"><button className="button danger" disabled={busy}>Mark obsolete</button><button className="button ghost" type="button" onClick={() => setShowObsolete(false)}>Cancel</button></div></form>}
         </CollapsibleSection>}
 
-        <CollapsibleSection eyebrow="Append-only log" title="Complete audit history" icon={<ShieldCheck size={18}/>} tone="graphite" defaultOpen={false}>
+        <CollapsibleSection eyebrow="Append-only log" title="Complete audit history" tone="graphite" defaultOpen={false}>
           <div className="audit-list">{selected.auditHistory.map(item => <div className="audit-row" key={item.id}><span className="audit-dot"/><div><strong>{item.action}{item.revisionNumber ? ` · Rev ${item.revisionNumber}` : ''}</strong><p>{item.details}</p><small>{item.actor} · {new Date(item.occurredAt).toLocaleString()}</small></div></div>)}</div>
         </CollapsibleSection>
       </article> : null}
 
+    {feedback && <ActionFeedbackDialog feedback={feedback} onClose={() => setFeedback(null)}/>}
     {deleteTarget && <div className="delete-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) closeDeleteDialog() }}><section className="delete-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" aria-describedby="delete-dialog-description"><header className="delete-dialog-header"><span className="delete-dialog-icon"><AlertTriangle size={21}/></span><div><span className="eyebrow">Permanent deletion</span><h2 id="delete-dialog-title">Delete {deleteTarget.label}?</h2></div><button type="button" className="delete-dialog-close" aria-label="Close deletion dialog" disabled={busy} onClick={closeDeleteDialog}><X size={18}/></button></header><div className="delete-warning" id="delete-dialog-description"><strong>This action cannot be undone.</strong><p>{deleteTarget.kind === 'revision' ? 'The eligible draft revision and any stored file package will be removed.' : 'This empty draft drawing record will be permanently removed.'}</p></div><form className="delete-dialog-form" onSubmit={confirmDelete}><label className="delete-acknowledgment"><input type="checkbox" checked={deleteAcknowledged} onChange={event => setDeleteAcknowledged(event.target.checked)}/><span><strong>I understand this deletion is permanent</strong><small>This is the first required confirmation.</small></span></label><label className="delete-confirmation-field"><span>Type the exact {deleteTarget.kind === 'revision' ? 'filename' : 'drawing number'}</span><code>{deleteTarget.matchValue}</code><input autoFocus autoComplete="off" spellCheck={false} value={deleteConfirmation} onChange={event => setDeleteConfirmation(event.target.value)} placeholder={deleteTarget.matchValue}/>{deleteConfirmation && deleteConfirmation !== deleteTarget.matchValue && <small className="delete-match-error">The value does not match exactly.</small>}</label>{deleteError && <div className="inline-alert" role="alert">{deleteError}</div>}<div className="delete-dialog-actions"><button type="button" className="button ghost" disabled={busy} onClick={closeDeleteDialog}>Cancel</button><button type="submit" className="button danger" disabled={busy || !deleteAcknowledged || deleteConfirmation !== deleteTarget.matchValue}><Trash2 size={15}/>{busy ? 'Deleting…' : 'Permanently delete'}</button></div></form></section></div>}
   </div>
 }

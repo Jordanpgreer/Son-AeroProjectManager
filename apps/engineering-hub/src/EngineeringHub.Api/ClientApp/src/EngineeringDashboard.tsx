@@ -1,5 +1,5 @@
-import { useDeferredValue, useEffect, useState } from 'react'
-import { AlertCircle, ArrowRight, Boxes, CheckCircle2, ClipboardCheck, FileSearch, Pencil, Search } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { AlertCircle, ArrowRight, Boxes, CheckCircle2, ChevronDown, ClipboardCheck, FileSearch, Pencil, Search } from 'lucide-react'
 
 interface SearchCategory { id: string; title: string; count: number }
 export interface EngineeringSearchResult {
@@ -26,23 +26,25 @@ export default function EngineeringDashboard({
 }) {
   const [data, setData] = useState<DashboardData | null>(null)
   const [query, setQuery] = useState('')
-  const deferredQuery = useDeferredValue(query)
   const [category, setCategory] = useState('')
   const [customer, setCustomer] = useState('')
   const [status, setStatus] = useState('')
+  const [workQueueOpen, setWorkQueueOpen] = useState(true)
   const [loading, setLoading] = useState(true)
+  const [updating, setUpdating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
-    const timer = window.setTimeout(async () => {
-      setLoading(true)
-      setError(null)
-      const parameters = new URLSearchParams()
-      if (deferredQuery.trim()) parameters.set('query', deferredQuery.trim())
-      if (category) parameters.set('category', category)
-      if (customer) parameters.set('customer', customer)
-      if (status) parameters.set('status', status)
+    setUpdating(true)
+    setError(null)
+    const parameters = new URLSearchParams()
+    if (query.trim()) parameters.set('query', query.trim())
+    if (category) parameters.set('category', category)
+    if (customer) parameters.set('customer', customer)
+    if (status) parameters.set('status', status)
+
+    async function loadDashboard() {
       try {
         const response = await fetch(`/api/dashboard?${parameters}`, { credentials: 'include', signal: controller.signal })
         if (!response.ok) throw new Error(`Dashboard responded ${response.status}.`)
@@ -50,11 +52,16 @@ export default function EngineeringDashboard({
       } catch (cause) {
         if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Unable to load the dashboard.')
       } finally {
-        if (!controller.signal.aborted) setLoading(false)
+        if (!controller.signal.aborted) {
+          setLoading(false)
+          setUpdating(false)
+        }
       }
-    }, 160)
-    return () => { window.clearTimeout(timer); controller.abort() }
-  }, [deferredQuery, category, customer, status])
+    }
+
+    void loadDashboard()
+    return () => controller.abort()
+  }, [query, category, customer, status])
 
   const grouped = (data?.categories ?? [])
     .map(item => ({ category: item, results: (data?.results ?? []).filter(result => result.category === item.id) }))
@@ -62,19 +69,6 @@ export default function EngineeringDashboard({
   const summary = data?.summary
 
   return <>
-    <section className="panel dashboard-search-panel">
-      <div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Global engineering search</span><h2>Operational record lookup</h2><p>{data?.searchHint ?? 'Search every indexed engineering record.'}</p></div></div>
-      <label className="topbar-search engineering-search"><Search size={15}/><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Part, tool, drawing, compound, customer, spec, work order, report, or note"/></label>
-      <div className="dashboard-filters">
-        <label>Category<select value={category} onChange={event => setCategory(event.target.value)}><option value="">All categories</option>{data?.categories.map(item => <option key={item.id} value={item.id}>{item.title} ({item.count})</option>)}</select></label>
-        <label>Customer<select value={customer} onChange={event => setCustomer(event.target.value)}><option value="">All customers</option>{data?.customers.map(item => <option key={item}>{item}</option>)}</select></label>
-        <label>Status<select value={status} onChange={event => setStatus(event.target.value)}><option value="">All statuses</option><option>Draft</option><option>UnderReview</option><option>Approved</option><option>Obsolete</option></select></label>
-        {(query || category || customer || status) && <button className="button ghost" type="button" onClick={() => { setQuery(''); setCategory(''); setCustomer(''); setStatus('') }}>Clear filters</button>}
-      </div>
-    </section>
-
-    {error && <section className="panel state-error" role="alert"><AlertCircle size={20}/><div><strong>Dashboard unavailable</strong><p>{error}</p></div></section>}
-
     <section className="operational-kpis">
       <article className="kpi tone-ink"><div className="kpi-top"><span className="kpi-label">Drawings</span><Boxes size={18}/></div><div className="kpi-value">{summary?.totalDrawings ?? '—'}</div><div className="kpi-hint">Controlled records</div></article>
       <article className="kpi tone-steel"><div className="kpi-top"><span className="kpi-label">Drafts</span><FileSearch size={18}/></div><div className="kpi-value">{summary?.draftDrawings ?? '—'}</div><div className="kpi-hint">In preparation</div></article>
@@ -82,14 +76,38 @@ export default function EngineeringDashboard({
       <article className="kpi tone-ok"><div className="kpi-top"><span className="kpi-label">Approved</span><CheckCircle2 size={18}/></div><div className="kpi-value">{summary?.approvedDrawings ?? '—'}</div><div className="kpi-hint">{summary?.checkedOutMylars ?? 0} Mylars checked out</div></article>
     </section>
 
+    {error && <section className="panel state-error" role="alert"><AlertCircle size={20}/><div><strong>Dashboard unavailable</strong><p>{error}</p></div></section>}
+
+    <section className="panel dashboard-search-panel" aria-busy={updating}>
+      <div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Global engineering search</span><h2>Operational record lookup</h2><p>{data?.searchHint ?? 'Search every indexed engineering record.'}</p></div></div>
+      <label className="topbar-search engineering-search"><Search size={15}/><input value={query} onChange={event => setQuery(event.target.value)} aria-label="Filter engineering records" placeholder="Part, tool, drawing, compound, customer, spec, work order, report, or note"/></label>
+      <div className="dashboard-filters">
+        <label>Category<select value={category} onChange={event => setCategory(event.target.value)}><option value="">All categories</option>{data?.categories.map(item => <option key={item.id} value={item.id}>{item.title} ({item.count})</option>)}</select></label>
+        <label>Customer<select value={customer} onChange={event => setCustomer(event.target.value)}><option value="">All customers</option>{data?.customers.map(item => <option key={item}>{item}</option>)}</select></label>
+        <label>Status<select value={status} onChange={event => setStatus(event.target.value)}><option value="">All statuses</option><option>Draft</option><option>UnderReview</option><option>Approved</option><option>Obsolete</option></select></label>
+        {(query || category || customer || status) && <button className="button ghost" type="button" onClick={() => { setQuery(''); setCategory(''); setCustomer(''); setStatus('') }}>Clear filters</button>}
+      </div>
+      <div className="dashboard-filter-status" role="status" aria-live="polite">
+        {updating ? 'Updating results...' : `${data?.results.length ?? 0} matching record${data?.results.length === 1 ? '' : 's'}`}
+      </div>
+    </section>
+
     <section className="dashboard-operational-grid">
-      <article className="panel">
-        <div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Daily work queue</span><h2>{data?.workItems.length ?? 0} item{data?.workItems.length === 1 ? '' : 's'} need attention</h2></div></div>
-        <div className="work-item-list">{data?.workItems.length ? data.workItems.map(item => <button key={item.id} type="button" className="work-item" disabled={!item.drawingId} onClick={() => item.drawingId && onOpenDrawing(item.drawingId)}><span className={`work-item-rail tone-${item.tone}`}/><span><small>{item.kind}</small><strong>{item.title}</strong><p>{item.detail}</p></span></button>) : <p className="section-copy">No drawing-control exceptions need attention.</p>}</div>
-      </article>
-      <article className="panel category-index">
-        <div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Search index</span><h2>Grouped categories</h2></div></div>
-        {data?.categories.map(item => <button key={item.id} type="button" className={category === item.id ? 'active' : ''} onClick={() => setCategory(category === item.id ? '' : item.id)}><span>{item.title}</span><strong>{item.count}</strong></button>)}
+      <article className={`panel dashboard-work-queue ${workQueueOpen ? 'is-open' : 'is-collapsed'}`}>
+        <button
+          className="dashboard-queue-toggle"
+          type="button"
+          aria-expanded={workQueueOpen}
+          aria-controls="engineering-daily-work-queue"
+          onClick={() => setWorkQueueOpen(current => !current)}
+        >
+          <span className="panel-head-text">
+            <span className="eyebrow">Daily work queue</span>
+            <span className="panel-title" role="heading" aria-level={2}>{data?.workItems.length ?? 0} item{data?.workItems.length === 1 ? '' : 's'} need attention</span>
+          </span>
+          <span className="dashboard-queue-toggle-icon" aria-hidden="true"><ChevronDown size={18}/></span>
+        </button>
+        {workQueueOpen && <div id="engineering-daily-work-queue" className="work-item-list">{data?.workItems.length ? data.workItems.map(item => <button key={item.id} type="button" className="work-item" disabled={!item.drawingId} onClick={() => item.drawingId && onOpenDrawing(item.drawingId)}><span className={`work-item-rail tone-${item.tone}`}/><span><small>{item.kind}</small><strong>{item.title}</strong><p>{item.detail}</p></span></button>) : <p className="section-copy">No drawing-control exceptions need attention.</p>}</div>}
       </article>
     </section>
 

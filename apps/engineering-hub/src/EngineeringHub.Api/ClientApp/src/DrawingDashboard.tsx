@@ -1,11 +1,8 @@
 import { useEffect, useState } from 'react'
 import {
-  Archive,
-  CheckCircle2,
   ExternalLink,
   FileText,
   Layers3,
-  Pencil,
   Plus,
   Search,
   X,
@@ -36,8 +33,11 @@ interface DrawingDashboardProps {
   onCreateDrawing: () => void
 }
 
-async function loadDrawings(query: string): Promise<DrawingRecord[]> {
-  const response = await fetch(`/api/drawings?query=${encodeURIComponent(query)}`, { credentials: 'include' })
+async function loadDrawings(query: string, signal: AbortSignal): Promise<DrawingRecord[]> {
+  const response = await fetch(`/api/drawings?query=${encodeURIComponent(query)}`, {
+    credentials: 'include',
+    signal,
+  })
   if (!response.ok) throw new Error(`Drawing register responded ${response.status}.`)
   return response.json()
 }
@@ -61,15 +61,20 @@ export default function DrawingDashboard({ onEditDrawing, onCreateDrawing }: Dra
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setLoading(true)
-      setError(null)
-      void loadDrawings(query)
-        .then(setDrawings)
-        .catch(cause => setError(cause instanceof Error ? cause.message : 'Unable to load drawing records.'))
-        .finally(() => setLoading(false))
-    }, 180)
-    return () => window.clearTimeout(timer)
+    const controller = new AbortController()
+    setLoading(true)
+    setError(null)
+    void loadDrawings(query, controller.signal)
+      .then(setDrawings)
+      .catch(cause => {
+        if (!controller.signal.aborted) {
+          setError(cause instanceof Error ? cause.message : 'Unable to load drawing records.')
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
   }, [query])
 
   const visible = drawings.filter(record => {
@@ -92,12 +97,12 @@ export default function DrawingDashboard({ onEditDrawing, onCreateDrawing }: Dra
       <article className="drawing-stat tone-graphite"><span>Archived</span><strong>{archivedCount}</strong><small>preserved historical drawings</small></article>
     </section>
 
-    <section className="panel drawing-register-panel">
+    <section className="panel drawing-register-panel" aria-busy={loading}>
       <header className="drawing-register-header">
         <div>
           <span className="eyebrow">Drawing control board</span>
           <h2>Drawing register</h2>
-          <p>Search controlled drawing records, open attachments, or move into the record editor.</p>
+          <p>Search controlled drawing records, select a drawing to open it, or view its attached PDF.</p>
         </div>
         <button className="button" type="button" onClick={onCreateDrawing}><Plus size={15}/> New drawing</button>
       </header>
@@ -108,6 +113,7 @@ export default function DrawingDashboard({ onEditDrawing, onCreateDrawing }: Dra
           <input
             value={query}
             onChange={event => setQuery(event.target.value)}
+            aria-label="Filter drawing register"
             placeholder="Drawing number, title, customer, part, specification, work order, or note"
           />
         </label>
@@ -132,7 +138,7 @@ export default function DrawingDashboard({ onEditDrawing, onCreateDrawing }: Dra
       </div>
 
       <div className="drawing-table-summary">
-        <span>{loading ? 'Loading drawing register…' : `${visible.length} record${visible.length === 1 ? '' : 's'} shown`}</span>
+        <span aria-live="polite">{loading ? 'Updating drawing register…' : `${visible.length} record${visible.length === 1 ? '' : 's'} shown`}</span>
         {(query || lifecycle !== 'active' || status !== 'all') && <button type="button" onClick={() => { setQuery(''); setLifecycle('active'); setStatus('all') }}>Clear filters</button>}
       </div>
 
@@ -147,15 +153,25 @@ export default function DrawingDashboard({ onEditDrawing, onCreateDrawing }: Dra
               <th>Drawing</th>
               <th>Customer / Parts</th>
               <th>Type</th>
-              <th>Lifecycle</th>
               <th>Revision</th>
               <th>Approval</th>
               <th>Attachment</th>
-              <th aria-label="Edit record"/>
             </tr>
           </thead>
           <tbody>
-            {visible.map(record => <tr key={record.id}>
+            {visible.map(record => <tr
+              key={record.id}
+              className="drawing-result-row"
+              role="link"
+              tabIndex={0}
+              aria-label={`Open drawing ${record.drawingNumber}: ${record.title}`}
+              onClick={() => onEditDrawing(record.id)}
+              onKeyDown={event => {
+                if (event.target === event.currentTarget && event.key === 'Enter') {
+                  onEditDrawing(record.id)
+                }
+              }}
+            >
               <td>
                 <strong className="technical-id">{record.drawingNumber}</strong>
                 <small>{record.title}</small>
@@ -166,30 +182,24 @@ export default function DrawingDashboard({ onEditDrawing, onCreateDrawing }: Dra
               </td>
               <td><span className="drawing-type-chip"><Layers3 size={13}/>{recordType(record)}</span></td>
               <td>
-                <span className={`lifecycle-chip ${record.isObsolete ? 'archived' : 'active'}`}>
-                  {record.isObsolete ? <Archive size={13}/> : <CheckCircle2 size={13}/>}
-                  {record.isObsolete ? 'Archived' : 'Active'}
-                </span>
-              </td>
-              <td>
                 <strong>{record.currentRevision ? `Rev ${record.currentRevision}` : 'No revision'}</strong>
                 <small>{shortDate(record.currentRevisionDate)} · {record.revisionCount} total</small>
               </td>
               <td><span className={`status-pill status-${record.approvalStatus.toLowerCase()}`}>{record.approvalStatus}</span></td>
               <td>
                 {record.attachmentRevisionId ? <a
-                  className="attachment-button"
+                  className="drawing-pdf-button"
                   href={`/api/drawing-revisions/${record.attachmentRevisionId}/file`}
                   target="_blank"
                   rel="noreferrer"
                   title={record.attachmentFileName ?? 'Open attached PDF'}
+                  onClick={event => event.stopPropagation()}
                 >
                   <FileText size={14}/>
-                  <span>Open PDF</span>
+                  <span>View PDF</span>
                   <ExternalLink size={12}/>
                 </a> : <span className="attachment-missing">No PDF</span>}
               </td>
-              <td><button className="drawing-edit-button" type="button" onClick={() => onEditDrawing(record.id)}><Pencil size={14}/> Edit</button></td>
             </tr>)}
           </tbody>
         </table>

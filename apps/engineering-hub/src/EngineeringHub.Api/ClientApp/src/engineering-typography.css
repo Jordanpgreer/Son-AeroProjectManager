@@ -2,10 +2,6 @@
  * Engineering typography is intentionally app-scoped. The Hub, Project
  * Tracker, and other modules keep their own independent font configuration.
  */
-@import '@fontsource/ibm-plex-mono/latin-400.css';
-@import '@fontsource/ibm-plex-mono/latin-500.css';
-@import '@fontsource/ibm-plex-mono/latin-600.css';
-
 @font-face {
   font-family: 'Inter Variable';
   font-style: normal;
@@ -16,7 +12,7 @@
 
 .engineering-app {
   --engineering-font-sans: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --engineering-font-id: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
+  --engineering-font-id: var(--engineering-font-sans);
   --font-display: var(--engineering-font-sans);
   --font-sans: var(--engineering-font-sans);
   --font-mono: var(--engineering-font-sans);
@@ -83,7 +79,7 @@
   font-family: var(--engineering-font-sans);
 }
 
-/* IBM Plex Mono is reserved for genuine drawing and system identifiers. */
+/* Drawing numbers and system identifiers use Inter with aligned numerals. */
 .engineering-app :is(
   .technical-id,
   .technical-id-input,

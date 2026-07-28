@@ -2,7 +2,6 @@ import '../App.css'
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
-  ArrowLeft,
   Archive,
   Bell,
   CalendarRange,
@@ -60,15 +59,14 @@ export function Sidebar({
 }) {
   return (
     <aside className="sidebar">
-      <div className="brand">
+      <a
+        className="brand brand-hub-link"
+        href={hubUrl}
+        target="_top"
+        aria-label="Return to All Applications"
+        title="Return to All Applications"
+      >
         <img src="/brand/son-aero-lockup-dark.png" alt="Son-Aero — Sonfarrel Aerospace" />
-      </div>
-      <a className="hub-return" href={hubUrl} target="_top">
-        <ArrowLeft size={15} />
-        <span>
-          <strong>All Applications</strong>
-          <small>Return to Son-Aero Hub</small>
-        </span>
       </a>
 
       <div className="nav-section">
@@ -381,7 +379,15 @@ export function PageHeader({
         {subtitle && <p>{subtitle}</p>}
       </div>
       <div className="topbar-actions">
-        <a className="topbar-hub" href={hubUrl} target="_top"><ArrowLeft size={15} /> All Applications</a>
+        <a
+          className="topbar-brand-link"
+          href={hubUrl}
+          target="_top"
+          aria-label="Return to All Applications"
+          title="Return to All Applications"
+        >
+          <img src="/brand/son-aero-mark.png" alt="" />
+        </a>
         <NotificationsMenu user={user} onOpenProject={onOpenProject} />
         <ThemeSwitch theme={theme} onToggleTheme={onToggleTheme} />
         <button className="button ghost" onClick={refresh} title="Reload tracker data">
