@@ -57,9 +57,12 @@ Project Tracker - *.xlsm
 # Codex local configuration
 .codex/
 
-# Claude Flow runtime data
-.claude-flow/data/
-.claude-flow/logs/
+# Local coding-agent and swarm configuration/runtime data
+/.agents/
+/.claude/
+/.claude-flow/
+/.swarm/
+/AGENTS.md
 
 # Environment variables
 .env

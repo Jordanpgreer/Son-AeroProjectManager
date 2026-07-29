@@ -45,6 +45,37 @@ public sealed class MylarCustodyTests
     }
 
     [Fact]
+    public async Task DoesNotMisreportAnUnrelatedDatabaseFailureAsADuplicateNumber()
+    {
+        await using var fixture = await ContextFixture.CreateAsync();
+        var drawing = CreateDrawing();
+        fixture.Context.Drawings.Add(drawing);
+        await fixture.Context.SaveChangesAsync();
+        await fixture.Context.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TRIGGER "TR_Test_MylarRegistrationFailure"
+            BEFORE INSERT ON "DrawingMylars"
+            BEGIN
+                SELECT RAISE(ABORT, 'simulated storage failure');
+            END;
+            """);
+        var service = new MylarCustodyService(fixture.Context);
+
+        var result = await service.RegisterAsync(
+            drawing.Id,
+            "MY-001",
+            "Cabinet A",
+            null,
+            @"SONAERO\alex",
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(StatusCodes.Status500InternalServerError, result.StatusCode);
+        Assert.Equal("MylarRegistrationFailed", result.ErrorCode);
+        Assert.DoesNotContain("duplicate", result.ErrorMessage!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task EnforcesStatePerMylarAndRejectsDuplicateCheckInOrCheckOut()
     {
         await using var fixture = await ContextFixture.CreateAsync();

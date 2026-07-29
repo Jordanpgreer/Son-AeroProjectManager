@@ -1,6 +1,8 @@
 using System.Data;
 using EngineeringHub.Api.Data;
 using EngineeringHub.Api.Models;
+using Microsoft.Data.SqlClient;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace EngineeringHub.Api.Services;
@@ -17,8 +19,12 @@ public sealed record MylarCustodyResult(
         new(null, code, message, statusCode);
 }
 
-public sealed class MylarCustodyService(EngineeringDbContext db)
+public sealed class MylarCustodyService(
+    EngineeringDbContext db,
+    ILogger<MylarCustodyService>? logger = null)
 {
+    private const string MylarNumberIndex = "IX_DrawingMylars_DrawingId_NormalizedMylarNumber";
+
     public async Task<MylarCustodyResult> RegisterAsync(
         int drawingId,
         string? mylarNumber,
@@ -92,13 +98,26 @@ public sealed class MylarCustodyService(EngineeringDbContext db)
             await transaction.CommitAsync(cancellationToken);
             return new MylarCustodyResult(mylar, StatusCode: StatusCodes.Status201Created);
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException exception) when (IsDuplicateMylarNumber(exception))
         {
             await transaction.RollbackAsync(cancellationToken);
             return MylarCustodyResult.Fail(
                 "DuplicateMylarNumber",
                 $"Mylar {number} is already registered for this drawing.",
                 StatusCodes.Status409Conflict);
+        }
+        catch (DbUpdateException exception)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            logger?.LogError(
+                exception,
+                "Database rejected registration of Mylar {MylarNumber} for drawing {DrawingId}.",
+                number,
+                drawingId);
+            return MylarCustodyResult.Fail(
+                "MylarRegistrationFailed",
+                "The Mylar record could not be saved. Refresh and try again. If the problem continues, contact an administrator.",
+                StatusCodes.Status500InternalServerError);
         }
     }
 
@@ -206,6 +225,25 @@ public sealed class MylarCustodyService(EngineeringDbContext db)
 
     private static string Normalize(string value) =>
         string.Concat(value.Trim().ToUpperInvariant().Where(char.IsLetterOrDigit));
+
+    private static bool IsDuplicateMylarNumber(DbUpdateException exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is SqliteException sqlite &&
+                sqlite.SqliteErrorCode == 19 &&
+                sqlite.Message.Contains("DrawingMylars.DrawingId", StringComparison.OrdinalIgnoreCase) &&
+                sqlite.Message.Contains("DrawingMylars.NormalizedMylarNumber", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (current is SqlException sqlServer &&
+                sqlServer.Number is 2601 or 2627 &&
+                sqlServer.Message.Contains(MylarNumberIndex, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
 
     private static string? Clean(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
