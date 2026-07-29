@@ -18,7 +18,8 @@ public static class DrawingOperationalEndpoints
         api.MapPost("/drawings/create-with-revision", CreateWithRevisionAsync).DisableAntiforgery();
         api.MapPut("/drawings/{id:int}", UpdateDrawingAsync);
         api.MapGet("/drawing-review-queue", GetReviewQueueAsync);
-        api.MapPost("/drawings/{id:int}/obsolete", ObsoleteDrawingAsync);
+        api.MapPost("/drawings/{id:int}/archive", ArchiveDrawingAsync);
+        api.MapPost("/drawings/{id:int}/obsolete", ArchiveDrawingAsync);
     }
 
     private static async Task<IResult> CreateWithRevisionAsync(
@@ -158,7 +159,7 @@ public static class DrawingOperationalEndpoints
             .SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (drawing is null) return Results.NotFound();
         if (drawing.IsObsolete)
-            return Results.Conflict(new ErrorDto("ObsoleteDrawing", "Obsolete drawing metadata is locked."));
+            return Results.Conflict(new ErrorDto("ObsoleteDrawing", "Archived drawing metadata is locked."));
 
         var newCustomer = dto.Customer.Trim();
         var normalizedCustomer = Normalize(newCustomer);
@@ -186,7 +187,7 @@ public static class DrawingOperationalEndpoints
             drawing,
             null,
             "DrawingMetadataUpdated",
-            $"Changed drawing metadata from {before} to {after}.",
+            MetadataChangeDetails(before, after),
             Actor(http)));
         await db.SaveChangesAsync(cancellationToken);
         return Results.NoContent();
@@ -216,22 +217,22 @@ public static class DrawingOperationalEndpoints
         return Results.Ok(queue);
     }
 
-    private static async Task<IResult> ObsoleteDrawingAsync(
+    private static async Task<IResult> ArchiveDrawingAsync(
         int id,
-        DrawingObsoleteDto dto,
+        DrawingArchiveDto dto,
         EngineeringDbContext db,
         HttpContext http,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(dto.Reason))
-            return Results.BadRequest(new ErrorDto("ReasonRequired", "An obsolescence reason is required."));
+            return Results.BadRequest(new ErrorDto("ReasonRequired", "An archive reason is required."));
         var drawing = await db.Drawings
             .Include(x => x.Revisions)
             .Include(x => x.AuditEntries)
             .SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (drawing is null) return Results.NotFound();
         if (drawing.IsObsolete)
-            return Results.Conflict(new ErrorDto("AlreadyObsolete", "This drawing is already obsolete."));
+            return Results.Conflict(new ErrorDto("AlreadyObsolete", "This drawing is already archived."));
 
         var now = DateTime.UtcNow;
         foreach (var revision in drawing.Revisions.Where(x =>
@@ -245,8 +246,8 @@ public static class DrawingOperationalEndpoints
         drawing.AuditEntries.Add(Audit(
             drawing,
             null,
-            "DrawingObsoleted",
-            $"Drawing marked obsolete. Reason: {dto.Reason.Trim()}",
+            "DrawingArchived",
+            $"Drawing archived. Reason: {dto.Reason.Trim()}",
             Actor(http)));
         await db.SaveChangesAsync(cancellationToken);
         return Results.NoContent();
@@ -315,6 +316,14 @@ public static class DrawingOperationalEndpoints
                 .Select(x => $"{x.Kind}:{x.ReferenceNumber}:{x.Title}:{x.Location}")
                 .OrderBy(x => x)
                 .ToArray()
+        });
+
+    private static string MetadataChangeDetails(string before, string after) =>
+        JsonSerializer.Serialize(new
+        {
+            schema = "DrawingMetadataChange/v1",
+            before = JsonSerializer.Deserialize<JsonElement>(before),
+            after = JsonSerializer.Deserialize<JsonElement>(after)
         });
 
     private static DrawingAuditEntry Audit(

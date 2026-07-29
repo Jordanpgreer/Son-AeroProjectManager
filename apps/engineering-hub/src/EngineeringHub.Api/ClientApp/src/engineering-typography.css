@@ -34,10 +34,10 @@
   .nav-heading,
   .kpi-label,
   .status-pill,
-  .result-category,
-  .result-meta dt,
+  .engineering-record-type,
+  .engineering-results-table th,
+  .engineering-reference-list small,
   .dashboard-filters label,
-  .work-item small,
   .linked-record-grid small
 ) {
   font-weight: 500;
@@ -51,8 +51,8 @@
   .panel-title,
   .drawing-row strong,
   .review-card-title strong,
-  .result-head strong,
-  .work-item strong,
+  .engineering-record-title,
+  .engineering-reference-list strong,
   .area-copy strong
 ) {
   font-family: var(--engineering-font-sans);
@@ -72,7 +72,7 @@
   .status-pill,
   .detail-kpis small,
   .history-line,
-  .audit-row,
+  .audit-drawer-entry,
   time,
   input[type='date']
 ) {
@@ -83,7 +83,8 @@
 .engineering-app :is(
   .technical-id,
   .technical-id-input,
-  .result-id,
+  .engineering-record-id,
+  .engineering-reference-list strong,
   .drawing-row > span:first-child > strong,
   .drawing-row > span:nth-child(2) > small:last-child,
   .drawing-row > span:last-child > strong,

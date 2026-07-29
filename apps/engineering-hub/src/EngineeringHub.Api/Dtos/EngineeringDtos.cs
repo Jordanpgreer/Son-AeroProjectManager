@@ -21,23 +21,14 @@ public sealed record EngineeringDashboardDto(
     IReadOnlyList<EngineeringSearchCategoryDto> Categories,
     IReadOnlyList<EngineeringSearchResultDto> Results,
     EngineeringOperationalSummaryDto Summary,
-    IReadOnlyList<EngineeringWorkItemDto> WorkItems,
     IReadOnlyList<string> Customers);
 
 public sealed record EngineeringOperationalSummaryDto(
     int TotalDrawings,
     int DraftDrawings,
-    int AwaitingReview,
+    int ReviewQueue,
     int ApprovedDrawings,
     int CheckedOutMylars);
-
-public sealed record EngineeringWorkItemDto(
-    string Id,
-    string Kind,
-    string Title,
-    string Detail,
-    string Tone,
-    int? DrawingId);
 
 public sealed record EngineeringSearchCategoryDto(
     string Id,
@@ -57,6 +48,7 @@ public sealed record EngineeringSearchResultDto(
     string? ReportNumber,
     IReadOnlyList<string> Tags,
     string Note,
-    int? DrawingId = null);
+    int? DrawingId = null,
+    IReadOnlyList<string>? AttentionReasons = null);
 
 public sealed record ErrorDto(string Code, string Message);

@@ -73,8 +73,12 @@ public sealed class EngineeringDemoDataSeeder(EngineeringDbContext db)
         drawings[1].IsMylarCheckedOut = true;
         drawings[1].MylarCheckedOutBy = "Demo Engineer";
         drawings[1].MylarCheckedOutAt = now.AddHours(-6);
+        drawings[1].Mylars[0].IsCheckedOut = true;
+        drawings[1].Mylars[0].CheckedOutBy = "Demo Engineer";
+        drawings[1].Mylars[0].CheckedOutAt = now.AddHours(-6);
         drawings[1].MylarTransactions.Add(new MylarTransaction
         {
+            Mylar = drawings[1].Mylars[0],
             Type = MylarTransactionType.CheckedOut,
             Person = "Demo Engineer",
             Purpose = "Shop-floor verification",
@@ -115,6 +119,28 @@ public sealed class EngineeringDemoDataSeeder(EngineeringDbContext db)
             ReferenceNumber = link.Reference,
             Title = link.Title
         }));
+        if (!string.IsNullOrWhiteSpace(mylarLocation))
+        {
+            var mylar = new DrawingMylar
+            {
+                MylarNumber = "MYLAR-1",
+                NormalizedMylarNumber = "MYLAR1",
+                CurrentLocation = mylarLocation,
+                CreatedBy = DemoActor,
+                CreatedAt = drawing.CreatedAt
+            };
+            drawing.Mylars.Add(mylar);
+            drawing.MylarTransactions.Add(new MylarTransaction
+            {
+                Mylar = mylar,
+                Type = MylarTransactionType.Registered,
+                Person = DemoActor,
+                Purpose = "Demo Mylar registered.",
+                Location = mylarLocation,
+                RecordedBy = DemoActor,
+                RecordedAt = drawing.CreatedAt
+            });
+        }
         drawing.AuditEntries.Add(new DrawingAuditEntry
         {
             Drawing = drawing,

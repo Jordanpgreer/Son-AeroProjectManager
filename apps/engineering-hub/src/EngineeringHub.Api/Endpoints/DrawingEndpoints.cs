@@ -19,13 +19,18 @@ public static class DrawingEndpoints
         api.MapDelete("/drawings/{id:int}", DeleteDrawingAsync);
         api.MapGet("/drawing-storage/status", (IDrawingFileStore files) => Results.Ok(files.GetStatus()));
         api.MapPost("/drawings/{id:int}/revisions", UploadRevisionAsync).DisableAntiforgery();
+        api.MapPost("/drawing-revisions/{id:int}/editable-draft", SaveEditableDraftAsync).DisableAntiforgery();
         api.MapPut("/drawing-revisions/{id:int}/status", UpdateRevisionStatusAsync);
         api.MapPost("/drawing-revisions/{id:int}/approve", ApproveRevisionAsync);
+        api.MapPost("/drawing-revisions/{id:int}/make-current", MakeRevisionCurrentAsync);
         api.MapDelete("/drawing-revisions/{id:int}", DeleteRevisionAsync);
         api.MapGet("/drawing-revisions/{id:int}/file", (int id, EngineeringDbContext db, IDrawingFileStore files, CancellationToken ct) => DownloadAsync(id, false, db, files, ct));
         api.MapGet("/drawing-revisions/{id:int}/source", (int id, EngineeringDbContext db, IDrawingFileStore files, CancellationToken ct) => DownloadAsync(id, true, db, files, ct));
-        api.MapPost("/drawings/{id:int}/mylar/checkout", (int id, MylarActionDto dto, EngineeringDbContext db, HttpContext http, CancellationToken ct) => MylarAsync(id, dto, true, db, http, ct));
-        api.MapPost("/drawings/{id:int}/mylar/return", (int id, MylarActionDto dto, EngineeringDbContext db, HttpContext http, CancellationToken ct) => MylarAsync(id, dto, false, db, http, ct));
+        api.MapPost("/drawings/{id:int}/mylars", RegisterMylarAsync);
+        api.MapPost("/drawings/{id:int}/mylars/{mylarId:int}/checkout", (int id, int mylarId, MylarActionDto dto, MylarCustodyService custody, HttpContext http, CancellationToken ct) =>
+            RecordMylarMovementAsync(id, mylarId, dto, true, custody, http, ct));
+        api.MapPost("/drawings/{id:int}/mylars/{mylarId:int}/checkin", (int id, int mylarId, MylarActionDto dto, MylarCustodyService custody, HttpContext http, CancellationToken ct) =>
+            RecordMylarMovementAsync(id, mylarId, dto, false, custody, http, ct));
         api.MapPost("/drawings/{id:int}/validations", AddValidationAsync);
     }
 
@@ -35,6 +40,8 @@ public static class DrawingEndpoints
             .Include(x => x.Parts)
             .Include(x => x.DocumentLinks)
             .Include(x => x.CurrentApprovedRevision)
+            .Include(x => x.Mylars)
+            .AsSplitQuery()
             .AsQueryable();
         if (!string.IsNullOrWhiteSpace(query))
         {
@@ -53,7 +60,12 @@ public static class DrawingEndpoints
             x.CurrentApprovedRevision != null
                 ? x.CurrentApprovedRevision.RevisionDate
                 : x.Revisions.OrderByDescending(r => r.UploadedAt).Select(r => (DateTime?)r.RevisionDate).FirstOrDefault(),
-            x.EffectiveDate, x.IsObsolete, x.PhysicalMylarLocation, x.IsMylarCheckedOut, x.CreatedAt,
+            x.EffectiveDate, x.IsObsolete,
+            x.Mylars.Count == 1 ? x.Mylars.Select(m => m.CurrentLocation).FirstOrDefault() : null,
+            x.Mylars.Any(m => m.IsCheckedOut),
+            x.Mylars.Count,
+            x.Mylars.Count(m => m.IsCheckedOut),
+            x.CreatedAt,
             x.Revisions.Count,
             x.CurrentApprovedRevision != null && x.CurrentApprovedRevision.FileSize > 0 && x.CurrentApprovedRevision.StoredFilePath != string.Empty
                 ? x.CurrentApprovedRevision.Id
@@ -71,13 +83,15 @@ public static class DrawingEndpoints
         return Results.Ok(records);
     }
 
-    private static async Task<IResult> GetAsync(int id, EngineeringDbContext db, CancellationToken ct)
+    private static async Task<IResult> GetAsync(int id, EngineeringDbContext db, IDrawingFileStore files, CancellationToken ct)
     {
         var drawing = await db.Drawings.AsNoTracking()
             .Include(x => x.Parts).Include(x => x.Revisions).Include(x => x.DocumentLinks)
-            .Include(x => x.Validations).Include(x => x.MylarTransactions).Include(x => x.AuditEntries)
+            .Include(x => x.Validations).Include(x => x.Mylars).ThenInclude(x => x.Transactions)
+            .Include(x => x.MylarTransactions).Include(x => x.AuditEntries)
+            .AsSplitQuery()
             .SingleOrDefaultAsync(x => x.Id == id, ct);
-        return drawing is null ? Results.NotFound() : Results.Ok(ToDetail(drawing));
+        return drawing is null ? Results.NotFound() : Results.Ok(ToDetail(drawing, files));
     }
 
     private static async Task<IResult> CreateAsync(DrawingCreateDto dto, EngineeringDbContext db, HttpContext http, CancellationToken ct)
@@ -105,6 +119,28 @@ public static class DrawingEndpoints
             if (!Enum.TryParse<DrawingDocumentKind>(link.Kind, true, out var kind) || string.IsNullOrWhiteSpace(link.ReferenceNumber)) continue;
             drawing.DocumentLinks.Add(new DrawingDocumentLink { Kind = kind, ReferenceNumber = link.ReferenceNumber.Trim(), Title = Clean(link.Title), Location = Clean(link.Location) });
         }
+        if (!string.IsNullOrWhiteSpace(dto.PhysicalMylarLocation))
+        {
+            var mylar = new DrawingMylar
+            {
+                MylarNumber = "MYLAR-1",
+                NormalizedMylarNumber = "MYLAR1",
+                CurrentLocation = dto.PhysicalMylarLocation.Trim(),
+                CreatedBy = actor,
+                CreatedAt = drawing.CreatedAt
+            };
+            drawing.Mylars.Add(mylar);
+            drawing.MylarTransactions.Add(new MylarTransaction
+            {
+                Mylar = mylar,
+                Type = MylarTransactionType.Registered,
+                Person = actor,
+                Purpose = "Registered during drawing creation.",
+                Location = mylar.CurrentLocation,
+                RecordedBy = actor,
+                RecordedAt = drawing.CreatedAt
+            });
+        }
         drawing.AuditEntries.Add(Audit(drawing, null, "DrawingCreated", $"Created drawing {drawing.DrawingNumber} for {drawing.Customer}.", actor));
         db.Drawings.Add(drawing);
         await db.SaveChangesAsync(ct);
@@ -119,12 +155,14 @@ public static class DrawingEndpoints
         var drawing = await db.Drawings
             .Include(x => x.Revisions)
             .Include(x => x.Validations)
+            .Include(x => x.Mylars)
             .Include(x => x.MylarTransactions)
             .Include(x => x.AuditEntries)
+            .AsSplitQuery()
             .SingleOrDefaultAsync(x => x.Id == id, ct);
         if (drawing is null) return Results.NotFound();
         if (drawing.ApprovalStatus != DrawingApprovalStatus.Draft || drawing.Revisions.Count != 0 ||
-            drawing.Validations.Count != 0 || drawing.MylarTransactions.Count != 0)
+            drawing.Validations.Count != 0 || drawing.Mylars.Count != 0 || drawing.MylarTransactions.Count != 0)
             return Results.Conflict(new ErrorDto("ProtectedDrawing", "Only an empty draft drawing can be deleted. Delete eligible draft files first; approved and historical records remain permanent."));
         if (!string.Equals(dto.DrawingNumber, drawing.DrawingNumber, StringComparison.Ordinal))
             return Results.BadRequest(new ErrorDto("DrawingNumberMismatch", "The entered drawing number does not exactly match this draft."));
@@ -154,7 +192,7 @@ public static class DrawingEndpoints
         var revisionNumber = form["revisionNumber"].ToString().Trim();
         var changeDescription = form["changeDescription"].ToString().Trim();
         if (pdf is null || pdf.Length == 0 || !await IsValidPdfAsync(pdf, ct))
-            return Results.BadRequest(new ErrorDto("PdfRequired", "An approved-view PDF file is required."));
+            return Results.BadRequest(new ErrorDto("PdfRequired", "A valid PDF file is required."));
         if (pdf.Length > MaxFileBytes || source?.Length > MaxFileBytes)
             return Results.BadRequest(new ErrorDto("FileTooLarge", "Each file must be 100 MB or smaller."));
         if (string.IsNullOrWhiteSpace(revisionNumber) || string.IsNullOrWhiteSpace(changeDescription))
@@ -203,6 +241,201 @@ public static class DrawingEndpoints
         return Results.Created($"/api/drawings/{id}", new { revision.Id });
     }
 
+    private static async Task<IResult> SaveEditableDraftAsync(int id, HttpRequest request, EngineeringDbContext db, IDrawingFileStore files, HttpContext http, CancellationToken ct)
+    {
+        if (!request.HasFormContentType)
+            return Results.BadRequest(new ErrorDto("FormRequired", "Use multipart form data."));
+
+        var sourceRevision = await db.DrawingRevisions
+            .Include(x => x.Drawing).ThenInclude(x => x.Revisions)
+            .Include(x => x.Drawing).ThenInclude(x => x.AuditEntries)
+            .SingleOrDefaultAsync(x => x.Id == id, ct);
+        if (sourceRevision is null) return Results.NotFound();
+
+        var form = await request.ReadFormAsync(ct);
+        var pdf = form.Files.GetFile("pdf");
+        var revisionNumber = form["revisionNumber"].ToString().Trim();
+        var revisionDateValue = form["revisionDate"].ToString().Trim();
+        var changeDescription = form["changeDescription"].ToString().Trim();
+        var historicalSource = sourceRevision.Status is DrawingRevisionStatus.Approved
+            or DrawingRevisionStatus.Superseded
+            or DrawingRevisionStatus.Obsolete;
+        var revisionNumberChanged = !string.Equals(
+            sourceRevision.RevisionNumber,
+            revisionNumber,
+            StringComparison.OrdinalIgnoreCase);
+
+        if (string.IsNullOrWhiteSpace(revisionNumber) ||
+            string.IsNullOrWhiteSpace(revisionDateValue) ||
+            string.IsNullOrWhiteSpace(changeDescription))
+            return Results.BadRequest(new ErrorDto("RequiredFields", "Revision number, revision date, and change description are required."));
+        if (!DateTime.TryParse(revisionDateValue, out var revisionDate))
+            return Results.BadRequest(new ErrorDto("InvalidRevisionDate", "Enter a valid revision date."));
+        if (historicalSource && string.Equals(sourceRevision.RevisionNumber, revisionNumber, StringComparison.OrdinalIgnoreCase))
+            return Results.Conflict(new ErrorDto("NewRevisionNumberRequired", "Editing an approved or historical revision creates a new draft. Enter a new revision number."));
+        if (sourceRevision.Drawing.Revisions.Any(x =>
+            x.Id != sourceRevision.Id &&
+            string.Equals(x.RevisionNumber, revisionNumber, StringComparison.OrdinalIgnoreCase)))
+            return Results.Conflict(new ErrorDto("DuplicateRevision", "That revision number already exists for this drawing."));
+
+        if (pdf is { Length: > 0 })
+        {
+            if (pdf.Length > MaxFileBytes)
+                return Results.BadRequest(new ErrorDto("FileTooLarge", "The PDF must be 100 MB or smaller."));
+            if (!await IsValidPdfAsync(pdf, ct))
+                return Results.BadRequest(new ErrorDto("InvalidPdf", "Select a valid PDF file."));
+        }
+
+        var sourceHasPdf = sourceRevision.FileSize > 0 && !string.IsNullOrWhiteSpace(sourceRevision.StoredFilePath);
+        if (!sourceHasPdf && pdf is not { Length: > 0 })
+            return Results.BadRequest(new ErrorDto("PdfRequired", "This revision does not have a PDF. Upload one before saving or submitting it for review."));
+
+        StoredRevisionFiles? stored = null;
+        IStagedFileDeletion? stagedOldPackage = null;
+        var committed = false;
+        try
+        {
+            if (pdf is { Length: > 0 })
+            {
+                var incomingHash = await CalculateHashAsync(pdf, ct);
+                var isUnchangedDraftPdf = !historicalSource &&
+                    !revisionNumberChanged &&
+                    string.Equals(incomingHash, sourceRevision.FileHash, StringComparison.OrdinalIgnoreCase);
+                if (!isUnchangedDraftPdf)
+                {
+                    if (sourceRevision.Drawing.Revisions.Any(x =>
+                        x.Id != sourceRevision.Id &&
+                        string.Equals(x.FileHash, incomingHash, StringComparison.OrdinalIgnoreCase)))
+                        return Results.Conflict(new ErrorDto("DuplicateFile", "This exact PDF content is already stored on another revision for this drawing."));
+
+                    stored = await files.StoreRevisionAsync(
+                        sourceRevision.DrawingId,
+                        sourceRevision.Drawing.Customer,
+                        sourceRevision.Drawing.DrawingNumber,
+                        revisionNumber,
+                        pdf,
+                        null,
+                        ct);
+                }
+            }
+            else if (historicalSource || revisionNumberChanged)
+            {
+                if (!await files.VerifyHashAsync(sourceRevision.StoredFilePath, sourceRevision.FileHash, ct))
+                    return Results.Conflict(new ErrorDto("FileIntegrityFailure", "The source revision PDF is missing or no longer matches its controlled hash."));
+
+                var sourcePath = files.ResolvePath(sourceRevision.StoredFilePath);
+                await using var sourceStream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+                var copiedPdf = new FormFile(sourceStream, 0, sourceStream.Length, "pdf", sourceRevision.OriginalFileName)
+                {
+                    Headers = new HeaderDictionary(),
+                    ContentType = "application/pdf"
+                };
+                stored = await files.StoreRevisionAsync(
+                    sourceRevision.DrawingId,
+                    sourceRevision.Drawing.Customer,
+                    sourceRevision.Drawing.DrawingNumber,
+                    revisionNumber,
+                    copiedPdf,
+                    null,
+                    ct);
+            }
+
+            if (!historicalSource && stored is not null && sourceHasPdf)
+                stagedOldPackage = await files.StageDeletionAsync(sourceRevision.StoredFilePath, ct);
+
+            await using var transaction = await db.Database.BeginTransactionAsync(ct);
+            var actor = Actor(http);
+            DrawingRevision editableRevision;
+            if (historicalSource)
+            {
+                editableRevision = new DrawingRevision
+                {
+                    DrawingId = sourceRevision.DrawingId,
+                    RevisionNumber = revisionNumber,
+                    RevisionDate = revisionDate.Date,
+                    UploadedAt = DateTime.UtcNow,
+                    EffectiveDate = ParseNullableDate(form["effectiveDate"]),
+                    ChangeDescription = changeDescription,
+                    Status = DrawingRevisionStatus.Draft,
+                    OriginalFileName = pdf is { Length: > 0 } ? Path.GetFileName(pdf.FileName) : sourceRevision.OriginalFileName,
+                    StoredFilePath = stored!.PdfRelativePath,
+                    FileType = "application/pdf",
+                    FileSize = pdf is { Length: > 0 } ? pdf.Length : sourceRevision.FileSize,
+                    FileHash = stored.PdfHash,
+                    UploadedBy = actor,
+                    Notes = Clean(form["notes"])
+                };
+                sourceRevision.Drawing.Revisions.Add(editableRevision);
+                sourceRevision.Drawing.AuditEntries.Add(Audit(
+                    sourceRevision.Drawing,
+                    revisionNumber,
+                    "RevisionDraftCreatedFromHistory",
+                    $"Created editable draft revision {revisionNumber} from {sourceRevision.Status} revision {sourceRevision.RevisionNumber}. The controlled source revision remains unchanged.",
+                    actor));
+            }
+            else
+            {
+                var priorNumber = sourceRevision.RevisionNumber;
+                var priorStatus = sourceRevision.Status;
+                sourceRevision.RevisionNumber = revisionNumber;
+                sourceRevision.RevisionDate = revisionDate.Date;
+                sourceRevision.EffectiveDate = ParseNullableDate(form["effectiveDate"]);
+                sourceRevision.ChangeDescription = changeDescription;
+                sourceRevision.Notes = Clean(form["notes"]);
+                if (stored is not null)
+                {
+                    sourceRevision.OriginalFileName = Path.GetFileName(pdf!.FileName);
+                    sourceRevision.StoredFilePath = stored.PdfRelativePath;
+                    sourceRevision.FileType = "application/pdf";
+                    sourceRevision.FileSize = pdf.Length;
+                    sourceRevision.FileHash = stored.PdfHash;
+                    sourceRevision.SourceOriginalFileName = null;
+                    sourceRevision.SourceStoredFilePath = null;
+                }
+                sourceRevision.Status = DrawingRevisionStatus.Draft;
+                editableRevision = sourceRevision;
+                sourceRevision.Drawing.ApprovalStatus = sourceRevision.Drawing.IsObsolete
+                    ? DrawingApprovalStatus.Obsolete
+                    : sourceRevision.Drawing.Revisions.Any(x =>
+                        x.Id != sourceRevision.Id && x.Status == DrawingRevisionStatus.UnderReview)
+                        ? DrawingApprovalStatus.UnderReview
+                    : sourceRevision.Drawing.CurrentApprovedRevisionId.HasValue
+                        ? DrawingApprovalStatus.Approved
+                        : DrawingApprovalStatus.Draft;
+                sourceRevision.Drawing.AuditEntries.Add(Audit(
+                    sourceRevision.Drawing,
+                    revisionNumber,
+                    "RevisionDraftUpdated",
+                    $"Updated editable revision {priorNumber}{(priorNumber == revisionNumber ? string.Empty : $" as {revisionNumber}")}. Status changed from {priorStatus} to Draft for controlled resubmission.",
+                    actor));
+            }
+
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+            committed = true;
+            if (stagedOldPackage is not null) await stagedOldPackage.CompleteAsync(ct);
+            return Results.Ok(new
+            {
+                revisionId = editableRevision.Id,
+                created = historicalSource,
+                hasPdf = editableRevision.FileSize > 0 && !string.IsNullOrWhiteSpace(editableRevision.StoredFilePath)
+            });
+        }
+        catch
+        {
+            if (!committed && stored is not null)
+            {
+                await using var stagedNewPackage = await files.StageDeletionAsync(stored.PdfRelativePath, ct);
+                await stagedNewPackage.CompleteAsync(ct);
+            }
+            throw;
+        }
+        finally
+        {
+            if (stagedOldPackage is not null) await stagedOldPackage.DisposeAsync();
+        }
+    }
+
     private static async Task<IResult> UpdateRevisionStatusAsync(int id, RevisionStatusUpdateDto dto, EngineeringDbContext db, HttpContext http, CancellationToken ct)
     {
         if (!Enum.TryParse<DrawingRevisionStatus>(dto.Status, true, out var status) || status is DrawingRevisionStatus.Approved or DrawingRevisionStatus.Superseded or DrawingRevisionStatus.Obsolete)
@@ -214,10 +447,16 @@ public static class DrawingEndpoints
         if (revision is null) return Results.NotFound();
         if (revision.Status is DrawingRevisionStatus.Approved or DrawingRevisionStatus.Superseded or DrawingRevisionStatus.Obsolete)
             return Results.Conflict(new ErrorDto("ImmutableRevision", "Approved and historical revisions cannot be edited."));
+        if (status == DrawingRevisionStatus.UnderReview &&
+            (revision.FileSize <= 0 || string.IsNullOrWhiteSpace(revision.StoredFilePath)))
+            return Results.Conflict(new ErrorDto("PdfRequired", "A revision PDF is required before submitting for review."));
         var old = revision.Status;
         revision.Status = status;
         revision.Drawing.ApprovalStatus = status == DrawingRevisionStatus.UnderReview
             ? DrawingApprovalStatus.UnderReview
+            : revision.Drawing.Revisions.Any(x =>
+                x.Id != revision.Id && x.Status == DrawingRevisionStatus.UnderReview)
+                ? DrawingApprovalStatus.UnderReview
             : revision.Drawing.Revisions.Any(x => x.Status == DrawingRevisionStatus.Approved)
                 ? DrawingApprovalStatus.Approved
                 : DrawingApprovalStatus.Draft;
@@ -262,6 +501,62 @@ public static class DrawingEndpoints
         return Results.NoContent();
     }
 
+    private static async Task<IResult> MakeRevisionCurrentAsync(int id, EngineeringDbContext db, IDrawingFileStore files, HttpContext http, CancellationToken ct)
+    {
+        var revision = await db.DrawingRevisions
+            .Include(x => x.Drawing).ThenInclude(x => x.Revisions)
+            .Include(x => x.Drawing).ThenInclude(x => x.AuditEntries)
+            .SingleOrDefaultAsync(x => x.Id == id, ct);
+        if (revision is null) return Results.NotFound();
+        if (revision.Drawing.CurrentApprovedRevisionId == revision.Id &&
+            revision.Status == DrawingRevisionStatus.Approved &&
+            !revision.Drawing.IsObsolete)
+            return Results.Conflict(new ErrorDto("AlreadyCurrent", $"Revision {revision.RevisionNumber} is already the current revision."));
+        if (revision.Status is not (DrawingRevisionStatus.Superseded or DrawingRevisionStatus.Obsolete))
+            return Results.Conflict(new ErrorDto("HistoricalRevisionRequired", "Only a previously approved historical revision can be made current."));
+        if (!await files.VerifyHashAsync(revision.StoredFilePath, revision.FileHash, ct))
+            return Results.Conflict(new ErrorDto("FileIntegrityFailure", "The drawing PDF is missing or its hash no longer matches the stored revision. Activation was blocked."));
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var now = DateTime.UtcNow;
+        var actor = Actor(http);
+        var prior = revision.Drawing.Revisions.SingleOrDefault(x =>
+            x.Id != revision.Id && x.Status == DrawingRevisionStatus.Approved);
+        if (prior is not null)
+        {
+            prior.Status = DrawingRevisionStatus.Superseded;
+            prior.SupersededOrObsoleteAt = now;
+        }
+
+        revision.Status = DrawingRevisionStatus.Approved;
+        revision.SupersededOrObsoleteAt = null;
+        revision.Drawing.CurrentApprovedRevisionId = revision.Id;
+        revision.Drawing.ApprovalStatus = DrawingApprovalStatus.Approved;
+        revision.Drawing.IsObsolete = false;
+        revision.Drawing.EffectiveDate = revision.EffectiveDate ?? revision.RevisionDate;
+        revision.Drawing.FileLocation = revision.StoredFilePath;
+        revision.Drawing.ApprovedBy = actor;
+        revision.Drawing.ApprovedAt = now;
+        revision.Drawing.AuditEntries.Add(Audit(
+            revision.Drawing,
+            revision.RevisionNumber,
+            "RevisionReactivated",
+            $"Made revision {revision.RevisionNumber} current{(prior is null ? "" : $"; superseded revision {prior.RevisionNumber}")}.",
+            actor));
+
+        db.AllowControlledHistoricalRevisionActivation = true;
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+        }
+        finally
+        {
+            db.AllowControlledHistoricalRevisionActivation = false;
+        }
+        return Results.NoContent();
+    }
+
     private static async Task<IResult> DownloadAsync(int id, bool source, EngineeringDbContext db, IDrawingFileStore files, CancellationToken ct)
     {
         var revision = await db.DrawingRevisions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
@@ -282,13 +577,13 @@ public static class DrawingEndpoints
 
         var revision = await db.DrawingRevisions
             .Include(x => x.Drawing).ThenInclude(x => x.AuditEntries)
+            .Include(x => x.Drawing).ThenInclude(x => x.Revisions)
             .SingleOrDefaultAsync(x => x.Id == id, ct);
         if (revision is null) return Results.NotFound();
-        if (revision.Status is not (DrawingRevisionStatus.Draft or DrawingRevisionStatus.UnderReview))
-            return Results.Conflict(new ErrorDto("ProtectedRevision", "Approved and historical revisions cannot be deleted through the normal application workflow."));
-        if (!string.Equals(dto.FileName, revision.OriginalFileName, StringComparison.Ordinal))
-            return Results.BadRequest(new ErrorDto("FileNameMismatch", "The entered filename does not exactly match the uploaded PDF filename."));
-
+        if (revision.Drawing.CurrentApprovedRevisionId == revision.Id || revision.Status == DrawingRevisionStatus.Approved)
+            return Results.Conflict(new ErrorDto("CurrentRevisionProtected", "The current approved revision cannot be deleted. Make another revision current first."));
+        if (revision.Status is not (DrawingRevisionStatus.Draft or DrawingRevisionStatus.UnderReview or DrawingRevisionStatus.Superseded or DrawingRevisionStatus.Obsolete))
+            return Results.Conflict(new ErrorDto("ProtectedRevision", "This revision cannot be deleted through the controlled workflow."));
         await using var stagedFiles = string.IsNullOrWhiteSpace(revision.StoredFilePath)
             ? null
             : await files.StageDeletionAsync(revision.StoredFilePath, ct);
@@ -301,7 +596,16 @@ public static class DrawingEndpoints
             $"Permanently deleted {revision.OriginalFileName} and its revision package. Recorded SHA-256 was {revision.FileHash}.",
             actor));
         db.DrawingRevisions.Remove(revision);
-        db.AllowControlledDraftRevisionDeletion = true;
+        var historicalRevision = revision.Status is DrawingRevisionStatus.Superseded or DrawingRevisionStatus.Obsolete;
+        db.AllowControlledDraftRevisionDeletion = !historicalRevision;
+        db.AllowControlledHistoricalRevisionDeletion = historicalRevision;
+        revision.Drawing.ApprovalStatus = revision.Drawing.IsObsolete
+            ? DrawingApprovalStatus.Obsolete
+            : revision.Drawing.Revisions.Any(x => x.Id != revision.Id && x.Status == DrawingRevisionStatus.UnderReview)
+                ? DrawingApprovalStatus.UnderReview
+                : revision.Drawing.CurrentApprovedRevisionId.HasValue
+                    ? DrawingApprovalStatus.Approved
+                    : DrawingApprovalStatus.Draft;
         try
         {
             await db.SaveChangesAsync(ct);
@@ -311,27 +615,41 @@ public static class DrawingEndpoints
         finally
         {
             db.AllowControlledDraftRevisionDeletion = false;
+            db.AllowControlledHistoricalRevisionDeletion = false;
         }
         return Results.NoContent();
     }
 
-    private static async Task<IResult> MylarAsync(int id, MylarActionDto dto, bool checkout, EngineeringDbContext db, HttpContext http, CancellationToken ct)
+    private static async Task<IResult> RegisterMylarAsync(
+        int id,
+        MylarRegisterDto dto,
+        MylarCustodyService custody,
+        HttpContext http,
+        CancellationToken ct)
     {
-        var drawing = await db.Drawings.Include(x => x.MylarTransactions).Include(x => x.AuditEntries).SingleOrDefaultAsync(x => x.Id == id, ct);
-        if (drawing is null) return Results.NotFound();
-        if (checkout == drawing.IsMylarCheckedOut)
-            return Results.Conflict(new ErrorDto("MylarState", checkout ? "The Mylar is already checked out." : "The Mylar is not checked out."));
-        if (string.IsNullOrWhiteSpace(dto.Person)) return Results.BadRequest(new ErrorDto("PersonRequired", "A responsible person is required."));
-        var actor = Actor(http);
-        drawing.IsMylarCheckedOut = checkout;
-        drawing.MylarCheckedOutBy = checkout ? dto.Person.Trim() : null;
-        drawing.MylarCheckedOutAt = checkout ? DateTime.UtcNow : null;
-        if (!string.IsNullOrWhiteSpace(dto.Location)) drawing.PhysicalMylarLocation = dto.Location.Trim();
-        drawing.MylarTransactions.Add(new MylarTransaction { Type = checkout ? MylarTransactionType.CheckedOut : MylarTransactionType.Returned, Person = dto.Person.Trim(), Purpose = Clean(dto.Purpose), Location = Clean(dto.Location), RecordedBy = actor, RecordedAt = DateTime.UtcNow });
-        drawing.AuditEntries.Add(Audit(drawing, null, checkout ? "MylarCheckedOut" : "MylarReturned", $"Physical Mylar {(checkout ? "checked out to" : "returned by")} {dto.Person.Trim()}.", actor));
-        await db.SaveChangesAsync(ct);
-        return Results.NoContent();
+        var result = await custody.RegisterAsync(id, dto.MylarNumber, dto.Location, dto.Note, Actor(http), ct);
+        if (!result.Succeeded) return MylarError(result);
+        var mylar = result.Mylar!;
+        return Results.Created(
+            $"/api/drawings/{id}/mylars/{mylar.Id}",
+            ToMylarDto(mylar));
     }
+
+    private static async Task<IResult> RecordMylarMovementAsync(
+        int id,
+        int mylarId,
+        MylarActionDto dto,
+        bool checkingOut,
+        MylarCustodyService custody,
+        HttpContext http,
+        CancellationToken ct)
+    {
+        var result = await custody.RecordMovementAsync(id, mylarId, checkingOut, dto.Location, dto.Note, Actor(http), ct);
+        return result.Succeeded ? Results.NoContent() : MylarError(result);
+    }
+
+    private static IResult MylarError(MylarCustodyResult result) =>
+        Results.Json(new ErrorDto(result.ErrorCode!, result.ErrorMessage!), statusCode: result.StatusCode);
 
     private static async Task<IResult> AddValidationAsync(int id, ValidationCreateDto dto, EngineeringDbContext db, HttpContext http, CancellationToken ct)
     {
@@ -345,18 +663,70 @@ public static class DrawingEndpoints
         return Results.NoContent();
     }
 
-    private static DrawingDetailDto ToDetail(Drawing x) => new(
+    private static DrawingDetailDto ToDetail(Drawing x, IDrawingFileStore? files = null) => new(
         x.Id, x.DrawingNumber, x.Title, x.Customer, x.Parts.OrderBy(p => p.PartNumber).Select(p => p.PartNumber).ToList(),
-        x.ApprovalStatus.ToString(), x.EffectiveDate, x.IsObsolete, x.FileLocation, x.Notes, x.PhysicalMylarLocation,
-        x.IsMylarCheckedOut, x.MylarCheckedOutBy, x.MylarCheckedOutAt, x.CreatedBy, x.CreatedAt, x.ApprovedBy, x.ApprovedAt,
+        x.ApprovalStatus.ToString(),
+        x.CurrentApprovedRevisionId is int currentRevisionId
+            ? x.Revisions.SingleOrDefault(r => r.Id == currentRevisionId)?.RevisionNumber
+            : null,
+        x.EffectiveDate, x.IsObsolete, x.FileLocation, x.Notes,
+        x.Mylars.Count == 1 ? x.Mylars[0].CurrentLocation : null,
+        x.Mylars.Any(m => m.IsCheckedOut),
+        x.Mylars.Count(m => m.IsCheckedOut) == 1 ? x.Mylars.Single(m => m.IsCheckedOut).CheckedOutBy : null,
+        x.Mylars.Where(m => m.IsCheckedOut).Max(m => (DateTime?)m.CheckedOutAt),
+        x.Mylars.Count,
+        x.Mylars.Count(m => m.IsCheckedOut),
+        x.CreatedBy, x.CreatedAt, x.ApprovedBy, x.ApprovedAt,
         x.CurrentApprovedRevisionId,
-        x.Revisions.OrderByDescending(r => r.UploadedAt).Select(r => new DrawingRevisionDto(r.Id, r.RevisionNumber, r.RevisionDate, r.UploadedAt, r.EffectiveDate, r.ApprovalDate, r.ChangeDescription, r.Status.ToString(), r.OriginalFileName, r.FileType, r.FileSize, r.FileHash, r.FileSize > 0 && r.StoredFilePath != string.Empty, r.SourceStoredFilePath != null, r.UploadedBy, r.ApprovedBy, r.ApprovalComments, r.SupersededOrObsoleteAt, r.Notes)).ToList(),
+        x.Revisions.OrderByDescending(r => r.UploadedAt).Select(r => new DrawingRevisionDto(
+            r.Id, r.RevisionNumber, r.RevisionDate, r.UploadedAt, r.EffectiveDate, r.ApprovalDate,
+            r.ChangeDescription, r.Status.ToString(), r.OriginalFileName, r.FileType, r.FileSize, r.FileHash,
+            r.FileSize > 0 && r.StoredFilePath != string.Empty,
+            ControlledFilePath(r.StoredFilePath, files),
+            r.SourceStoredFilePath != null, r.UploadedBy, r.ApprovedBy, r.ApprovalComments,
+            r.SupersededOrObsoleteAt, r.Notes)).ToList(),
         x.DocumentLinks.Select(d => new DrawingDocumentLinkDto(d.Id, d.Kind.ToString(), d.ReferenceNumber, d.Title, d.Location)).ToList(),
         x.Validations.OrderByDescending(v => v.ValidatedAt).Select(v => new DrawingValidationDto(v.Id, v.ValidationType, v.Result, v.Notes, v.ValidatedBy, v.ValidatedAt)).ToList(),
-        x.MylarTransactions.OrderByDescending(m => m.RecordedAt).Select(m => new MylarTransactionDto(m.Id, m.Type.ToString(), m.Person, m.Purpose, m.Location, m.RecordedBy, m.RecordedAt)).ToList(),
+        x.Mylars.OrderBy(m => m.MylarNumber).Select(ToMylarDto).ToList(),
+        x.MylarTransactions.OrderByDescending(m => m.RecordedAt).Select(m => new MylarTransactionDto(
+            m.Id,
+            m.DrawingMylarId,
+            x.Mylars.SingleOrDefault(mylar => mylar.Id == m.DrawingMylarId)?.MylarNumber ?? "Legacy Mylar",
+            m.Type.ToString(),
+            m.RecordedBy,
+            m.Purpose,
+            m.Location,
+            m.RecordedAt)).ToList(),
         x.AuditEntries.OrderByDescending(a => a.OccurredAt).Select(a => new DrawingAuditDto(a.Id, a.RevisionNumber, a.Action, a.Details, a.Actor, a.OccurredAt)).ToList());
 
+    private static DrawingMylarDto ToMylarDto(DrawingMylar mylar) => new(
+        mylar.Id,
+        mylar.MylarNumber,
+        mylar.IsCheckedOut,
+        mylar.CurrentLocation,
+        mylar.CheckedOutBy,
+        mylar.CheckedOutAt,
+        mylar.CreatedBy,
+        mylar.CreatedAt,
+        mylar.Transactions.Count);
+
     private static DrawingAuditEntry Audit(Drawing drawing, string? revision, string action, string details, string actor) => new() { Drawing = drawing, RevisionNumber = revision, Action = action, Details = details, Actor = actor, OccurredAt = DateTime.UtcNow };
+    private static string? ControlledFilePath(string? relativePath, IDrawingFileStore? files)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath)) return null;
+        if (files is not null)
+        {
+            try
+            {
+                return files.ResolvePath(relativePath);
+            }
+            catch (InvalidOperationException)
+            {
+                // Keep the record readable while the controlled share is being configured or is temporarily unavailable.
+            }
+        }
+        return $"Engineering Drawings/{relativePath.Replace('\\', '/')}";
+    }
     private static string Actor(HttpContext http) => http.User.Identity?.Name ?? "Unknown";
     private static string Normalize(string value) => string.Concat(value.Trim().ToUpperInvariant().Where(char.IsLetterOrDigit));
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

@@ -16,6 +16,16 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $logDir = Join-Path $repoRoot 'logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
+$protocolInstaller = Join-Path $PSScriptRoot 'Install-OpenFolderProtocol.ps1'
+if (Test-Path -LiteralPath $protocolInstaller) {
+    try {
+        & $protocolInstaller -Quiet
+    }
+    catch {
+        Write-Warning "Open Folder links could not be registered for this Windows user: $($_.Exception.Message)"
+    }
+}
+
 $portalUrl = 'http://localhost:5140'
 
 $apps = @(

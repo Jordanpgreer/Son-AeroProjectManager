@@ -16,6 +16,8 @@ builder.Services.AddScoped<EngineeringUserService>();
 builder.Services.AddScoped<IEngineeringRoleStore, EngineeringRoleStore>();
 builder.Services.AddScoped<EngineeringSearchService>();
 builder.Services.AddScoped<EngineeringDemoDataSeeder>();
+builder.Services.AddScoped<MylarCustodyService>();
+builder.Services.AddScoped<EngineeringSchemaInitializer>();
 builder.Services.Configure<DrawingStorageOptions>(builder.Configuration.GetSection(DrawingStorageOptions.SectionName));
 builder.Services.AddSingleton<IDrawingFileStore, DrawingFileStore>();
 builder.Services.AddDbContext<EngineeringDbContext>((serviceProvider, options) =>
@@ -67,7 +69,7 @@ var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
 {
-    await scope.ServiceProvider.GetRequiredService<EngineeringDbContext>().Database.EnsureCreatedAsync();
+    await scope.ServiceProvider.GetRequiredService<EngineeringSchemaInitializer>().InitializeAsync(CancellationToken.None);
     if (app.Environment.IsDevelopment() && builder.Configuration.GetValue("Engineering:SeedDemoData", true))
         await scope.ServiceProvider.GetRequiredService<EngineeringDemoDataSeeder>().SeedAsync(CancellationToken.None);
 }
@@ -136,9 +138,10 @@ api.MapGet("/dashboard", async (
     string? category,
     string? customer,
     string? status,
+    bool? reviewQueue,
     EngineeringSearchService search,
     CancellationToken cancellationToken) =>
-    Results.Ok(await search.GetDashboardAsync(query, category, customer, status, cancellationToken)));
+    Results.Ok(await search.GetDashboardAsync(query, category, customer, status, reviewQueue ?? false, cancellationToken)));
 
 api.MapGet("/navigation", () => Results.Ok(new EngineeringModuleDto(
     "engineering-hub",

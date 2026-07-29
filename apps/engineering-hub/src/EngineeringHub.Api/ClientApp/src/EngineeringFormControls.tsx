@@ -8,9 +8,10 @@ interface FilePickerProps {
   label: string
   accept?: string
   required?: boolean
+  className?: string
 }
 
-export function FilePicker({ name, label, accept, required = false }: FilePickerProps) {
+export function FilePicker({ name, label, accept, required = false, className }: FilePickerProps) {
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const [fileName, setFileName] = useState('')
@@ -22,7 +23,7 @@ export function FilePicker({ name, label, accept, required = false }: FilePicker
     return () => form?.removeEventListener('reset', clearFileName)
   }, [])
 
-  return <div className="file-picker-field">
+  return <div className={`file-picker-field ${className ?? ''}`.trim()}>
     <label className="file-picker-label" htmlFor={inputId}>{label}</label>
     <div className="file-picker-control">
       <input
@@ -46,29 +47,39 @@ export function FilePicker({ name, label, accept, required = false }: FilePicker
   </div>
 }
 
-export function RevisionUploadForm({ busy, onSubmit }: { busy: boolean; onSubmit: FormEventHandler<HTMLFormElement> }) {
+export function RevisionUploadForm({
+  busy,
+  onSubmit,
+  onCancel,
+}: {
+  busy: boolean
+  onSubmit: FormEventHandler<HTMLFormElement>
+  onCancel?: () => void
+}) {
   return <form className="record-form" noValidate onSubmit={onSubmit}>
     <div className="form-grid">
       <label>Revision number<input name="revisionNumber" required/></label>
       <EngineeringDatePicker name="revisionDate" label="Revision date" required/>
       <EngineeringDatePicker name="effectiveDate" label="Effective date"/>
-      <FilePicker name="pdf" label="Approved-view PDF" accept="application/pdf,.pdf" required/>
-      <FilePicker name="source" label="Original source file"/>
+      <FilePicker name="pdf" label="Upload PDF" accept="application/pdf,.pdf" required className="wide"/>
       <label className="wide">Change description<textarea name="changeDescription" required rows={2}/></label>
       <label className="wide">Notes<textarea name="notes" rows={2}/></label>
     </div>
     <div className="store-revision-footer">
       <div>
         <strong>Permanent revision record</strong>
-        <span>The revision and uploaded files will be added to controlled drawing history.</span>
+        <span>The revision PDF will be added to controlled drawing history.</span>
       </div>
-      <button className="store-revision-button" type="submit" disabled={busy}>
-        <span className="store-revision-icon"><FilePlus2 size={17}/></span>
-        <span>
-          <strong>{busy ? 'Storing revision...' : 'Store revision'}</strong>
-          <small>{busy ? 'Transferring controlled package' : 'Save to permanent history'}</small>
-        </span>
-      </button>
+      <div className="store-revision-actions">
+        {onCancel && <button className="button ghost" type="button" disabled={busy} onClick={onCancel}>Cancel</button>}
+        <button className="store-revision-button" type="submit" disabled={busy}>
+          <span className="store-revision-icon"><FilePlus2 size={17}/></span>
+          <span>
+            <strong>{busy ? 'Submitting revision...' : 'Submit Revision'}</strong>
+            <small>{busy ? 'Transferring controlled package' : 'Add to permanent history'}</small>
+          </span>
+        </button>
+      </div>
     </div>
   </form>
 }
@@ -77,6 +88,7 @@ interface EngineeringDatePickerProps {
   name: string
   label: string
   required?: boolean
+  initialValue?: string
 }
 
 const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -111,13 +123,13 @@ function calendarDays(viewMonth: Date) {
   return Array.from({ length: 42 }, (_, index) => addDays(start, index))
 }
 
-export function EngineeringDatePicker({ name, label, required = false }: EngineeringDatePickerProps) {
+export function EngineeringDatePicker({ name, label, required = false, initialValue = '' }: EngineeringDatePickerProps) {
   const inputId = useId()
   const dialogId = useId()
   const hiddenInputRef = useRef<HTMLInputElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
-  const [value, setValue] = useState('')
+  const [value, setValue] = useState(initialValue)
   const [open, setOpen] = useState(false)
   const [viewMonth, setViewMonth] = useState(() => startOfMonth(new Date()))
   const [keyboardDate, setKeyboardDate] = useState(() => isoDate(new Date()))

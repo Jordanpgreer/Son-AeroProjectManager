@@ -209,12 +209,15 @@ public sealed class EngineeringSearchService(EngineeringDbContext db)
         string? category,
         string? customer,
         string? status,
+        bool reviewQueue,
         CancellationToken cancellationToken)
     {
         var drawings = await db.Drawings.AsNoTracking()
             .Include(x => x.Parts)
             .Include(x => x.DocumentLinks)
             .Include(x => x.Revisions)
+            .Include(x => x.Mylars)
+            .AsSplitQuery()
             .OrderBy(x => x.DrawingNumber)
             .ToListAsync(cancellationToken);
 
@@ -233,6 +236,10 @@ public sealed class EngineeringSearchService(EngineeringDbContext db)
             filtered = filtered.Where(record => string.Equals(record.Customer, customer, StringComparison.OrdinalIgnoreCase));
         if (!string.IsNullOrWhiteSpace(status))
             filtered = filtered.Where(record => record.Tags.Any(tag => string.Equals(tag, status, StringComparison.OrdinalIgnoreCase)));
+        if (reviewQueue)
+            filtered = filtered.Where(record =>
+                record.Category == "drawings" &&
+                record.AttentionReasons is { Count: > 0 });
 
         var results = filtered.ToList();
         var categories = CategoryDefinitions
@@ -242,8 +249,7 @@ public sealed class EngineeringSearchService(EngineeringDbContext db)
                 records.Count(record => record.Category == definition.Id)))
             .ToList();
 
-        var awaitingReview = drawings.Sum(x => x.Revisions.Count(r => r.Status == DrawingRevisionStatus.UnderReview));
-        var workItems = BuildWorkItems(drawings);
+        var reviewQueueCount = drawings.Count(drawing => BuildAttentionReasons(drawing).Count > 0);
 
         return new EngineeringDashboardDto(
             "Search by part number, tool number, drawing number, compound number or name, customer, specification number, work order, report number, or keyword / note text.",
@@ -252,10 +258,9 @@ public sealed class EngineeringSearchService(EngineeringDbContext db)
             new EngineeringOperationalSummaryDto(
                 drawings.Count,
                 drawings.Count(x => x.ApprovalStatus == DrawingApprovalStatus.Draft),
-                awaitingReview,
+                reviewQueueCount,
                 drawings.Count(x => x.ApprovalStatus == DrawingApprovalStatus.Approved),
-                drawings.Count(x => x.IsMylarCheckedOut)),
-            workItems,
+                drawings.Sum(x => x.Mylars.Count(mylar => mylar.IsCheckedOut))),
             records.Where(x => !string.IsNullOrWhiteSpace(x.Customer))
                 .Select(x => x.Customer!)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -268,20 +273,23 @@ public sealed class EngineeringSearchService(EngineeringDbContext db)
         var specification = drawing.DocumentLinks.FirstOrDefault(x => x.Kind == DrawingDocumentKind.Specification)?.ReferenceNumber;
         var workOrder = drawing.DocumentLinks.FirstOrDefault(x => x.Kind == DrawingDocumentKind.WorkOrder)?.ReferenceNumber;
         var status = drawing.ApprovalStatus.ToString();
+        var displayStatus = status == nameof(DrawingApprovalStatus.Obsolete) ? "Archived" : status;
+        var attentionReasons = BuildAttentionReasons(drawing);
         yield return new(
             $"drawing-{drawing.Id}",
             "drawings",
             "Drawings",
             drawing.Title,
             drawing.DrawingNumber,
-            $"{status} controlled drawing with {drawing.Revisions.Count} revision record{(drawing.Revisions.Count == 1 ? string.Empty : "s")}.",
+            $"{displayStatus} controlled drawing with {drawing.Revisions.Count} revision record{(drawing.Revisions.Count == 1 ? string.Empty : "s")}.",
             drawing.Customer,
             specification,
             workOrder,
             null,
-            ["Drawing number", status, .. drawing.Parts.Select(x => x.PartNumber)],
+            ["Drawing number", status, .. drawing.Parts.Select(x => x.PartNumber), .. drawing.Mylars.Select(x => x.MylarNumber)],
             drawing.Notes ?? "No drawing notes recorded.",
-            drawing.Id);
+            drawing.Id,
+            attentionReasons);
 
         foreach (var part in drawing.Parts)
             yield return new(
@@ -319,59 +327,25 @@ public sealed class EngineeringSearchService(EngineeringDbContext db)
         }
     }
 
-    private static IReadOnlyList<EngineeringWorkItemDto> BuildWorkItems(IReadOnlyList<Drawing> drawings)
+    private static IReadOnlyList<string> BuildAttentionReasons(Drawing drawing)
     {
-        var items = new List<EngineeringWorkItemDto>();
-        items.AddRange(drawings
-            .SelectMany(drawing => drawing.Revisions
-                .Where(revision => revision.Status == DrawingRevisionStatus.UnderReview)
-                .Select(revision => new EngineeringWorkItemDto(
-                    $"review-{revision.Id}",
-                    "Review",
-                    $"{drawing.DrawingNumber} Rev {revision.RevisionNumber}",
-                    $"Awaiting approval since {revision.UploadedAt:d}.",
-                    "warn",
-                    drawing.Id))));
-        items.AddRange(drawings
-            .Where(drawing => drawing.IsMylarCheckedOut)
-            .Select(drawing => new EngineeringWorkItemDto(
-                $"mylar-{drawing.Id}",
-                "Mylar",
-                drawing.DrawingNumber,
-                $"Checked out to {drawing.MylarCheckedOutBy ?? "an unrecorded holder"}.",
-                "risk",
-                drawing.Id)));
-        items.AddRange(drawings
-            .Where(drawing => drawing.Revisions.Count == 0)
-            .Select(drawing => new EngineeringWorkItemDto(
-                $"missing-revision-{drawing.Id}",
-                "Missing PDF",
-                drawing.DrawingNumber,
-                "Draft drawing has no revision package.",
-                "risk",
-                drawing.Id)));
-        items.AddRange(drawings
-            .SelectMany(drawing => drawing.Revisions
-                .Where(revision => revision.FileSize == 0 || string.IsNullOrWhiteSpace(revision.StoredFilePath))
-                .Select(revision => new EngineeringWorkItemDto(
-                    $"metadata-only-{revision.Id}",
-                    "Demo revision",
-                    $"{drawing.DrawingNumber} Rev {revision.RevisionNumber}",
-                    "Metadata-only test revision; upload a PDF before review approval.",
-                    "steel",
-                    drawing.Id))));
-        items.AddRange(drawings
-            .Where(drawing => drawing.EffectiveDate is not null &&
-                drawing.EffectiveDate >= DateTime.UtcNow.Date &&
-                drawing.EffectiveDate <= DateTime.UtcNow.Date.AddDays(30))
-            .Select(drawing => new EngineeringWorkItemDto(
-                $"effective-{drawing.Id}",
-                "Effective soon",
-                drawing.DrawingNumber,
-                $"Effective {drawing.EffectiveDate:d}.",
-                "ok",
-                drawing.Id)));
-        return items.Take(12).ToList();
+        var reasons = new List<string>();
+        reasons.AddRange(drawing.Revisions
+            .Where(revision => revision.Status == DrawingRevisionStatus.UnderReview)
+            .Select(revision => $"Rev {revision.RevisionNumber} awaiting approval since {revision.UploadedAt:d}."));
+        reasons.AddRange(drawing.Mylars
+            .Where(mylar => mylar.IsCheckedOut)
+            .Select(mylar => $"Mylar {mylar.MylarNumber} checked out to {mylar.CheckedOutBy ?? "an unrecorded holder"}."));
+        if (drawing.Revisions.Count == 0)
+            reasons.Add("Missing revision package and controlled PDF.");
+        reasons.AddRange(drawing.Revisions
+            .Where(revision => revision.FileSize == 0 || string.IsNullOrWhiteSpace(revision.StoredFilePath))
+            .Select(revision => $"Rev {revision.RevisionNumber} needs a controlled PDF before approval."));
+        if (drawing.EffectiveDate is not null &&
+            drawing.EffectiveDate >= DateTime.UtcNow.Date &&
+            drawing.EffectiveDate <= DateTime.UtcNow.Date.AddDays(30))
+            reasons.Add($"Effective {drawing.EffectiveDate:d}.");
+        return reasons;
     }
 
     private static int? ResolveDrawingLink(
@@ -405,7 +379,8 @@ public sealed class EngineeringSearchService(EngineeringDbContext db)
                 record.WorkOrder ?? string.Empty,
                 record.ReportNumber ?? string.Empty,
                 record.Note,
-                .. record.Tags
+                .. record.Tags,
+                .. (record.AttentionReasons ?? [])
             ]);
 
         return haystack.Contains(query, StringComparison.OrdinalIgnoreCase);

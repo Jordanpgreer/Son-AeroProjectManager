@@ -52,6 +52,11 @@ function recordType(record: DrawingRecord) {
   return 'Drawing index'
 }
 
+function statusLabel(value: string) {
+  if (value === 'Obsolete') return 'Archived'
+  return value.replace(/([a-z])([A-Z])/g, '$1 $2')
+}
+
 export default function DrawingDashboard({ onEditDrawing, onCreateDrawing }: DrawingDashboardProps) {
   const [drawings, setDrawings] = useState<DrawingRecord[]>([])
   const [query, setQuery] = useState('')
@@ -85,14 +90,14 @@ export default function DrawingDashboard({ onEditDrawing, onCreateDrawing }: Dra
   const activeCount = drawings.filter(record => !record.isObsolete).length
   const archivedCount = drawings.filter(record => record.isObsolete).length
   const reviewCount = drawings.filter(record => record.approvalStatus === 'UnderReview').length
-  const attachmentCount = drawings.filter(record => record.attachmentRevisionId !== null).length
+  const approvedCount = drawings.filter(record => !record.isObsolete && record.approvalStatus === 'Approved').length
 
   return <div className="drawing-dashboard">
     {error && <div className="inline-alert" role="alert">{error}<button type="button" onClick={() => setError(null)}><X size={15}/></button></div>}
 
     <section className="drawing-dashboard-kpis">
       <article className="drawing-stat tone-ink"><span>Active drawings</span><strong>{activeCount}</strong><small>available for engineering work</small></article>
-      <article className="drawing-stat tone-steel"><span>PDF records</span><strong>{attachmentCount}</strong><small>with an attached controlled file</small></article>
+      <article className="drawing-stat tone-steel"><span>Approved drawings</span><strong>{approvedCount}</strong><small>released for controlled use</small></article>
       <article className="drawing-stat tone-gold"><span>Under review</span><strong>{reviewCount}</strong><small>awaiting a disposition</small></article>
       <article className="drawing-stat tone-graphite"><span>Archived</span><strong>{archivedCount}</strong><small>preserved historical drawings</small></article>
     </section>
@@ -132,7 +137,7 @@ export default function DrawingDashboard({ onEditDrawing, onCreateDrawing }: Dra
             <option value="Draft">Draft</option>
             <option value="UnderReview">Under review</option>
             <option value="Approved">Approved</option>
-            <option value="Obsolete">Obsolete</option>
+            <option value="Obsolete">Archived</option>
           </select>
         </label>
       </div>
@@ -185,7 +190,7 @@ export default function DrawingDashboard({ onEditDrawing, onCreateDrawing }: Dra
                 <strong>{record.currentRevision ? `Rev ${record.currentRevision}` : 'No revision'}</strong>
                 <small>{shortDate(record.currentRevisionDate)} · {record.revisionCount} total</small>
               </td>
-              <td><span className={`status-pill status-${record.approvalStatus.toLowerCase()}`}>{record.approvalStatus}</span></td>
+              <td><span className={`status-pill status-${record.approvalStatus.toLowerCase()}`}>{statusLabel(record.approvalStatus)}</span></td>
               <td>
                 {record.attachmentRevisionId ? <a
                   className="drawing-pdf-button"

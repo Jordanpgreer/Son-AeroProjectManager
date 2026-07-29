@@ -35,8 +35,10 @@ public sealed class DrawingRecordProtectionTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Context.SaveChangesAsync());
     }
 
-    [Fact]
-    public async Task ApprovedRevisionCanOnlyTransitionToSuperseded()
+    [Theory]
+    [InlineData(DrawingRevisionStatus.Superseded)]
+    [InlineData(DrawingRevisionStatus.Obsolete)]
+    public async Task ApprovedRevisionCanOnlyTransitionToHistoricalStatus(DrawingRevisionStatus historicalStatus)
     {
         await using var fixture = await ContextFixture.CreateAsync();
         var drawing = CreateDrawing("DRW-300", "ACME");
@@ -45,7 +47,7 @@ public sealed class DrawingRecordProtectionTests
         fixture.Context.Drawings.Add(drawing);
         await fixture.Context.SaveChangesAsync();
 
-        revision.Status = DrawingRevisionStatus.Superseded;
+        revision.Status = historicalStatus;
         revision.SupersededOrObsoleteAt = DateTime.UtcNow;
         await fixture.Context.SaveChangesAsync();
 
@@ -69,6 +71,104 @@ public sealed class DrawingRecordProtectionTests
         await fixture.Context.SaveChangesAsync();
 
         Assert.Empty(await fixture.Context.DrawingRevisions.ToListAsync());
+    }
+
+    [Theory]
+    [InlineData(DrawingRevisionStatus.Superseded)]
+    [InlineData(DrawingRevisionStatus.Obsolete)]
+    public async Task HistoricalRevisionRequiresControlledDeletionFlag(DrawingRevisionStatus status)
+    {
+        await using var fixture = await ContextFixture.CreateAsync();
+        var drawing = CreateDrawing("DRW-450", "ACME");
+        var revision = CreateRevision(status);
+        drawing.Revisions.Add(revision);
+        fixture.Context.Drawings.Add(drawing);
+        await fixture.Context.SaveChangesAsync();
+
+        fixture.Context.DrawingRevisions.Remove(revision);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Context.SaveChangesAsync());
+        fixture.Context.AllowControlledHistoricalRevisionDeletion = true;
+        await fixture.Context.SaveChangesAsync();
+
+        Assert.Empty(await fixture.Context.DrawingRevisions.ToListAsync());
+    }
+
+    [Theory]
+    [InlineData(DrawingRevisionStatus.Superseded)]
+    [InlineData(DrawingRevisionStatus.Obsolete)]
+    public async Task HistoricalRevisionRequiresControlledActivationFlag(DrawingRevisionStatus status)
+    {
+        await using var fixture = await ContextFixture.CreateAsync();
+        var drawing = CreateDrawing("DRW-475", "ACME");
+        var revision = CreateRevision(status);
+        revision.SupersededOrObsoleteAt = DateTime.UtcNow;
+        drawing.Revisions.Add(revision);
+        fixture.Context.Drawings.Add(drawing);
+        await fixture.Context.SaveChangesAsync();
+
+        revision.Status = DrawingRevisionStatus.Approved;
+        revision.SupersededOrObsoleteAt = null;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Context.SaveChangesAsync());
+        fixture.Context.AllowControlledHistoricalRevisionActivation = true;
+        await fixture.Context.SaveChangesAsync();
+
+        Assert.Equal(DrawingRevisionStatus.Approved, revision.Status);
+        Assert.Null(revision.SupersededOrObsoleteAt);
+    }
+
+    [Fact]
+    public async Task UnderReviewRevisionCanBeEditedAndReturnedToDraft()
+    {
+        await using var fixture = await ContextFixture.CreateAsync();
+        var drawing = CreateDrawing("DRW-480", "ACME");
+        var revision = CreateRevision(DrawingRevisionStatus.UnderReview);
+        drawing.Revisions.Add(revision);
+        fixture.Context.Drawings.Add(drawing);
+        await fixture.Context.SaveChangesAsync();
+
+        revision.RevisionNumber = "B";
+        revision.ChangeDescription = "Updated before resubmission";
+        revision.Status = DrawingRevisionStatus.Draft;
+        await fixture.Context.SaveChangesAsync();
+
+        Assert.Equal("B", revision.RevisionNumber);
+        Assert.Equal("Updated before resubmission", revision.ChangeDescription);
+        Assert.Equal(DrawingRevisionStatus.Draft, revision.Status);
+    }
+
+    [Fact]
+    public async Task HistoricalRevisionCanSeedNewDraftWithoutChangingControlledSource()
+    {
+        await using var fixture = await ContextFixture.CreateAsync();
+        var drawing = CreateDrawing("DRW-490", "ACME");
+        var controlled = CreateRevision(DrawingRevisionStatus.Approved);
+        controlled.ApprovedBy = "approver";
+        controlled.ApprovalDate = DateTime.UtcNow.AddDays(-2);
+        drawing.Revisions.Add(controlled);
+        fixture.Context.Drawings.Add(drawing);
+        await fixture.Context.SaveChangesAsync();
+
+        drawing.Revisions.Add(new DrawingRevision
+        {
+            RevisionNumber = "B",
+            RevisionDate = DateTime.UtcNow.Date,
+            UploadedAt = DateTime.UtcNow,
+            ChangeDescription = controlled.ChangeDescription,
+            Status = DrawingRevisionStatus.Draft,
+            OriginalFileName = controlled.OriginalFileName,
+            StoredFilePath = "1/b/drawing.pdf",
+            FileType = controlled.FileType,
+            FileSize = controlled.FileSize,
+            FileHash = controlled.FileHash,
+            UploadedBy = "editor"
+        });
+        await fixture.Context.SaveChangesAsync();
+
+        Assert.Equal(DrawingRevisionStatus.Approved, controlled.Status);
+        Assert.Equal("A", controlled.RevisionNumber);
+        Assert.Equal("approver", controlled.ApprovedBy);
+        Assert.Contains(drawing.Revisions, revision =>
+            revision.RevisionNumber == "B" && revision.Status == DrawingRevisionStatus.Draft);
     }
 
     [Fact]

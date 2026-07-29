@@ -48,8 +48,8 @@ SonAeroInternalHub/
 - **Node.js LTS** (with npm) — for building the React frontends
 - Windows (the launcher and shortcut scripts are PowerShell)
 
-First-time setup on a fresh machine (installs missing prerequisites via winget and creates the
-desktop shortcut):
+First-time setup on a fresh machine (installs missing prerequisites via winget, creates the
+desktop shortcut, and registers Engineering controlled-folder links for the current Windows user):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\Setup-Hub.ps1
@@ -64,11 +64,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Start-Hub.ps1
 `Start-Hub.ps1`:
 
 1. Resolves the repo root reliably (paths with spaces supported).
-2. Locates the .NET 8 SDK and Node.js/npm.
-3. Rebuilds each frontend only when its source changed.
-4. Starts Project Tracker on **5135**, Engineering Hub on **5150**, and the Portal on **5140** (skips any already running).
-5. Waits for each to report healthy, then opens the portal homepage.
-6. On failure it shows an error dialog and writes `logs\<app>.err.log` (never a blank window).
+2. Refreshes the per-user `sonaero-folder` handler used by Engineering **Open folder** actions.
+3. Locates the .NET 8 SDK and Node.js/npm.
+4. Rebuilds each frontend only when its source changed.
+5. Starts Project Tracker on **5135**, Engineering Hub on **5150**, and the Portal on **5140** (skips any already running).
+6. Waits for each to report healthy, then opens the portal homepage.
+7. On failure it shows an error dialog and writes `logs\<app>.err.log` (never a blank window).
 
 Generated logs and build stamps live under `logs\` (git-ignored).
 

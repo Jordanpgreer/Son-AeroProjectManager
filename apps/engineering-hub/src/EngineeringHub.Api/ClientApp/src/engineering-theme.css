@@ -146,10 +146,8 @@
 
 .engineering-app :where(
   .drawing-row,
-  .result-card,
-  .work-item,
+  .engineering-result-row,
   .area-row,
-  .category-index > button,
   .upload-progress
 ) {
   background: var(--eng-row);
@@ -158,9 +156,7 @@
 
 .engineering-app :where(
   .drawing-row:hover,
-  .result-card.clickable:hover,
-  .work-item:hover:not(:disabled),
-  .category-index > button:hover
+  .engineering-result-row:hover
 ) {
   background: var(--eng-row-hover);
   border-color: var(--line-3);
@@ -177,13 +173,6 @@
   box-shadow: inset 3px 0 var(--steel);
 }
 
-.engineering-app .category-index > button.active {
-  color: var(--steel-700);
-  background: var(--steel-tint);
-  border-color: var(--steel);
-  box-shadow: inset 3px 0 var(--steel);
-}
-
 .engineering-app :where(
   .topbar-search,
   .user-chip,
@@ -193,7 +182,7 @@
   .dashboard-filters select,
   .review-card textarea,
   .inline-review-comment,
-  .obsolete-control form textarea,
+  .archive-reason-field textarea,
   .delete-confirmation-field input
 ) {
   background: var(--eng-input);
@@ -216,20 +205,24 @@
   .dashboard-filters select,
   .review-card textarea,
   .inline-review-comment,
-  .obsolete-control form textarea,
+  .archive-reason-field textarea,
   .delete-confirmation-field input
 ):hover {
   border-color: var(--line-3);
 }
 
-.engineering-app .delete-dialog {
+.engineering-app :where(.delete-dialog, .archive-dialog, .audit-drawer) {
   background: var(--eng-raised);
   border-color: var(--line-2);
 }
 
-.engineering-app .delete-dialog-header {
+.engineering-app :where(.delete-dialog-header, .archive-dialog-header, .audit-drawer-header) {
   background: var(--eng-inset);
   border-bottom-color: var(--line-2);
+}
+
+.engineering-app .audit-drawer-list {
+  background: var(--eng-inset);
 }
 
 .engineering-app .status-pill {
@@ -317,7 +310,7 @@
   .dashboard-filters select,
   .review-card textarea,
   .inline-review-comment,
-  .obsolete-control form textarea,
+  .archive-reason-field textarea,
   .delete-confirmation-field input
 ) {
   background: var(--eng-input);
@@ -334,6 +327,39 @@
   color: var(--ink);
   background: var(--eng-row-hover);
   border-color: var(--line-3);
+}
+
+.engineering-app .revision-actions .button.revision-pdf-button,
+:root[data-theme='dark'] .engineering-app .revision-actions .button.revision-pdf-button {
+  color: #fff;
+  background: var(--red);
+  border-color: var(--red);
+}
+
+.engineering-app .revision-actions .button.revision-pdf-button:hover,
+:root[data-theme='dark'] .engineering-app .revision-actions .button.revision-pdf-button:hover {
+  color: #fff;
+  background: var(--red-600);
+  border-color: var(--red-600);
+  box-shadow: 0 8px 18px -12px rgba(226, 59, 44, .9);
+}
+
+.engineering-app .button.drawing-upload-button,
+.engineering-app .drawing-revision-toolbar .button.revision-pdf-button,
+:root[data-theme='dark'] .engineering-app .button.drawing-upload-button:not(.ghost):not(.danger),
+:root[data-theme='dark'] .engineering-app .drawing-revision-toolbar .button.revision-pdf-button {
+  color: #fff;
+  background: var(--red);
+  border-color: var(--red);
+}
+
+.engineering-app .button.drawing-upload-button:hover,
+.engineering-app .drawing-revision-toolbar .button.revision-pdf-button:hover,
+:root[data-theme='dark'] .engineering-app .button.drawing-upload-button:not(.ghost):not(.danger):hover,
+:root[data-theme='dark'] .engineering-app .drawing-revision-toolbar .button.revision-pdf-button:hover {
+  color: #fff;
+  background: var(--red-600);
+  border-color: var(--red-600);
 }
 
 .engineering-app .collapsible-section {
@@ -453,15 +479,9 @@
 .engineering-app :where(
   .linked-records,
   .pdf-panel,
-  .detail-columns > .collapsible-section,
-  .collapsible-section.obsolete-control
+  .detail-columns > .collapsible-section
 ) {
   gap: 0;
-}
-
-.engineering-app .collapsible-section.obsolete-control {
-  grid-template-columns: none;
-  border-left: 1px solid var(--line-2);
 }
 
 .engineering-app .section-inline-actions {

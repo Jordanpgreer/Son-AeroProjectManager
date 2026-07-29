@@ -19,10 +19,11 @@ public sealed record DrawingUpdateDto(
     IReadOnlyList<DrawingDocumentLinkCreateDto>? RelatedDocuments);
 public sealed record RevisionStatusUpdateDto(string Status, string? Comments = null);
 public sealed record RevisionApprovalDto(DateTime? EffectiveDate, string? Comments);
-public sealed record RevisionDeleteDto(bool Confirmed, string FileName);
+public sealed record RevisionDeleteDto(bool Confirmed);
 public sealed record DrawingDeleteDto(bool Confirmed, string DrawingNumber);
-public sealed record DrawingObsoleteDto(string Reason);
-public sealed record MylarActionDto(string Person, string? Purpose, string? Location);
+public sealed record DrawingArchiveDto(string Reason);
+public sealed record MylarRegisterDto(string MylarNumber, string Location, string? Note);
+public sealed record MylarActionDto(string Location, string? Note);
 public sealed record ValidationCreateDto(string ValidationType, string Result, string? Notes);
 public sealed record DrawingReviewQueueDto(
     int RevisionId,
@@ -51,6 +52,8 @@ public sealed record DrawingListDto(
     bool IsObsolete,
     string? PhysicalMylarLocation,
     bool IsMylarCheckedOut,
+    int MylarCount,
+    int CheckedOutMylarCount,
     DateTime CreatedAt,
     int RevisionCount,
     int? AttachmentRevisionId,
@@ -64,6 +67,7 @@ public sealed record DrawingDetailDto(
     string Customer,
     IReadOnlyList<string> PartNumbers,
     string ApprovalStatus,
+    string? CurrentRevision,
     DateTime? EffectiveDate,
     bool IsObsolete,
     string? FileLocation,
@@ -72,6 +76,8 @@ public sealed record DrawingDetailDto(
     bool IsMylarCheckedOut,
     string? MylarCheckedOutBy,
     DateTime? MylarCheckedOutAt,
+    int MylarCount,
+    int CheckedOutMylarCount,
     string CreatedBy,
     DateTime CreatedAt,
     string? ApprovedBy,
@@ -80,17 +86,36 @@ public sealed record DrawingDetailDto(
     IReadOnlyList<DrawingRevisionDto> Revisions,
     IReadOnlyList<DrawingDocumentLinkDto> RelatedDocuments,
     IReadOnlyList<DrawingValidationDto> Validations,
+    IReadOnlyList<DrawingMylarDto> Mylars,
     IReadOnlyList<MylarTransactionDto> MylarHistory,
     IReadOnlyList<DrawingAuditDto> AuditHistory);
 
 public sealed record DrawingRevisionDto(
     int Id, string RevisionNumber, DateTime RevisionDate, DateTime UploadedAt,
     DateTime? EffectiveDate, DateTime? ApprovalDate, string ChangeDescription, string Status,
-    string OriginalFileName, string FileType, long FileSize, string FileHash, bool HasPdf, bool HasSourceFile,
+    string OriginalFileName, string FileType, long FileSize, string FileHash, bool HasPdf, string? ControlledFilePath, bool HasSourceFile,
     string UploadedBy, string? ApprovedBy, string? ApprovalComments,
     DateTime? SupersededOrObsoleteAt, string? Notes);
 
 public sealed record DrawingDocumentLinkDto(int Id, string Kind, string ReferenceNumber, string? Title, string? Location);
 public sealed record DrawingValidationDto(int Id, string ValidationType, string Result, string? Notes, string ValidatedBy, DateTime ValidatedAt);
-public sealed record MylarTransactionDto(int Id, string Type, string Person, string? Purpose, string? Location, string RecordedBy, DateTime RecordedAt);
+public sealed record DrawingMylarDto(
+    int Id,
+    string MylarNumber,
+    bool IsCheckedOut,
+    string? CurrentLocation,
+    string? CheckedOutBy,
+    DateTime? CheckedOutAt,
+    string CreatedBy,
+    DateTime CreatedAt,
+    int MovementCount);
+public sealed record MylarTransactionDto(
+    int Id,
+    int? MylarId,
+    string MylarNumber,
+    string Type,
+    string Actor,
+    string? Note,
+    string? Location,
+    DateTime RecordedAt);
 public sealed record DrawingAuditDto(long Id, string? RevisionNumber, string Action, string Details, string Actor, DateTime OccurredAt);

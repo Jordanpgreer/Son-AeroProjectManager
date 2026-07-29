@@ -66,7 +66,7 @@
   background-color: var(--bg);
 }
 
-:root[data-theme='dark'] .engineering-app :where(.panel, .kpi, .delete-dialog, .review-card, .result-card) {
+:root[data-theme='dark'] .engineering-app :where(.panel, .kpi, .delete-dialog, .review-card) {
   box-shadow: var(--shadow-1);
 }
 
@@ -74,10 +74,15 @@
   .drawing-row:hover,
   .drawing-row.selected,
   .area-row:hover,
-  .work-item:hover:not(:disabled),
-  .result-card.clickable:hover
+  .engineering-result-row:hover
 ) {
   background: #1d2b38;
+}
+
+:root[data-theme='dark'] .engineering-app .engineering-results-table mark {
+  color: #fff5cf;
+  background: #6f4d07;
+  box-shadow: inset 0 0 0 1px #9a6d10;
 }
 
 :root[data-theme='dark'] .engineering-app .button:not(.ghost):not(.danger) {
@@ -133,13 +138,17 @@
   border-color: #705b2c;
 }
 
-:root[data-theme='dark'] .engineering-app .delete-dialog-backdrop {
+:root[data-theme='dark'] .engineering-app :where(.delete-dialog-backdrop, .archive-dialog-backdrop) {
   background: rgba(3, 7, 11, 0.76);
 }
 
-:root[data-theme='dark'] .engineering-app .delete-dialog-header {
+:root[data-theme='dark'] .engineering-app :where(.delete-dialog-header, .archive-dialog-header, .audit-drawer-header) {
   background: #111b25;
   border-bottom-color: var(--line-2);
+}
+
+:root[data-theme='dark'] .engineering-app .audit-drawer-backdrop {
+  background: rgba(3, 7, 11, 0.62);
 }
 
 :root[data-theme='dark'] .engineering-app .skeleton-line::after {

@@ -1,0 +1,197 @@
+using EngineeringHub.Api.Models;
+using Microsoft.EntityFrameworkCore;
+
+namespace EngineeringHub.Api.Data;
+
+public sealed class EngineeringSchemaInitializer(EngineeringDbContext db)
+{
+    public async Task InitializeAsync(CancellationToken cancellationToken)
+    {
+        await db.Database.EnsureCreatedAsync(cancellationToken);
+
+        if (db.Database.IsSqlite())
+            await EnsureSqliteSchemaAsync(cancellationToken);
+        else if (db.Database.IsSqlServer())
+            await EnsureSqlServerSchemaAsync(cancellationToken);
+
+        await BackfillLegacyMylarAsync(cancellationToken);
+    }
+
+    private async Task EnsureSqliteSchemaAsync(CancellationToken cancellationToken)
+    {
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS "DrawingMylars" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_DrawingMylars" PRIMARY KEY AUTOINCREMENT,
+                "DrawingId" INTEGER NOT NULL,
+                "MylarNumber" TEXT NOT NULL,
+                "NormalizedMylarNumber" TEXT NOT NULL,
+                "IsCheckedOut" INTEGER NOT NULL DEFAULT 0,
+                "CurrentLocation" TEXT NULL,
+                "CheckedOutBy" TEXT NULL,
+                "CheckedOutAt" TEXT NULL,
+                "Version" INTEGER NOT NULL DEFAULT 0,
+                "CreatedBy" TEXT NOT NULL,
+                "CreatedAt" TEXT NOT NULL,
+                CONSTRAINT "FK_DrawingMylars_Drawings_DrawingId"
+                    FOREIGN KEY ("DrawingId") REFERENCES "Drawings" ("Id") ON DELETE RESTRICT
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_DrawingMylars_DrawingId_NormalizedMylarNumber"
+                ON "DrawingMylars" ("DrawingId", "NormalizedMylarNumber");
+            """,
+            cancellationToken);
+
+        if (!await SqliteColumnExistsAsync("MylarTransactions", "DrawingMylarId", cancellationToken))
+            await db.Database.ExecuteSqlRawAsync(
+                """ALTER TABLE "MylarTransactions" ADD COLUMN "DrawingMylarId" INTEGER NULL;""",
+                cancellationToken);
+        if (!await SqliteColumnExistsAsync("DrawingMylars", "Version", cancellationToken))
+            await db.Database.ExecuteSqlRawAsync(
+                """ALTER TABLE "DrawingMylars" ADD COLUMN "Version" INTEGER NOT NULL DEFAULT 0;""",
+                cancellationToken);
+
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            CREATE INDEX IF NOT EXISTS "IX_MylarTransactions_DrawingMylarId"
+                ON "MylarTransactions" ("DrawingMylarId");
+            CREATE TRIGGER IF NOT EXISTS "TR_MylarTransactions_NumberedMylar_Insert"
+            BEFORE INSERT ON "MylarTransactions"
+            WHEN NEW."DrawingMylarId" IS NOT NULL
+                AND NOT EXISTS (
+                    SELECT 1 FROM "DrawingMylars"
+                    WHERE "Id" = NEW."DrawingMylarId" AND "DrawingId" = NEW."DrawingId")
+            BEGIN
+                SELECT RAISE(ABORT, 'The numbered Mylar does not belong to this drawing.');
+            END;
+            CREATE TRIGGER IF NOT EXISTS "TR_MylarTransactions_NumberedMylar_Update"
+            BEFORE UPDATE OF "DrawingMylarId", "DrawingId" ON "MylarTransactions"
+            WHEN NEW."DrawingMylarId" IS NOT NULL
+                AND NOT EXISTS (
+                    SELECT 1 FROM "DrawingMylars"
+                    WHERE "Id" = NEW."DrawingMylarId" AND "DrawingId" = NEW."DrawingId")
+            BEGIN
+                SELECT RAISE(ABORT, 'The numbered Mylar does not belong to this drawing.');
+            END;
+            """,
+            cancellationToken);
+    }
+
+    private async Task<bool> SqliteColumnExistsAsync(string table, string column, CancellationToken cancellationToken)
+    {
+        await db.Database.OpenConnectionAsync(cancellationToken);
+        try
+        {
+            await using var command = db.Database.GetDbConnection().CreateCommand();
+            command.CommandText = $"PRAGMA table_info(\"{table}\");";
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+        finally
+        {
+            await db.Database.CloseConnectionAsync();
+        }
+    }
+
+    private async Task EnsureSqlServerSchemaAsync(CancellationToken cancellationToken)
+    {
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            IF OBJECT_ID(N'[DrawingMylars]', N'U') IS NULL
+            BEGIN
+                CREATE TABLE [DrawingMylars] (
+                    [Id] int NOT NULL IDENTITY,
+                    [DrawingId] int NOT NULL,
+                    [MylarNumber] nvarchar(100) NOT NULL,
+                    [NormalizedMylarNumber] nvarchar(100) NOT NULL,
+                    [IsCheckedOut] bit NOT NULL CONSTRAINT [DF_DrawingMylars_IsCheckedOut] DEFAULT 0,
+                    [CurrentLocation] nvarchar(max) NULL,
+                    [CheckedOutBy] nvarchar(max) NULL,
+                    [CheckedOutAt] datetime2 NULL,
+                    [Version] bigint NOT NULL CONSTRAINT [DF_DrawingMylars_Version] DEFAULT 0,
+                    [CreatedBy] nvarchar(max) NOT NULL,
+                    [CreatedAt] datetime2 NOT NULL,
+                    CONSTRAINT [PK_DrawingMylars] PRIMARY KEY ([Id]),
+                    CONSTRAINT [FK_DrawingMylars_Drawings_DrawingId]
+                        FOREIGN KEY ([DrawingId]) REFERENCES [Drawings] ([Id]) ON DELETE NO ACTION
+                );
+            END;
+
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.indexes
+                WHERE [name] = N'IX_DrawingMylars_DrawingId_NormalizedMylarNumber'
+                    AND [object_id] = OBJECT_ID(N'[DrawingMylars]'))
+                CREATE UNIQUE INDEX [IX_DrawingMylars_DrawingId_NormalizedMylarNumber]
+                    ON [DrawingMylars] ([DrawingId], [NormalizedMylarNumber]);
+
+            IF COL_LENGTH(N'MylarTransactions', N'DrawingMylarId') IS NULL
+                ALTER TABLE [MylarTransactions] ADD [DrawingMylarId] int NULL;
+
+            IF COL_LENGTH(N'DrawingMylars', N'Version') IS NULL
+                ALTER TABLE [DrawingMylars] ADD [Version] bigint NOT NULL CONSTRAINT [DF_DrawingMylars_Version_Upgrade] DEFAULT 0;
+
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.foreign_keys
+                WHERE [name] = N'FK_MylarTransactions_DrawingMylars_DrawingMylarId')
+                ALTER TABLE [MylarTransactions] WITH CHECK
+                    ADD CONSTRAINT [FK_MylarTransactions_DrawingMylars_DrawingMylarId]
+                    FOREIGN KEY ([DrawingMylarId]) REFERENCES [DrawingMylars] ([Id]);
+
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.indexes
+                WHERE [name] = N'IX_MylarTransactions_DrawingMylarId'
+                    AND [object_id] = OBJECT_ID(N'[MylarTransactions]'))
+                CREATE INDEX [IX_MylarTransactions_DrawingMylarId]
+                    ON [MylarTransactions] ([DrawingMylarId]);
+            """,
+            cancellationToken);
+    }
+
+    private async Task BackfillLegacyMylarAsync(CancellationToken cancellationToken)
+    {
+        var drawings = await db.Drawings
+            .Include(x => x.Mylars)
+            .Include(x => x.MylarTransactions)
+            .AsSplitQuery()
+            .Where(x => x.Mylars.Count == 0 &&
+                (x.PhysicalMylarLocation != null || x.IsMylarCheckedOut || x.MylarTransactions.Count > 0))
+            .ToListAsync(cancellationToken);
+
+        foreach (var drawing in drawings)
+        {
+            var firstTransaction = drawing.MylarTransactions.OrderBy(x => x.RecordedAt).FirstOrDefault();
+            var latestTransaction = drawing.MylarTransactions.OrderByDescending(x => x.RecordedAt).FirstOrDefault();
+            var mylar = new DrawingMylar
+            {
+                MylarNumber = "MYLAR-1",
+                NormalizedMylarNumber = "MYLAR1",
+                IsCheckedOut = drawing.IsMylarCheckedOut,
+                CurrentLocation = drawing.PhysicalMylarLocation ?? latestTransaction?.Location,
+                CheckedOutBy = drawing.IsMylarCheckedOut ? drawing.MylarCheckedOutBy ?? latestTransaction?.Person : null,
+                CheckedOutAt = drawing.IsMylarCheckedOut ? drawing.MylarCheckedOutAt ?? latestTransaction?.RecordedAt : null,
+                CreatedBy = firstTransaction?.RecordedBy ?? drawing.CreatedBy,
+                CreatedAt = firstTransaction?.RecordedAt ?? drawing.CreatedAt
+            };
+            drawing.Mylars.Add(mylar);
+            foreach (var transaction in drawing.MylarTransactions)
+                transaction.Mylar = mylar;
+        }
+
+        if (drawings.Count > 0)
+        {
+            db.AllowLegacyMylarBackfill = true;
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            finally
+            {
+                db.AllowLegacyMylarBackfill = false;
+            }
+        }
+    }
+}

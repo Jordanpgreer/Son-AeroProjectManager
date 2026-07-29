@@ -37,6 +37,7 @@ if (-not (Test-Command node.exe) -or -not (Test-Command npm.cmd)) {
 }
 
 & (Join-Path $PSScriptRoot 'Install-HubShortcut.ps1')
+& (Join-Path $PSScriptRoot 'Install-OpenFolderProtocol.ps1')
 
 Write-Host ''
 Write-Host 'SON-AERO Hub setup complete. Use the "SON-AERO Hub" desktop shortcut to launch the hub.'

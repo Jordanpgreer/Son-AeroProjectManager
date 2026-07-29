@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft,
+  AlertTriangle,
+  Archive,
   Beaker,
   Boxes,
   ChevronRight,
   Edit3,
   FileStack,
   FlaskConical,
+  History,
   LoaderCircle,
   Lock,
   RefreshCw,
@@ -87,8 +90,9 @@ function shortDate(value: string | null) {
 }
 
 function mylarSummary(drawing: DrawingRecordHeader) {
-  if (drawing.isMylarCheckedOut) return `Checked out to ${drawing.mylarCheckedOutBy ?? 'Unknown holder'}`
-  return drawing.physicalMylarLocation || 'Not tracked'
+  if (drawing.mylarCount === 0) return 'No numbered Mylars'
+  if (drawing.checkedOutMylarCount > 0) return `${drawing.checkedOutMylarCount} of ${drawing.mylarCount} checked out`
+  return `${drawing.mylarCount} in controlled storage`
 }
 
 function ThemeSwitch({
@@ -168,6 +172,8 @@ export default function App() {
   const [creatingDrawing, setCreatingDrawing] = useState(false)
   const [drawingHeader, setDrawingHeader] = useState<DrawingRecordHeader | null>(null)
   const [drawingEditRequest, setDrawingEditRequest] = useState(0)
+  const [drawingArchiveRequest, setDrawingArchiveRequest] = useState(0)
+  const [drawingAuditRequest, setDrawingAuditRequest] = useState(0)
   const [selectedModuleRecord, setSelectedModuleRecord] = useState<EngineeringSearchResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -211,6 +217,8 @@ export default function App() {
       if (route === 'drawing-record/new') {
         setDrawingHeader(null)
         setDrawingEditRequest(0)
+        setDrawingArchiveRequest(0)
+        setDrawingAuditRequest(0)
         setActiveSectionId('drawing-document-control')
         setDrawingScreen('record')
         setDrawingId(null)
@@ -220,6 +228,8 @@ export default function App() {
       if (route === 'drawing-record') {
         setDrawingHeader(null)
         setDrawingEditRequest(0)
+        setDrawingArchiveRequest(0)
+        setDrawingAuditRequest(0)
         setActiveSectionId('drawing-document-control')
         setDrawingScreen('dashboard')
         setDrawingId(null)
@@ -231,6 +241,8 @@ export default function App() {
       if (match) {
         setDrawingHeader(null)
         setDrawingEditRequest(0)
+        setDrawingArchiveRequest(0)
+        setDrawingAuditRequest(0)
         setActiveSectionId('drawing-document-control')
         setDrawingScreen('record')
         setDrawingId(Number(match[1]))
@@ -238,6 +250,8 @@ export default function App() {
       } else if (route === 'drawing-dashboard') {
         setDrawingHeader(null)
         setDrawingEditRequest(0)
+        setDrawingArchiveRequest(0)
+        setDrawingAuditRequest(0)
         setActiveSectionId('drawing-document-control')
         setDrawingScreen('dashboard')
         setDrawingId(null)
@@ -271,6 +285,8 @@ export default function App() {
     setSelectedModuleRecord(null)
     setDrawingHeader(null)
     setDrawingEditRequest(0)
+    setDrawingArchiveRequest(0)
+    setDrawingAuditRequest(0)
     setActiveSectionId('drawing-document-control')
     setDrawingScreen('dashboard')
     setDrawingId(null)
@@ -282,6 +298,8 @@ export default function App() {
     setSelectedModuleRecord(null)
     setDrawingHeader(null)
     setDrawingEditRequest(0)
+    setDrawingArchiveRequest(0)
+    setDrawingAuditRequest(0)
     setActiveSectionId('drawing-document-control')
     setDrawingScreen('record')
     setDrawingId(id)
@@ -293,6 +311,8 @@ export default function App() {
     setSelectedModuleRecord(null)
     setDrawingHeader(null)
     setDrawingEditRequest(0)
+    setDrawingArchiveRequest(0)
+    setDrawingAuditRequest(0)
     setActiveSectionId('drawing-document-control')
     setDrawingScreen('record')
     setDrawingId(null)
@@ -304,6 +324,8 @@ export default function App() {
     setSelectedModuleRecord(null)
     setDrawingHeader(null)
     setDrawingEditRequest(0)
+    setDrawingArchiveRequest(0)
+    setDrawingAuditRequest(0)
     setActiveSectionId('drawing-document-control')
     setDrawingScreen('record')
     setDrawingId(null)
@@ -331,6 +353,7 @@ export default function App() {
   }
 
   const showingDrawingRecord = activeSection?.id === 'drawing-document-control' && drawingScreen === 'record'
+  const showingDrawingRegister = activeSection?.id === 'drawing-document-control' && drawingScreen === 'dashboard'
 
   return (
     <div className="engineering-shell engineering-app">
@@ -396,11 +419,15 @@ export default function App() {
                   <h1 className={drawingHeader ? 'technical-id' : ''}>
                     {drawingHeader?.drawingNumber ?? (creatingDrawing ? 'Create drawing record' : 'Loading drawing record...')}
                   </h1>
-                  {drawingHeader && <span className={`status-pill status-${drawingHeader.approvalStatus.toLowerCase()}`}>{drawingHeader.approvalStatus}</span>}
+                  {drawingHeader && <span className={`status-pill status-${drawingHeader.approvalStatus.toLowerCase()}`}>{drawingHeader.approvalStatus === 'Obsolete' ? 'Archived' : drawingHeader.approvalStatus.replace(/([a-z])([A-Z])/g, '$1 $2')}</span>}
                 </div>
                 {drawingHeader ? (
                   <>
                     <p className="record-header-title">{drawingHeader.title}</p>
+                    {drawingHeader.pendingReviewRevision && <div className="record-review-pending" role="status">
+                      <AlertTriangle size={15}/>
+                      <span><strong>Review pending</strong>Revision {drawingHeader.pendingReviewRevision} is awaiting engineering disposition.</span>
+                    </div>}
                     <dl className="record-header-facts">
                       <div><dt>Customer</dt><dd>{drawingHeader.customer}</dd></div>
                       <div><dt>Current revision</dt><dd>{drawingHeader.currentRevision ?? 'None'}</dd></div>
@@ -423,9 +450,11 @@ export default function App() {
               </>
             ) : (
               <>
-                <span className="eyebrow">Standalone workspace</span>
-                <h1>{moduleData?.name ?? 'Engineering Module'}</h1>
-                <p>{moduleData?.summary ?? 'Loading module overview...'}</p>
+                <span className="eyebrow">{showingDrawingRegister ? 'Drawing and document control' : 'Standalone workspace'}</span>
+                <h1>{showingDrawingRegister ? 'Drawing Register' : moduleData?.name ?? 'Engineering Module'}</h1>
+                <p>{showingDrawingRegister
+                  ? 'Search controlled drawings, review release status, and open complete revision records.'
+                  : moduleData?.summary ?? 'Loading module overview...'}</p>
               </>
             )}
           </div>
@@ -444,9 +473,17 @@ export default function App() {
               onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
             />
             {showingDrawingRecord
-              ? drawingHeader && !drawingHeader.isObsolete && <button className="button record-header-edit" type="button" onClick={() => setDrawingEditRequest(current => current + 1)}>
-                  <Edit3 size={14}/> Edit metadata
-                </button>
+              ? drawingHeader && <>
+                  {!drawingHeader.isObsolete && <button className="button record-header-edit" type="button" onClick={() => setDrawingEditRequest(current => current + 1)}>
+                    <Edit3 size={14}/> Edit metadata
+                  </button>}
+                  <button className="button ghost record-header-audit" type="button" onClick={() => setDrawingAuditRequest(current => current + 1)}>
+                    <History size={14}/> Audit history
+                  </button>
+                  {!drawingHeader.isObsolete && <button className="button ghost record-header-archive" type="button" onClick={() => setDrawingArchiveRequest(current => current + 1)}>
+                    <Archive size={14}/> Archive
+                  </button>}
+                </>
               : <button className="button ghost" type="button" onClick={() => window.location.reload()}>
                   <RefreshCw size={15} /> Refresh
                 </button>}
@@ -472,7 +509,7 @@ export default function App() {
               </section>
             ) : activeSection ? (
               <>
-                {!showingDrawingRecord && activeSection.id !== 'dashboard' && <section className="panel engineering-hero">
+                {!showingDrawingRecord && activeSection.id !== 'dashboard' && activeSection.id !== 'drawing-document-control' && <section className="panel engineering-hero">
                   <div className="panel-head">
                     <div className="panel-head-text">
                       <span className="eyebrow">{moduleData?.accessNotice}</span>
@@ -499,11 +536,13 @@ export default function App() {
                       onBackToDashboard={openDrawingDashboard}
                       onRecordChange={setDrawingHeader}
                       editRequest={drawingEditRequest}
+                      archiveRequest={drawingArchiveRequest}
+                      auditRequest={drawingAuditRequest}
+                      actorName={me?.accountName || me?.displayName || 'Signed-in user'}
                     />
                   )
                 ) : activeSection.id === 'dashboard' ? (
                   <EngineeringDashboard
-                    onOpenDrawing={openDrawingRecord}
                     onOpenResult={openEngineeringResult}
                   />
                 ) : (

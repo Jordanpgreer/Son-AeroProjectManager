@@ -3,7 +3,7 @@ namespace EngineeringHub.Api.Models;
 public enum DrawingApprovalStatus { Draft, UnderReview, Approved, Obsolete }
 public enum DrawingRevisionStatus { Draft, UnderReview, Approved, Superseded, Obsolete }
 public enum DrawingDocumentKind { Specification, SupplementalDocument, WorkInstruction, WorkOrder }
-public enum MylarTransactionType { CheckedOut, Returned }
+public enum MylarTransactionType { Registered, CheckedOut, Returned }
 
 public sealed class Drawing
 {
@@ -32,6 +32,7 @@ public sealed class Drawing
     public List<DrawingDocumentLink> DocumentLinks { get; set; } = [];
     public List<DrawingRevision> Revisions { get; set; } = [];
     public List<DrawingValidation> Validations { get; set; } = [];
+    public List<DrawingMylar> Mylars { get; set; } = [];
     public List<MylarTransaction> MylarTransactions { get; set; } = [];
     public List<DrawingAuditEntry> AuditEntries { get; set; } = [];
 }
@@ -98,12 +99,31 @@ public sealed class MylarTransaction
     public int Id { get; set; }
     public int DrawingId { get; set; }
     public Drawing Drawing { get; set; } = null!;
+    public int? DrawingMylarId { get; set; }
+    public DrawingMylar? Mylar { get; set; }
     public MylarTransactionType Type { get; set; }
     public required string Person { get; set; }
     public string? Purpose { get; set; }
     public string? Location { get; set; }
     public required string RecordedBy { get; set; }
     public DateTime RecordedAt { get; set; }
+}
+
+public sealed class DrawingMylar
+{
+    public int Id { get; set; }
+    public int DrawingId { get; set; }
+    public Drawing Drawing { get; set; } = null!;
+    public required string MylarNumber { get; set; }
+    public required string NormalizedMylarNumber { get; set; }
+    public bool IsCheckedOut { get; set; }
+    public string? CurrentLocation { get; set; }
+    public string? CheckedOutBy { get; set; }
+    public DateTime? CheckedOutAt { get; set; }
+    public long Version { get; set; }
+    public required string CreatedBy { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public List<MylarTransaction> Transactions { get; set; } = [];
 }
 
 public sealed class DrawingAuditEntry

@@ -30,18 +30,56 @@ public sealed class EngineeringOperationalTests
     }
 
     [Fact]
-    public async Task DashboardUsesLiveDrawingsAndBuildsOperationalQueue()
+    public async Task DashboardUsesLiveDrawingsAndBuildsReviewQueue()
     {
         await using var fixture = await ContextFixture.CreateAsync();
         await new EngineeringDemoDataSeeder(fixture.Context).SeedAsync(CancellationToken.None);
 
         var dashboard = await new EngineeringSearchService(fixture.Context)
-            .GetDashboardAsync("DRW-100014-A", null, null, null, CancellationToken.None);
+            .GetDashboardAsync("DRW-100014-A", null, null, null, false, CancellationToken.None);
 
         Assert.Equal(5, dashboard.Summary.TotalDrawings);
-        Assert.Equal(2, dashboard.Summary.AwaitingReview);
+        Assert.True(dashboard.Summary.ReviewQueue > 0);
         Assert.Contains(dashboard.Results, x => x.Category == "drawings" && x.Identifier == "DRW-100014-A");
-        Assert.Contains(dashboard.WorkItems, x => x.Kind == "Demo revision");
+        Assert.Contains(dashboard.Results, x =>
+            x.Identifier == "DRW-100014-A" &&
+            x.AttentionReasons is { Count: > 0 });
+
+        var reviewQueue = await new EngineeringSearchService(fixture.Context)
+            .GetDashboardAsync(null, null, null, null, true, CancellationToken.None);
+
+        Assert.Equal(reviewQueue.Summary.ReviewQueue, reviewQueue.Results.Count);
+        Assert.All(reviewQueue.Results, result =>
+        {
+            Assert.Equal("drawings", result.Category);
+            Assert.NotEmpty(result.AttentionReasons ?? []);
+        });
+    }
+
+    [Fact]
+    public async Task DashboardPresentsStoredObsoleteDrawingAsArchived()
+    {
+        await using var fixture = await ContextFixture.CreateAsync();
+        fixture.Context.Drawings.Add(new Drawing
+        {
+            DrawingNumber = "DRW-ARCHIVE-1",
+            NormalizedDrawingNumber = "DRWARCHIVE1",
+            Title = "Retained historical drawing",
+            Customer = "ACME",
+            NormalizedCustomer = "ACME",
+            ApprovalStatus = DrawingApprovalStatus.Obsolete,
+            IsObsolete = true,
+            CreatedBy = "test-user",
+            CreatedAt = DateTime.UtcNow
+        });
+        await fixture.Context.SaveChangesAsync();
+
+        var dashboard = await new EngineeringSearchService(fixture.Context)
+            .GetDashboardAsync("DRW-ARCHIVE-1", null, null, "Obsolete", false, CancellationToken.None);
+
+        var result = Assert.Single(dashboard.Results);
+        Assert.Contains("Archived controlled drawing", result.Subtitle);
+        Assert.Contains("Obsolete", result.Tags);
     }
 
     private sealed class ContextFixture(SqliteConnection connection, EngineeringDbContext context) : IAsyncDisposable
