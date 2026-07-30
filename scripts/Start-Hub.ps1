@@ -2,13 +2,42 @@
     Start-Hub.ps1 — SON-AERO Internal Hub local launcher.
 
     Starts Project Tracker (http://localhost:5135), Engineering Hub (http://localhost:5150),
-    and the Portal (http://localhost:5140), rebuilding each frontend only when its source
-    changed, waits for each to become healthy, then opens the portal homepage. Startup
+    Estimating Dashboard (http://localhost:5160), and the Portal (http://localhost:5140),
+    rebuilding each frontend only when its source changed, waits for each to become healthy,
+    then opens the portal homepage. Startup
     problems are shown in a dialog (not a blank
     window). All generated logs and build stamps are written under <repo>\logs (git-ignored).
 #>
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+
+# Some managed shells expose both "Path" and "PATH". Windows accepts that
+# environment block, but PowerShell's Start-Process copies it into a
+# case-insensitive dictionary and throws before launching the child process.
+function Normalize-ProcessPathEnvironment {
+    $pathKeys = @(
+        [Environment]::GetEnvironmentVariables([EnvironmentVariableTarget]::Process).Keys |
+            Where-Object { $_ -ieq 'Path' }
+    )
+    if ($pathKeys.Count -lt 2) { return }
+
+    $pathValue = [Environment]::GetEnvironmentVariable(
+        'Path',
+        [EnvironmentVariableTarget]::Process
+    )
+    [Environment]::SetEnvironmentVariable(
+        'PATH',
+        $null,
+        [EnvironmentVariableTarget]::Process
+    )
+    [Environment]::SetEnvironmentVariable(
+        'Path',
+        $pathValue,
+        [EnvironmentVariableTarget]::Process
+    )
+}
+
+Normalize-ProcessPathEnvironment
 
 # Resolve the repository root from this script's location so it works from any checkout,
 # including paths that contain spaces.
@@ -43,6 +72,14 @@ $apps = @(
         ApiRoot    = Join-Path $repoRoot 'apps\engineering-hub\src\EngineeringHub.Api'
         Url        = 'http://localhost:5150'
         Port       = 5150
+        HealthPath = '/api/health'
+    },
+    [pscustomobject]@{
+        Name       = 'Estimating Dashboard'
+        Key        = 'estimating-dashboard'
+        ApiRoot    = Join-Path $repoRoot 'apps\estimating-dashboard\src\EstimatingDashboard.Api'
+        Url        = 'http://localhost:5160'
+        Port       = 5160
         HealthPath = '/api/health'
     },
     [pscustomobject]@{

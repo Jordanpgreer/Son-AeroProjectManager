@@ -58,59 +58,6 @@
   --shadow-2: 0 1px 3px rgba(20, 32, 43, 0.1), 0 18px 36px -26px rgba(20, 32, 43, 0.55);
 }
 
-:root[data-theme='dark'] .engineering-app {
-  --bg: #081019;
-  --bg-deep: #0c151e;
-  --surface: #121e29;
-  --surface-2: #192936;
-  --surface-3: #223746;
-
-  --ink: #f1f5f8;
-  --ink-2: #cbd5de;
-  --muted: #9cabb9;
-  --faint: #8293a2;
-
-  --line: #263744;
-  --line-2: #354b5d;
-  --line-3: #4b6477;
-  --grid-line: rgba(156, 171, 185, 0.055);
-
-  --red: #d23a2b;
-  --red-600: #b92f24;
-  --red-700: #ffb6ad;
-  --red-tint: #351e1b;
-  --red-tint-2: #522923;
-
-  --steel: #67a8dc;
-  --steel-700: #b5dafa;
-  --steel-tint: #172b3d;
-
-  --ok: #7bc9a4;
-  --ok-700: #bce8ce;
-  --ok-tint: #183126;
-  --warn: #d6a84e;
-  --warn-700: #f3d18c;
-  --warn-tint: #332816;
-  --risk: #f06a5b;
-  --risk-700: #ffb6ad;
-  --risk-tint: #351e1b;
-  --done: #69c594;
-  --done-700: #bce8ce;
-  --done-tint: #183126;
-
-  --eng-chrome: #0e1620;
-  --eng-panel: #121e29;
-  --eng-inset: #192936;
-  --eng-row: #162531;
-  --eng-row-hover: #223746;
-  --eng-selected: #1b3548;
-  --eng-input: #0e1822;
-  --eng-raised: #1b2b38;
-
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.34), 0 12px 26px -20px rgba(0, 0, 0, 0.92);
-  --shadow-2: 0 1px 3px rgba(0, 0, 0, 0.42), 0 20px 42px -26px rgba(0, 0, 0, 0.96);
-}
-
 .engineering-app .topbar {
   background: color-mix(in srgb, var(--eng-chrome) 96%, transparent);
   border-bottom-color: var(--line-2);
@@ -304,6 +251,7 @@
 }
 
 :root[data-theme='dark'] .engineering-app :where(
+  .topbar-search,
   .form-grid input,
   .form-grid textarea,
   .form-grid select,
@@ -311,10 +259,12 @@
   .review-card textarea,
   .inline-review-comment,
   .archive-reason-field textarea,
-  .delete-confirmation-field input
+  .delete-confirmation-field input,
+  .file-picker-control,
+  .engineering-date-trigger
 ) {
   background: var(--eng-input);
-  border-color: var(--line-2);
+  border-color: var(--line-3);
 }
 
 :root[data-theme='dark'] .engineering-app .button:not(.danger) {
@@ -490,12 +440,20 @@
 }
 
 :root[data-theme='dark'] .engineering-app .section-titlebar {
-  color: #ffffff;
-  background: var(--section-accent);
+  color: var(--ink);
+  background: var(--eng-raised);
 }
 
 :root[data-theme='dark'] .engineering-app .section-titlebar:hover {
-  background: var(--section-hover);
+  background: var(--eng-row-hover);
+}
+
+:root[data-theme='dark'] .engineering-app .section-titlebar .eyebrow {
+  color: var(--muted);
+}
+
+:root[data-theme='dark'] .engineering-app :where(.section-title, .section-titlebar-tools) {
+  color: var(--ink);
 }
 
 :root[data-theme='dark'] .engineering-app .section-content {

@@ -1,0 +1,476 @@
+@import './calculator-enhancements.css';
+
+.calculator-page {
+  display: grid; gap: 18px; color: var(--ink);
+}
+
+.calculator-toolbar,
+.calc-card,
+.assumptions-bar {
+  background: var(--surface); border: 1px solid var(--line-2);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-1);
+}
+
+.calculator-toolbar {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 18px;
+  flex-wrap: wrap;
+  padding: 14px 16px; border-top: 3px solid var(--red);
+}
+
+.toolbar-label,
+.section-kicker {
+  display: block; margin-bottom: 6px; color: var(--muted);
+  font-size: 10px; font-weight: 700; letter-spacing: .11em; text-transform: uppercase;
+}
+
+.model-switch {
+  display: inline-grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px;
+  background: var(--surface-3); border: 1px solid var(--line-2); border-radius: var(--r-md);
+}
+
+.model-switch button {
+  display: grid; grid-template-columns: auto auto; align-items: baseline; gap: 7px;
+  min-height: 40px; padding: 8px 15px; color: var(--muted); background: transparent;
+  border: 1px solid transparent; border-radius: var(--r-sm); font: inherit; font-weight: 650;
+  transition: color 160ms ease, background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.model-switch button small { font-size: 10px; font-weight: 500; }
+.model-switch button:hover { color: var(--ink); }
+.model-switch button.active {
+  color: var(--steel-700); background: var(--surface);
+  border-color: var(--line-2); box-shadow: var(--shadow-1);
+}
+
+.toolbar-actions,
+.pricing-heading-actions {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+
+.dirty-state,
+.live-status {
+  display: inline-flex; align-items: center; gap: 7px;
+  color: var(--muted); font-size: 11px; font-weight: 650;
+}
+
+.dirty-state > span { width: 7px; height: 7px; background: var(--ok); border-radius: 50%; }
+.dirty-state.is-dirty { color: var(--warn-700); }
+.dirty-state.is-dirty > span { background: var(--warn); }
+
+.secondary-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 40px; padding: 8px 13px; color: var(--ink-2); background: var(--surface-2);
+  border: 1px solid var(--line-2); border-radius: var(--r-sm); font: inherit; font-weight: 650;
+  transition: color 150ms ease, background 150ms ease, border-color 150ms ease;
+}
+
+.secondary-button:hover {
+  color: var(--steel-700); background: var(--steel-tint); border-color: var(--steel);
+}
+
+.calc-card { min-width: 0; overflow: hidden; }
+.context-card, .facilities-card { padding-bottom: 18px; }
+.calc-section-heading {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  min-height: 66px; padding: 14px 18px; border-bottom: 1px solid var(--line);
+}
+
+.calc-section-heading .section-kicker { margin-bottom: 2px; }
+.calc-section-heading h2,
+.calculation-error h2 {
+  margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em;
+}
+
+.controlled-badge,
+.section-count,
+.section-note,
+.always-label {
+  padding: 4px 7px; color: var(--steel-700); background: var(--steel-tint);
+  border: 1px solid color-mix(in srgb, var(--steel) 28%, var(--line));
+  border-radius: var(--r-xs); font-size: 10px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase;
+}
+
+.section-count, .section-note {
+  color: var(--muted); background: var(--surface-2); border-color: var(--line);
+}
+
+.metadata-grid {
+  display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 13px; padding: 18px;
+}
+
+.metadata-grid label,
+.commercial-inputs label,
+.facilities-grid label {
+  display: grid; align-content: start; gap: 6px; min-width: 0;
+  color: var(--ink-2); font-size: 11px; font-weight: 650;
+}
+
+.metadata-grid .field-wide { grid-column: span 2; }
+.commercial-inputs {
+  display: grid; grid-template-columns: repeat(5, minmax(130px, 1fr));
+  gap: 13px; padding: 16px 18px 0; border-top: 1px solid var(--line);
+}
+
+.commercial-inputs label > span,
+.facilities-grid label > span {
+  display: flex; justify-content: space-between; gap: 5px;
+}
+
+.commercial-inputs small {
+  color: var(--steel-700); font-size: 9px; letter-spacing: .04em; text-transform: uppercase;
+}
+
+.calculator-page input[type='text'],
+.calculator-page input[type='date'],
+.calculator-page input[type='number'],
+.calculator-page select,
+.calculator-page textarea {
+  width: 100%; min-height: 36px; padding: 7px 9px; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--line-2);
+  border-radius: var(--r-sm); font: inherit;
+  transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
+}
+
+.calculator-page textarea { min-height: 64px; resize: vertical; }
+.calculator-page input:hover,
+.calculator-page select:hover,
+.calculator-page textarea:hover { border-color: var(--line-3); }
+
+.calculator-page input:focus,
+.calculator-page select:focus,
+.calculator-page textarea:focus {
+  border-color: var(--steel); outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--steel) 16%, transparent);
+}
+
+.calculator-page input[aria-invalid='true'] {
+  border-color: var(--risk);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--risk) 14%, transparent);
+}
+
+.safe-number-field { display: block; }
+.input-with-suffix { display: grid; grid-template-columns: minmax(0, 1fr) 30px; }
+.input-with-suffix input { border-radius: var(--r-sm) 0 0 var(--r-sm) !important; }
+.input-with-suffix > span {
+  display: grid; place-items: center; color: var(--muted); background: var(--surface-3);
+  border: 1px solid var(--line-2); border-left: 0;
+  border-radius: 0 var(--r-sm) var(--r-sm) 0; font-family: var(--font-mono); font-size: 11px;
+}
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+.assumptions-bar {
+  display: grid; grid-template-columns: minmax(210px, .85fr) minmax(0, 3fr); overflow: hidden;
+}
+
+.assumption-year {
+  display: flex; align-items: center; gap: 11px; padding: 12px 16px;
+  color: var(--steel-700); background: var(--steel-tint); border-right: 1px solid var(--line-2);
+}
+
+.assumption-year label {
+  display: grid; grid-template-columns: auto 84px; align-items: center;
+  gap: 10px; width: 100%; font-size: 11px; font-weight: 700;
+}
+
+.assumptions-bar dl { display: grid; grid-template-columns: repeat(5, minmax(90px, 1fr)); margin: 0; }
+.assumptions-bar dl > div {
+  display: grid; align-content: center; gap: 2px; min-height: 58px;
+  padding: 8px 14px; border-right: 1px solid var(--line);
+}
+.assumptions-bar dl > div:last-child { border-right: 0; }
+.assumptions-bar dt { color: var(--muted); font-size: 10px; }
+.assumptions-bar dd {
+  margin: 0; font-family: var(--font-mono); font-size: 13px; font-weight: 650;
+}
+
+.calculator-input-stack { display: grid; gap: 18px; }
+.table-scroll { max-width: 100%; overflow-x: auto; scrollbar-gutter: stable; }
+
+.input-table,
+.pricing-table,
+.audit-table {
+  width: 100%; border-collapse: collapse; font-size: 11.5px;
+}
+
+.input-table { min-width: 680px; }
+.materials-table { min-width: 880px; }
+.processes-table { min-width: 660px; }
+.input-table caption,
+.pricing-table caption,
+.audit-table caption {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0);
+}
+
+.input-table th, .input-table td,
+.pricing-table th, .pricing-table td,
+.audit-table th, .audit-table td {
+  padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line);
+}
+
+.input-table thead th,
+.pricing-table thead th,
+.audit-table thead th {
+  color: var(--muted); background: var(--surface-2); font-size: 9.5px;
+  font-weight: 750; letter-spacing: .06em; text-transform: uppercase;
+}
+
+.input-table tbody th { min-width: 220px; font-weight: 600; }
+.input-table tbody tr:hover,
+.audit-table tbody tr:hover { background: color-mix(in srgb, var(--steel-tint) 44%, transparent); }
+.input-table input, .input-table select { min-width: 92px; }
+.input-table tbody th select, .input-table tbody th input { min-width: 210px; }
+.input-table .uom-input { min-width: 70px; max-width: 90px; }
+
+.numeric, .read-only-value,
+.pricing-table td, .audit-table td {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+}
+
+.read-only-value { color: var(--ink-2); background: var(--surface-2); }
+.fixed-operation {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.fixed-operation > span:first-child { min-width: 0; }
+.fixed-operation > span {
+  color: var(--faint); font-size: 9px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase;
+}
+
+.treatment-badge {
+  display: inline-flex; padding: 3px 6px; color: var(--muted);
+  background: var(--surface-3); border-radius: var(--r-xs);
+  font-size: 9.5px; font-weight: 700; white-space: nowrap;
+}
+.treatment-nre,
+.treatment-conditional-tooling-nre { color: var(--warn-700); background: var(--warn-tint); }
+
+.inline-check {
+  display: inline-flex; align-items: center; gap: 7px;
+  min-height: 36px; font-size: 10.5px; font-weight: 650; white-space: nowrap;
+}
+.inline-check input[type='checkbox'] {
+  width: 17px; height: 17px; min-width: 17px; min-height: 0; margin: 0;
+  accent-color: var(--steel);
+}
+
+.amortize-cell {
+  transition: background-color 160ms ease;
+}
+
+.amortize-control {
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+.amortize-control input[type='checkbox'] {
+  accent-color: var(--risk);
+}
+
+.amortize-control input[type='checkbox']:focus {
+  outline: none;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.amortize-control:has(input:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--risk) 58%, transparent);
+  outline-offset: 1px;
+}
+
+.amortize-cell.is-active {
+  background: color-mix(in srgb, var(--risk-tint) 72%, var(--surface));
+}
+
+.amortize-cell.is-active .amortize-control {
+  color: var(--risk-700);
+  background: color-mix(in srgb, var(--risk-tint) 82%, transparent);
+  border-color: color-mix(in srgb, var(--risk) 24%, var(--line));
+}
+
+.facilities-grid {
+  display: grid; grid-template-columns: repeat(8, minmax(90px, 1fr));
+  gap: 10px; padding: 18px;
+}
+
+.results-card { border-top: 3px solid var(--steel); }
+.pricing-heading { border-bottom: 0; }
+.live-status { color: var(--ok-700); }
+.quantity-picker {
+  display: flex; align-items: center; gap: 8px; color: var(--muted);
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+}
+.quantity-picker select { min-width: 125px; }
+
+.price-highlights {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+.price-highlights > div {
+  display: grid; gap: 3px; padding: 16px 18px; border-right: 1px solid var(--line);
+}
+.price-highlights > div:last-child { border-right: 0; }
+.price-highlights span, .price-highlights small { color: var(--muted); font-size: 10px; }
+.price-highlights strong {
+  font-family: var(--font-mono); font-size: clamp(18px, 2vw, 25px);
+  font-variant-numeric: tabular-nums;
+}
+.price-highlights .primary-highlight {
+  background: color-mix(in srgb, var(--steel-tint) 58%, var(--surface));
+}
+.price-highlights .primary-highlight strong { color: var(--steel-700); }
+
+.pricing-table th, .pricing-table td { text-align: right; }
+.pricing-table th:first-child { text-align: left; }
+.pricing-table tbody th { font-family: var(--font-mono); }
+.pricing-table .selected-row { background: var(--steel-tint); box-shadow: inset 3px 0 var(--steel); }
+.pricing-table .selected-row td:nth-child(2) { color: var(--steel-700); font-weight: 750; }
+.mobile-quantity-card { display: none; }
+
+.audit-details { border-top: 1px solid var(--line); }
+.audit-details summary {
+  display: flex; align-items: center; gap: 10px; min-height: 52px;
+  padding: 10px 18px; color: var(--ink-2); list-style: none;
+  transition: background 150ms ease;
+}
+.audit-details summary::-webkit-details-marker { display: none; }
+.audit-details summary:hover { background: var(--surface-2); }
+.summary-icon {
+  display: grid; place-items: center; width: 30px; height: 30px;
+  color: var(--steel-700); background: var(--steel-tint); border-radius: var(--r-xs);
+}
+.audit-details summary > span:nth-child(2) { display: grid; }
+.audit-details summary small { color: var(--muted); font-size: 10px; }
+.audit-details summary::after {
+  margin-left: auto; color: var(--muted); content: '+';
+  font-family: var(--font-mono); font-size: 18px;
+}
+.audit-details[open] summary::after { content: '−'; }
+.audit-body {
+  display: grid; gap: 16px; padding: 16px 18px 20px;
+  background: var(--surface-2); border-top: 1px solid var(--line);
+}
+
+.audit-flow {
+  display: grid; grid-template-columns: repeat(7, minmax(105px, 1fr));
+  gap: 1px; margin: 0; overflow: hidden; background: var(--line);
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+}
+.audit-flow > div { display: grid; gap: 2px; padding: 9px 10px; background: var(--surface); }
+.audit-flow dt { color: var(--muted); font-size: 9px; }
+.audit-flow dd { margin: 0; font-family: var(--font-mono); font-size: 11px; }
+.audit-tables-grid {
+  display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr);
+  gap: 16px; align-items: start;
+}
+.audit-stack { display: grid; gap: 16px; }
+.audit-table { min-width: 440px; background: var(--surface); border: 1px solid var(--line); }
+
+.calculation-error {
+  display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: start; gap: 12px;
+  padding: 14px 16px;
+  color: var(--risk-700); background: var(--risk-tint);
+  border: 1px solid color-mix(in srgb, var(--risk) 40%, var(--line));
+  border-radius: var(--r-lg);
+}
+.calculation-error-icon {
+  display: grid; place-items: center; width: 34px; height: 34px;
+  color: var(--risk-700); background: color-mix(in srgb, var(--risk) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--risk) 26%, var(--line));
+  border-radius: 50%;
+}
+.calculation-error-content { min-width: 0; }
+.calculation-error-heading {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+}
+.calculation-error .section-kicker { display: block; margin-bottom: 2px; color: var(--risk-700); }
+.calculation-error-count {
+  flex: none; padding: 4px 8px; color: var(--risk-700);
+  background: color-mix(in srgb, var(--risk) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--risk) 24%, var(--line));
+  border-radius: 999px; font-size: 10px; font-weight: 700; text-transform: uppercase;
+}
+.calculation-error p { margin: 5px 0 10px; color: var(--ink-2); }
+.calculation-issues { display: flex; flex-wrap: wrap; gap: 8px; }
+.calculation-issue {
+  display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px 10px;
+  color: var(--ink-2); background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--risk) 22%, var(--line));
+  border-radius: var(--r-sm);
+}
+.calculation-issue strong { color: var(--risk-700); font-size: 11px; }
+.calculation-issue span { color: var(--muted); font-size: 10px; }
+
+@media (max-width: 1180px) {
+  .metadata-grid { grid-template-columns: repeat(3, minmax(130px, 1fr)); }
+  .commercial-inputs { grid-template-columns: repeat(3, minmax(130px, 1fr)); }
+  .facilities-grid { grid-template-columns: repeat(4, minmax(100px, 1fr)); }
+  .audit-flow { grid-template-columns: repeat(4, minmax(110px, 1fr)); }
+  .audit-tables-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 720px) {
+  .calculator-toolbar { align-items: stretch; flex-direction: column; }
+  .model-switch { display: grid; }
+  .model-switch button { justify-content: center; min-height: 46px; }
+  .toolbar-actions { justify-content: flex-start; }
+  .secondary-button { min-height: 44px; }
+  .calc-section-heading {
+    align-items: flex-start; min-height: 60px; padding: 12px 14px;
+  }
+  .metadata-grid, .commercial-inputs {
+    grid-template-columns: 1fr 1fr; padding: 14px;
+  }
+  .metadata-grid .field-wide { grid-column: 1 / -1; }
+  .calculator-page input[type='text'],
+  .calculator-page input[type='date'],
+  .calculator-page input[type='number'],
+  .calculator-page select { min-height: 44px; }
+  .assumptions-bar { grid-template-columns: 1fr; }
+  .assumption-year { border-right: 0; border-bottom: 1px solid var(--line-2); }
+  .assumptions-bar dl { grid-template-columns: repeat(3, 1fr); }
+  .assumptions-bar dl > div:nth-child(3) { border-right: 0; }
+  .price-highlights { grid-template-columns: 1fr; }
+  .price-highlights > div { border-right: 0; border-bottom: 1px solid var(--line); }
+  .price-highlights > div:last-child { border-bottom: 0; }
+  .pricing-heading { align-items: stretch; flex-direction: column; }
+  .pricing-heading-actions { justify-content: space-between; }
+  .quantity-picker { flex: 1; justify-content: flex-end; }
+  .pricing-table-wrap { display: none; }
+  .mobile-quantity-card {
+    display: block; padding: 14px; background: var(--surface-2);
+    border-top: 1px solid var(--line);
+  }
+  .mobile-quantity-card dl {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1px; margin: 0;
+    overflow: hidden; background: var(--line); border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+  }
+  .mobile-quantity-card dl > div {
+    display: grid; gap: 2px; padding: 10px; background: var(--surface);
+  }
+  .mobile-quantity-card dt { color: var(--muted); font-size: 9px; text-transform: uppercase; }
+  .mobile-quantity-card dd {
+    margin: 0; font-family: var(--font-mono); font-size: 13px; font-weight: 650;
+  }
+  .facilities-grid {
+    grid-template-columns: repeat(2, minmax(110px, 1fr)); padding: 14px;
+  }
+  .audit-flow { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+}
+
+@media (max-width: 430px) {
+  .metadata-grid, .commercial-inputs { grid-template-columns: 1fr; }
+  .pricing-heading-actions { align-items: stretch; flex-direction: column; }
+  .quantity-picker { justify-content: space-between; }
+  .assumptions-bar dl { grid-template-columns: 1fr 1fr; }
+  .assumptions-bar dl > div:nth-child(3) { border-right: 1px solid var(--line); }
+  .assumptions-bar dl > div:nth-child(even) { border-right: 0; }
+}

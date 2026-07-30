@@ -23,10 +23,12 @@ The launcher starts:
 
 - **Portal** at `http://localhost:5140` (opened in your default browser)
 - **Project Tracker** at `http://localhost:5135`
+- **Engineering Hub** at `http://localhost:5150`
+- **Estimating Dashboard** at `http://localhost:5160`
 
 It rebuilds a frontend only when its source has changed, skips any app that is already running,
-waits for both to become healthy, and then opens the portal. If startup fails it shows an error
-dialog and writes logs to `logs\project-tracker.err.log` / `logs\portal.err.log`.
+waits for all applications to become healthy, and then opens the portal. If startup fails it
+shows an error dialog and writes details to `logs\<app>.err.log`.
 
 ## Requirements for a fresh machine
 
@@ -35,8 +37,8 @@ dialog and writes logs to `logs\project-tracker.err.log` / `logs\portal.err.log`
 
 ## Running one application at a time
 
-See the [root README](../README.md#run-an-application-independently) for running Project Tracker
-or the Portal on its own.
+See the [root README](../README.md#run-an-application-independently) for running an application
+on its own.
 
 ## Branding assets
 

@@ -1,0 +1,201 @@
+export const QUANTITY_TIERS = [10, 25, 50, 75, 100, 250, 500, 1000] as const
+
+export type QuantityTier = number
+export type QuantityValues<T> = Record<number, T>
+
+export const ESTIMATE_YEARS = [2023, 2024, 2025, 2026, 2027, 2028, 2029] as const
+
+export type EstimateYear = (typeof ESTIMATE_YEARS)[number]
+export type EstimateKind = 'standard' | 'rubber'
+export type RateCategory = 'manufacturing' | 'rubber-breakdown'
+export type OperationCostTreatment = 'production' | 'nre' | 'conditional-tooling-nre'
+export type OperationNameControl = 'fixed' | 'rate-list'
+export type RubberDifficulty = 1 | 2 | 3 | 4 | 5 | null
+
+export interface EstimateMetadata {
+  customer: string
+  partNumber: string
+  revision: string
+  nsn: string
+  quoteLogNumber: string
+  solicitationNumber: string
+  rfqNumber: string
+  quoteDate: string
+  estimator: string
+  comments: string
+}
+
+export interface EstimateOperationInput {
+  id: string
+  name: string
+  notes?: string
+  nameControl: OperationNameControl
+  setupMinutes: number
+  runMinutes: number
+  costTreatment: OperationCostTreatment
+  amortizeNre: boolean
+}
+
+export interface MaterialInput {
+  id: string
+  description: string
+  unitOfMeasure: string
+  partsQuantity: number
+  unitPrice: number
+  amortizeMinBuy: boolean
+}
+
+export interface ProcessInput {
+  id: string
+  description: string
+  setupCost: number
+  runCostEach: number
+}
+
+interface BaseEstimateInput {
+  metadata: EstimateMetadata
+  quantities: QuantityTier[]
+  rateYear: EstimateYear
+  yield: number
+  salesMarkup: number
+  operations: EstimateOperationInput[]
+  materials: MaterialInput[]
+  processes: ProcessInput[]
+  facilitiesByQuantity: QuantityValues<number>
+}
+
+export interface StandardEstimateInput extends BaseEstimateInput {
+  kind: 'standard'
+}
+
+export interface RubberEstimateInput extends BaseEstimateInput {
+  kind: 'rubber'
+  difficulty: RubberDifficulty
+  cavities: number
+  toolingMarkup: number
+}
+
+export type EstimateInput = StandardEstimateInput | RubberEstimateInput
+
+export interface AnnualLaborRateRow {
+  sourceRow: number
+  category: RateCategory
+  operation: string
+  rates: QuantityValuesByYear
+}
+
+export type QuantityValuesByYear = { [K in EstimateYear]: number }
+
+export interface AnnualRateAssumptions {
+  burden: number
+  laborGa: number
+  materialGa: number
+  processGa: number
+  laborProfit: number
+  materialProfit: number
+  processProfit: number
+}
+
+export interface RateEditHistoryEntry {
+  editor: string
+  date: string
+  description: string
+  approver: string
+}
+
+export interface MissingRateCalculationError {
+  code: 'missing-rate'
+  operationId: string
+  operationName: string
+  year: EstimateYear
+  message: string
+}
+
+export type EstimateCalculationError = MissingRateCalculationError
+
+export interface OperationCostAudit {
+  operationId: string
+  operationName: string
+  costTreatment: OperationCostTreatment
+  laborRate: number | null
+  unitCostByQuantity: QuantityValues<number | null>
+  oneTimeNre: number | null
+}
+
+export interface MaterialCostAudit {
+  materialId: string
+  extendedCost: number
+  unitCostByQuantity: QuantityValues<number>
+}
+
+export interface ProcessCostAudit {
+  processId: string
+  unitCostByQuantity: QuantityValues<number>
+}
+
+export interface LoadedComponentAudit {
+  raw: number
+  ga: number
+  profit: number
+  loaded: number
+}
+
+export interface QuantityCalculationAudit {
+  quantity: QuantityTier
+  basicLabor: number
+  laborBurden: number
+  burdenedLabor: number
+  rawMaterial: number
+  rawProcess: number
+  preGaMaterialAndLabor: number
+  labor: LoadedComponentAudit
+  material: LoadedComponentAudit
+  process: LoadedComponentAudit
+  componentSubtotal: number
+  loadedComponentMargin: number | null
+  rawOneTimeNre: number
+  oneTimeNre: number
+  amortizedNre: number
+  yieldAdjustment: number
+  facilities: number
+  salesMarkup: number
+  sellPrice: number
+  grossMargin: number | null
+  materialPercentOfPrice: number | null
+  extendedValue: number
+}
+
+interface CalculationResultBase {
+  operations: OperationCostAudit[]
+  materials: MaterialCostAudit[]
+  processes: ProcessCostAudit[]
+}
+
+export interface EstimateCalculationSuccess extends CalculationResultBase {
+  ok: true
+  errors: []
+  rawOneTimeNre: number
+  oneTimeNre: number
+  quantities: QuantityValues<QuantityCalculationAudit>
+}
+
+export interface EstimateCalculationFailure extends CalculationResultBase {
+  ok: false
+  errors: EstimateCalculationError[]
+  rawOneTimeNre: null
+  oneTimeNre: null
+  quantities: null
+}
+
+export type EstimateCalculationResult =
+  | EstimateCalculationSuccess
+  | EstimateCalculationFailure
+
+export function createQuantityValues<T>(
+  factory: (quantity: QuantityTier) => T,
+  quantities: readonly QuantityTier[] = QUANTITY_TIERS,
+): QuantityValues<T> {
+  return Object.fromEntries(
+    quantities.map((quantity) => [quantity, factory(quantity)]),
+  ) as QuantityValues<T>
+}

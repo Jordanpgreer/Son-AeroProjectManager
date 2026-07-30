@@ -1,0 +1,70 @@
+.estimating-shell.is-sidebar-collapsed {
+  grid-template-columns: 74px minmax(0, 1fr);
+}
+
+.brand-mark {
+  display: none !important;
+}
+
+.is-sidebar-collapsed .brand {
+  justify-content: center;
+  padding-inline: 12px;
+}
+
+.is-sidebar-collapsed .brand-hub-link::after {
+  content: "Hub";
+  left: 50%;
+  transform: translate(-50%, 4px);
+}
+
+.is-sidebar-collapsed .brand-hub-link:hover::after,
+.is-sidebar-collapsed .brand-hub-link:focus-visible::after {
+  transform: translate(-50%, 0);
+}
+
+.is-sidebar-collapsed .brand-lockup {
+  display: none;
+}
+
+.is-sidebar-collapsed .brand-mark {
+  display: block !important;
+  width: 34px;
+}
+
+.is-sidebar-collapsed .nav-section {
+  padding-inline: 10px;
+}
+
+.is-sidebar-collapsed .nav-heading,
+.is-sidebar-collapsed .nav-link-label,
+.is-sidebar-collapsed .sidebar-source,
+.is-sidebar-collapsed .user-copy {
+  display: none;
+}
+
+.is-sidebar-collapsed .nav-link {
+  justify-content: center;
+  padding-inline: 6px;
+}
+
+.is-sidebar-collapsed .nav-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.is-sidebar-collapsed .sidebar-foot {
+  display: grid;
+  justify-content: center;
+  padding-inline: 8px;
+}
+
+.topbar-title-area {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.sidebar-toggle {
+  flex: none;
+}

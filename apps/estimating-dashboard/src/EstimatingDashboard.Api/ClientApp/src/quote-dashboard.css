@@ -1,0 +1,320 @@
+.quote-dashboard-page {
+  display: grid;
+  gap: 18px;
+}
+
+.quote-dashboard-intro,
+.quote-list-card {
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+}
+
+.quote-dashboard-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 22px;
+  border-top: 3px solid var(--red);
+}
+
+.quote-dashboard-intro h2,
+.quote-list-toolbar h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 20px;
+}
+
+.quote-dashboard-intro p {
+  margin: 5px 0 0;
+  color: var(--muted);
+}
+
+.primary-action-button,
+.add-row-button,
+.add-quantity-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 8px 13px;
+  color: #fff;
+  background: var(--steel-700);
+  border: 1px solid var(--steel-700);
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.primary-action-button:hover,
+.add-row-button:hover,
+.add-quantity-button:hover {
+  background: var(--steel);
+  border-color: var(--steel);
+}
+
+.quote-storage-notice {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 13px;
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border: 1px solid color-mix(in srgb, var(--steel) 28%, var(--line));
+  border-radius: var(--r-sm);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.quote-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.quote-kpi-grid > * {
+  display: grid;
+  gap: 7px;
+  min-height: 132px;
+  padding: 16px 18px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  font: inherit;
+  text-align: left;
+}
+
+.quote-kpi-grid > button:hover {
+  border-color: var(--steel);
+  background: color-mix(in srgb, var(--steel-tint) 40%, var(--surface));
+}
+
+.quote-kpi-grid span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.quote-kpi-grid span svg {
+  color: var(--steel);
+}
+
+.quote-kpi-grid strong {
+  margin-top: auto;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.quote-kpi-grid small {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.quote-list-card {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.quote-list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.quote-search {
+  display: grid;
+  grid-template-columns: 20px minmax(220px, 340px);
+  align-items: center;
+  gap: 6px;
+  padding-left: 10px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+}
+
+.quote-search:focus-within {
+  border-color: var(--steel);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--steel) 15%, transparent);
+}
+
+.quote-search input {
+  min-height: 40px;
+  padding: 7px 10px 7px 0;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: inherit;
+}
+
+.quote-filter-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px 18px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.quote-filter-tabs button {
+  min-height: 36px;
+  padding: 7px 12px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.quote-filter-tabs button.active {
+  color: var(--steel-700);
+  background: var(--surface);
+  border-color: var(--line-2);
+  box-shadow: var(--shadow-1);
+}
+
+.quote-table {
+  width: 100%;
+  min-width: 1020px;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+
+.quote-table th,
+.quote-table td {
+  padding: 11px 12px;
+  color: var(--ink-2);
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+.quote-table thead th {
+  color: var(--muted);
+  background: var(--surface-2);
+  font-size: 9.5px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.quote-table tbody th {
+  color: var(--ink);
+}
+
+.quote-table tbody tr:hover {
+  background: color-mix(in srgb, var(--steel-tint) 42%, transparent);
+}
+
+.quote-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border: 1px solid currentColor;
+  border-radius: var(--r-pill);
+  font-size: 9.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.quote-status.status-draft {
+  color: var(--warn-700);
+  background: var(--warn-tint);
+}
+
+.quote-status.status-current {
+  color: var(--steel-700);
+  background: var(--steel-tint);
+}
+
+.quote-status.status-past {
+  color: var(--muted);
+  background: var(--surface-3);
+}
+
+.quote-row-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.quote-row-actions button {
+  min-height: 34px;
+  padding: 5px 9px;
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border: 1px solid color-mix(in srgb, var(--steel) 30%, var(--line));
+  border-radius: var(--r-xs);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.quote-row-actions .danger-link {
+  color: var(--risk);
+  background: var(--risk-tint);
+  border-color: color-mix(in srgb, var(--risk) 26%, var(--line));
+}
+
+.quote-empty-state {
+  display: grid;
+  place-items: center;
+  gap: 7px;
+  min-height: 260px;
+  padding: 28px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.quote-empty-state svg {
+  color: var(--steel);
+}
+
+.quote-empty-state strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+@media (max-width: 900px) {
+  .quote-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .quote-list-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .quote-search {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .quote-dashboard-intro {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .quote-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .quote-filter-tabs {
+    overflow-x: auto;
+  }
+}

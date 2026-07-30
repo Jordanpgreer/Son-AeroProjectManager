@@ -20,7 +20,8 @@ if (-not (Test-Path -LiteralPath $source)) {
 # ClientApp roots for each frontend that consumes brand assets.
 $clientApps = @(
     (Join-Path $repoRoot 'apps\project-tracker\src\ProjectTracker.Api\ClientApp'),
-    (Join-Path $repoRoot 'apps\portal\src\Portal.Api\ClientApp')
+    (Join-Path $repoRoot 'apps\portal\src\Portal.Api\ClientApp'),
+    (Join-Path $repoRoot 'apps\estimating-dashboard\src\EstimatingDashboard.Api\ClientApp')
 )
 
 foreach ($clientApp in $clientApps) {

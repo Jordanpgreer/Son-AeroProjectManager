@@ -1,0 +1,32 @@
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2-variations');
+}
+
+.estimating-app {
+  --estimating-font-sans: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --estimating-font-numeric: var(--estimating-font-sans);
+  --font-display: var(--estimating-font-sans);
+  --font-sans: var(--estimating-font-sans);
+  --font-mono: var(--estimating-font-numeric);
+
+  font-family: var(--estimating-font-sans);
+  font-weight: 400;
+}
+
+.estimating-app :where(button, input, select, textarea, summary) {
+  font-family: inherit;
+}
+
+.estimating-app :where(
+  .numeric,
+  .money,
+  .rate-value,
+  output,
+  [data-raw-value]
+) {
+  font-variant-numeric: tabular-nums;
+}

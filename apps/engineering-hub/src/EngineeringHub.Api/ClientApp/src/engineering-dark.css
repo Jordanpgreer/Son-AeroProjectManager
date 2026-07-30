@@ -1,65 +1,87 @@
 /*
- * Engineering-only dark theme. Values mirror the Project Tracker operations
- * palette while retaining Engineering's existing structure and behavior.
+ * Engineering Hub dark theme.
+ *
+ * This is the authoritative dark palette for .engineering-app. It deliberately
+ * stays inside the Engineering Hub and changes color/elevation only; layout,
+ * spacing, typography, and component geometry continue to come from the shared
+ * Engineering styles.
  */
 :root[data-theme='dark'] .engineering-app {
-  --bg: #0a1017;
-  --bg-deep: #0e1620;
-  --surface: #141e29;
-  --surface-2: #192632;
-  --surface-3: #223241;
+  --bg: #070c12;
+  --bg-deep: #0a1118;
+  --surface: #101820;
+  --surface-2: #151f29;
+  --surface-3: #1c2934;
 
-  --ink: #f3f7fa;
-  --ink-2: #cdd6df;
-  --muted: #9aa8b7;
-  --faint: #7f8d9d;
+  --ink: #f3f6f9;
+  --ink-2: #c7d0da;
+  --muted: #92a0ae;
+  --faint: #73818f;
 
-  --line: #22303d;
-  --line-2: #314355;
-  --line-3: #455b70;
-  --grid-line: rgba(151, 165, 180, 0.055);
+  --line: #1c2833;
+  --line-2: #283847;
+  --line-3: #4c6478;
+  --grid-line: rgba(153, 171, 187, 0.04);
 
-  --red: #d23a2b;
+  --red: #d33d2f;
   --red-600: #b92f24;
-  --red-700: #ffb5ac;
-  --red-tint: #331d1a;
-  --red-tint-2: #512a25;
+  --red-700: #ffb9b0;
+  --red-tint: #301a18;
+  --red-tint-2: #482521;
+  --brand-signal: #ee3a29;
 
-  --steel: #64a4d7;
-  --steel-700: #b4d9f5;
-  --steel-tint: #14283b;
+  --steel: #709fc2;
+  --steel-700: #a9cbe2;
+  --steel-tint: #132434;
 
-  --ok: #7bc9a4;
-  --ok-700: #bdeccf;
-  --ok-tint: #1a3329;
-  --warn: #d6a84e;
-  --warn-700: #f5d38c;
-  --warn-tint: #322715;
-  --risk: #f06a5b;
-  --risk-700: #ffb5ac;
-  --risk-tint: #331d1a;
-  --done: #36a46a;
-  --done-700: #b9e9cb;
-  --done-tint: #152e22;
-  --idle: #8b99a8;
-  --idle-tint: #1c2834;
+  --ok: #72c09a;
+  --ok-700: #b9e2cc;
+  --ok-tint: #172a21;
+  --warn: #d0a354;
+  --warn-700: #f1d59a;
+  --warn-tint: #2b2418;
+  --risk: #ec675a;
+  --risk-700: #ffb9b0;
+  --risk-tint: #301a18;
+  --done: #55b27f;
+  --done-700: #b9e2cc;
+  --done-tint: #172a21;
+  --idle: #83909d;
+  --idle-tint: #19232c;
 
-  --shadow-1: 0 1px 1px rgba(0, 0, 0, 0.3), 0 8px 20px -16px rgba(0, 0, 0, 0.88);
-  --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.38), 0 18px 36px -22px rgba(0, 0, 0, 0.92);
+  --nav-1: #080d13;
+  --nav-2: #0d141c;
+  --nav-3: #060a0f;
+  --nav-text: #c4cdd6;
+  --nav-strong: #ffffff;
+  --nav-muted: #7c8996;
+  --nav-line: rgba(255, 255, 255, 0.075);
+
+  --eng-chrome: #0c131a;
+  --eng-panel: #101820;
+  --eng-inset: #151f29;
+  --eng-row: #121b24;
+  --eng-row-hover: #1a2631;
+  --eng-selected: #172a39;
+  --eng-input: #0b1219;
+  --eng-raised: #18232d;
+
+  --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.025), 0 14px 32px -24px rgba(0, 0, 0, 0.95);
+  --shadow-2: 0 1px 0 rgba(255, 255, 255, 0.035), 0 24px 48px -28px rgba(0, 0, 0, 0.98);
 
   background: var(--bg);
 }
 
 :root[data-theme='dark'] .engineering-app .sidebar {
   background:
-    radial-gradient(100% 48% at 0% 0%, rgba(210, 58, 43, 0.11), transparent 62%),
-    linear-gradient(184deg, #111b25 0%, #0b1219 50%, #070b10 100%);
+    radial-gradient(100% 48% at 0% 0%, rgba(211, 61, 47, 0.1), transparent 62%),
+    linear-gradient(184deg, var(--nav-2) 0%, var(--nav-1) 50%, var(--nav-3) 100%);
 }
 
 :root[data-theme='dark'] .engineering-app .topbar {
-  background: rgba(14, 22, 32, 0.94);
-  border-bottom-color: var(--line-2);
-  box-shadow: 0 10px 28px -24px rgba(0, 0, 0, 0.9);
+  background: color-mix(in srgb, var(--eng-chrome) 96%, transparent);
+  border-bottom-color: var(--line);
+  box-shadow: 0 12px 30px -26px rgba(0, 0, 0, 0.98);
 }
 
 :root[data-theme='dark'] .engineering-app .main-scroll {
@@ -72,28 +94,31 @@
 
 :root[data-theme='dark'] .engineering-app :where(
   .drawing-row:hover,
-  .drawing-row.selected,
   .area-row:hover,
   .engineering-result-row:hover
 ) {
-  background: #1d2b38;
+  background: var(--eng-row-hover);
+}
+
+:root[data-theme='dark'] .engineering-app .drawing-row.selected {
+  background: var(--eng-selected);
 }
 
 :root[data-theme='dark'] .engineering-app .engineering-results-table mark {
-  color: #fff5cf;
-  background: #6f4d07;
-  box-shadow: inset 0 0 0 1px #9a6d10;
+  color: #f8dfaa;
+  background: #493914;
+  box-shadow: inset 0 0 0 1px #6d5520;
 }
 
 :root[data-theme='dark'] .engineering-app .button:not(.ghost):not(.danger) {
   color: var(--ink);
-  background: var(--surface-3);
+  background: var(--eng-raised);
   border-color: var(--line-2);
 }
 
 :root[data-theme='dark'] .engineering-app .button:not(.ghost):not(.danger):hover {
   color: var(--ink);
-  background: #2a3b4b;
+  background: var(--eng-row-hover);
   border-color: var(--line-3);
 }
 
@@ -104,53 +129,137 @@
 :root[data-theme='dark'] .engineering-app .status-approved {
   color: var(--ok-700);
   background: var(--ok-tint);
-  border-color: #31664b;
+  border-color: color-mix(in srgb, var(--ok) 42%, var(--line-2));
 }
 
 :root[data-theme='dark'] .engineering-app .status-underreview {
   color: var(--warn-700);
   background: var(--warn-tint);
-  border-color: #705b2c;
+  border-color: color-mix(in srgb, var(--warn) 42%, var(--line-2));
 }
 
 :root[data-theme='dark'] .engineering-app :where(.status-superseded, .status-obsolete) {
   color: var(--muted);
   background: var(--idle-tint);
-  border-color: #405166;
+  border-color: var(--line-2);
 }
 
 :root[data-theme='dark'] .engineering-app :where(.inline-alert, .delete-warning) {
   color: var(--risk-700);
   background: var(--risk-tint);
-  border-color: #713a35;
+  border-color: color-mix(in srgb, var(--risk) 42%, var(--line-2));
 }
 
 :root[data-theme='dark'] .engineering-app .storage-mode.available {
   color: var(--ok-700);
   background: var(--ok-tint);
-  border-color: #31664b;
+  border-color: color-mix(in srgb, var(--ok) 42%, var(--line-2));
 }
 
 :root[data-theme='dark'] .engineering-app .storage-mode.unavailable,
 :root[data-theme='dark'] .engineering-app .metadata-only-badge {
   color: var(--warn-700);
   background: var(--warn-tint);
-  border-color: #705b2c;
+  border-color: color-mix(in srgb, var(--warn) 42%, var(--line-2));
 }
 
 :root[data-theme='dark'] .engineering-app :where(.delete-dialog-backdrop, .archive-dialog-backdrop) {
-  background: rgba(3, 7, 11, 0.76);
+  background: rgba(2, 5, 8, 0.8);
 }
 
 :root[data-theme='dark'] .engineering-app :where(.delete-dialog-header, .archive-dialog-header, .audit-drawer-header) {
-  background: #111b25;
+  background: var(--eng-inset);
   border-bottom-color: var(--line-2);
 }
 
 :root[data-theme='dark'] .engineering-app .audit-drawer-backdrop {
-  background: rgba(3, 7, 11, 0.62);
+  background: rgba(2, 5, 8, 0.68);
 }
 
 :root[data-theme='dark'] .engineering-app .skeleton-line::after {
-  background: linear-gradient(90deg, transparent, rgba(205, 214, 223, 0.12), transparent);
+  background: linear-gradient(90deg, transparent, rgba(199, 208, 218, 0.1), transparent);
+}
+
+:root[data-theme='dark'] .engineering-app .sidebar-user-chip {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(211, 61, 47, 0.045)),
+    rgba(7, 12, 18, 0.88);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+:root[data-theme='dark'] .engineering-app .nav-button.active {
+  background: rgba(238, 58, 41, 0.11);
+  border-color: rgba(238, 58, 41, 0.27);
+}
+
+:root[data-theme='dark'] .engineering-app .nav-button.active .nav-icon {
+  color: var(--brand-signal);
+}
+
+:root[data-theme='dark'] .engineering-app .nav-button.active::before {
+  background-color: var(--brand-signal);
+}
+
+:root[data-theme='dark'] .engineering-app .brand-hub-link::after {
+  background: var(--brand-signal);
+}
+
+:root[data-theme='dark'] .engineering-app .collapsible-section {
+  --section-accent: #274a68;
+  --section-hover: #315a7d;
+}
+
+:root[data-theme='dark'] .engineering-app .section-tone-gold {
+  --section-accent: #5c4826;
+  --section-hover: #725931;
+}
+
+:root[data-theme='dark'] .engineering-app .section-tone-graphite {
+  --section-accent: #344451;
+  --section-hover: #405362;
+}
+
+:root[data-theme='dark'] .engineering-app .section-tone-teal {
+  --section-accent: #245457;
+  --section-hover: #2d666a;
+}
+
+:root[data-theme='dark'] .engineering-app .section-tone-green {
+  --section-accent: #295a43;
+  --section-hover: #326c50;
+}
+
+:root[data-theme='dark'] .engineering-app .section-tone-red {
+  --section-accent: #6f312c;
+  --section-hover: #843b34;
+}
+
+/*
+ * The date popover is portaled to document.body, outside .engineering-app.
+ * Restate the Engineering palette on this Engineering-only surface so it
+ * cannot fall back to another module's root dark tokens.
+ */
+:root[data-theme='dark'] .engineering-date-popover {
+  --surface: #101820;
+  --surface-2: #151f29;
+  --ink: #f3f6f9;
+  --ink-2: #c7d0da;
+  --muted: #92a0ae;
+  --faint: #73818f;
+  --line: #1c2833;
+  --line-2: #283847;
+  --red: #d33d2f;
+  --steel: #709fc2;
+  --steel-700: #a9cbe2;
+
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--line-2);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025), 0 24px 56px -24px rgba(0, 0, 0, 0.98);
+}
+
+:root[data-theme='dark'] .engineering-date-popover .engineering-date-grid button.is-selected {
+  color: #071018;
+  background: var(--steel-700);
+  border-color: var(--steel-700);
 }
