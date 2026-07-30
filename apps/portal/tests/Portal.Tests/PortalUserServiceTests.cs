@@ -8,10 +8,18 @@ namespace Portal.Tests;
 
 public sealed class PortalUserServiceTests
 {
-    private sealed class StubRoleStore(string? role = null) : IPortalRoleStore
+    private sealed class StubRoleStore(
+        string? role = null,
+        IReadOnlyDictionary<string, string>? moduleRoles = null) : IPortalRoleStore
     {
         public Task<string?> FindRoleAsync(string accountName, CancellationToken cancellationToken = default)
             => Task.FromResult(role);
+
+        public Task<IReadOnlyDictionary<string, string>> FindModuleRolesAsync(
+            string accountName,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(moduleRoles
+                ?? (IReadOnlyDictionary<string, string>)new Dictionary<string, string>());
     }
 
     private static IConfiguration BuildConfiguration(string json)
@@ -36,6 +44,33 @@ public sealed class PortalUserServiceTests
         Assert.Equal("SONAERO\\jane.doe", me.AccountName);
         Assert.Equal("Jane Doe", me.DisplayName);
         Assert.Equal("Editor", me.Role);
+        Assert.All(me.Modules, module => Assert.Equal("Editor", module.Role));
+    }
+
+    [Fact]
+    public async Task Current_WindowsMode_ReturnsOnlyExplicitModuleAssignments()
+    {
+        var configuration = BuildConfiguration("""
+        { "Authentication": { "Mode": "Windows" }, "Portal": {} }
+        """);
+        var httpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                new[] { new Claim(ClaimTypes.Name, "SONAERO\\estimator") }, "TestAuth")),
+        };
+        var service = new PortalUserService(
+            new HttpContextAccessor { HttpContext = httpContext },
+            configuration,
+            new StubRoleStore(
+                "Viewer",
+                new Dictionary<string, string> { ["estimating"] = "Editor" }));
+
+        var me = await service.CurrentAsync();
+
+        var module = Assert.Single(me.Modules);
+        Assert.Equal("estimating", module.ModuleKey);
+        Assert.Equal("Editor", module.Role);
+        Assert.Contains("estimating.quotes.manage", module.Permissions);
     }
 
     [Fact]

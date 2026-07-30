@@ -63,7 +63,21 @@ else
             DevelopmentAuthenticationHandler.SchemeName, _ => { });
 }
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(EngineeringAuthorization.ReadPolicy, policy =>
+        policy.RequireClaim(
+            EngineeringAuthorization.PermissionClaimType,
+            EngineeringAuthorization.ReadPermission));
+    options.AddPolicy(EngineeringAuthorization.WritePolicy, policy =>
+        policy.RequireClaim(
+            EngineeringAuthorization.PermissionClaimType,
+            EngineeringAuthorization.WritePermission));
+    options.AddPolicy(EngineeringAuthorization.AdminPolicy, policy =>
+        policy.RequireClaim(
+            EngineeringAuthorization.PermissionClaimType,
+            EngineeringAuthorization.AdminPermission));
+});
 
 var app = builder.Build();
 
@@ -90,7 +104,6 @@ app.Use(async (context, next) =>
 });
 
 app.UseAuthentication();
-app.UseAuthorization();
 
 app.Use(async (context, next) =>
 {
@@ -107,28 +120,31 @@ app.Use(async (context, next) =>
     }
 
     var users = context.RequestServices.GetRequiredService<EngineeringUserService>();
-    var role = await users.ResolveRoleAsync(context.User.Identity?.Name, context.RequestAborted);
-    if (!string.Equals(role, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase))
+    var access = await users.ResolveAccessAsync(context.User.Identity?.Name, context.RequestAborted);
+    if (access is null || !access.IsEnabled)
     {
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
         await context.Response.WriteAsJsonAsync(new ErrorDto(
-            "AdminOnly",
-            "This engineering module is restricted to administrators while testing is in progress."));
+            "ModuleAccessDenied",
+            "Your account does not have active access to the Engineering module."));
         return;
     }
 
-    context.User = users.AttachRole(context.User, role);
+    context.User = users.AttachAccess(context.User, access);
     await next();
 });
+
+app.UseAuthorization();
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-var api = app.MapGroup("/api");
+app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
+
+var api = app.MapGroup("/api")
+    .RequireAuthorization(EngineeringAuthorization.ReadPolicy);
 api.MapDrawingEndpoints();
 api.MapDrawingOperationalEndpoints();
-
-api.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
 api.MapGet("/me", async (EngineeringUserService users, HttpContext httpContext, CancellationToken cancellationToken) =>
     await users.CurrentAsync(httpContext.User, cancellationToken));
@@ -144,10 +160,10 @@ api.MapGet("/dashboard", async (
     Results.Ok(await search.GetDashboardAsync(query, category, customer, status, reviewQueue ?? false, cancellationToken)));
 
 api.MapGet("/navigation", () => Results.Ok(new EngineeringModuleDto(
-    "engineering-hub",
+    ApplicationModules.Engineering,
     "Engineering Module",
-    "Standalone testing workspace for engineering records and controls. This module is isolated from Project Tracker while the workflow is under review.",
-    "Testing access: Admin only",
+    "Engineering records and controlled drawing workflows.",
+    "Module access: Viewer, Editor, or Admin",
     [
         new EngineeringSectionDto(
             "dashboard",

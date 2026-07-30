@@ -1,4 +1,5 @@
 using System.Text.Json;
+using EngineeringHub.Api.Auth;
 using EngineeringHub.Api.Data;
 using EngineeringHub.Api.Dtos;
 using EngineeringHub.Api.Models;
@@ -15,11 +16,16 @@ public static class DrawingOperationalEndpoints
 
     public static void MapDrawingOperationalEndpoints(this RouteGroupBuilder api)
     {
-        api.MapPost("/drawings/create-with-revision", CreateWithRevisionAsync).DisableAntiforgery();
-        api.MapPut("/drawings/{id:int}", UpdateDrawingAsync);
+        api.MapPost("/drawings/create-with-revision", CreateWithRevisionAsync)
+            .DisableAntiforgery()
+            .RequireAuthorization(EngineeringAuthorization.WritePolicy);
+        api.MapPut("/drawings/{id:int}", UpdateDrawingAsync)
+            .RequireAuthorization(EngineeringAuthorization.WritePolicy);
         api.MapGet("/drawing-review-queue", GetReviewQueueAsync);
-        api.MapPost("/drawings/{id:int}/archive", ArchiveDrawingAsync);
-        api.MapPost("/drawings/{id:int}/obsolete", ArchiveDrawingAsync);
+        api.MapPost("/drawings/{id:int}/archive", ArchiveDrawingAsync)
+            .RequireAuthorization(EngineeringAuthorization.WritePolicy);
+        api.MapPost("/drawings/{id:int}/obsolete", ArchiveDrawingAsync)
+            .RequireAuthorization(EngineeringAuthorization.WritePolicy);
     }
 
     private static async Task<IResult> CreateWithRevisionAsync(

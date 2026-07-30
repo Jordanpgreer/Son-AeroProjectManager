@@ -1,0 +1,101 @@
+using System.Security.Claims;
+
+namespace EstimatingDashboard.Api.Auth;
+
+public static class EstimatingModule
+{
+    public const string Key = "estimating";
+}
+
+public static class EstimatingRoles
+{
+    public const string Viewer = "Viewer";
+    public const string Editor = "Editor";
+    public const string Admin = "Admin";
+
+    public static string? Normalize(string? role)
+    {
+        if (string.Equals(role, Viewer, StringComparison.OrdinalIgnoreCase)) return Viewer;
+        if (string.Equals(role, Editor, StringComparison.OrdinalIgnoreCase)) return Editor;
+        if (string.Equals(role, Admin, StringComparison.OrdinalIgnoreCase)) return Admin;
+        return null;
+    }
+}
+
+public static class EstimatingPermissions
+{
+    public const string View = "estimating.view";
+    public const string Calculate = "estimating.calculate";
+    public const string ManageQuotes = "estimating.quotes.manage";
+    public const string ManageInputs = "estimating.inputs.manage";
+    public const string AdministerRates = "estimating.rates.admin";
+    public const string AdministerSettings = "estimating.settings.admin";
+
+    private static readonly IReadOnlyList<string> ViewerPermissions =
+    [
+        View,
+        Calculate
+    ];
+
+    private static readonly IReadOnlyList<string> EditorPermissions =
+    [
+        .. ViewerPermissions,
+        ManageQuotes,
+        ManageInputs
+    ];
+
+    private static readonly IReadOnlyList<string> AdminPermissions =
+    [
+        .. EditorPermissions,
+        AdministerRates,
+        AdministerSettings
+    ];
+
+    public static IReadOnlyList<string> ForRole(string role) => EstimatingRoles.Normalize(role) switch
+    {
+        EstimatingRoles.Admin => AdminPermissions,
+        EstimatingRoles.Editor => EditorPermissions,
+        EstimatingRoles.Viewer => ViewerPermissions,
+        _ => []
+    };
+}
+
+public static class EstimatingPolicies
+{
+    public const string Viewer = "EstimatingViewer";
+    public const string Editor = "EstimatingEditor";
+    public const string Admin = "EstimatingAdmin";
+    public const string Calculate = "EstimatingCalculate";
+    public const string ManageInputs = "EstimatingManageInputs";
+    public const string AdministerRates = "EstimatingAdministerRates";
+    public const string PermissionClaim = "sonaero.permission";
+    public const string AccessItem = "EstimatingAccess";
+
+    public static ClaimsPrincipal Attach(
+        ClaimsPrincipal principal,
+        EstimatingAccessProfile access)
+    {
+        var claims = principal.Claims
+            .Where(claim => claim.Type is not ClaimTypes.Role && claim.Type != PermissionClaim)
+            .ToList();
+        claims.Add(new Claim(ClaimTypes.Role, access.Role));
+        claims.AddRange(access.Permissions.Select(
+            permission => new Claim(PermissionClaim, permission)));
+        var identity = new ClaimsIdentity(
+            claims,
+            principal.Identity?.AuthenticationType,
+            ClaimTypes.Name,
+            ClaimTypes.Role);
+        return new ClaimsPrincipal(identity);
+    }
+}
+
+public sealed record EstimatingAccessProfile(
+    int UserId,
+    string AccountName,
+    string DisplayName,
+    string Role,
+    bool IsEnabled)
+{
+    public IReadOnlyList<string> Permissions => EstimatingPermissions.ForRole(Role);
+}

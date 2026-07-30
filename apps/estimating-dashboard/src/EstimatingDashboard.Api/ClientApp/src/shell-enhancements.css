@@ -68,3 +68,46 @@
 .sidebar-toggle {
   flex: none;
 }
+.estimating-access-state {
+  min-height: 100vh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.75rem;
+  padding: 2rem;
+  text-align: center;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.estimating-access-state h1,
+.estimating-access-state p {
+  margin: 0;
+}
+
+.estimating-access-state p {
+  max-width: 34rem;
+  color: var(--muted);
+}
+
+.access-state-icon {
+  display: grid;
+  place-items: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  color: var(--steel-700);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+}
+
+.permission-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.permission-fieldset:disabled {
+  opacity: 0.76;
+}

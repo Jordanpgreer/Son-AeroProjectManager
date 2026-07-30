@@ -97,9 +97,13 @@ public static class UserEndpoints
                 .ToList();
 
             return Results.Ok(new AccessOverviewDto(users, groups, permissions));
-        }).RequireAuthorization("ManageUsers");
+        }).RequireAuthorization(AccessOverviewAuthorization.PolicyName);
 
-        api.MapPost("/admin/users", async (RegisteredUserUpsertDto dto, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
+        api.MapPost("/admin/users", async (
+            RegisteredUserUpsertDto dto,
+            ProjectTrackerDbContext db,
+            ModuleAccessService moduleAccess,
+            CancellationToken cancellationToken) =>
         {
             var accountName = NormalizeAccountName(dto.AccountName);
             if (string.IsNullOrWhiteSpace(accountName))
@@ -133,10 +137,16 @@ public static class UserEndpoints
             db.Users.Add(user);
             await SetLegacyRoleAsync(db, user, groupIds, cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
+            await moduleAccess.BootstrapLegacyAssignmentsAsync(db, cancellationToken);
             return Results.Created($"/api/admin/users/{user.Id}", await ToRegisteredUserDtoAsync(db, user.Id, cancellationToken));
         }).RequireAuthorization("ManageUsers");
 
-        api.MapPut("/admin/users/{id:int}", async (int id, RegisteredUserUpsertDto dto, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
+        api.MapPut("/admin/users/{id:int}", async (
+            int id,
+            RegisteredUserUpsertDto dto,
+            ProjectTrackerDbContext db,
+            ModuleAccessService moduleAccess,
+            CancellationToken cancellationToken) =>
         {
             var user = await db.Users
                 .Include(candidate => candidate.GroupMemberships)
@@ -161,6 +171,26 @@ public static class UserEndpoints
             if (groupIds.Count > 0 && await db.Groups.CountAsync(group => groupIds.Contains(group.Id), cancellationToken) != groupIds.Count)
             {
                 return Results.BadRequest("One or more selected groups no longer exist.");
+            }
+
+            if (user.IsActive && !dto.IsActive)
+            {
+                try
+                {
+                    await moduleAccess.EnsureUserCanBeDeactivatedAsync(
+                        db,
+                        user.Id,
+                        cancellationToken);
+                }
+                catch (LastModuleAdministratorException exception)
+                {
+                    return Results.Conflict(new
+                    {
+                        code = "LastModuleAdministrator",
+                        message = exception.Message,
+                        moduleKey = exception.ModuleKey
+                    });
+                }
             }
 
             user.AccountName = accountName;

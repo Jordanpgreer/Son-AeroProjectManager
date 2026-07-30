@@ -23,7 +23,7 @@ public sealed class MylarCustodyService(
     EngineeringDbContext db,
     ILogger<MylarCustodyService>? logger = null)
 {
-    private const string MylarNumberIndex = "IX_DrawingMylars_DrawingId_NormalizedMylarNumber";
+    private const string DrawingMylarIndex = "IX_DrawingMylars_DrawingId";
 
     public async Task<MylarCustodyResult> RegisterAsync(
         int drawingId,
@@ -52,15 +52,15 @@ public sealed class MylarCustodyService(
             return MylarCustodyResult.Fail("DrawingNotFound", "The drawing record was not found.", StatusCodes.Status404NotFound);
         if (drawing.IsObsolete)
             return MylarCustodyResult.Fail("ArchivedDrawing", "New Mylars cannot be registered for an archived drawing.", StatusCodes.Status409Conflict);
+        if (drawing.Mylars.Count > 0)
+            return MylarCustodyResult.Fail(
+                "MylarAlreadyRegistered",
+                "This drawing already has a registered Mylar.",
+                StatusCodes.Status409Conflict);
 
         var normalizedNumber = Normalize(number);
         if (normalizedNumber.Length == 0)
             return MylarCustodyResult.Fail("InvalidMylarNumber", "The Mylar number must contain at least one letter or number.", StatusCodes.Status400BadRequest);
-        if (drawing.Mylars.Any(x => x.NormalizedMylarNumber == normalizedNumber))
-            return MylarCustodyResult.Fail(
-                "DuplicateMylarNumber",
-                $"Mylar {number} is already registered for this drawing.",
-                StatusCodes.Status409Conflict);
 
         var occurredAt = DateTime.UtcNow;
         var recordedActor = RecordedActor(actor);
@@ -98,12 +98,12 @@ public sealed class MylarCustodyService(
             await transaction.CommitAsync(cancellationToken);
             return new MylarCustodyResult(mylar, StatusCode: StatusCodes.Status201Created);
         }
-        catch (DbUpdateException exception) when (IsDuplicateMylarNumber(exception))
+        catch (DbUpdateException exception) when (IsDuplicateDrawingMylar(exception))
         {
             await transaction.RollbackAsync(cancellationToken);
             return MylarCustodyResult.Fail(
-                "DuplicateMylarNumber",
-                $"Mylar {number} is already registered for this drawing.",
+                "MylarAlreadyRegistered",
+                "This drawing already has a registered Mylar.",
                 StatusCodes.Status409Conflict);
         }
         catch (DbUpdateException exception)
@@ -226,19 +226,18 @@ public sealed class MylarCustodyService(
     private static string Normalize(string value) =>
         string.Concat(value.Trim().ToUpperInvariant().Where(char.IsLetterOrDigit));
 
-    private static bool IsDuplicateMylarNumber(DbUpdateException exception)
+    private static bool IsDuplicateDrawingMylar(DbUpdateException exception)
     {
         for (Exception? current = exception; current is not null; current = current.InnerException)
         {
             if (current is SqliteException sqlite &&
                 sqlite.SqliteErrorCode == 19 &&
-                sqlite.Message.Contains("DrawingMylars.DrawingId", StringComparison.OrdinalIgnoreCase) &&
-                sqlite.Message.Contains("DrawingMylars.NormalizedMylarNumber", StringComparison.OrdinalIgnoreCase))
+                sqlite.Message.Contains("DrawingMylars.DrawingId", StringComparison.OrdinalIgnoreCase))
                 return true;
 
             if (current is SqlException sqlServer &&
                 sqlServer.Number is 2601 or 2627 &&
-                sqlServer.Message.Contains(MylarNumberIndex, StringComparison.OrdinalIgnoreCase))
+                sqlServer.Message.Contains(DrawingMylarIndex, StringComparison.OrdinalIgnoreCase))
                 return true;
         }
 

@@ -1218,12 +1218,9 @@ nav {
 .revision-source-file { display: grid; align-content: center; min-width: 0; gap: 5px; padding: 9px 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
 .revision-source-file span { color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
 .revision-source-file strong { overflow: hidden; color: var(--ink); font-size: 11.5px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.revision-resubmit-option { display: grid; grid-template-columns: 19px minmax(0, 1fr); align-items: start; gap: 10px; padding: 12px; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); cursor: pointer; }
-.revision-resubmit-option input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--red); cursor: pointer; }
-.revision-resubmit-option span { display: grid; gap: 2px; }
-.revision-resubmit-option strong { font-size: 12px; }
-.revision-resubmit-option small { color: var(--muted); font-size: 10.5px; }
 .revision-edit-actions { display: flex; justify-content: flex-end; gap: 9px; padding-top: 16px; border-top: 1px solid var(--line); }
+.revision-edit-actions .button { min-height: 38px; }
+.revision-submit-approval { min-width: 166px; }
 .audit-drawer-backdrop { position: fixed; inset: 0; z-index: 340; display: flex; justify-content: flex-end; background: rgba(5, 9, 13, .42); backdrop-filter: blur(2px); animation: dialog-fade-in 140ms ease-out; }
 .audit-drawer { display: grid; grid-template-rows: auto minmax(0, 1fr); width: min(540px, 100%); height: 100%; color: var(--ink); background: var(--surface); border-left: 1px solid var(--line-2); box-shadow: -18px 0 52px rgba(0, 0, 0, .28); animation: audit-drawer-slide 190ms ease-out; }
 .audit-drawer-header { display: grid; grid-template-columns: 42px minmax(0, 1fr) 32px; align-items: center; gap: 12px; padding: 19px 18px 16px; background: var(--surface); border-bottom: 1px solid var(--line); }
@@ -1391,34 +1388,22 @@ nav {
 .mylar-current-state dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; margin: 0; border-left: 1px solid var(--line); }
 .mylar-current-state dl > div { display: grid; min-width: 0; gap: 3px; padding: 3px 14px; }
 .mylar-current-state dd { overflow: hidden; margin: 0; color: var(--ink-2); font-size: 11.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.mylar-registry-section { display: grid; gap: 10px; }
-.mylar-registry-section > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.mylar-registry-section > header > div { display: grid; gap: 2px; }
-.mylar-registry-section > header small { color: var(--muted); font-size: 8.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
-.mylar-registry-section > header h3 { color: var(--ink); font-size: 13.5px; }
-.mylar-register-button { min-height: 32px; }
+.mylar-registration-section { display: grid; gap: 12px; }
+.mylar-registration-section > header { display: grid; gap: 3px; }
+.mylar-registration-section > header small { color: var(--steel-700); font-size: 8.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.mylar-registration-section > header h3 { color: var(--ink); font-size: 15px; }
+.mylar-registration-section > header p { max-width: 580px; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
 .mylar-register-form { display: grid; gap: 12px; padding: 13px; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-md); box-shadow: inset 3px 0 var(--steel); }
-.mylar-registry-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.mylar-registry-card { display: grid; min-width: 0; gap: 5px; padding: 10px 11px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); text-align: left; cursor: pointer; transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease; }
-.mylar-registry-card:hover { background: var(--surface-2); border-color: var(--line-3); }
-.mylar-registry-card:focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; }
-.mylar-registry-card.is-selected { background: var(--steel-tint); border-color: color-mix(in srgb, var(--steel) 50%, var(--line)); box-shadow: inset 3px 0 var(--steel); }
-.mylar-registry-card-head { display: flex; align-items: center; justify-content: space-between; gap: 9px; min-width: 0; }
-.mylar-registry-card-head > strong { overflow: hidden; color: var(--ink); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
-.mylar-registry-card-head > span { display: inline-flex; align-items: center; gap: 5px; flex: none; color: var(--ok); font-size: 8px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
-.mylar-registry-card.is-out .mylar-registry-card-head > span { color: var(--warn); }
-.mylar-registry-card-head > span i { width: 6px; height: 6px; background: currentColor; border-radius: 50%; }
-.mylar-registry-card > small { overflow: hidden; color: var(--muted); font-size: 9.5px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.mylar-registration-unavailable { display: grid; place-items: center; gap: 5px; min-height: 140px; padding: 22px; color: var(--muted); background: var(--surface); border: 1px dashed var(--line-2); border-radius: var(--r-md); text-align: center; }
+.mylar-registration-unavailable svg { color: var(--steel); }
+.mylar-registration-unavailable strong { color: var(--ink); font-size: 12px; }
+.mylar-registration-unavailable p { max-width: 420px; font-size: 10.5px; line-height: 1.5; }
 .mylar-action-success { display: flex; align-items: center; gap: 8px; padding: 9px 11px; color: var(--ok); background: var(--ok-tint); border: 1px solid color-mix(in srgb, var(--ok) 26%, var(--line)); border-radius: var(--r-sm); font-size: 11px; font-weight: 600; }
 .mylar-action-error { display: flex; align-items: flex-start; gap: 9px; padding: 10px 11px; color: var(--red); background: var(--red-tint); border: 1px solid var(--red-tint-2); border-radius: var(--r-sm); }
 .mylar-action-error > svg { flex: none; margin-top: 1px; }
 .mylar-action-error > div { display: grid; gap: 2px; }
 .mylar-action-error strong { color: var(--red-600); font-size: 11px; }
 .mylar-action-error p { color: var(--ink-2); font-size: 10px; line-height: 1.4; }
-.mylar-state-guard { display: flex; align-items: flex-start; gap: 9px; padding: 9px 11px; color: var(--steel-700); background: var(--steel-tint); border: 1px solid color-mix(in srgb, var(--steel) 24%, var(--line)); border-radius: var(--r-sm); }
-.mylar-state-guard.is-out { color: var(--warn); background: var(--warn-tint); border-color: color-mix(in srgb, var(--warn) 26%, var(--line)); }
-.mylar-state-guard > svg { flex: none; margin-top: 1px; }
-.mylar-state-guard p { color: var(--ink-2); font-size: 10px; line-height: 1.45; }
 .mylar-archived-notice { display: flex; align-items: center; gap: 10px; padding: 11px 12px; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); }
 .mylar-archived-notice > svg { flex: none; color: var(--faint); }
 .mylar-archived-notice > div { display: grid; gap: 2px; }
@@ -1447,7 +1432,7 @@ nav {
 .mylar-history-section > header > div { display: grid; gap: 2px; }
 .mylar-history-section > header > span { color: var(--muted); font-size: 9.5px; }
 .mylar-history-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r-md); }
-.mylar-history-table { width: 100%; min-width: 860px; border-collapse: collapse; background: var(--surface); }
+.mylar-history-table { width: 100%; min-width: 700px; border-collapse: collapse; background: var(--surface); }
 .mylar-history-table th { height: 32px; padding: 0 10px; color: var(--muted); background: var(--surface-2); border-bottom: 1px solid var(--line-2); font-size: 8px; font-weight: 600; letter-spacing: .06em; text-align: left; text-transform: uppercase; white-space: nowrap; }
 .mylar-history-table td { padding: 10px; color: var(--ink-2); border-bottom: 1px solid var(--line); font-size: 10.5px; vertical-align: middle; }
 .mylar-history-table tbody tr:last-child td { border-bottom: 0; }
@@ -1578,6 +1563,7 @@ nav {
 
 .drawing-mylar-card { min-width: 0; overflow: hidden; padding: 0; border-top: 3px solid var(--ok); }
 .drawing-mylar-card.is-out { border-top-color: var(--warn); }
+.drawing-mylar-card.is-unregistered { border-top-color: var(--steel); }
 .drawing-mylar-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 14px 13px; background: var(--surface-2); border-bottom: 1px solid var(--line-2); }
 .drawing-mylar-card-header > div { display: grid; min-width: 0; gap: 5px; }
 .drawing-mylar-card-header h2 { font-size: 16px; }
@@ -1585,6 +1571,8 @@ nav {
 .drawing-mylar-state i { width: 6px; height: 6px; background: var(--ok); border-radius: 50%; }
 .drawing-mylar-card.is-out .drawing-mylar-state { color: var(--warn); background: var(--warn-tint); border-color: color-mix(in srgb, var(--warn) 28%, var(--line)); }
 .drawing-mylar-card.is-out .drawing-mylar-state i { background: var(--warn); }
+.drawing-mylar-card.is-unregistered .drawing-mylar-state { color: var(--steel-700); background: var(--steel-tint); border-color: color-mix(in srgb, var(--steel) 28%, var(--line)); }
+.drawing-mylar-card.is-unregistered .drawing-mylar-state i { background: var(--steel); }
 .drawing-mylar-card-body { display: grid; gap: 11px; padding: 12px 10px 10px; }
 .drawing-mylar-overview { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: center; gap: 10px; padding: 2px 2px 1px; }
 .drawing-mylar-overview > div { display: grid; min-width: 0; gap: 3px; }
@@ -1592,6 +1580,7 @@ nav {
 .drawing-mylar-overview p { color: var(--muted); font-size: 9.5px; line-height: 1.4; }
 .drawing-mylar-icon { display: grid; place-items: center; width: 42px; height: 42px; color: var(--ok); background: var(--ok-tint); border: 1px solid color-mix(in srgb, var(--ok) 28%, var(--line)); border-radius: var(--r-sm); }
 .drawing-mylar-card.is-out .drawing-mylar-icon { color: var(--warn); background: var(--warn-tint); border-color: color-mix(in srgb, var(--warn) 28%, var(--line)); }
+.drawing-mylar-card.is-unregistered .drawing-mylar-icon { color: var(--steel-700); background: var(--steel-tint); border-color: color-mix(in srgb, var(--steel) 28%, var(--line)); }
 .drawing-mylar-card dl { display: grid; margin: 0; overflow: hidden; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); }
 .drawing-mylar-card dl > div { display: grid; min-width: 0; gap: 3px; padding: 8px 9px; border-top: 1px solid var(--line); }
 .drawing-mylar-card dl > div:first-child { border-top: 0; }
@@ -1607,7 +1596,8 @@ nav {
 .revision-upload-header p { color: var(--muted); font-size: 10.5px; }
 .revision-upload-icon { display: grid; place-items: center; width: 42px; height: 42px; color: var(--red); background: var(--red-tint); border: 1px solid var(--red-tint-2); border-radius: 10px; }
 .revision-upload-body { padding: 18px 20px 20px; }
-.store-revision-actions { display: flex; align-items: center; justify-content: flex-end; gap: 9px; }
+.store-revision-actions { display: grid; align-items: stretch; gap: 7px; min-width: 218px; }
+.store-revision-actions > .button { width: 100%; min-height: 32px; }
 
 .mylar-drawer-backdrop { position: fixed; inset: 0; z-index: 350; display: flex; justify-content: flex-end; background: rgba(5, 9, 13, .42); backdrop-filter: blur(2px); animation: dialog-fade-in 140ms ease-out; }
 .mylar-drawer { display: grid; grid-template-rows: auto minmax(0, 1fr); width: min(780px, 100%); height: 100%; color: var(--ink); background: var(--surface); border-left: 1px solid var(--line-2); box-shadow: -18px 0 52px rgba(0, 0, 0, .28); animation: audit-drawer-slide 190ms ease-out; }
@@ -1617,7 +1607,7 @@ nav {
 .mylar-drawer-header p { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .mylar-drawer-icon { display: grid; place-items: center; width: 42px; height: 42px; color: var(--steel-700); background: var(--steel-tint); border: 1px solid color-mix(in srgb, var(--steel) 28%, var(--line)); border-radius: 10px; }
 .mylar-drawer-body { display: grid; grid-auto-rows: max-content; align-content: start; gap: 14px; min-height: 0; overflow-y: auto; padding: 16px 18px 28px; background: var(--surface-2); }
-.mylar-drawer .mylar-history-table { min-width: 700px; }
+.mylar-drawer .mylar-history-table { min-width: 620px; }
 
 .upload-progress { position: relative; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; overflow: hidden; padding: 11px 14px; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-md); }
 .upload-progress > span { position: absolute; inset: auto 0 0; width: 0; height: 3px; background: var(--red); transition: width 120ms linear; }
@@ -1995,9 +1985,6 @@ nav {
   .mylar-current-state { grid-template-columns: 38px minmax(0, 1fr); }
   .mylar-current-state dl { grid-column: 1 / -1; grid-template-columns: 1fr; border-top: 1px solid var(--line); border-left: 0; }
   .mylar-current-state dl > div { padding: 8px 0 0; }
-  .mylar-registry-section > header { align-items: stretch; flex-direction: column; }
-  .mylar-register-button { width: 100%; }
-  .mylar-registry-list { grid-template-columns: 1fr; }
   .mylar-action-fields { grid-template-columns: 1fr; }
   .mylar-action-fields label.wide { grid-column: auto; }
   .mylar-action-footer { align-items: stretch; flex-direction: column; }
@@ -2024,7 +2011,7 @@ nav {
   .audit-change-summary dd { grid-template-columns: 1fr; }
   .audit-change-summary dd > svg { transform: rotate(90deg); }
   .store-revision-footer { align-items: stretch; flex-direction: column; }
-  .store-revision-actions { align-items: stretch; flex-direction: column-reverse; }
+  .store-revision-actions { width: 100%; }
   .store-revision-actions .button, .store-revision-actions .store-revision-button { width: 100%; }
   .store-revision-button { width: 100%; min-width: 0; }
   .drawing-control-commandbar { align-items: stretch; flex-direction: column; }

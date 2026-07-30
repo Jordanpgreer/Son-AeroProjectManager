@@ -64,7 +64,11 @@ function formatHistoryDate(value: string) {
   }).format(new Date(Date.UTC(year, month - 1, day)))
 }
 
-export default function EstimatingRatesPage() {
+export default function EstimatingRatesPage({
+  canAdministerRates,
+}: {
+  canAdministerRates: boolean
+}) {
   const [search, setSearch] = useState('')
   const [selectedYear, setSelectedYear] = useState<EstimateYear>(2026)
   const [category, setCategory] = useState<CategoryFilter>('all')
@@ -117,6 +121,16 @@ export default function EstimatingRatesPage() {
           <small>Legend mirrors calculator field types; this page is entirely reference-only.</small>
         </div>
       </section>
+
+      {canAdministerRates && (
+        <aside className="rates-provenance" aria-label="Administrative rate capability">
+          <LockKeyhole size={20} aria-hidden="true" />
+          <div>
+            <h3>Admin rate and settings capability</h3>
+            <p>Your Admin role includes the future rate and settings permissions. Editing remains unavailable until controlled persistence APIs are introduced.</p>
+          </div>
+        </aside>
+      )}
 
       <section className="rates-controls" aria-label="Rate table filters">
         <div className="rates-search">

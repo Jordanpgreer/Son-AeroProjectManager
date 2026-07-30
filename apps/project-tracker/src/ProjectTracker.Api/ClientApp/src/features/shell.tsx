@@ -20,7 +20,6 @@ import {
   Search,
   Settings2,
   StickyNote,
-  UploadCloud,
 } from 'lucide-react'
 import {
   api,
@@ -79,26 +78,18 @@ export function Sidebar({
         </nav>
       </div>
 
-      {(hasPermission(user, 'settings.workCalendar.manage')
-        || hasPermission(user, 'settings.holidays.manage')
-        || hasPermission(user, 'settings.workCenters.manage')
-        || hasPermission(user, 'access.manageUsers')
-        || hasPermission(user, 'access.manageGroups')
-        || hasPermission(user, 'archived.restore')
-        || hasPermission(user, 'import.manage')) && (
+      {user?.isAdmin && (
         <div className="sidebar-foot">
           <nav className="foot-nav" aria-label="Secondary">
-            {(hasPermission(user, 'settings.workCalendar.manage')
-              || hasPermission(user, 'settings.holidays.manage')
-              || hasPermission(user, 'settings.workCenters.manage')
-              || hasPermission(user, 'access.manageUsers')
-              || hasPermission(user, 'access.manageGroups')
-              || hasPermission(user, 'archived.restore')) && (
-              <NavButton active={screen === 'settings'} onClick={() => setScreen('settings')} icon={<Settings2 size={17} />} label="Settings" />
-            )}
-            {hasPermission(user, 'import.manage') && (
-              <NavButton active={screen === 'import'} onClick={() => setScreen('import')} icon={<UploadCloud size={17} />} label="Imports / Admin" />
-            )}
+            <a
+              className="nav-button"
+              href={`${hubUrl.replace(/\/+$/, '')}/#/admin/project-tracker/access`}
+              target="_top"
+              aria-label="Hub Admin / Admin settings"
+            >
+              <span className="nav-icon"><Settings2 size={17} /></span>
+              Hub Admin / Admin settings
+            </a>
           </nav>
         </div>
       )}

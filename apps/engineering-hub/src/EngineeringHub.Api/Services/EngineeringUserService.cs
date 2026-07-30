@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using EngineeringHub.Api.Auth;
 using EngineeringHub.Api.Dtos;
 using SonAero.Platform.Security;
 
@@ -16,44 +17,44 @@ public sealed class EngineeringUserService(
             accountName = configuration["Authentication:DevelopmentAccount"] ?? "SONAERO\\engineering.admin";
         }
 
-        var role = await ResolveRoleAsync(accountName, cancellationToken);
-        return new MeDto(accountName, ToDisplayName(accountName), role);
+        var access = await ResolveAccessAsync(accountName, cancellationToken);
+        if (access is null || !access.IsEnabled)
+        {
+            throw new UnauthorizedAccessException("No active Engineering module assignment was found.");
+        }
+
+        return new MeDto(
+            accountName,
+            ToDisplayName(accountName),
+            access.Role,
+            EngineeringAuthorization.PermissionsForRole(access.Role));
     }
 
-    public async Task<string> ResolveRoleAsync(string? accountName, CancellationToken cancellationToken = default)
+    public async Task<EngineeringModuleAccess?> ResolveAccessAsync(
+        string? accountName,
+        CancellationToken cancellationToken = default)
     {
         var resolvedAccount = string.IsNullOrWhiteSpace(accountName)
             ? configuration["Authentication:DevelopmentAccount"] ?? "SONAERO\\engineering.admin"
             : accountName;
 
-        var mode = configuration["Authentication:Mode"]
-            ?? (string.IsNullOrEmpty(configuration["Authentication:DevelopmentAccount"]) ? "Windows" : "Development");
-
-        if (string.Equals(mode, "Development", StringComparison.OrdinalIgnoreCase))
+        var storedAccess = await roleStore.FindAccessAsync(resolvedAccount, cancellationToken);
+        if (storedAccess is not null)
         {
-            return ApplicationRoles.Normalize(configuration["Engineering:DevelopmentRole"]) ?? ApplicationRoles.Admin;
+            return storedAccess;
         }
 
-        var storedRole = ApplicationRoles.Normalize(await roleStore.FindRoleAsync(resolvedAccount, cancellationToken));
-        if (storedRole is not null)
-        {
-            return storedRole;
-        }
-
-        var admins = configuration.GetSection("Engineering:Admins").Get<string[]>() ?? [];
-        if (admins.Any(account => string.Equals(account, resolvedAccount, StringComparison.OrdinalIgnoreCase)))
-        {
-            return ApplicationRoles.Admin;
-        }
-
-        return ApplicationRoles.Viewer;
+        return null;
     }
 
-    public ClaimsPrincipal AttachRole(ClaimsPrincipal principal, string role)
+    public ClaimsPrincipal AttachAccess(ClaimsPrincipal principal, EngineeringModuleAccess access)
     {
         var claims = principal.Claims.ToList();
         claims.RemoveAll(claim => claim.Type == ClaimTypes.Role);
-        claims.Add(new Claim(ClaimTypes.Role, role));
+        claims.RemoveAll(claim => claim.Type == EngineeringAuthorization.PermissionClaimType);
+        claims.Add(new Claim(ClaimTypes.Role, access.Role));
+        claims.AddRange(EngineeringAuthorization.PermissionsForRole(access.Role)
+            .Select(permission => new Claim(EngineeringAuthorization.PermissionClaimType, permission)));
 
         var identity = new ClaimsIdentity(claims, principal.Identity?.AuthenticationType, ClaimTypes.Name, ClaimTypes.Role);
         return new ClaimsPrincipal(identity);

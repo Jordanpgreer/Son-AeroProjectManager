@@ -73,7 +73,7 @@ export function ProjectConfirmationDialog({
           <h2 id="project-confirmation-title">{deleting ? 'Archive this project?' : reopening ? 'Make this project active?' : 'Complete this project?'}</h2>
           <p>
             {deleting
-              ? <><strong>{projectName}</strong> will be removed from project views but retained with all operations and activity history. An administrator can restore it from Settings.</>
+              ? <><strong>{projectName}</strong> will be removed from project views but retained with all operations and activity history. An administrator can restore it from Hub Admin.</>
               : reopening
                 ? <><strong>{projectName}</strong> will return to the active project queue. Its final operation will reopen at 0% so scheduling work can continue.</>
               : <><strong>{projectName}</strong> will move to Past Projects and every operation will be marked 100% complete.</>}

@@ -35,6 +35,31 @@ public sealed record AccessOverviewDto(
     IReadOnlyList<AccessGroupDto> Groups,
     IReadOnlyList<PermissionDefinitionDto> Permissions);
 
+public sealed record ModuleAccessRoleDto(
+    string Role,
+    IReadOnlyList<PermissionDefinitionDto> Permissions);
+
+public sealed record ModuleAccessCatalogEntryDto(
+    string Key,
+    string Name,
+    IReadOnlyList<ModuleAccessRoleDto> Roles);
+
+public sealed record UserModuleAccessDto(
+    string ModuleKey,
+    bool Enabled,
+    string? Role,
+    IReadOnlyList<string> Permissions,
+    DateTimeOffset? UpdatedAt);
+
+public sealed record ModuleAccessUserDto(
+    int UserId,
+    string AccountName,
+    string DisplayName,
+    bool IsActive,
+    IReadOnlyList<UserModuleAccessDto> Modules);
+
+public sealed record ModuleAccessUpdateDto(bool Enabled, string? Role);
+
 public sealed record ArchivedProjectDto(
     int Id,
     long Version,

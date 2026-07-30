@@ -18,9 +18,13 @@ public sealed class ApplicationRegistry
 
     public IReadOnlyList<ApplicationEntry> All => _applications;
 
-    public IReadOnlyList<ApplicationEntry> GetVisibleFor(string role)
+    public IReadOnlyList<ApplicationEntry> GetVisibleFor(
+        string role,
+        IReadOnlySet<string>? accessibleModules = null)
         => _applications
-            .Where(application => IsVisibleTo(application, role))
+            .Where(application =>
+                IsVisibleTo(application, role)
+                && IsModuleVisibleTo(application, accessibleModules))
             .OrderBy(application => application.Order)
             .ThenBy(application => application.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -28,4 +32,19 @@ public sealed class ApplicationRegistry
     public static bool IsVisibleTo(ApplicationEntry application, string role)
         => application.AllowedRoles is null or { Count: 0 }
            || application.AllowedRoles.Any(allowed => string.Equals(allowed, role, StringComparison.OrdinalIgnoreCase));
+
+    public static bool IsModuleVisibleTo(
+        ApplicationEntry application,
+        IReadOnlySet<string>? accessibleModules)
+    {
+        var moduleKey = application.Id switch
+        {
+            "engineering-hub" => SonAero.Platform.Security.ApplicationModules.Engineering,
+            "estimating-dashboard" => SonAero.Platform.Security.ApplicationModules.Estimating,
+            _ => null
+        };
+        return moduleKey is null
+            || accessibleModules is null
+            || accessibleModules.Contains(moduleKey);
+    }
 }

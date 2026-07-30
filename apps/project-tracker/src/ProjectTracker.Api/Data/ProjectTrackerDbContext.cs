@@ -19,6 +19,7 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
     public DbSet<AppGroup> Groups => Set<AppGroup>();
     public DbSet<AppUserGroupMembership> UserGroupMemberships => Set<AppUserGroupMembership>();
     public DbSet<AppGroupPermission> GroupPermissions => Set<AppGroupPermission>();
+    public DbSet<AppUserModuleAccess> UserModuleAccess => Set<AppUserModuleAccess>();
     public DbSet<StatusHistory> StatusHistory => Set<StatusHistory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -186,6 +187,18 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
         {
             entity.HasKey(membership => new { membership.AppUserId, membership.AppGroupId });
             entity.HasIndex(membership => membership.AppGroupId);
+        });
+
+        modelBuilder.Entity<AppUserModuleAccess>(entity =>
+        {
+            entity.ToTable("UserModuleAccess");
+            entity.HasKey(access => new { access.AppUserId, access.ModuleKey });
+            entity.Property(access => access.ModuleKey).HasMaxLength(40);
+            entity.Property(access => access.Role).HasMaxLength(32);
+            entity.HasOne(access => access.User)
+                .WithMany(user => user.ModuleAccessAssignments)
+                .HasForeignKey(access => access.AppUserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<AppGroupPermission>(entity =>

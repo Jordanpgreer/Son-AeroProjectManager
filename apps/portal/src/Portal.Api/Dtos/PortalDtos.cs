@@ -2,7 +2,16 @@ using Portal.Api.Models;
 
 namespace Portal.Api.Dtos;
 
-public sealed record MeDto(string AccountName, string DisplayName, string Role);
+public sealed record MeDto(
+    string AccountName,
+    string DisplayName,
+    string Role,
+    IReadOnlyList<PortalModuleAccessDto> Modules);
+
+public sealed record PortalModuleAccessDto(
+    string ModuleKey,
+    string Role,
+    IReadOnlyList<string> Permissions);
 
 public sealed record ApplicationDto(
     string Id,

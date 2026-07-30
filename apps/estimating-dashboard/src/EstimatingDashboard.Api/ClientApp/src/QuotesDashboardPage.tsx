@@ -53,8 +53,10 @@ function formatDate(value: string) {
 
 export default function QuotesDashboardPage({
   ownerAccountName,
+  canManageQuotes,
 }: {
   ownerAccountName: string
+  canManageQuotes: boolean
 }) {
   const [revision, setRevision] = useState(0)
   const [search, setSearch] = useState('')
@@ -87,6 +89,7 @@ export default function QuotesDashboardPage({
     .reduce((total, quote) => total + quoteValue(quote), 0)
 
   const createQuote = () => {
+    if (!canManageQuotes) return
     const estimate = createEstimateDefaults('standard')
     const record = saveQuote({
       ownerAccountName,
@@ -105,7 +108,13 @@ export default function QuotesDashboardPage({
           <h2>Estimating pipeline</h2>
           <p>Continue drafts, track current quotes, and retain completed quote history.</p>
         </div>
-        <button type="button" className="primary-action-button" onClick={createQuote}>
+        <button
+          type="button"
+          className="primary-action-button"
+          disabled={!canManageQuotes}
+          title={canManageQuotes ? 'Create a quote' : 'Editor access is required'}
+          onClick={createQuote}
+        >
           <Plus size={17} aria-hidden="true" />
           New quote
         </button>
@@ -217,7 +226,7 @@ export default function QuotesDashboardPage({
                         >
                           Open
                         </button>
-                        {quote.status === 'draft' && (
+                        {canManageQuotes && quote.status === 'draft' && (
                           <button
                             type="button"
                             className="danger-link"

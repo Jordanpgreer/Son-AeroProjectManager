@@ -8,6 +8,7 @@ public sealed class EngineeringDbContext(DbContextOptions<EngineeringDbContext> 
     public bool AllowControlledDraftRevisionDeletion { get; set; }
     public bool AllowControlledHistoricalRevisionDeletion { get; set; }
     public bool AllowControlledHistoricalRevisionActivation { get; set; }
+    public bool AllowControlledRevisionReopen { get; set; }
     public bool AllowControlledEmptyDraftDrawingDeletion { get; set; }
     public bool AllowLegacyMylarBackfill { get; set; }
     public DbSet<Drawing> Drawings => Set<Drawing>();
@@ -44,7 +45,7 @@ public sealed class EngineeringDbContext(DbContextOptions<EngineeringDbContext> 
         modelBuilder.Entity<DrawingValidation>().HasOne(x => x.Drawing).WithMany(x => x.Validations).HasForeignKey(x => x.DrawingId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<DrawingMylar>(entity =>
         {
-            entity.HasIndex(x => new { x.DrawingId, x.NormalizedMylarNumber }).IsUnique();
+            entity.HasIndex(x => x.DrawingId).IsUnique();
             entity.Property(x => x.MylarNumber).HasMaxLength(100);
             entity.Property(x => x.NormalizedMylarNumber).HasMaxLength(100);
             entity.Property(x => x.Version).IsConcurrencyToken();
@@ -96,19 +97,23 @@ public sealed class EngineeringDbContext(DbContextOptions<EngineeringDbContext> 
             if (entry.State == EntityState.Modified)
             {
                 var originalStatus = entry.OriginalValues.GetValue<DrawingRevisionStatus>(nameof(DrawingRevision.Status));
+                var controlledReopen = AllowControlledRevisionReopen &&
+                    entry.Entity.Status == DrawingRevisionStatus.Draft;
                 if (originalStatus is DrawingRevisionStatus.Superseded or DrawingRevisionStatus.Obsolete)
                 {
                     var allowed = new[] { nameof(DrawingRevision.Status), nameof(DrawingRevision.SupersededOrObsoleteAt) };
-                    if (!AllowControlledHistoricalRevisionActivation ||
+                    if (!controlledReopen &&
+                        (!AllowControlledHistoricalRevisionActivation ||
                         entry.Entity.Status != DrawingRevisionStatus.Approved ||
-                        entry.Properties.Any(p => p.IsModified && !allowed.Contains(p.Metadata.Name)))
+                        entry.Properties.Any(p => p.IsModified && !allowed.Contains(p.Metadata.Name))))
                         throw new InvalidOperationException("Historical drawing revisions are immutable outside the controlled activation workflow.");
                 }
                 if (originalStatus == DrawingRevisionStatus.Approved)
                 {
                     var allowed = new[] { nameof(DrawingRevision.Status), nameof(DrawingRevision.SupersededOrObsoleteAt) };
-                    if (entry.Entity.Status is not (DrawingRevisionStatus.Superseded or DrawingRevisionStatus.Obsolete) ||
-                        entry.Properties.Any(p => p.IsModified && !allowed.Contains(p.Metadata.Name)))
+                    if (!controlledReopen &&
+                        (entry.Entity.Status is not (DrawingRevisionStatus.Superseded or DrawingRevisionStatus.Obsolete) ||
+                         entry.Properties.Any(p => p.IsModified && !allowed.Contains(p.Metadata.Name))))
                         throw new InvalidOperationException("An approved revision may only transition to Superseded or Archived.");
                 }
             }

@@ -31,6 +31,7 @@ interface Me {
   accountName: string
   displayName: string
   role: string
+  permissions: string[]
 }
 
 interface ModuleSection {
@@ -90,9 +91,15 @@ function shortDate(value: string | null) {
 }
 
 function mylarSummary(drawing: DrawingRecordHeader) {
-  if (drawing.mylarCount === 0) return 'No numbered Mylars'
-  if (drawing.checkedOutMylarCount > 0) return `${drawing.checkedOutMylarCount} of ${drawing.mylarCount} checked out`
-  return `${drawing.mylarCount} in controlled storage`
+  if (drawing.mylarCount === 0) return 'Not registered'
+  if (drawing.checkedOutMylarCount > 0) {
+    return drawing.mylarCheckedOutBy
+      ? `Checked out by ${drawing.mylarCheckedOutBy}`
+      : 'Checked out'
+  }
+  return drawing.physicalMylarLocation
+    ? `Checked in at ${drawing.physicalMylarLocation}`
+    : 'Checked in'
 }
 
 function ThemeSwitch({
@@ -177,6 +184,8 @@ export default function App() {
   const [selectedModuleRecord, setSelectedModuleRecord] = useState<EngineeringSearchResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const canEdit = me?.permissions.includes('engineering.module.edit') ?? false
+  const canAdmin = me?.permissions.includes('engineering.module.admin') ?? false
 
   useEffect(() => {
     async function load() {
@@ -474,13 +483,19 @@ export default function App() {
             />
             {showingDrawingRecord
               ? drawingHeader && <>
-                  {!drawingHeader.isObsolete && <button className="button record-header-edit" type="button" onClick={() => setDrawingEditRequest(current => current + 1)}>
-                    <Edit3 size={14}/> Edit metadata
+                  {canEdit && !drawingHeader.isObsolete && <button
+                    className="button record-header-edit"
+                    type="button"
+                    aria-expanded={drawingHeader.isMetadataEditing}
+                    aria-controls="drawing-metadata-editor"
+                    onClick={() => setDrawingEditRequest(current => current + 1)}
+                  >
+                    <Edit3 size={14}/> {drawingHeader.isMetadataEditing ? 'Close metadata' : 'Edit metadata'}
                   </button>}
                   <button className="button ghost record-header-audit" type="button" onClick={() => setDrawingAuditRequest(current => current + 1)}>
                     <History size={14}/> Audit history
                   </button>
-                  {!drawingHeader.isObsolete && <button className="button ghost record-header-archive" type="button" onClick={() => setDrawingArchiveRequest(current => current + 1)}>
+                  {canEdit && !drawingHeader.isObsolete && <button className="button ghost record-header-archive" type="button" onClick={() => setDrawingArchiveRequest(current => current + 1)}>
                     <Archive size={14}/> Archive
                   </button>}
                 </>
@@ -527,7 +542,7 @@ export default function App() {
 
                 {activeSection.id === 'drawing-document-control' ? (
                   drawingScreen === 'dashboard' ? (
-                    <DrawingDashboard onEditDrawing={openDrawingRecord} onCreateDrawing={openDrawingCreation}/>
+                    <DrawingDashboard canEdit={canEdit} onEditDrawing={openDrawingRecord} onCreateDrawing={openDrawingCreation}/>
                   ) : (
                     <DrawingWorkspace
                       drawingId={drawingId}
@@ -539,6 +554,8 @@ export default function App() {
                       archiveRequest={drawingArchiveRequest}
                       auditRequest={drawingAuditRequest}
                       actorName={me?.accountName || me?.displayName || 'Signed-in user'}
+                      canEdit={canEdit}
+                      canAdmin={canAdmin}
                     />
                   )
                 ) : activeSection.id === 'dashboard' ? (
@@ -586,8 +603,8 @@ export default function App() {
                       <span className="kpi-label">Access tier</span>
                       <span className="kpi-icon"><ShieldCheck size={18} /></span>
                     </div>
-                    <div className="kpi-value">Admin</div>
-                    <div className="kpi-hint">Visible only to admins while testing is active</div>
+                    <div className="kpi-value">{me?.role ?? 'Viewer'}</div>
+                    <div className="kpi-hint">Your assigned Engineering module role</div>
                   </article>
                 </section>
 
@@ -628,7 +645,7 @@ export default function App() {
                       </div>
                       <div className="status-bar-legend">
                         <span className="status-bar-key"><b>Separate app</b> no project endpoint calls</span>
-                        <span className="status-bar-key"><b>Admin only</b> hidden from non-admin users</span>
+                        <span className="status-bar-key"><b>Role based</b> Viewer, Editor, and Admin access</span>
                         <span className="status-bar-key"><b>Testing mode</b> safe for iteration</span>
                       </div>
                     </div>

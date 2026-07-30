@@ -192,6 +192,14 @@ public static partial class SqliteCompatibility
                 CONSTRAINT "PK_GroupPermissions" PRIMARY KEY ("AppGroupId", "PermissionKey"),
                 CONSTRAINT "FK_GroupPermissions_Groups_AppGroupId" FOREIGN KEY ("AppGroupId") REFERENCES "Groups" ("Id") ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS "UserModuleAccess" (
+                "AppUserId" INTEGER NOT NULL,
+                "ModuleKey" TEXT NOT NULL,
+                "Role" TEXT NULL,
+                "UpdatedAt" TEXT NOT NULL,
+                CONSTRAINT "PK_UserModuleAccess" PRIMARY KEY ("AppUserId", "ModuleKey"),
+                CONSTRAINT "FK_UserModuleAccess_Users_AppUserId" FOREIGN KEY ("AppUserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+            );
             """;
 
         var connection = db.Database.GetDbConnection();

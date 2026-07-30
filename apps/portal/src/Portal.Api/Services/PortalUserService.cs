@@ -22,15 +22,32 @@ public sealed class PortalUserService(
             accountName = configuration["Authentication:DevelopmentAccount"] ?? "SONAERO\\dev.user";
         }
 
-        return new MeDto(accountName, ToDisplayName(accountName), await ResolveRoleAsync(accountName, cancellationToken));
+        var role = await ResolveRoleAsync(accountName, cancellationToken);
+        var moduleRoles = await roleStore.FindModuleRolesAsync(accountName, cancellationToken);
+        if (moduleRoles.Count == 0 && IsDevelopmentMode())
+        {
+            moduleRoles = ApplicationModules.All.ToDictionary(
+                moduleKey => moduleKey,
+                _ => ApplicationModuleRoles.Normalize(role) ?? ApplicationRoles.Admin,
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        var modules = moduleRoles
+            .Select(access => new PortalModuleAccessDto(
+                access.Key,
+                access.Value,
+                ApplicationModuleCatalog.PermissionsFor(access.Key, access.Value)
+                    .Select(permission => permission.Key)
+                    .ToList()))
+            .OrderBy(access => access.ModuleKey, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return new MeDto(accountName, ToDisplayName(accountName), role, modules);
     }
 
     private async Task<string> ResolveRoleAsync(string accountName, CancellationToken cancellationToken)
     {
-        var mode = configuration["Authentication:Mode"]
-            ?? (string.IsNullOrEmpty(configuration["Authentication:DevelopmentAccount"]) ? "Windows" : "Development");
-
-        if (string.Equals(mode, "Development", StringComparison.OrdinalIgnoreCase))
+        if (IsDevelopmentMode())
         {
             return ApplicationRoles.Normalize(configuration["Portal:DevelopmentRole"]) ?? ApplicationRoles.Admin;
         }
@@ -55,6 +72,13 @@ public sealed class PortalUserService(
         }
 
         return ApplicationRoles.Viewer;
+    }
+
+    private bool IsDevelopmentMode()
+    {
+        var mode = configuration["Authentication:Mode"]
+            ?? (string.IsNullOrEmpty(configuration["Authentication:DevelopmentAccount"]) ? "Windows" : "Development");
+        return string.Equals(mode, "Development", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ToDisplayName(string accountName)

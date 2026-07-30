@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.Negotiate;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json.Serialization;
 using ProjectTracker.Api.Auth;
+using ProjectTracker.Api.Configuration;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Dtos;
 using ProjectTracker.Api.Endpoints;
@@ -21,6 +22,7 @@ builder.Services.AddScoped<ProjectAuditService>();
 builder.Services.AddScoped<MentionNotificationService>();
 builder.Services.AddScoped<NotificationReadService>();
 builder.Services.AddScoped<AccessControlSeeder>();
+builder.Services.AddScoped<ModuleAccessService>();
 builder.Services.AddSingleton<ScheduleCalculator>();
 builder.Services.AddScoped<ProjectMetricsService>();
 builder.Services.AddScoped<ProjectReadService>();
@@ -28,6 +30,7 @@ builder.Services.AddScoped<WorkbookImportService>();
 builder.Services.AddScoped<ReportService>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddHubCors(builder.Configuration);
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
@@ -60,6 +63,9 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("ManageHolidays", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.SettingsHolidaysManage));
     options.AddPolicy("ManageWorkCenters", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.SettingsWorkCentersManage));
     options.AddPolicy("ManageImports", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ImportManage));
+    options.AddPolicy(
+        AccessOverviewAuthorization.PolicyName,
+        policy => policy.RequireAssertion(context => AccessOverviewAuthorization.IsAllowed(context.User)));
     options.AddPolicy("ManageUsers", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.AccessManageUsers));
     options.AddPolicy("ManageGroups", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.AccessManageGroups));
     options.AddPolicy("RestoreArchived", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ArchivedRestore));
@@ -97,6 +103,8 @@ app.Use(async (context, next) =>
 });
 app.UseDefaultFiles();
 app.UseStaticFiles();
+app.UseRouting();
+app.UseCors(HubCorsPolicy.Name);
 
 if (app.Environment.IsDevelopment())
 {
@@ -131,6 +139,7 @@ var api = app.MapGroup("/api").RequireAuthorization("CanView");
 api.MapProjectReadEndpoints();
 api.MapArchivedProjectEndpoints();
 api.MapUserEndpoints();
+api.MapModuleAccessEndpoints();
 api.MapNotificationEndpoints();
 api.MapReportEndpoints();
 api.MapImportEndpoints();
@@ -1097,6 +1106,8 @@ static async Task InitializeDatabaseAsync(WebApplication app)
 
     var accessSeeder = scope.ServiceProvider.GetRequiredService<AccessControlSeeder>();
     await accessSeeder.SeedAsync(db, configuration);
+    var moduleAccess = scope.ServiceProvider.GetRequiredService<ModuleAccessService>();
+    await moduleAccess.BootstrapLegacyAssignmentsAsync(db);
     await ProjectNoteService.BackfillUpdatedAtAsync(db, cancellationToken: default);
     await BackfillCompletedDatesAsync(db, cancellationToken: default);
     NormalizeProjectPriorities(await db.Projects.ToListAsync());

@@ -9,12 +9,14 @@ function QuantityInput({
   quantities,
   onCommit,
   onRemove,
+  editable,
 }: {
   quantity: QuantityTier
   index: number
   quantities: QuantityTier[]
   onCommit: (value: QuantityTier) => void
   onRemove: () => void
+  editable: boolean
 }) {
   const [draft, setDraft] = useState(String(quantity))
   const [error, setError] = useState('')
@@ -51,6 +53,7 @@ function QuantityInput({
         value={draft}
         aria-label={`Pricing quantity ${index + 1}`}
         aria-invalid={Boolean(error)}
+        disabled={!editable}
         title={error || `Pricing quantity ${quantity.toLocaleString()}`}
         onChange={(event) => {
           setDraft(event.currentTarget.value)
@@ -69,7 +72,7 @@ function QuantityInput({
         type="button"
         aria-label={`Remove quantity ${quantity.toLocaleString()}`}
         title="Remove quantity"
-        disabled={quantities.length === 1}
+        disabled={!editable || quantities.length === 1}
         onClick={onRemove}
       >
         <Trash2 size={14} aria-hidden="true" />
@@ -82,9 +85,11 @@ function QuantityInput({
 export default function QuantityEditor({
   quantities,
   onChange,
+  editable,
 }: {
   quantities: QuantityTier[]
   onChange: (quantities: QuantityTier[]) => void
+  editable: boolean
 }) {
   const addQuantity = () => {
     const lastQuantity = quantities.at(-1) ?? 1
@@ -114,9 +119,10 @@ export default function QuantityEditor({
             onRemove={() => onChange(
               quantities.filter((_, candidateIndex) => candidateIndex !== index),
             )}
+            editable={editable}
           />
         ))}
-        <button type="button" className="add-quantity-button" onClick={addQuantity}>
+        <button type="button" className="add-quantity-button" disabled={!editable} onClick={addQuantity}>
           <Plus size={15} aria-hidden="true" />
           Add quantity
         </button>

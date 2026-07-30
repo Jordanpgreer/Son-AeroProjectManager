@@ -30,6 +30,10 @@ It rebuilds a frontend only when its source has changed, skips any app that is a
 waits for all applications to become healthy, and then opens the portal. If startup fails it
 shows an error dialog and writes details to `logs\<app>.err.log`.
 
+Administrative settings are centralized at
+`http://localhost:5140/#/admin/project-tracker/access`. Engineering and Estimating already
+have reserved module sections there for settings added later.
+
 ## Requirements for a fresh machine
 
 - .NET 8 SDK

@@ -17,6 +17,7 @@ public sealed record DrawingUpdateDto(
     string? Notes,
     string? PhysicalMylarLocation,
     IReadOnlyList<DrawingDocumentLinkCreateDto>? RelatedDocuments);
+public sealed record RevisionEditResultDto(int RevisionId, bool Created, bool HasPdf);
 public sealed record RevisionStatusUpdateDto(string Status, string? Comments = null);
 public sealed record RevisionApprovalDto(DateTime? EffectiveDate, string? Comments);
 public sealed record RevisionDeleteDto(bool Confirmed);

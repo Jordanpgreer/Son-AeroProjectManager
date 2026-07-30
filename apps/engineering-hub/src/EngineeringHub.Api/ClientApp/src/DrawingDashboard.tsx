@@ -29,6 +29,7 @@ interface DrawingRecord {
 }
 
 interface DrawingDashboardProps {
+  canEdit: boolean
   onEditDrawing: (drawingId: number) => void
   onCreateDrawing: () => void
 }
@@ -57,7 +58,7 @@ function statusLabel(value: string) {
   return value.replace(/([a-z])([A-Z])/g, '$1 $2')
 }
 
-export default function DrawingDashboard({ onEditDrawing, onCreateDrawing }: DrawingDashboardProps) {
+export default function DrawingDashboard({ canEdit, onEditDrawing, onCreateDrawing }: DrawingDashboardProps) {
   const [drawings, setDrawings] = useState<DrawingRecord[]>([])
   const [query, setQuery] = useState('')
   const [lifecycle, setLifecycle] = useState<'active' | 'archived' | 'all'>('active')
@@ -109,7 +110,7 @@ export default function DrawingDashboard({ onEditDrawing, onCreateDrawing }: Dra
           <h2>Drawing register</h2>
           <p>Search controlled drawing records, select a drawing to open it, or view its attached PDF.</p>
         </div>
-        <button className="button" type="button" onClick={onCreateDrawing}><Plus size={15}/> New drawing</button>
+        {canEdit && <button className="button" type="button" onClick={onCreateDrawing}><Plus size={15}/> New drawing</button>}
       </header>
 
       <div className="drawing-register-filters">

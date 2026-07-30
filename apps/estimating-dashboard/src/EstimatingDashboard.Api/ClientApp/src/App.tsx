@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import {
+  AlertTriangle,
   BookOpen,
   Calculator,
   LayoutDashboard,
+  LockKeyhole,
   PanelLeftClose,
   PanelLeftOpen,
   ShieldCheck,
@@ -10,15 +12,15 @@ import {
 import EstimateCalculatorPage from './EstimateCalculatorPage'
 import EstimatingRatesPage from './EstimatingRatesPage'
 import QuotesDashboardPage from './QuotesDashboardPage'
+import {
+  estimatingPermissions,
+  hasEstimatingPermission,
+} from './authorization'
+import type { EstimatingMe } from './authorization'
 import { persistTheme, readThemePreference } from './theme'
 import type { AppTheme } from './theme'
 
 type EstimatingPage = 'quotes' | 'calculator' | 'rates'
-
-interface Me {
-  accountName: string
-  displayName: string
-}
 
 const hubUrl = import.meta.env.VITE_HUB_URL
   ?? `${window.location.protocol}//${window.location.hostname}:5140`
@@ -101,12 +103,12 @@ function ThemeSwitch({
   )
 }
 
-function UserChip({ me }: { me: Me | null }) {
+function UserChip({ me }: { me: EstimatingMe | null }) {
   return (
     <div className="user-chip" aria-live="polite">
       <div className="user-copy">
         <strong>{me?.displayName ?? 'Checking access'}</strong>
-        <span>{me ? 'Authenticated' : 'Loading'}</span>
+        <span>{me?.role ?? 'Loading'}</span>
       </div>
       <span className="avatar" title={me?.accountName}>
         {me ? initials(me.displayName) : '··'}
@@ -125,7 +127,9 @@ export default function App() {
       return false
     }
   })
-  const [me, setMe] = useState<Me | null>(null)
+  const [me, setMe] = useState<EstimatingMe | null>(null)
+  const [accessLoading, setAccessLoading] = useState(true)
+  const [accessError, setAccessError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!pageFromHash()) {
@@ -189,15 +193,27 @@ export default function App() {
   useEffect(() => {
     let active = true
     void fetch('/api/me', { credentials: 'include' })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Access service responded ${response.status}.`)
-        return response.json() as Promise<Me>
+      .then(async (response) => {
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null) as { message?: string } | null
+          throw new Error(payload?.message ?? `Access service responded ${response.status}.`)
+        }
+        return response.json() as Promise<EstimatingMe>
       })
       .then((currentUser) => {
-        if (active) setMe(currentUser)
+        if (active) {
+          setMe(currentUser)
+          setAccessError(null)
+        }
       })
-      .catch(() => {
-        if (active) setMe(null)
+      .catch((cause) => {
+        if (active) {
+          setMe(null)
+          setAccessError(cause instanceof Error ? cause.message : 'Unable to verify Estimating access.')
+        }
+      })
+      .finally(() => {
+        if (active) setAccessLoading(false)
       })
     return () => {
       active = false
@@ -205,6 +221,41 @@ export default function App() {
   }, [])
 
   const meta = PAGE_META[page]
+  const canManageQuotes = hasEstimatingPermission(
+    me,
+    estimatingPermissions.manageQuotes,
+  )
+  const canManageInputs = hasEstimatingPermission(
+    me,
+    estimatingPermissions.manageInputs,
+  )
+  const canAdministerRates = hasEstimatingPermission(
+    me,
+    estimatingPermissions.administerRates,
+  )
+
+  if (accessLoading || !me) {
+    return (
+      <main className="estimating-access-state">
+        <span className="access-state-icon">
+          {accessLoading
+            ? <ShieldCheck size={30} aria-hidden="true" />
+            : <LockKeyhole size={30} aria-hidden="true" />}
+        </span>
+        <span className="eyebrow">Estimating access</span>
+        <h1>{accessLoading ? 'Checking module access' : 'Access unavailable'}</h1>
+        <p>{accessLoading
+          ? 'Verifying your enabled Estimating role...'
+          : accessError ?? 'Your account does not have enabled access to Estimating.'}</p>
+        {!accessLoading && (
+          <a className="primary-action-button" href={hubUrl} target="_top">
+            <AlertTriangle size={17} aria-hidden="true" />
+            Return to Applications
+          </a>
+        )}
+      </main>
+    )
+  }
 
   return (
     <div className={`estimating-shell estimating-app ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
@@ -326,15 +377,22 @@ export default function App() {
         <div className="main-scroll">
           <div className="view" id="main-content" tabIndex={-1}>
             {page === 'quotes' && (
-              <QuotesDashboardPage ownerAccountName={me?.accountName ?? 'local-browser'} />
+              <QuotesDashboardPage
+                ownerAccountName={me.accountName}
+                canManageQuotes={canManageQuotes}
+              />
             )}
             {page === 'calculator' && (
               <EstimateCalculatorPage
-                key={me?.accountName ?? 'local-browser'}
-                ownerAccountName={me?.accountName ?? 'local-browser'}
+                key={me.accountName}
+                ownerAccountName={me.accountName}
+                canManageQuotes={canManageQuotes}
+                canManageInputs={canManageInputs}
               />
             )}
-            {page === 'rates' && <EstimatingRatesPage />}
+            {page === 'rates' && (
+              <EstimatingRatesPage canAdministerRates={canAdministerRates} />
+            )}
           </div>
         </div>
       </main>

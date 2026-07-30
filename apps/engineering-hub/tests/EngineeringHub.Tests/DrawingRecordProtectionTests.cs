@@ -137,38 +137,42 @@ public sealed class DrawingRecordProtectionTests
     }
 
     [Fact]
-    public async Task HistoricalRevisionCanSeedNewDraftWithoutChangingControlledSource()
+    public async Task ApprovedRevisionCanOnlyReopenInPlaceThroughTheControlledWorkflow()
     {
         await using var fixture = await ContextFixture.CreateAsync();
         var drawing = CreateDrawing("DRW-490", "ACME");
-        var controlled = CreateRevision(DrawingRevisionStatus.Approved);
-        controlled.ApprovedBy = "approver";
-        controlled.ApprovalDate = DateTime.UtcNow.AddDays(-2);
-        drawing.Revisions.Add(controlled);
+        var revision = CreateRevision(DrawingRevisionStatus.Approved);
+        revision.ApprovedBy = "approver";
+        revision.ApprovalDate = DateTime.UtcNow.AddDays(-2);
+        drawing.Revisions.Add(revision);
         fixture.Context.Drawings.Add(drawing);
         await fixture.Context.SaveChangesAsync();
+        var originalId = revision.Id;
 
-        drawing.Revisions.Add(new DrawingRevision
+        revision.RevisionNumber = "B";
+        revision.ChangeDescription = "Corrected controlled issue";
+        revision.Status = DrawingRevisionStatus.Draft;
+        revision.ApprovedBy = null;
+        revision.ApprovalDate = null;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Context.SaveChangesAsync());
+
+        fixture.Context.AllowControlledRevisionReopen = true;
+        try
         {
-            RevisionNumber = "B",
-            RevisionDate = DateTime.UtcNow.Date,
-            UploadedAt = DateTime.UtcNow,
-            ChangeDescription = controlled.ChangeDescription,
-            Status = DrawingRevisionStatus.Draft,
-            OriginalFileName = controlled.OriginalFileName,
-            StoredFilePath = "1/b/drawing.pdf",
-            FileType = controlled.FileType,
-            FileSize = controlled.FileSize,
-            FileHash = controlled.FileHash,
-            UploadedBy = "editor"
-        });
-        await fixture.Context.SaveChangesAsync();
+            await fixture.Context.SaveChangesAsync();
+        }
+        finally
+        {
+            fixture.Context.AllowControlledRevisionReopen = false;
+        }
 
-        Assert.Equal(DrawingRevisionStatus.Approved, controlled.Status);
-        Assert.Equal("A", controlled.RevisionNumber);
-        Assert.Equal("approver", controlled.ApprovedBy);
-        Assert.Contains(drawing.Revisions, revision =>
-            revision.RevisionNumber == "B" && revision.Status == DrawingRevisionStatus.Draft);
+        var saved = await fixture.Context.DrawingRevisions.SingleAsync();
+        Assert.Equal(originalId, saved.Id);
+        Assert.Equal("B", saved.RevisionNumber);
+        Assert.Equal("Corrected controlled issue", saved.ChangeDescription);
+        Assert.Equal(DrawingRevisionStatus.Draft, saved.Status);
+        Assert.Null(saved.ApprovedBy);
+        Assert.Null(saved.ApprovalDate);
     }
 
     [Fact]

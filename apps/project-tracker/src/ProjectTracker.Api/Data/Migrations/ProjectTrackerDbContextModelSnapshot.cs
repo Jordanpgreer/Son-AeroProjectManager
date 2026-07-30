@@ -130,6 +130,27 @@ namespace ProjectTracker.Api.Data.Migrations
                     b.ToTable("UserGroupMemberships");
                 });
 
+            modelBuilder.Entity("ProjectTracker.Api.Models.AppUserModuleAccess", b =>
+                {
+                    b.Property<int>("AppUserId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ModuleKey")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("Role")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("AppUserId", "ModuleKey");
+
+                    b.ToTable("UserModuleAccess", (string)null);
+                });
+
             modelBuilder.Entity("ProjectTracker.Api.Models.Holiday", b =>
                 {
                     b.Property<int>("Id")
@@ -654,6 +675,17 @@ namespace ProjectTracker.Api.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("ProjectTracker.Api.Models.AppUserModuleAccess", b =>
+                {
+                    b.HasOne("ProjectTracker.Api.Models.AppUser", "User")
+                        .WithMany("ModuleAccessAssignments")
+                        .HasForeignKey("AppUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("ProjectTracker.Api.Models.ProjectAuditEntry", b =>
                 {
                     b.HasOne("ProjectTracker.Api.Models.Project", "Project")
@@ -766,6 +798,8 @@ namespace ProjectTracker.Api.Data.Migrations
             modelBuilder.Entity("ProjectTracker.Api.Models.AppUser", b =>
                 {
                     b.Navigation("GroupMemberships");
+
+                    b.Navigation("ModuleAccessAssignments");
 
                     b.Navigation("Notifications");
                 });

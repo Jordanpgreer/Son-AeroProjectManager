@@ -1,6 +1,10 @@
 namespace EngineeringHub.Api.Dtos;
 
-public sealed record MeDto(string AccountName, string DisplayName, string Role);
+public sealed record MeDto(
+    string AccountName,
+    string DisplayName,
+    string Role,
+    IReadOnlyList<string> Permissions);
 
 public sealed record EngineeringModuleDto(
     string Id,

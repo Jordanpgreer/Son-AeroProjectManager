@@ -88,8 +88,13 @@ api.MapGet("/me", (PortalUserService users, CancellationToken cancellationToken)
 // application enforces its own authorization independently.
 api.MapGet("/apps", async (PortalUserService users, ApplicationRegistry registry, CancellationToken cancellationToken) =>
 {
-    var role = (await users.CurrentAsync(cancellationToken)).Role;
-    return registry.GetVisibleFor(role).Select(ToApplicationDto).ToList();
+    var currentUser = await users.CurrentAsync(cancellationToken);
+    var accessibleModules = currentUser.Modules
+        .Select(module => module.ModuleKey)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    return registry.GetVisibleFor(currentUser.Role, accessibleModules)
+        .Select(ToApplicationDto)
+        .ToList();
 }).RequireAuthorization();
 
 api.MapGet("/application-notifications", async (

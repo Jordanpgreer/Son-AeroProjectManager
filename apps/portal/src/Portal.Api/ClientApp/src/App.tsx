@@ -23,6 +23,8 @@ import './portal-dark.css'
 import './hub-catalog.css'
 import { persistTheme, readThemePreference } from './theme'
 import type { AppTheme } from './theme'
+import AdminConsole from './admin/AdminConsole'
+import { isAdminHash } from './admin/api'
 
 type AppStatus = 'active' | 'comingSoon' | 'maintenance'
 
@@ -104,6 +106,7 @@ export default function App() {
   const [search, setSearch] = useState('')
   const [notificationCounts, setNotificationCounts] = useState<Record<string, number>>({})
   const [launchingAppId, setLaunchingAppId] = useState<string | null>(null)
+  const [locationHash, setLocationHash] = useState(() => window.location.hash)
 
   async function load() {
     setLoading(true)
@@ -152,6 +155,12 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
+    const updateRoute = () => setLocationHash(window.location.hash)
+    window.addEventListener('hashchange', updateRoute)
+    return () => window.removeEventListener('hashchange', updateRoute)
+  }, [])
+
+  useEffect(() => {
     const syncTheme = () => setTheme(readThemePreference())
     const onVisibility = () => {
       if (document.visibilityState === 'visible') syncTheme()
@@ -179,6 +188,11 @@ export default function App() {
   }, [apps, search])
 
   const hasFilters = search.length > 0
+  const adminRoute = isAdminHash(locationHash)
+
+  useEffect(() => {
+    if (!adminRoute) document.title = 'Applications - SON-AERO'
+  }, [adminRoute])
 
   function launchApplication(application: PortalApp, event: ReactMouseEvent<HTMLAnchorElement>) {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.button === 1 || prefersReducedMotion()) return
@@ -195,7 +209,7 @@ export default function App() {
   }
 
   return (
-    <div className={`portal catalog-portal ${launchingAppId ? 'is-launching' : ''}`.trim()}>
+    <div className={`portal ${adminRoute ? 'admin-portal' : 'catalog-portal'} ${launchingAppId ? 'is-launching' : ''}`.trim()}>
       <header className="portal-top">
         <div className="brand">
           <img src="/brand/son-aero-mark.png" alt="SON-AERO" />
@@ -226,7 +240,10 @@ export default function App() {
         </div>
       </header>
 
-      <main className="portal-main catalog-main">
+      {adminRoute ? (
+        <AdminConsole currentAccountName={me?.accountName ?? null} />
+      ) : (
+        <main className="portal-main catalog-main">
         <section className="catalog-intro" aria-labelledby="catalog-title">
           <div className="catalog-intro-copy">
             <span className="kicker">SON-AERO Internal Systems</span>
@@ -293,7 +310,8 @@ export default function App() {
             />
           </div>
         )}
-      </main>
+        </main>
+      )}
 
       <footer className="portal-foot">
         <span className="foot-mark">SON-AERO</span>

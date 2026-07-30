@@ -33,7 +33,7 @@ import {
 } from '../components'
 import {
   OvertimeDateEditor,
-} from './settings'
+} from './overtime'
 import {
   hasPermission,
   permissionKeys,

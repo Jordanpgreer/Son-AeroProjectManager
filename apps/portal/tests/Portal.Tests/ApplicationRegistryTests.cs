@@ -81,4 +81,29 @@ public sealed class ApplicationRegistryTests
         Assert.Empty(registry.All);
         Assert.Empty(registry.GetVisibleFor("Admin"));
     }
+
+    [Fact]
+    public void GetVisibleFor_ModuleScopedApplication_RequiresModuleAssignment()
+    {
+        const string json = """
+        {
+          "Portal": {
+            "Applications": [
+              { "Id": "project-tracker", "Name": "Tracker", "Order": 1, "Status": "Active", "AllowedRoles": [] },
+              { "Id": "engineering-hub", "Name": "Engineering", "Order": 2, "Status": "Active", "AllowedRoles": [] },
+              { "Id": "estimating-dashboard", "Name": "Estimating", "Order": 3, "Status": "Active", "AllowedRoles": [] }
+            ]
+          }
+        }
+        """;
+        var registry = new ApplicationRegistry(BuildConfiguration(json));
+
+        var visible = registry.GetVisibleFor(
+            "Viewer",
+            new HashSet<string>(["estimating"], StringComparer.OrdinalIgnoreCase));
+
+        Assert.Contains(visible, application => application.Id == "project-tracker");
+        Assert.Contains(visible, application => application.Id == "estimating-dashboard");
+        Assert.DoesNotContain(visible, application => application.Id == "engineering-hub");
+    }
 }

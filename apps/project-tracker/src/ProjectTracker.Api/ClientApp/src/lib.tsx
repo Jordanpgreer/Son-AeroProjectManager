@@ -255,8 +255,6 @@ export function buildSchedule(tasks: ProjectTask[], programStart: string | null,
 /* ---------------------------------------------------------------------- */
 
 export function screenEyebrow(screen: Screen) {
-  if (screen === 'settings') return 'Administration'
-  if (screen === 'import') return 'Administration'
   if (screen === 'project') return 'Part No.'
   if (screen === 'calendar') return 'Schedule'
   if (screen === 'pastProjects') return 'Archive'
@@ -267,8 +265,6 @@ export function screenTitle(screen: Screen, project: ProjectDetail | null) {
   if (screen === 'project') return project?.programName ?? 'Project Detail'
   if (screen === 'calendar') return 'Production Calendar'
   if (screen === 'pastProjects') return 'Past Projects'
-  if (screen === 'settings') return 'Settings'
-  if (screen === 'import') return 'Imports / Admin'
   return 'Dashboard'
 }
 
@@ -276,14 +272,14 @@ export function screenSubtitle(screen: Screen) {
   if (screen === 'project') return ''
   if (screen === 'calendar') return 'Review operation starts, scheduled finishes, work-center load, and scheduling conflicts.'
   if (screen === 'pastProjects') return 'Completed programs, archived out of the active development queue.'
-  if (screen === 'settings') return 'Company work calendar, work centers, holidays, and user access.'
-  if (screen === 'import') return 'Upload a workbook to add its programs to the tracker.'
   return 'Active development programs, target dates, and schedule risk across the work queue.'
 }
 
 export function readStoredScreen(): Screen {
   const stored = window.localStorage.getItem('project-tracker-screen')
-  if (stored === 'holidays' || stored === 'workCenters') return 'settings'
+  if (stored === 'settings' || stored === 'import' || stored === 'holidays' || stored === 'workCenters') {
+    return 'dashboard'
+  }
   return screens.includes(stored as Screen) ? (stored as Screen) : 'dashboard'
 }
 
@@ -342,16 +338,6 @@ export function formatActivityTime(value: string) {
     hour: 'numeric',
     minute: '2-digit',
   }).format(new Date(value))
-}
-
-export function formatLastSeen(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime()) || date.getUTCFullYear() <= 1970) return 'Never signed in'
-  return `Last seen ${new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: date.getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
-  }).format(date)}`
 }
 
 export function activityActionClass(action: string) {
@@ -421,18 +407,6 @@ export function addDays(value: number, days: number) {
   const date = new Date(value)
   date.setDate(date.getDate() + days)
   return date.getTime()
-}
-
-export function enumerateIsoDates(startDate: string, endDate: string) {
-  const start = dateToMs(startDate)
-  const end = dateToMs(endDate)
-  const from = Math.min(start, end)
-  const to = Math.max(start, end)
-  const dates: string[] = []
-  for (let cursor = from; cursor <= to; cursor = addDays(cursor, 1)) {
-    dates.push(msToIso(cursor))
-  }
-  return dates
 }
 
 export function startOfTodayMs() {

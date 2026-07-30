@@ -51,8 +51,12 @@ function createRowId(prefix: string) {
 
 export default function EstimateCalculatorPage({
   ownerAccountName,
+  canManageQuotes,
+  canManageInputs,
 }: {
   ownerAccountName: string
+  canManageQuotes: boolean
+  canManageInputs: boolean
 }) {
   const [initialQuote] = useState(() => {
     const query = window.location.hash.split('?')[1] ?? ''
@@ -86,12 +90,17 @@ export default function EstimateCalculatorPage({
   }, [estimate.quantities, selectedQuantity])
 
   const updateEstimate = (update: (current: EstimateInput) => EstimateInput) => {
+    if (!canManageInputs) return
     setEstimate((current) => update(current))
     setDirty(true)
     setSaveMessage('')
   }
 
   const persistQuote = () => {
+    if (!canManageQuotes) {
+      setSaveMessage('Editor access is required to save quotes.')
+      return
+    }
     const saved = saveQuote({
       id: quoteId ?? undefined,
       ownerAccountName,
@@ -250,6 +259,7 @@ export default function EstimateCalculatorPage({
               aria-checked={estimate.kind === 'standard'}
               className={estimate.kind === 'standard' ? 'active' : undefined}
               data-testid="model-standard"
+              disabled={!canManageInputs}
               onClick={() => switchModel('standard')}
             >
               Standard
@@ -261,6 +271,7 @@ export default function EstimateCalculatorPage({
               aria-checked={estimate.kind === 'rubber'}
               className={estimate.kind === 'rubber' ? 'active' : undefined}
               data-testid="model-rubber"
+              disabled={!canManageInputs}
               onClick={() => switchModel('rubber')}
             >
               Rubber
@@ -278,6 +289,7 @@ export default function EstimateCalculatorPage({
             type="button"
             className="secondary-button"
             data-testid="reset-estimate"
+            disabled={!canManageInputs}
             onClick={resetEstimate}
           >
             <RotateCcw size={16} aria-hidden="true" />
@@ -289,6 +301,7 @@ export default function EstimateCalculatorPage({
               <select
                 value={quoteStatus}
                 aria-label="Quote status"
+                disabled={!canManageQuotes}
                 onChange={(event) => {
                   setQuoteStatus(event.currentTarget.value as QuoteStatus)
                   setDirty(true)
@@ -299,7 +312,7 @@ export default function EstimateCalculatorPage({
                 <option value="past">Past</option>
               </select>
             </label>
-            <button type="button" className="save-quote-button" onClick={persistQuote}>
+            <button type="button" className="save-quote-button" disabled={!canManageQuotes} onClick={persistQuote}>
               <Save size={16} aria-hidden="true" />
               Save quote
             </button>
@@ -310,13 +323,16 @@ export default function EstimateCalculatorPage({
         </div>
       </section>
 
-      <EstimateContextFields
-        estimate={estimate}
-        onMetadataChange={updateMetadata}
-        onYieldChange={(yieldValue) => updateEstimate((current) => ({ ...current, yield: yieldValue }))}
-        onSalesMarkupChange={(salesMarkup) => updateEstimate((current) => ({ ...current, salesMarkup }))}
-        onRubberFieldChange={updateRubberField}
-      />
+      <fieldset className="permission-fieldset" disabled={!canManageInputs}>
+        <legend className="sr-only">Estimate inputs</legend>
+        <EstimateContextFields
+          estimate={estimate}
+          onMetadataChange={updateMetadata}
+          onYieldChange={(yieldValue) => updateEstimate((current) => ({ ...current, yield: yieldValue }))}
+          onSalesMarkupChange={(salesMarkup) => updateEstimate((current) => ({ ...current, salesMarkup }))}
+          onRubberFieldChange={updateRubberField}
+        />
+      </fieldset>
 
       <section className="assumptions-bar" aria-labelledby="assumptions-heading">
         <div className="assumption-year">
@@ -326,6 +342,7 @@ export default function EstimateCalculatorPage({
             <select
               value={estimate.rateYear}
               data-testid="rate-year"
+              disabled={!canManageInputs}
               onChange={(event) => {
                 const rateYear = Number(event.currentTarget.value) as EstimateYear
                 updateEstimate((current) => ({ ...current, rateYear }))
@@ -366,13 +383,15 @@ export default function EstimateCalculatorPage({
         quantities={estimate.quantities}
         selectedQuantity={selectedQuantity}
         onSelectedQuantityChange={setSelectedQuantity}
+        editable={canManageInputs}
         onQuantitiesChange={(quantities) => updateEstimate((current) => ({
           ...current,
           quantities,
         }))}
       />
 
-      <div className="calculator-input-stack">
+      <fieldset className="permission-fieldset calculator-input-stack" disabled={!canManageInputs}>
+        <legend className="sr-only">Operations, materials, and processes</legend>
         <OperationsSection
           operations={estimate.operations}
           audits={calculation.operations}
@@ -402,7 +421,7 @@ export default function EstimateCalculatorPage({
             processes: current.processes.filter((process) => process.id !== id),
           }))}
         />
-      </div>
+      </fieldset>
     </div>
   )
 }

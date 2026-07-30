@@ -1,7 +1,7 @@
 export type ProjectStatus = 'NotStarted' | 'OnTrack' | 'Behind' | 'Complete'
 export type TaskStatus = 'NotStarted' | 'OnTrack' | 'Behind' | 'Complete'
-export type Screen = 'dashboard' | 'project' | 'calendar' | 'pastProjects' | 'settings' | 'import'
-export const screens: Screen[] = ['dashboard', 'project', 'calendar', 'pastProjects', 'settings', 'import']
+export type Screen = 'dashboard' | 'project' | 'calendar' | 'pastProjects'
+export const screens: Screen[] = ['dashboard', 'project', 'calendar', 'pastProjects']
 export type DayOfWeekName = 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday'
 
 export type User = {
@@ -181,47 +181,6 @@ export type ProjectAuditChange = {
   field: string
   oldValue: string | null
   newValue: string | null
-}
-
-export type RegisteredUser = {
-  id: number
-  accountName: string
-  displayName: string
-  isActive: boolean
-  lastSeenAt: string
-  groupIds: number[]
-}
-
-export type AccessGroup = {
-  id: number
-  name: string
-  description: string | null
-  isSystemGroup: boolean
-  permissions: string[]
-  userCount: number
-}
-
-export type PermissionDefinition = {
-  key: string
-  label: string
-  description: string
-  category: string
-}
-
-export type AccessOverview = {
-  users: RegisteredUser[]
-  groups: AccessGroup[]
-  permissions: PermissionDefinition[]
-}
-
-export type ArchivedProject = {
-  id: number
-  version: number
-  programName: string
-  customerName: string | null
-  salesOrderNumber: string | null
-  deletedAt: string
-  deletedByDisplayName: string | null
 }
 
 export type ProjectAuditEntry = {

@@ -1,3 +1,4 @@
+using System.Data;
 using EngineeringHub.Api.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,6 +15,7 @@ public sealed class EngineeringSchemaInitializer(EngineeringDbContext db)
         else if (db.Database.IsSqlServer())
             await EnsureSqlServerSchemaAsync(cancellationToken);
 
+        await EnsureSingleMylarConstraintAsync(cancellationToken);
         await BackfillLegacyMylarAsync(cancellationToken);
     }
 
@@ -36,8 +38,6 @@ public sealed class EngineeringSchemaInitializer(EngineeringDbContext db)
                 CONSTRAINT "FK_DrawingMylars_Drawings_DrawingId"
                     FOREIGN KEY ("DrawingId") REFERENCES "Drawings" ("Id") ON DELETE RESTRICT
             );
-            CREATE UNIQUE INDEX IF NOT EXISTS "IX_DrawingMylars_DrawingId_NormalizedMylarNumber"
-                ON "DrawingMylars" ("DrawingId", "NormalizedMylarNumber");
             """,
             cancellationToken);
 
@@ -121,13 +121,6 @@ public sealed class EngineeringSchemaInitializer(EngineeringDbContext db)
                 );
             END;
 
-            IF NOT EXISTS (
-                SELECT 1 FROM sys.indexes
-                WHERE [name] = N'IX_DrawingMylars_DrawingId_NormalizedMylarNumber'
-                    AND [object_id] = OBJECT_ID(N'[DrawingMylars]'))
-                CREATE UNIQUE INDEX [IX_DrawingMylars_DrawingId_NormalizedMylarNumber]
-                    ON [DrawingMylars] ([DrawingId], [NormalizedMylarNumber]);
-
             IF COL_LENGTH(N'MylarTransactions', N'DrawingMylarId') IS NULL
                 ALTER TABLE [MylarTransactions] ADD [DrawingMylarId] int NULL;
 
@@ -149,6 +142,65 @@ public sealed class EngineeringSchemaInitializer(EngineeringDbContext db)
                     ON [MylarTransactions] ([DrawingMylarId]);
             """,
             cancellationToken);
+    }
+
+    private async Task EnsureSingleMylarConstraintAsync(CancellationToken cancellationToken)
+    {
+        if (!db.Database.IsSqlite() && !db.Database.IsSqlServer())
+            return;
+
+        await using var transaction = await db.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable,
+            cancellationToken);
+
+        var duplicateDrawingIds = await db.DrawingMylars
+            .AsNoTracking()
+            .GroupBy(x => x.DrawingId)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .OrderBy(id => id)
+            .ToListAsync(cancellationToken);
+
+        if (duplicateDrawingIds.Count > 0)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw new InvalidOperationException(
+                "Cannot enforce one registered Mylar per drawing because legacy duplicate Mylar rows exist " +
+                $"for drawing IDs: {string.Join(", ", duplicateDrawingIds)}. " +
+                "Resolve those records manually before restarting Engineering Hub; no duplicate Mylar rows were modified.");
+        }
+
+        if (db.Database.IsSqlite())
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                DROP INDEX IF EXISTS "IX_DrawingMylars_DrawingId_NormalizedMylarNumber";
+                CREATE UNIQUE INDEX IF NOT EXISTS "IX_DrawingMylars_DrawingId"
+                    ON "DrawingMylars" ("DrawingId");
+                """,
+                cancellationToken);
+        }
+        else
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                IF EXISTS (
+                    SELECT 1 FROM sys.indexes
+                    WHERE [name] = N'IX_DrawingMylars_DrawingId_NormalizedMylarNumber'
+                        AND [object_id] = OBJECT_ID(N'[DrawingMylars]'))
+                    DROP INDEX [IX_DrawingMylars_DrawingId_NormalizedMylarNumber] ON [DrawingMylars];
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM sys.indexes
+                    WHERE [name] = N'IX_DrawingMylars_DrawingId'
+                        AND [object_id] = OBJECT_ID(N'[DrawingMylars]'))
+                    CREATE UNIQUE INDEX [IX_DrawingMylars_DrawingId]
+                        ON [DrawingMylars] ([DrawingId]);
+                """,
+                cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
     }
 
     private async Task BackfillLegacyMylarAsync(CancellationToken cancellationToken)

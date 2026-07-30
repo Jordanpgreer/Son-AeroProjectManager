@@ -38,6 +38,22 @@ public sealed class ProjectTrackerPermissionSchemaTests
     }
 
     [Fact]
+    public void UserModuleAccess_UsesACompositeKeyAndNullableRole()
+    {
+        var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>()
+            .UseSqlite("Data Source=:memory:")
+            .Options;
+        using var db = new ProjectTrackerDbContext(options);
+        var access = db.Model.FindEntityType(typeof(AppUserModuleAccess))!;
+
+        Assert.Equal(
+            [nameof(AppUserModuleAccess.AppUserId), nameof(AppUserModuleAccess.ModuleKey)],
+            access.FindPrimaryKey()!.Properties.Select(property => property.Name));
+        Assert.True(access.FindProperty(nameof(AppUserModuleAccess.Role))!.IsNullable);
+        Assert.Equal(40, access.FindProperty(nameof(AppUserModuleAccess.ModuleKey))!.GetMaxLength());
+    }
+
+    [Fact]
     public async Task SqliteDefaultPermissionSeed_RunsOnlyOnce()
     {
         var path = Path.Combine(Path.GetTempPath(), $"project-tracker-permissions-{Guid.NewGuid():N}.db");

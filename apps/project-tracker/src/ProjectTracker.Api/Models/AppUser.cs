@@ -8,6 +8,7 @@ public sealed class AppUser
     public bool IsActive { get; set; } = true;
     public DateTimeOffset LastSeenAt { get; set; } = DateTimeOffset.UtcNow;
     public ICollection<AppUserGroupMembership> GroupMemberships { get; set; } = [];
+    public ICollection<AppUserModuleAccess> ModuleAccessAssignments { get; set; } = [];
     public ICollection<UserNotification> Notifications { get; set; } = [];
 }
 

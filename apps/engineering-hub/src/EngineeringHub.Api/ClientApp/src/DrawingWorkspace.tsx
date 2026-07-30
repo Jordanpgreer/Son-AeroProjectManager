@@ -62,6 +62,7 @@ export interface DrawingRecordHeader {
   checkedOutMylarCount: number
   notes: string | null
   pendingReviewRevision: string | null
+  isMetadataEditing: boolean
 }
 interface DrawingWorkspaceProps {
   drawingId: number | null
@@ -73,6 +74,8 @@ interface DrawingWorkspaceProps {
   archiveRequest: number
   auditRequest: number
   actorName: string
+  canEdit: boolean
+  canAdmin: boolean
 }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -243,6 +246,8 @@ export default function DrawingWorkspace({
   archiveRequest,
   auditRequest,
   actorName,
+  canEdit,
+  canAdmin,
 }: DrawingWorkspaceProps) {
   const [selected, setSelected] = useState<DrawingDetail | null>(null)
   const [showCreate, setShowCreate] = useState(initialCreate)
@@ -251,13 +256,11 @@ export default function DrawingWorkspace({
   const [showArchive, setShowArchive] = useState(false)
   const [showRevisionUpload, setShowRevisionUpload] = useState(false)
   const [showMylarCustody, setShowMylarCustody] = useState(false)
-  const [activeMylarId, setActiveMylarId] = useState<number | null>(null)
-  const [registeringMylar, setRegisteringMylar] = useState(false)
   const [activeRevisionId, setActiveRevisionId] = useState<number | null>(null)
   const [previewRevisionId, setPreviewRevisionId] = useState<number | null>(null)
   const [activateTarget, setActivateTarget] = useState<Revision | null>(null)
   const [editRevisionTarget, setEditRevisionTarget] = useState<Revision | null>(null)
-  const [resubmitAfterSave, setResubmitAfterSave] = useState(false)
+  const [revisionSaveIntent, setRevisionSaveIntent] = useState<'draft' | 'approval' | null>(null)
   const [revisionEditError, setRevisionEditError] = useState<string | null>(null)
   const [archiveReason, setArchiveReason] = useState('')
   const [auditOpen, setAuditOpen] = useState(false)
@@ -295,18 +298,14 @@ export default function DrawingWorkspace({
     setPreviewRevisionId(current => sameDrawing && current && drawing.revisions.some(revision => revision.id === current && revision.hasPdf)
       ? current
       : null)
-    setActiveMylarId(current => sameDrawing && current && drawing.mylars.some(mylar => mylar.id === current)
-      ? current
-      : drawing.mylars.find(mylar => mylar.isCheckedOut)?.id ?? drawing.mylars[0]?.id ?? null)
     setShowEdit(false)
     setShowArchive(false)
     setActivateTarget(null)
     setEditRevisionTarget(null)
-    setResubmitAfterSave(false)
+    setRevisionSaveIntent(null)
     setRevisionEditError(null)
     setArchiveReason('')
     setAuditOpen(false)
-    setRegisteringMylar(false)
     setMylarMessage(null)
     setMylarError(null)
   }
@@ -320,8 +319,6 @@ export default function DrawingWorkspace({
       setShowCreate(false)
       setShowRevisionUpload(false)
       setShowMylarCustody(false)
-      setActiveMylarId(null)
-      setRegisteringMylar(false)
       setActiveRevisionId(null)
       setPreviewRevisionId(null)
       setRecordLoading(true)
@@ -332,9 +329,9 @@ export default function DrawingWorkspace({
       openDrawingIdRef.current = null
       setSelected(null)
       setRecordLoading(false)
-      setShowCreate(initialCreate)
+      setShowCreate(initialCreate && canEdit)
     }
-  }, [drawingId, initialCreate])
+  }, [drawingId, initialCreate, canEdit])
   useEffect(() => {
     onRecordChange(selected ? {
       drawingNumber: selected.drawingNumber,
@@ -354,24 +351,33 @@ export default function DrawingWorkspace({
       pendingReviewRevision: selected.isObsolete
         ? null
         : selected.revisions.find(revision => revision.status === 'UnderReview')?.revisionNumber ?? null,
+      isMetadataEditing: showEdit,
     } : null)
-  }, [onRecordChange, selected])
+  }, [onRecordChange, selected, showEdit])
   useEffect(() => {
     if (editRequest <= handledEditRequest.current) {
       handledEditRequest.current = editRequest
       return
     }
     handledEditRequest.current = editRequest
-    if (selected && !selected.isObsolete) setShowEdit(true)
-  }, [editRequest, selected])
+    if (canEdit && selected && !selected.isObsolete) {
+      setShowEdit(current => {
+        const next = !current
+        if (next) {
+          window.setTimeout(() => document.querySelector<HTMLElement>('.metadata-edit-form input')?.focus(), 0)
+        }
+        return next
+      })
+    }
+  }, [canEdit, editRequest, selected])
   useEffect(() => {
     if (archiveRequest <= handledArchiveRequest.current) {
       handledArchiveRequest.current = archiveRequest
       return
     }
     handledArchiveRequest.current = archiveRequest
-    if (selected && !selected.isObsolete) setShowArchive(true)
-  }, [archiveRequest, selected])
+    if (canEdit && selected && !selected.isObsolete) setShowArchive(true)
+  }, [archiveRequest, canEdit, selected])
   useEffect(() => {
     if (auditRequest <= handledAuditRequest.current) {
       handledAuditRequest.current = auditRequest
@@ -475,12 +481,12 @@ export default function DrawingWorkspace({
 
   async function recordMylarMovement(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!selected || !activeMylar) return
+    if (!selected || !mylar) return
     const formElement = event.currentTarget
     const form = new FormData(formElement)
     const location = String(form.get('location') ?? '').trim()
     const note = String(form.get('note') ?? '').trim()
-    const checkingOut = !activeMylar.isCheckedOut
+    const checkingOut = !mylar.isCheckedOut
     if (!location) {
       setMylarError('A location is required for every Mylar custody record.')
       return
@@ -490,7 +496,7 @@ export default function DrawingWorkspace({
     setMylarError(null)
     setMylarMessage(null)
     try {
-      await api(`/api/drawings/${selected.id}/mylars/${activeMylar.id}/${checkingOut ? 'checkout' : 'checkin'}`, {
+      await api(`/api/drawings/${selected.id}/mylars/${mylar.id}/${checkingOut ? 'checkout' : 'checkin'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ note: note || null, location }),
@@ -498,8 +504,8 @@ export default function DrawingWorkspace({
       formElement.reset()
       await refresh()
       setMylarMessage(checkingOut
-        ? `${activeMylar.mylarNumber} checked out by ${actorName} to ${location}.`
-        : `${activeMylar.mylarNumber} checked in by ${actorName} at ${location}.`)
+        ? `${mylar.mylarNumber} checked out by ${actorName} to ${location}.`
+        : `${mylar.mylarNumber} checked in by ${actorName} at ${location}.`)
     } catch (cause) {
       setMylarError(cause instanceof Error ? cause.message : `Unable to check ${checkingOut ? 'out' : 'in'} the Mylar.`)
     } finally {
@@ -531,9 +537,7 @@ export default function DrawingWorkspace({
       })
       formElement.reset()
       await refresh()
-      setActiveMylarId(registered.id)
-      setRegisteringMylar(false)
-      setMylarMessage(`${registered.mylarNumber} registered by ${actorName} at ${location}.`)
+      setMylarMessage(`${registered.mylarNumber} is registered and checked in at ${location}.`)
     } catch (cause) {
       setMylarError(cause instanceof Error ? cause.message : 'Unable to register the Mylar.')
     } finally {
@@ -560,7 +564,7 @@ export default function DrawingWorkspace({
       setFeedback({
         kind: 'error',
         title: 'Complete the required revision details',
-        message: `Add ${missingFields.join(', ')} before submitting this controlled revision.`,
+        message: `Add ${missingFields.join(', ')} before uploading this new revision.`,
       })
       return
     }
@@ -574,8 +578,8 @@ export default function DrawingWorkspace({
       setShowRevisionUpload(false)
       setFeedback({
         kind: 'success',
-        title: `Revision ${revisionNumber} submitted`,
-        message: 'The controlled revision and its file package were added to the permanent drawing history.',
+        title: `Revision ${revisionNumber} uploaded as a draft`,
+        message: 'A new revision and its file package were added to permanent drawing history. Edit the revision when it is ready to submit for approval.',
       })
     } catch (cause) {
       setFeedback({
@@ -619,12 +623,12 @@ export default function DrawingWorkspace({
 
   function openRevisionEditor(revision: Revision) {
     setEditRevisionTarget(revision)
-    setResubmitAfterSave(false)
+    setRevisionSaveIntent(null)
     setRevisionEditError(null)
   }
   function closeRevisionEditor() {
     setEditRevisionTarget(null)
-    setResubmitAfterSave(false)
+    setRevisionSaveIntent(null)
     setRevisionEditError(null)
     window.setTimeout(() => document.querySelector<HTMLElement>('.revision-edit-button')?.focus(), 0)
   }
@@ -638,9 +642,10 @@ export default function DrawingWorkspace({
     window.setTimeout(() => document.querySelector<HTMLElement>('.drawing-upload-button')?.focus(), 0)
   }
   function openMylarCustody() {
-    if (!selected?.mylars.length) setRegisteringMylar(true)
     setShowMylarCustody(true)
-    window.setTimeout(() => mylarDrawerRef.current?.querySelector<HTMLElement>('button, input')?.focus(), 0)
+    window.setTimeout(() => mylarDrawerRef.current?.querySelector<HTMLElement>(
+      '.mylar-register-form input, .mylar-action-form input, button',
+    )?.focus(), 0)
   }
   function closeMylarCustody() {
     if (busy) return
@@ -661,38 +666,36 @@ export default function DrawingWorkspace({
     event.preventDefault()
     if (!editRevisionTarget) return
     const target = editRevisionTarget
+    const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null
+    const submitForApproval = submitter?.value === 'approval'
     const form = new FormData(event.currentTarget)
     const revisionNumber = String(form.get('revisionNumber') ?? '').trim()
     const revisionDate = String(form.get('revisionDate') ?? '').trim()
     const changeDescription = String(form.get('changeDescription') ?? '').trim()
     const pdf = form.get('pdf')
-    const createsCopy = ['Approved', 'Superseded', 'Obsolete'].includes(target.status)
     const missing = [
       !revisionNumber && 'revision number',
       !revisionDate && 'revision date',
       !changeDescription && 'change description',
-      !target.hasPdf && (!(pdf instanceof File) || pdf.size === 0) && 'PDF',
+      submitForApproval && !target.hasPdf && (!(pdf instanceof File) || pdf.size === 0) && 'PDF',
     ].filter(Boolean) as string[]
     if (missing.length) {
       setRevisionEditError(`Add ${missing.join(', ')} before saving this revision.`)
       return
     }
-    if (createsCopy && revisionNumber.toLowerCase() === target.revisionNumber.toLowerCase()) {
-      setRevisionEditError('Enter a new revision number. The controlled source revision will remain unchanged.')
-      return
-    }
 
+    setRevisionSaveIntent(submitForApproval ? 'approval' : 'draft')
     setBusy(true)
     setRevisionEditError(null)
     setUploadProgress(0)
     try {
-      const saved = await uploadWithProgress<{ revisionId: number; created: boolean; hasPdf: boolean }>(
+      const saved = await uploadWithProgress<{ revisionId: number; hasPdf: boolean }>(
         `/api/drawing-revisions/${target.id}/editable-draft`,
         form,
         setUploadProgress,
       )
       let submitted = false
-      if (resubmitAfterSave) {
+      if (submitForApproval) {
         try {
           await api(`/api/drawing-revisions/${saved.revisionId}/status`, {
             method: 'PUT',
@@ -707,8 +710,8 @@ export default function DrawingWorkspace({
             kind: 'error',
             title: `Revision ${revisionNumber} was saved as a draft`,
             message: cause instanceof Error
-              ? `The draft was saved, but review submission needs attention: ${cause.message}`
-              : 'The draft was saved, but it could not be submitted for review.',
+              ? `The draft was saved, but approval submission needs attention: ${cause.message}`
+              : 'The draft was saved, but it could not be submitted for approval.',
           })
           return
         }
@@ -717,15 +720,16 @@ export default function DrawingWorkspace({
       await refresh()
       setFeedback({
         kind: 'success',
-        title: `Revision ${revisionNumber} ${submitted ? 'submitted for review' : 'saved as a draft'}`,
-        message: saved.created
-          ? `A new editable draft was created from Revision ${target.revisionNumber}; the controlled source revision remains unchanged.`
-          : `The editable revision was updated${target.status === 'UnderReview' ? ' and its prior review was returned to Draft' : ''}.`,
+        title: `Revision ${revisionNumber} ${submitted ? 'submitted for approval' : 'saved as a draft'}`,
+        message: submitted
+          ? 'The selected revision was updated and moved into the approval queue.'
+          : 'The selected revision was updated in place and remains a draft.',
       })
     } catch (cause) {
       setRevisionEditError(cause instanceof Error ? cause.message : 'Unable to save the revision draft.')
     } finally {
       setBusy(false)
+      setRevisionSaveIntent(null)
       setUploadProgress(null)
     }
   }
@@ -836,14 +840,9 @@ export default function DrawingWorkspace({
       ?? null
     : null
   const previewedRevision = selected?.revisions.find(revision => revision.id === previewRevisionId && revision.hasPdf) ?? null
-  const activeMylar = selected?.mylars.find(mylar => mylar.id === activeMylarId)
-    ?? selected?.mylars[0]
-    ?? null
-  const summaryMylar = selected?.mylars.find(mylar => mylar.isCheckedOut)
-    ?? selected?.mylars[0]
-    ?? null
-  const summaryMylarEvent = summaryMylar
-    ? selected?.mylarHistory.find(item => item.mylarId === summaryMylar.id) ?? null
+  const mylar = selected?.mylars[0] ?? null
+  const summaryMylarEvent = mylar
+    ? selected?.mylarHistory.find(item => item.mylarId === mylar.id) ?? null
     : null
 
   return <div className="drawing-workspace">
@@ -851,7 +850,7 @@ export default function DrawingWorkspace({
 
     {uploadProgress !== null && <div className="upload-progress" role="status"><span style={{ width: `${uploadProgress}%` }}/><strong>{uploadProgress}%</strong><small>Transferring controlled file package</small></div>}
 
-    {showCreate && <form className="panel record-form" onSubmit={createDrawing}>
+    {canEdit && showCreate && <form className="panel record-form" onSubmit={createDrawing}>
       <div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Atomic creation</span><h2>Create drawing and optional initial PDF</h2><p>Without a PDF, this creates a metadata-only Draft. With a PDF, the drawing and revision succeed or roll back together.</p></div></div>
       <div className="form-grid">
         <label>Drawing number<input name="drawingNumber" required/></label><label>Title<input name="title" required/></label>
@@ -873,9 +872,9 @@ export default function DrawingWorkspace({
       <div className="skeleton-line"/>
       <div className="skeleton-line" style={{ width: '58%' }}/>
     </article> : !selected && !showCreate ? <article className="panel drawing-empty"><FileText size={30}/><h2>No drawing selected</h2><p>Return to the drawing register to search and open a controlled record.</p><button className="button ghost" type="button" onClick={onBackToDashboard}>Open drawing register</button></article> : selected ? <article className="drawing-detail">
-        {selected.approvalStatus === 'Draft' && selected.revisions.length === 0 && <div className="record-destructive-actions"><button className="button danger" type="button" onClick={requestDrawingDelete}><Trash2 size={14}/> Delete draft</button></div>}
+        {canAdmin && selected.approvalStatus === 'Draft' && selected.revisions.length === 0 && <div className="record-destructive-actions"><button className="button danger" type="button" onClick={requestDrawingDelete}><Trash2 size={14}/> Delete draft</button></div>}
 
-        {showEdit && <form className="panel record-form metadata-edit-form" onSubmit={updateDrawing}>
+        {canEdit && showEdit && <form id="drawing-metadata-editor" className="panel record-form metadata-edit-form" onSubmit={updateDrawing}>
           <div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Audited metadata update</span><h2>Edit drawing record</h2></div></div>
           <div className="form-grid">
             <label>Title<input name="title" defaultValue={selected.title} required/></label><label>Customer<input name="customer" defaultValue={selected.customer} required/></label>
@@ -891,7 +890,7 @@ export default function DrawingWorkspace({
           <div>
             <h2>Drawing workspace</h2>
           </div>
-          {!selected.isObsolete && <button className="button drawing-upload-button" type="button" onClick={openRevisionUpload}>
+          {canEdit && !selected.isObsolete && <button className="button drawing-upload-button" type="button" onClick={openRevisionUpload}>
             <FilePlus2 size={15}/> Upload revision
           </button>}
         </section>
@@ -925,7 +924,7 @@ export default function DrawingWorkspace({
                 </dl>
               </div>
 
-              {activeRevision.status === 'UnderReview' && <label className="drawing-review-comment">
+              {canEdit && activeRevision.status === 'UnderReview' && <label className="drawing-review-comment">
                 <span>Reviewer comment</span>
                 <textarea value={reviewComments[activeRevision.id] ?? ''} onChange={event => setReviewComments(current => ({ ...current, [activeRevision.id]: event.target.value }))} placeholder="Add a disposition note for this review"/>
               </label>}
@@ -937,9 +936,9 @@ export default function DrawingWorkspace({
                 {activeRevision.hasPdf && <a className="button ghost" href={`/api/drawing-revisions/${activeRevision.id}/file`} target="_blank" rel="noreferrer">
                   <ArrowRight size={14}/> Open PDF
                 </a>}
-                <button className="button ghost revision-edit-button" type="button" disabled={busy} onClick={() => openRevisionEditor(activeRevision)}>
+                {canEdit && <button className="button ghost revision-edit-button" type="button" disabled={busy} onClick={() => openRevisionEditor(activeRevision)}>
                   <Pencil size={14}/> Edit revision
-                </button>
+                </button>}
                 {activeRevision.hasPdf && controlledFolderHref(activeRevision.controlledFilePath) && <a
                   className="button ghost"
                   href={controlledFolderHref(activeRevision.controlledFilePath) ?? undefined}
@@ -947,7 +946,7 @@ export default function DrawingWorkspace({
                 >
                   <FolderOpen size={14}/> Open folder
                 </a>}
-                {activeRevision.hasPdf && (activeRevision.status === 'Superseded' || activeRevision.status === 'Obsolete') && <button
+                {canEdit && activeRevision.hasPdf && (activeRevision.status === 'Superseded' || activeRevision.status === 'Obsolete') && <button
                   className="button ghost revision-make-current"
                   type="button"
                   disabled={busy}
@@ -955,12 +954,12 @@ export default function DrawingWorkspace({
                 >
                   <CheckCircle2 size={14}/> Make current
                 </button>}
-                {activeRevision.status === 'Draft' && <button className="button ghost" type="button" disabled={busy || !activeRevision.hasPdf} title={!activeRevision.hasPdf ? 'Attach a real PDF before review.' : undefined} onClick={() => void setRevisionStatus(activeRevision, 'UnderReview')}>Submit review</button>}
-                {activeRevision.status === 'UnderReview' && <>
+                {canEdit && activeRevision.status === 'Draft' && <button className="button ghost" type="button" disabled={busy || !activeRevision.hasPdf} title={!activeRevision.hasPdf ? 'Attach a real PDF before review.' : undefined} onClick={() => void setRevisionStatus(activeRevision, 'UnderReview')}>Submit review</button>}
+                {canEdit && activeRevision.status === 'UnderReview' && <>
                   <button className="button ghost" type="button" disabled={busy} onClick={() => void setRevisionStatus(activeRevision, 'Draft')}>Return to draft</button>
                   <button className="button" type="button" disabled={busy || !activeRevision.hasPdf} onClick={() => void approveRevision(activeRevision)}><CheckCircle2 size={14}/> Approve</button>
                 </>}
-                {activeRevision.id !== selected.currentApprovedRevisionId && activeRevision.status !== 'Approved' && <button className="button danger" type="button" disabled={busy} onClick={() => requestRevisionDelete(activeRevision)}><Trash2 size={14}/> Delete</button>}
+                {canAdmin && activeRevision.id !== selected.currentApprovedRevisionId && activeRevision.status !== 'Approved' && <button className="button danger" type="button" disabled={busy} onClick={() => requestRevisionDelete(activeRevision)}><Trash2 size={14}/> Delete</button>}
               </div>
 
               <div className={`drawing-pdf-stage ${previewedRevision?.id === activeRevision.id ? 'is-previewing' : ''}`}>
@@ -983,7 +982,7 @@ export default function DrawingWorkspace({
               <span aria-hidden="true"><FilePlus2 size={29}/></span>
               <strong>No revisions recorded</strong>
               <p>Upload the first controlled PDF package to begin permanent revision history.</p>
-              {!selected.isObsolete && <button className="button" type="button" onClick={openRevisionUpload}><FilePlus2 size={14}/> Upload first revision</button>}
+              {canEdit && !selected.isObsolete && <button className="button" type="button" onClick={openRevisionUpload}><FilePlus2 size={14}/> Upload first revision</button>}
             </div>}
           </section>
 
@@ -1016,12 +1015,12 @@ export default function DrawingWorkspace({
             </div> : <div className="drawing-history-empty"><History size={22}/><strong>No revision history</strong><p>The first uploaded revision will appear here.</p></div>}
           </aside>
 
-          <section className={`panel drawing-mylar-card ${summaryMylar?.isCheckedOut ? 'is-out' : 'is-in'}`} aria-labelledby="drawing-mylar-title">
+          <section className={`panel drawing-mylar-card ${!mylar ? 'is-unregistered' : mylar.isCheckedOut ? 'is-out' : 'is-in'}`} aria-labelledby="drawing-mylar-title">
             <header className="drawing-mylar-card-header">
               <h2 id="drawing-mylar-title">Mylar custody</h2>
-              <span className="drawing-mylar-state"><i aria-hidden="true"/>{!summaryMylar
-                ? 'No Mylar assigned'
-                : summaryMylar.isCheckedOut
+              <span className="drawing-mylar-state"><i aria-hidden="true"/>{!mylar
+                ? 'Not registered'
+                : mylar.isCheckedOut
                   ? 'Checked out'
                   : 'Checked in'}</span>
             </header>
@@ -1029,28 +1028,36 @@ export default function DrawingWorkspace({
               <div className="drawing-mylar-overview">
                 <span className="drawing-mylar-icon" aria-hidden="true"><MapPin size={19}/></span>
                 <div>
-                  <strong className={summaryMylar ? 'technical-id' : undefined}>{summaryMylar?.mylarNumber ?? 'No Mylar currently assigned'}</strong>
-                  <p>{summaryMylar
-                    ? `${summaryMylar.isCheckedOut ? 'Checked out to' : 'Checked in at'} ${summaryMylar.currentLocation || 'an unrecorded location'}${selected.mylarCount > 1 ? ` · ${selected.mylarCount - 1} additional Mylar record${selected.mylarCount === 2 ? '' : 's'}` : ''}`
-                    : 'Check in a numbered Mylar to begin its custody record.'}</p>
+                  <strong className={mylar ? 'technical-id' : undefined}>{mylar?.mylarNumber ?? 'No physical Mylar registered'}</strong>
+                  <p>{mylar
+                    ? mylar.isCheckedOut
+                      ? `Held by ${mylar.checkedOutBy || 'an unrecorded user'} at ${mylar.currentLocation || 'an unrecorded destination'}`
+                      : `Available in controlled storage at ${mylar.currentLocation || 'an unrecorded location'}`
+                    : 'Register the drawing’s physical Mylar before recording custody movements.'}</p>
                 </div>
               </div>
-              {summaryMylar ? <dl>
-                <div><dt>Current location</dt><dd>{summaryMylar.currentLocation || 'Not recorded'}</dd></div>
-                <div><dt>{summaryMylar.isCheckedOut ? 'Held by' : 'Custody'}</dt><dd>{summaryMylar.checkedOutBy || 'Controlled storage'}</dd></div>
+              {mylar ? <dl>
+                <div><dt>Current location</dt><dd>{mylar.currentLocation || 'Not recorded'}</dd></div>
+                <div><dt>{mylar.isCheckedOut ? 'Held by' : 'Custody'}</dt><dd>{mylar.checkedOutBy || 'Controlled storage'}</dd></div>
                 <div><dt>Latest activity</dt><dd>{summaryMylarEvent ? `${mylarTypeLabel(summaryMylarEvent.type)} · ${date(summaryMylarEvent.recordedAt)}` : 'No movement recorded'}</dd></div>
               </dl> : <dl className="drawing-mylar-empty-history">
                 <div><dt>Custody history</dt><dd>{selected.mylarHistory.length} retained record{selected.mylarHistory.length === 1 ? '' : 's'}</dd></div>
               </dl>}
-              <button className="button ghost drawing-mylar-button" type="button" onClick={openMylarCustody}>
-                {summaryMylar ? <><MapPin size={14}/> Manage custody</> : <><LogIn size={14}/> Check in Mylar</>}
-              </button>
+              {(canEdit || mylar) && <button className="button ghost drawing-mylar-button" type="button" onClick={openMylarCustody}>
+                {!canEdit
+                  ? <><MapPin size={14}/> View custody</>
+                  : !mylar
+                    ? <><FilePlus2 size={14}/> Register Mylar</>
+                    : mylar.isCheckedOut
+                      ? <><LogIn size={14}/> Check in Mylar</>
+                      : <><LogOut size={14}/> Check out Mylar</>}
+              </button>}
             </div>
           </section>
           </div>
         </div>
 
-        {showRevisionUpload && <div className="revision-upload-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) closeRevisionUpload() }}>
+        {canEdit && showRevisionUpload && <div className="revision-upload-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) closeRevisionUpload() }}>
           <section ref={revisionUploadDialogRef} className="revision-upload-dialog" role="dialog" aria-modal="true" aria-labelledby="revision-upload-title" aria-describedby="revision-upload-description">
             <header className="revision-upload-header">
               <span className="revision-upload-icon" aria-hidden="true"><FilePlus2 size={20}/></span>
@@ -1078,109 +1085,82 @@ export default function DrawingWorkspace({
               <button autoFocus type="button" className="delete-dialog-close" aria-label="Close Mylar custody" disabled={busy} onClick={closeMylarCustody}><X size={18}/></button>
             </header>
             <div className="mylar-drawer-body">
-              <section className="mylar-registry-section">
+              {!mylar && <section className="mylar-registration-section">
                 <header>
-                  <div><small>Numbered physical records</small><h3>Registered Mylars</h3></div>
-                  {!selected.isObsolete && <button className="button ghost mylar-register-button" type="button" onClick={() => {
-                    setRegisteringMylar(current => !current)
-                    setMylarError(null)
-                    setMylarMessage(null)
-                  }}>
-                    <FilePlus2 size={14}/>{registeringMylar ? 'Cancel' : 'Register Mylar'}
-                  </button>}
+                  <small>First-time setup</small>
+                  <h3>Register the physical Mylar</h3>
+                  <p>Registration establishes the Mylar’s identity and initial checked-in storage location for this drawing.</p>
                 </header>
 
-                {registeringMylar && <form className="mylar-register-form" onSubmit={registerMylar}>
+                {canEdit && !selected.isObsolete ? <form className="mylar-register-form" onSubmit={registerMylar}>
                   <div className="mylar-action-fields">
-                    <label><span>Mylar number</span><input name="mylarNumber" required placeholder="MY-001"/></label>
+                    <label><span>Mylar number</span><input autoFocus name="mylarNumber" required placeholder="MY-001"/></label>
                     <label><span>Initial storage location</span><input name="location" required placeholder="Cabinet and slot"/></label>
                     <label className="wide"><span>Registration note <small>Optional</small></span><textarea name="note" rows={2} placeholder="Condition, copy designation, or other identifying detail"/></label>
                   </div>
                   <div className="mylar-action-footer">
-                    <p>Registered by <strong>{actorName}</strong>. Duplicate numbers for this drawing are blocked.</p>
+                    <p>Registration will be permanently recorded under <strong>{actorName}</strong>.</p>
                     <button className="button" type="submit" disabled={busy}><FilePlus2 size={14}/>{busy ? 'Registering...' : 'Register Mylar'}</button>
                   </div>
-                </form>}
-
-                {selected.mylars.length ? <div className="mylar-registry-list" role="list" aria-label="Registered Mylars">
-                  {selected.mylars.map(mylar => <button
-                    key={mylar.id}
-                    type="button"
-                    role="listitem"
-                    className={`mylar-registry-card ${mylar.id === activeMylar?.id ? 'is-selected' : ''} ${mylar.isCheckedOut ? 'is-out' : 'is-in'}`}
-                    onClick={() => {
-                      setActiveMylarId(mylar.id)
-                      setMylarError(null)
-                      setMylarMessage(null)
-                    }}
-                  >
-                    <span className="mylar-registry-card-head">
-                      <strong className="technical-id">{mylar.mylarNumber}</strong>
-                      <span><i aria-hidden="true"/>{mylar.isCheckedOut ? 'Checked out' : 'Checked in'}</span>
-                    </span>
-                    <small>{mylar.currentLocation || 'Location not recorded'}</small>
-                    <small>{mylar.isCheckedOut ? `Held by ${mylar.checkedOutBy || 'Unknown user'}` : 'Available in controlled storage'}</small>
-                  </button>)}
-                </div> : <div className="mylar-history-empty"><MapPin size={21}/><strong>No numbered Mylars</strong><p>Register each physical Mylar before checking it in or out.</p></div>}
-              </section>
+                </form> : <div className="mylar-registration-unavailable">
+                  <MapPin size={21}/>
+                  <strong>{selected.isObsolete ? 'Archived drawing' : 'No Mylar registered'}</strong>
+                  <p>{selected.isObsolete
+                    ? 'A physical Mylar can no longer be registered for this archived drawing.'
+                    : 'An Editor or Admin can register the physical Mylar for this drawing.'}</p>
+                </div>}
+              </section>}
 
               {mylarMessage && <div className="mylar-action-success" role="status"><CheckCircle2 size={15}/>{mylarMessage}</div>}
               {mylarError && <div className="mylar-action-error" role="alert"><AlertTriangle size={16}/><div><strong>Custody record stopped</strong><p>{mylarError}</p></div></div>}
 
-              {activeMylar && <>
-                <div className={`mylar-current-state ${activeMylar.isCheckedOut ? 'is-out' : 'is-in'}`}>
+              {mylar && <>
+                <div className={`mylar-current-state ${mylar.isCheckedOut ? 'is-out' : 'is-in'}`}>
                   <span className="mylar-current-icon" aria-hidden="true"><MapPin size={19}/></span>
                   <div>
-                    <small>Selected Mylar</small>
-                    <strong className="technical-id">{activeMylar.mylarNumber}</strong>
-                    <span>{activeMylar.isCheckedOut && activeMylar.checkedOutAt
-                      ? `Checked out ${auditTimestamp(activeMylar.checkedOutAt).date} at ${auditTimestamp(activeMylar.checkedOutAt).time}`
-                      : 'Checked in and available'}</span>
+                    <small>Physical Mylar</small>
+                    <strong className="technical-id">{mylar.mylarNumber}</strong>
+                    <span>{mylar.isCheckedOut && mylar.checkedOutAt
+                      ? `Checked out ${auditTimestamp(mylar.checkedOutAt).date} at ${auditTimestamp(mylar.checkedOutAt).time}`
+                      : 'Checked in and available for controlled use'}</span>
                   </div>
                   <dl>
-                    <div><dt>Current location</dt><dd>{activeMylar.currentLocation || 'Not recorded'}</dd></div>
-                    <div><dt>{activeMylar.isCheckedOut ? 'Checked out by' : 'Custody'}</dt><dd>{activeMylar.checkedOutBy || 'Engineering control'}</dd></div>
+                    <div><dt>{mylar.isCheckedOut ? 'Current destination' : 'Storage location'}</dt><dd>{mylar.currentLocation || 'Not recorded'}</dd></div>
+                    <div><dt>{mylar.isCheckedOut ? 'Checked out by' : 'Custody'}</dt><dd>{mylar.checkedOutBy || 'Engineering control'}</dd></div>
                   </dl>
                 </div>
 
-                <div className={`mylar-state-guard ${activeMylar.isCheckedOut ? 'is-out' : 'is-in'}`}>
-                  <AlertTriangle size={16}/>
-                  <p>{activeMylar.isCheckedOut
-                    ? `${activeMylar.mylarNumber} is currently checked out. Only this numbered Mylar can be checked back in.`
-                    : `${activeMylar.mylarNumber} is already checked in at ${activeMylar.currentLocation || 'its recorded location'}. A duplicate check-in will be blocked.`}</p>
-                </div>
-
-                {selected.isObsolete && !activeMylar.isCheckedOut ? <div className="mylar-archived-notice">
+                {!canEdit ? null : selected.isObsolete && !mylar.isCheckedOut ? <div className="mylar-archived-notice">
                   <Archive size={17}/>
                   <div><strong>Archived drawing</strong><p>This Mylar remains in custody history and cannot be checked out again.</p></div>
                 </div> : <form
-                  key={`${selected.id}-${activeMylar.id}-${activeMylar.isCheckedOut ? 'checkin' : 'checkout'}-${selected.mylarHistory[0]?.id ?? 0}`}
+                  key={`${selected.id}-${mylar.id}-${mylar.isCheckedOut ? 'checkin' : 'checkout'}-${selected.mylarHistory[0]?.id ?? 0}`}
                   className="mylar-action-form"
                   onSubmit={recordMylarMovement}
                 >
                   <header>
-                    <span aria-hidden="true">{activeMylar.isCheckedOut ? <LogIn size={18}/> : <LogOut size={18}/>}</span>
+                    <span aria-hidden="true">{mylar.isCheckedOut ? <LogIn size={18}/> : <LogOut size={18}/>}</span>
                     <div>
                       <small>Custody action</small>
-                      <h3>{activeMylar.isCheckedOut ? `Check in ${activeMylar.mylarNumber}` : `Check out ${activeMylar.mylarNumber}`}</h3>
+                      <h3>{mylar.isCheckedOut ? `Check in ${mylar.mylarNumber}` : `Check out ${mylar.mylarNumber}`}</h3>
                       <p>This action will be permanently recorded under <strong>{actorName}</strong>.</p>
                     </div>
                   </header>
                   <div className="mylar-action-fields">
                     <label className="wide">
-                      <span>{activeMylar.isCheckedOut ? 'Check-in location' : 'Destination / location'}</span>
-                      <input name="location" required placeholder={activeMylar.isCheckedOut ? 'Cabinet and slot' : 'Department, desk, or work area'}/>
+                      <span>{mylar.isCheckedOut ? 'Return storage location' : 'Checkout destination'}</span>
+                      <input autoFocus name="location" required placeholder={mylar.isCheckedOut ? 'Cabinet and slot' : 'Department, desk, or work area'}/>
                     </label>
                     <label className="wide">
                       <span>Note <small>Optional</small></span>
-                      <textarea name="note" rows={2} placeholder={activeMylar.isCheckedOut ? 'Condition or return note' : 'Reason for checkout or handling instructions'}/>
+                      <textarea name="note" rows={2} placeholder={mylar.isCheckedOut ? 'Condition or return note' : 'Purpose or handling instructions'}/>
                     </label>
                   </div>
                   <div className="mylar-action-footer">
                     <p>User, Mylar number, location, date, time, and note are permanently retained.</p>
                     <button className="button" type="submit" disabled={busy}>
-                      {activeMylar.isCheckedOut ? <LogIn size={15}/> : <LogOut size={15}/>}
-                      {busy ? 'Recording...' : activeMylar.isCheckedOut ? 'Check in Mylar' : 'Check out Mylar'}
+                      {mylar.isCheckedOut ? <LogIn size={15}/> : <LogOut size={15}/>}
+                      {busy ? 'Recording...' : mylar.isCheckedOut ? 'Check in Mylar' : 'Check out Mylar'}
                     </button>
                   </div>
                 </form>}
@@ -1193,12 +1173,11 @@ export default function DrawingWorkspace({
                 </header>
                 {selected.mylarHistory.length ? <div className="mylar-history-table-wrap">
                   <table className="mylar-history-table">
-                    <thead><tr><th>Activity</th><th>Mylar</th><th>Location</th><th>Date and time</th><th>Note</th><th>Recorded by</th></tr></thead>
+                    <thead><tr><th>Activity</th><th>Location</th><th>Date and time</th><th>Note</th><th>Recorded by</th></tr></thead>
                     <tbody>{selected.mylarHistory.map(item => {
                       const timestamp = auditTimestamp(item.recordedAt)
                       return <tr key={item.id}>
                         <td><span className={`mylar-event-type ${item.type === 'CheckedOut' ? 'is-out' : 'is-in'}`}>{mylarTypeLabel(item.type)}</span></td>
-                        <td><strong className="technical-id">{item.mylarNumber}</strong></td>
                         <td>{item.location || 'Not recorded'}</td>
                         <td><time dateTime={item.recordedAt}><span>{timestamp.date}</span><small>{timestamp.time}</small></time></td>
                         <td>{item.note || 'None'}</td>
@@ -1206,7 +1185,7 @@ export default function DrawingWorkspace({
                       </tr>
                     })}</tbody>
                   </table>
-                </div> : <div className="mylar-history-empty"><History size={21}/><strong>No custody activity yet</strong><p>Registering the first numbered Mylar will start this permanent history.</p></div>}
+                </div> : <div className="mylar-history-empty"><History size={21}/><strong>No custody activity yet</strong><p>Registering the physical Mylar will start its permanent custody history.</p></div>}
               </section>
             </div>
           </aside>
@@ -1214,7 +1193,7 @@ export default function DrawingWorkspace({
 
       </article> : null}
 
-    {showArchive && selected && <div className="archive-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) closeArchiveDialog() }}>
+    {canEdit && showArchive && selected && <div className="archive-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) closeArchiveDialog() }}>
       <section className="archive-dialog" role="dialog" aria-modal="true" aria-labelledby="archive-dialog-title" aria-describedby="archive-dialog-description">
         <header className="archive-dialog-header">
           <span className="archive-dialog-icon"><Archive size={21}/></span>
@@ -1239,7 +1218,7 @@ export default function DrawingWorkspace({
       </section>
     </div>}
 
-    {activateTarget && selected && <div className="archive-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) closeActivationDialog() }}>
+    {canEdit && activateTarget && selected && <div className="archive-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) closeActivationDialog() }}>
       <section className="archive-dialog activation-dialog" role="dialog" aria-modal="true" aria-labelledby="activation-dialog-title" aria-describedby="activation-dialog-description">
         <header className="archive-dialog-header">
           <span className="activation-dialog-icon"><CheckCircle2 size={21}/></span>
@@ -1261,7 +1240,7 @@ export default function DrawingWorkspace({
       </section>
     </div>}
 
-    {editRevisionTarget && <div className="revision-edit-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) closeRevisionEditor() }}>
+    {canEdit && editRevisionTarget && <div className="revision-edit-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) closeRevisionEditor() }}>
       <section className="revision-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="revision-edit-title">
         <header className="revision-edit-header">
           <span className="revision-edit-icon" aria-hidden="true"><Pencil size={20}/></span>
@@ -1272,38 +1251,36 @@ export default function DrawingWorkspace({
           <button type="button" className="delete-dialog-close" aria-label="Close revision editor" disabled={busy} onClick={closeRevisionEditor}><X size={18}/></button>
         </header>
         <div className="revision-edit-notice">
-          {['Approved', 'Superseded', 'Obsolete'].includes(editRevisionTarget.status) ? <>
-            <strong>A new editable draft will be created.</strong>
-            <p>Revision {editRevisionTarget.revisionNumber} is a controlled {statusLabel(editRevisionTarget.status).toLowerCase()} record and will remain unchanged in permanent history.</p>
-          </> : editRevisionTarget.status === 'UnderReview' ? <>
-            <strong>Editing will return this revision to Draft.</strong>
-            <p>The current review will be stopped so the revised package can be submitted again.</p>
-          </> : <>
-            <strong>You are editing an existing draft.</strong>
-            <p>Save the changes below, then submit the completed package for controlled review.</p>
-          </>}
+          <strong>Changes apply to this revision.</strong>
+          <p>Update Revision {editRevisionTarget.revisionNumber}, then save it as a draft or submit the same revision for approval. Use Upload revision to create a separate revision.</p>
         </div>
         <form className="record-form revision-edit-form" noValidate onSubmit={saveRevisionDraft}>
           <div className="form-grid">
-            <label>Revision number<input autoFocus name="revisionNumber" defaultValue={['Approved', 'Superseded', 'Obsolete'].includes(editRevisionTarget.status) ? '' : editRevisionTarget.revisionNumber} placeholder={['Approved', 'Superseded', 'Obsolete'].includes(editRevisionTarget.status) ? 'Enter new revision' : undefined} required/></label>
+            <label>Revision number<input autoFocus name="revisionNumber" defaultValue={editRevisionTarget.revisionNumber} required/></label>
             <EngineeringDatePicker name="revisionDate" label="Revision date" required initialValue={dateInputValue(editRevisionTarget.revisionDate)}/>
             <EngineeringDatePicker name="effectiveDate" label="Effective date" initialValue={dateInputValue(editRevisionTarget.effectiveDate)}/>
             <div className="revision-source-file">
               <span>Current PDF</span>
               <strong>{editRevisionTarget.hasPdf ? editRevisionTarget.originalFileName : 'No PDF attached'}</strong>
             </div>
-            <FilePicker name="pdf" label={editRevisionTarget.hasPdf ? 'Replace PDF (optional)' : 'Upload PDF'} accept="application/pdf,.pdf" required={!editRevisionTarget.hasPdf} className="wide"/>
+            <FilePicker
+              name="pdf"
+              label={editRevisionTarget.hasPdf ? 'Replace PDF (optional)' : 'Attach PDF (required for approval)'}
+              accept="application/pdf,.pdf"
+              className="wide"
+            />
             <label className="wide">Change description<textarea name="changeDescription" defaultValue={editRevisionTarget.changeDescription} required rows={2}/></label>
             <label className="wide">Notes<textarea name="notes" defaultValue={editRevisionTarget.notes ?? ''} rows={2}/></label>
           </div>
-          <label className="revision-resubmit-option">
-            <input type="checkbox" checked={resubmitAfterSave} onChange={event => setResubmitAfterSave(event.target.checked)}/>
-            <span><strong>Submit for review after saving</strong><small>The saved draft will immediately enter the review queue.</small></span>
-          </label>
           {revisionEditError && <div className="inline-alert" role="alert">{revisionEditError}</div>}
           <div className="revision-edit-actions">
             <button type="button" className="button ghost" disabled={busy} onClick={closeRevisionEditor}>Cancel</button>
-            <button type="submit" className="button" disabled={busy}><Pencil size={15}/>{busy ? 'Saving…' : resubmitAfterSave ? 'Save & submit review' : 'Save draft'}</button>
+            <button type="submit" name="revisionIntent" value="draft" className="button ghost revision-save-draft" disabled={busy}>
+              <Pencil size={15}/>{busy && revisionSaveIntent === 'draft' ? 'Saving…' : 'Save as draft'}
+            </button>
+            <button type="submit" name="revisionIntent" value="approval" className="button revision-submit-approval" disabled={busy}>
+              <CheckCircle2 size={15}/>{busy && revisionSaveIntent === 'approval' ? 'Submitting…' : 'Submit for approval'}
+            </button>
           </div>
         </form>
       </section>

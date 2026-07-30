@@ -1,30 +1,44 @@
 using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 using EngineeringHub.Api.Data;
+using SonAero.Platform.Security;
 
 namespace EngineeringHub.Api.Services;
 
+public sealed record EngineeringModuleAccess(string Role, bool IsEnabled);
+
 public interface IEngineeringRoleStore
 {
-    Task<string?> FindRoleAsync(string accountName, CancellationToken cancellationToken = default);
+    Task<EngineeringModuleAccess?> FindAccessAsync(string accountName, CancellationToken cancellationToken = default);
 }
 
 public sealed class EngineeringRoleStore(EngineeringRoleDbContext db, ILogger<EngineeringRoleStore> logger) : IEngineeringRoleStore
 {
-    public async Task<string?> FindRoleAsync(string accountName, CancellationToken cancellationToken = default)
+    public async Task<EngineeringModuleAccess?> FindAccessAsync(string accountName, CancellationToken cancellationToken = default)
     {
         try
         {
             var normalized = accountName.ToUpperInvariant();
-            return await db.Users
+            var assignment = await db.UserModuleAccess
                 .AsNoTracking()
-                .Where(user => user.AccountName.ToUpper() == normalized)
-                .Select(user => user.Role)
+                .Where(access =>
+                    access.ModuleKey == ApplicationModules.Engineering
+                    && access.User.AccountName.ToUpper() == normalized)
+                .Select(access => new
+                {
+                    access.User.IsActive,
+                    access.Role
+                })
                 .FirstOrDefaultAsync(cancellationToken);
+
+            var role = ApplicationModuleRoles.Normalize(assignment?.Role);
+            return assignment is null
+                ? null
+                : new EngineeringModuleAccess(role ?? ApplicationRoles.Viewer, assignment.IsActive && role is not null);
         }
         catch (Exception exception) when (exception is DbException or InvalidOperationException)
         {
-            logger.LogWarning(exception, "The shared application role store is unavailable; engineering hub configuration will be used as a fallback.");
+            logger.LogError(exception, "The shared module access store is unavailable; Engineering access is denied.");
             return null;
         }
     }

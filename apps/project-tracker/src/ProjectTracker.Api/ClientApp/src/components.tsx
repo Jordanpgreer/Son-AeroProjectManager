@@ -303,7 +303,7 @@ export function LoadingSkeleton({ screen }: { screen: Screen }) {
   if (screen === 'project') {
     return <ProjectSkeleton />
   }
-  if (screen === 'settings' || screen === 'import' || screen === 'calendar' || screen === 'pastProjects') {
+  if (screen === 'calendar' || screen === 'pastProjects') {
     return (
       <section className="view skeleton-view">
         <div className="panel skeleton-panel">

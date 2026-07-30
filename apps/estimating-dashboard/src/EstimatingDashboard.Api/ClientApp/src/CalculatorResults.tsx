@@ -15,6 +15,7 @@ interface CalculatorResultsProps {
   result: EstimateCalculationResult
   quantities: QuantityTier[]
   selectedQuantity: QuantityTier
+  editable: boolean
   onSelectedQuantityChange: (quantity: QuantityTier) => void
   onQuantitiesChange: (quantities: QuantityTier[]) => void
 }
@@ -298,6 +299,7 @@ export default function CalculatorResults({
   selectedQuantity,
   onSelectedQuantityChange,
   onQuantitiesChange,
+  editable,
 }: CalculatorResultsProps) {
   if (!result.ok) return <FailurePanel result={result} />
 
@@ -322,6 +324,7 @@ export default function CalculatorResults({
 
       <QuantityEditor
         quantities={quantities}
+        editable={editable}
         onChange={(nextQuantities) => {
           if (!nextQuantities.includes(selectedQuantity)) {
             onSelectedQuantityChange(nextQuantities[0])

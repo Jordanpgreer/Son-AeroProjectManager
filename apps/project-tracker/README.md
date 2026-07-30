@@ -10,7 +10,8 @@ Internal aerospace project tracker replacing `Project Tracker.xlsm`.
 - Windows authentication support for IIS production.
 - Admin/Editor/Viewer role model.
 - Workbook import from the existing `Project Tracker.xlsm`.
-- Portfolio dashboard, project task grid, Gantt timeline, holiday admin, import admin, and Excel/PDF exports.
+- Portfolio dashboard, project task grid, Gantt timeline, and Excel/PDF exports.
+- Centralized Hub administration for access, work calendars, work centers, holidays, archived-project recovery, and workbook imports.
 
 ## Local Development
 
@@ -30,6 +31,7 @@ dotnet run --launch-profile http
 Open `http://localhost:5135`.
 
 To run the full hub (Project Tracker + Portal) together, use `scripts\Start-Hub.ps1` at the repository root instead. See the [root README](../../README.md).
+Project Tracker administration is available at `http://localhost:5140/#/admin/project-tracker/access`.
 
 Development mode uses `project-tracker-dev.db` and auto-imports the existing workbook when the database is empty.
 
@@ -51,7 +53,19 @@ Development mode uses `project-tracker-dev.db` and auto-imports the existing wor
 }
 ```
 
-After startup, Admins manage assignments from **Settings → User Roles**. Role changes are stored in the application database and take effect on the user's next request. New Windows accounts default to View Only after their first sign-in. The application prevents removal of the final Admin.
+After startup, administrators manage assignments from **Hub Admin > Project Tracker > Access**.
+Role changes are stored in the Project Tracker database and take effect on the user's next
+request. New Windows accounts default to View Only after their first sign-in. The application
+prevents removal of the final administrator.
+
+The Hub Admin client calls the Project Tracker administration API with the signed-in user's
+credentials. Configure the exact production Hub origin in IIS or the process environment:
+
+```powershell
+$env:Cors__HubOrigins__0='https://hub.example.internal'
+```
+
+Wildcard origins are rejected because credentialed administration requests are enabled.
 
 - **Admin:** all pages, imports, settings, role management, and project editing.
 - **Edit:** Dashboard, Project Detail, Calendar, and Past Projects with project editing.

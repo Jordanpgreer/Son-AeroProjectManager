@@ -15,7 +15,6 @@ import {
   readStoredProjectId,
   storeSelectedProjectId,
   clearStoredProjectId,
-  enumerateIsoDates,
   formFromTask,
   emptyTaskForm,
 } from './lib'
@@ -23,7 +22,6 @@ import { persistTheme, readThemePreference } from './theme'
 import { emptyDashboard, defaultScheduleSettings } from './types'
 import type {
   Screen,
-  DayOfWeekName,
   User,
   Dashboard,
   ProjectDetail,
@@ -63,10 +61,8 @@ import {
   ProjectView,
 } from './features/project-detail'
 import {
-  SettingsView,
-  ImportView,
   OvertimeDialog,
-} from './features/settings'
+} from './features/overtime'
 import {
   Sidebar,
   PageHeader,
@@ -131,7 +127,6 @@ function App() {
   const [unsavedProjectDetailsOpen, setUnsavedProjectDetailsOpen] = useState(false)
   const [dashboardSearch, setDashboardSearch] = useState('')
   const [pastProjectsSearch, setPastProjectsSearch] = useState('')
-  const [importMessage, setImportMessage] = useState('')
   const [projectConfirmation, setProjectConfirmation] = useState<ProjectConfirmation | null>(null)
   const [projectActionPending, setProjectActionPending] = useState(false)
   const [projectWizardOpen, setProjectWizardOpen] = useState(false)
@@ -289,7 +284,7 @@ function App() {
   }
 
   async function loadScreenData(target: Screen, force = false) {
-    const needsReferenceData = target === 'project' || target === 'calendar' || target === 'settings'
+    const needsReferenceData = target === 'project' || target === 'calendar'
     const needsCalendarData = target === 'project' || target === 'calendar'
     if (!needsReferenceData && !needsCalendarData) return
 
@@ -524,12 +519,6 @@ function App() {
     }
   }
 
-  async function refreshCurrentUserAccess() {
-    const me = await api<User>('/api/me')
-    setUser(me)
-    return me
-  }
-
   async function completeProject() {
     if (!selectedProject) return
     const project = await api<ProjectDetail>(`/api/projects/${selectedProject.id}/complete`, {
@@ -750,81 +739,6 @@ function App() {
     if (navigation) await navigation()
   }
 
-  async function addHolidayRange(startDate: string, endDate: string, name: string) {
-    if (!startDate || !name.trim()) return
-    const dates = enumerateIsoDates(startDate, endDate || startDate)
-    const existing = new Set(holidays.map((holiday) => holiday.date))
-    for (const date of dates) {
-      if (existing.has(date)) continue
-      await api<Holiday>('/api/holidays', {
-        method: 'POST',
-        body: JSON.stringify({ date, name: name.trim() }),
-      })
-    }
-    setHolidays(await api<Holiday[]>('/api/holidays'))
-    await loadDashboard()
-    if (calendarDataLoaded.current) await loadCalendarData(true)
-  }
-
-  async function updateHoliday(id: number, date: string, name: string) {
-    if (!date || !name.trim()) return
-    const updated = await api<Holiday>(`/api/holidays/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ date, name: name.trim() }),
-    })
-    setHolidays((current) => current.map((holiday) => (holiday.id === id ? updated : holiday)))
-    await loadDashboard()
-    if (calendarDataLoaded.current) await loadCalendarData(true)
-  }
-
-  async function deleteHoliday(id: number) {
-    await api<void>(`/api/holidays/${id}`, { method: 'DELETE' })
-    setHolidays(await api<Holiday[]>('/api/holidays'))
-    await loadDashboard()
-    if (calendarDataLoaded.current) await loadCalendarData(true)
-  }
-
-  async function addWorkCenter(name: string) {
-    if (!name.trim()) return
-    await api<WorkCenter>('/api/work-centers', {
-      method: 'POST',
-      body: JSON.stringify({ name: name.trim() }),
-    })
-    setWorkCenters(await api<WorkCenter[]>('/api/work-centers'))
-  }
-
-  async function updateWorkCenter(id: number, name: string) {
-    if (!name.trim()) return
-    const updated = await api<WorkCenter>(`/api/work-centers/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ name }),
-    })
-    setWorkCenters((current) => current.map((item) => (item.id === id ? updated : item)))
-  }
-
-  async function deleteWorkCenter(id: number) {
-    await api<void>(`/api/work-centers/${id}`, { method: 'DELETE' })
-    setWorkCenters(await api<WorkCenter[]>('/api/work-centers'))
-  }
-
-  async function updateWorkCalendar(workingDays: DayOfWeekName[]) {
-    const updated = await api<ScheduleSettings>('/api/settings/work-calendar', {
-      method: 'PUT',
-      body: JSON.stringify({ workingDays }),
-    })
-    setScheduleSettings(updated)
-    const [data, calendarData] = await Promise.all([
-      api<Dashboard>('/api/dashboard'),
-      api<ProjectDetail[]>('/api/calendar'),
-    ])
-    setDashboard(data)
-    setScheduleProjects(calendarData)
-    if (selectedProject) {
-      const refreshed = await api<ProjectDetail>(`/api/projects/${selectedProject.id}`)
-      setSelectedProject(refreshed)
-    }
-  }
-
   async function createProject(request: ProjectCreateRequest) {
     const project = await api<ProjectDetail>('/api/projects', {
       method: 'POST',
@@ -848,21 +762,6 @@ function App() {
   async function saveOvertimeDays(task: ProjectTask, overtimeDays: TaskOvertimeDay[]) {
     await saveTaskRow({ ...task, overtimeDays })
     setOvertimeTask(null)
-  }
-
-  async function importUpload(file: File) {
-    setImportMessage('')
-    const form = new FormData()
-    form.append('file', file)
-    const response = await fetch('/api/import/upload', { method: 'POST', body: form, credentials: 'same-origin' })
-    if (!response.ok) {
-      throw new Error((await response.text()) || `Import failed (${response.status})`)
-    }
-    const result = (await response.json()) as { projectCount: number; taskCount: number; holidayCount: number }
-    setImportMessage(`Added ${result.projectCount} program${result.projectCount === 1 ? '' : 's'} and ${result.taskCount} operations from “${file.name}”.`)
-    referenceDataLoaded.current = false
-    calendarDataLoaded.current = false
-    await loadInitial()
   }
 
   useEffect(() => {
@@ -929,22 +828,6 @@ function App() {
     void loadScreenData(screen).catch((err) => setError(err instanceof Error ? err.message : 'Unable to load screen data.'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, loading])
-
-  useEffect(() => {
-    const canOpenSettings = Boolean(user?.permissions?.some((permission) => [
-      'settings.workCalendar.manage',
-      'settings.holidays.manage',
-      'settings.workCenters.manage',
-      'access.manageUsers',
-      'access.manageGroups',
-      'archived.restore',
-    ].includes(permission)))
-    const canOpenImport = Boolean(user?.permissions?.includes('import.manage'))
-
-    if (user && ((!canOpenSettings && screen === 'settings') || (!canOpenImport && screen === 'import'))) {
-      setScreen('dashboard')
-    }
-  }, [screen, user])
 
   const userPermissions = user?.permissions ?? []
   const canEnterProjectEdit = hasAnyPermission(userPermissions, [
@@ -1084,25 +967,6 @@ function App() {
               )}
               {screen === 'calendar' && <CalendarView data={scheduleProjects} holidaySet={holidaySet} workingDaySet={workingDaySet} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} />}
               {screen === 'pastProjects' && <PastProjectsView projects={dashboard.projects} search={pastProjectsSearch} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} />}
-              {screen === 'settings' && (
-                <SettingsView
-                  scheduleSettings={scheduleSettings}
-                  holidays={holidays}
-                  workCenters={workCenters}
-                  currentUser={user}
-                  onAccessChanged={refreshCurrentUserAccess}
-                  updateWorkCalendar={updateWorkCalendar}
-                  addWorkCenter={addWorkCenter}
-                  updateWorkCenter={updateWorkCenter}
-                  deleteWorkCenter={deleteWorkCenter}
-                  addHolidayRange={addHolidayRange}
-                  updateHoliday={updateHoliday}
-                  deleteHoliday={deleteHoliday}
-                />
-              )}
-              {screen === 'import' && (
-                <ImportView isAdmin={Boolean(user?.permissions?.includes('import.manage'))} message={importMessage} onUpload={importUpload} />
-              )}
             </>
           )}
         </div>

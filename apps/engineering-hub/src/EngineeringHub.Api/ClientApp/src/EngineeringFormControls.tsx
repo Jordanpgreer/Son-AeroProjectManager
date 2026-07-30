@@ -71,14 +71,14 @@ export function RevisionUploadForm({
         <span>The revision PDF will be added to controlled drawing history.</span>
       </div>
       <div className="store-revision-actions">
-        {onCancel && <button className="button ghost" type="button" disabled={busy} onClick={onCancel}>Cancel</button>}
         <button className="store-revision-button" type="submit" disabled={busy}>
           <span className="store-revision-icon"><FilePlus2 size={17}/></span>
           <span>
-            <strong>{busy ? 'Submitting revision...' : 'Submit Revision'}</strong>
+            <strong>{busy ? 'Uploading revision...' : 'Upload revision'}</strong>
             <small>{busy ? 'Transferring controlled package' : 'Add to permanent history'}</small>
           </span>
         </button>
+        {onCancel && <button className="button ghost" type="button" disabled={busy} onClick={onCancel}>Cancel</button>}
       </div>
     </div>
   </form>

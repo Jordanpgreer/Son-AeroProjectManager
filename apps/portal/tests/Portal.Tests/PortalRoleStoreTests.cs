@@ -28,4 +28,33 @@ public sealed class PortalRoleStoreTests
 
         Assert.Equal("Editor", await store.FindRoleAsync("sonaero\\planner.one"));
     }
+
+    [Fact]
+    public async Task FindModuleRolesAsync_ReturnsEnabledAssignmentsForActiveUserOnly()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<PortalRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new PortalRoleDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        var user = new PortalRoleRecord
+        {
+            AccountName = "SONAERO\\Estimator.One",
+            DisplayName = "Estimator One",
+            Role = "Viewer",
+            IsActive = true,
+            ModuleAccessAssignments =
+            [
+                new PortalModuleAccessRecord { ModuleKey = "estimating", Role = "Editor" },
+                new PortalModuleAccessRecord { ModuleKey = "engineering", Role = null }
+            ]
+        };
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
+
+        var store = new PortalRoleStore(db, NullLogger<PortalRoleStore>.Instance);
+        var roles = await store.FindModuleRolesAsync("sonaero\\estimator.one");
+
+        Assert.Equal("Editor", Assert.Single(roles).Value);
+    }
 }
