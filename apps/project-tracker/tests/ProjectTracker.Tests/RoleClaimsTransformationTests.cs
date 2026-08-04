@@ -90,7 +90,7 @@ public sealed class RoleClaimsTransformationTests
     }
 
     [Fact]
-    public async Task TransformAsync_ProvisionsUnknownAuthenticatedUserAsViewOnly()
+    public async Task TransformAsync_DeniesUnknownAuthenticatedUserWithoutPersistingIt()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -102,12 +102,12 @@ public sealed class RoleClaimsTransformationTests
         var principal = AuthenticatedPrincipal("DOMAIN\\new.user");
         await new RoleClaimsTransformation(db).TransformAsync(principal);
 
-        Assert.True(principal.HasClaim(ApplicationClaimTypes.RegisteredUser, "true"));
-        Assert.True(principal.HasClaim(ApplicationClaimTypes.Group, ProjectTrackerGroups.ViewOnly));
-        Assert.True(principal.HasClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ModuleView));
+        Assert.False(principal.HasClaim(ApplicationClaimTypes.RegisteredUser, "true"));
+        Assert.False(principal.HasClaim(ApplicationClaimTypes.Group, ProjectTrackerGroups.ViewOnly));
+        Assert.False(principal.HasClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ModuleView));
         Assert.False(principal.HasClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectCreate));
-        Assert.True(principal.IsInRole("Viewer"));
-        Assert.True(await db.Users.AnyAsync(user => user.AccountName == "DOMAIN\\new.user" && user.IsActive));
+        Assert.False(principal.IsInRole("Viewer"));
+        Assert.Empty(await db.Users.ToListAsync());
     }
 
     [Fact]
@@ -131,6 +131,31 @@ public sealed class RoleClaimsTransformationTests
 
         Assert.False(principal.HasClaim(ApplicationClaimTypes.RegisteredUser, "true"));
         Assert.False((await db.Users.SingleAsync()).IsActive);
+    }
+
+    [Fact]
+    public async Task TransformAsync_ActiveRegisteredUserWithoutGroups_HasNoModuleViewPermission()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>().UseSqlite(connection).Options;
+        await using var db = new ProjectTrackerDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        db.Users.Add(new AppUser
+        {
+            AccountName = "DOMAIN\\registered.no.groups",
+            DisplayName = "Registered No Groups",
+            IsActive = true
+        });
+        await db.SaveChangesAsync();
+
+        var principal = AuthenticatedPrincipal("DOMAIN\\registered.no.groups");
+        await new RoleClaimsTransformation(db).TransformAsync(principal);
+
+        Assert.True(principal.HasClaim(ApplicationClaimTypes.RegisteredUser, "true"));
+        Assert.False(principal.HasClaim(
+            ApplicationClaimTypes.Permission,
+            ApplicationPermissions.ModuleView));
     }
 
     [Fact]

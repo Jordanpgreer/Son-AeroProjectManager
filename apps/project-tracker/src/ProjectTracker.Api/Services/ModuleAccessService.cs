@@ -7,16 +7,27 @@ namespace ProjectTracker.Api.Services;
 
 public sealed class ModuleAccessService
 {
-    public async Task BootstrapLegacyAssignmentsAsync(
+    public async Task BootstrapInitialAdministratorAssignmentsAsync(
         ProjectTrackerDbContext db,
+        IEnumerable<string?> configuredAdministratorAccounts,
         CancellationToken cancellationToken = default)
     {
+        var configuredLookupKeys = configuredAdministratorAccounts
+            .Select(WindowsAccountNames.Normalize)
+            .Where(account => account is not null)
+            .SelectMany(account => WindowsAccountNames.LookupKeys(account!))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (configuredLookupKeys.Count == 0)
+        {
+            return;
+        }
+
         var users = await db.Users
-            .Select(user => new
-            {
-                user.Id,
-                LegacyRole = EF.Property<string>(user, "Role")
-            })
+            .Where(user =>
+                user.IsActive
+                && user.GroupMemberships.Any(membership =>
+                    membership.Group.Name == ApplicationGroups.Administrators))
+            .Select(user => new { user.Id, user.AccountName })
             .ToListAsync(cancellationToken);
         var existing = await db.UserModuleAccess
             .Select(access => new { access.AppUserId, access.ModuleKey })
@@ -27,19 +38,24 @@ public sealed class ModuleAccessService
 
         foreach (var user in users)
         {
-            var legacyRole = ApplicationRoles.Normalize(user.LegacyRole);
+            if (!WindowsAccountNames.LookupKeys(user.AccountName)
+                    .Any(configuredLookupKeys.Contains))
+            {
+                continue;
+            }
+
             AddIfMissing(
                 db,
                 existingKeys,
                 user.Id,
                 ApplicationModules.Engineering,
-                legacyRole == ApplicationRoles.Admin ? ApplicationRoles.Admin : null);
+                ApplicationRoles.Admin);
             AddIfMissing(
                 db,
                 existingKeys,
                 user.Id,
                 ApplicationModules.Estimating,
-                legacyRole);
+                ApplicationRoles.Admin);
         }
 
         await db.SaveChangesAsync(cancellationToken);

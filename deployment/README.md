@@ -9,9 +9,11 @@ Do **not** run `scripts/Start-Hub.ps1` as the production host. That launcher int
 Development authentication and localhost URLs. Production uses IIS, Windows Authentication, SQL
 Server, and each employee's real `SON4L\firstname.lastname` domain identity.
 
-Follow [server-deployment.md](server-deployment.md) for the first installation, verification,
-updates, backups, and rollback. Example Production settings are in [`templates`](templates). No
-passwords, live secrets, or certificates belong in Git.
+Follow [server-deployment.md](server-deployment.md) for the first installation. For the current
+post-install rollout (warm start, role verification, employee shortcut, HTTPS readiness, and
+backup readiness), follow [production-rollout.md](production-rollout.md) in order. Example
+Production settings are in [`templates`](templates). No passwords, live secrets, or certificates
+belong in Git.
 
 To build all four applications from the repository root:
 
@@ -21,4 +23,6 @@ powershell -ExecutionPolicy Bypass -File .\deployment\Publish-Hub.ps1 `
 ```
 
 Artifacts are written under `deployment\artifacts\hub` and are ignored by Git. Point IIS at
-separate site directories, never at the repository or staging directory.
+separate site directories, never at the repository or staging directory. For production updates,
+use `Deploy-HubRelease.ps1`; it stages an immutable release, preserves Production settings, checks
+all four applications, and rolls IIS back to the prior paths if health verification fails.

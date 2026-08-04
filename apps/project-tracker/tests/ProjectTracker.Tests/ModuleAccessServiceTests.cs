@@ -32,30 +32,35 @@ public sealed class ModuleAccessServiceTests
     }
 
     [Fact]
-    public async Task BootstrapLegacyAssignments_UsesModuleSpecificCompatibilityRules()
+    public async Task BootstrapInitialAdministratorAssignments_GrantsConfiguredAdminButLeavesNormalUsersUnassigned()
     {
         await using var fixture = await ModuleAccessFixture.CreateAsync();
         var administrator = AddLegacyUser(fixture.Db, "DOMAIN\\admin", ApplicationRoles.Admin);
         var editor = AddLegacyUser(fixture.Db, "DOMAIN\\editor", ApplicationRoles.Editor);
         var viewer = AddLegacyUser(fixture.Db, "DOMAIN\\viewer", ApplicationRoles.Viewer);
+        AddGroup(administrator, ApplicationGroups.Administrators);
+        AddGroup(editor, ApplicationGroups.Managers);
+        AddGroup(viewer, ProjectTracker.Api.Auth.ProjectTrackerGroups.ViewOnly);
         await fixture.Db.SaveChangesAsync();
 
-        await fixture.Service.BootstrapLegacyAssignmentsAsync(fixture.Db);
+        await fixture.Service.BootstrapInitialAdministratorAssignmentsAsync(
+            fixture.Db,
+            ["domain/admin"]);
 
         AssertAssignment(fixture.Db, administrator.Id, ApplicationModules.Engineering, ApplicationRoles.Admin);
         AssertAssignment(fixture.Db, administrator.Id, ApplicationModules.Estimating, ApplicationRoles.Admin);
-        AssertAssignment(fixture.Db, editor.Id, ApplicationModules.Engineering, null);
-        AssertAssignment(fixture.Db, editor.Id, ApplicationModules.Estimating, ApplicationRoles.Editor);
-        AssertAssignment(fixture.Db, viewer.Id, ApplicationModules.Engineering, null);
-        AssertAssignment(fixture.Db, viewer.Id, ApplicationModules.Estimating, ApplicationRoles.Viewer);
-        Assert.Equal(6, await fixture.Db.UserModuleAccess.CountAsync());
+        Assert.DoesNotContain(
+            fixture.Db.UserModuleAccess.Local,
+            access => access.AppUserId == editor.Id || access.AppUserId == viewer.Id);
+        Assert.Equal(2, await fixture.Db.UserModuleAccess.CountAsync());
     }
 
     [Fact]
-    public async Task BootstrapLegacyAssignments_DoesNotOverwriteExplicitAssignments()
+    public async Task BootstrapInitialAdministratorAssignments_DoesNotOverwriteExplicitAssignments()
     {
         await using var fixture = await ModuleAccessFixture.CreateAsync();
         var administrator = AddLegacyUser(fixture.Db, "DOMAIN\\admin", ApplicationRoles.Admin);
+        AddGroup(administrator, ApplicationGroups.Administrators);
         administrator.ModuleAccessAssignments =
         [
             new AppUserModuleAccess
@@ -71,11 +76,34 @@ public sealed class ModuleAccessServiceTests
         ];
         await fixture.Db.SaveChangesAsync();
 
-        await fixture.Service.BootstrapLegacyAssignmentsAsync(fixture.Db);
+        await fixture.Service.BootstrapInitialAdministratorAssignmentsAsync(
+            fixture.Db,
+            ["DOMAIN\\admin"]);
 
         AssertAssignment(fixture.Db, administrator.Id, ApplicationModules.Engineering, null);
         AssertAssignment(fixture.Db, administrator.Id, ApplicationModules.Estimating, ApplicationRoles.Viewer);
         Assert.Equal(2, await fixture.Db.UserModuleAccess.CountAsync());
+    }
+
+    [Fact]
+    public async Task BootstrapInitialAdministratorAssignments_DoesNotGrantUnconfiguredAdministrator()
+    {
+        await using var fixture = await ModuleAccessFixture.CreateAsync();
+        var configured = AddLegacyUser(fixture.Db, "DOMAIN\\configured", ApplicationRoles.Admin);
+        var laterAdministrator = AddLegacyUser(fixture.Db, "DOMAIN\\later.admin", ApplicationRoles.Admin);
+        var administrators = new AppGroup { Name = ApplicationGroups.Administrators };
+        configured.GroupMemberships.Add(new AppUserGroupMembership { Group = administrators });
+        laterAdministrator.GroupMemberships.Add(new AppUserGroupMembership { Group = administrators });
+        await fixture.Db.SaveChangesAsync();
+
+        await fixture.Service.BootstrapInitialAdministratorAssignmentsAsync(
+            fixture.Db,
+            ["DOMAIN\\configured"]);
+
+        Assert.Equal(2, await fixture.Db.UserModuleAccess.CountAsync());
+        Assert.DoesNotContain(
+            fixture.Db.UserModuleAccess.Local,
+            access => access.AppUserId == laterAdministrator.Id);
     }
 
     [Fact]
@@ -163,6 +191,14 @@ public sealed class ModuleAccessServiceTests
             ModuleKey = moduleKey,
             Role = role
         };
+
+    private static void AddGroup(AppUser user, string groupName)
+    {
+        user.GroupMemberships.Add(new AppUserGroupMembership
+        {
+            Group = new AppGroup { Name = groupName }
+        });
+    }
 
     private static void AssertAssignment(
         ProjectTrackerDbContext db,

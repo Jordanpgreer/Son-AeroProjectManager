@@ -50,7 +50,7 @@ builder.Services.AddScoped<IClaimsTransformation, RoleClaimsTransformation>();
 
 builder.Services.AddAuthorization(options =>
 {
-    options.AddPolicy("CanView", policy => policy.RequireClaim(ApplicationClaimTypes.RegisteredUser, "true"));
+    options.AddPolicy(ProjectTrackerAccessAuthorization.PolicyName, ProjectTrackerAccessAuthorization.ConfigurePolicy);
     options.AddPolicy("ProjectCreate", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectCreate));
     options.AddPolicy("ProjectPriority", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectReorderPriority));
     options.AddPolicy("ProjectComplete", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectComplete));
@@ -135,7 +135,7 @@ await InitializeDatabaseAsync(app);
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
 
-var api = app.MapGroup("/api").RequireAuthorization("CanView");
+var api = app.MapGroup("/api").RequireAuthorization(ProjectTrackerAccessAuthorization.PolicyName);
 api.MapProjectReadEndpoints();
 api.MapArchivedProjectEndpoints();
 api.MapUserEndpoints();
@@ -342,7 +342,7 @@ api.MapPut("/projects/{id:int}", async (int id, ProjectUpsertDto dto, ProjectTra
     }
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(ToDetailDto(project));
-}).RequireAuthorization("CanView");
+}).RequireAuthorization(ProjectTrackerAccessAuthorization.PolicyName);
 
 api.MapPost("/projects/{id:int}/complete", async (int id, ProjectActionDto dto, ProjectTrackerDbContext db, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
@@ -648,7 +648,7 @@ api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectT
     }
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(ToTaskDto(task));
-}).RequireAuthorization("CanView");
+}).RequireAuthorization(ProjectTrackerAccessAuthorization.PolicyName);
 
 api.MapDelete("/tasks/{taskId:int}", async (int taskId, long version, long projectVersion, bool? detachDependents, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
@@ -1107,7 +1107,9 @@ static async Task InitializeDatabaseAsync(WebApplication app)
     var accessSeeder = scope.ServiceProvider.GetRequiredService<AccessControlSeeder>();
     await accessSeeder.SeedAsync(db, configuration);
     var moduleAccess = scope.ServiceProvider.GetRequiredService<ModuleAccessService>();
-    await moduleAccess.BootstrapLegacyAssignmentsAsync(db);
+    await moduleAccess.BootstrapInitialAdministratorAssignmentsAsync(
+        db,
+        configuration.GetSection("Security:Admins").Get<string[]>() ?? []);
     await ProjectNoteService.BackfillUpdatedAtAsync(db, cancellationToken: default);
     await BackfillCompletedDatesAsync(db, cancellationToken: default);
     NormalizeProjectPriorities(await db.Projects.ToListAsync());
