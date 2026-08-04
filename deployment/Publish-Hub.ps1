@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [string]$OutputRoot = (Join-Path $PSScriptRoot 'artifacts\hub'),
-    [string]$ProjectTrackerUrl = 'http://localhost:5135',
+    [string]$ProjectTrackerUrl = '/project-tracker-api',
     [ValidateSet('Release', 'Debug')]
     [string]$Configuration = 'Release'
 )
@@ -11,10 +11,16 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $resolvedRepoRoot = [System.IO.Path]::GetFullPath($repoRoot)
 $resolvedOutputRoot = [System.IO.Path]::GetFullPath($OutputRoot)
+$trackerUrlValue = $ProjectTrackerUrl.Trim()
 $trackerUri = $null
-if (-not [Uri]::TryCreate($ProjectTrackerUrl, [UriKind]::Absolute, [ref]$trackerUri) -or
-    $trackerUri.Scheme -notin @('http', 'https')) {
-    throw 'ProjectTrackerUrl must be an absolute http or https URL.'
+$absoluteTrackerUrl = [Uri]::TryCreate($trackerUrlValue, [UriKind]::Absolute, [ref]$trackerUri)
+$validRelativeTrackerUrl = $trackerUrlValue.StartsWith('/') `
+    -and -not $trackerUrlValue.StartsWith('//') `
+    -and -not $trackerUrlValue.Contains('?') `
+    -and -not $trackerUrlValue.Contains('#')
+if (($absoluteTrackerUrl -and $trackerUri.Scheme -notin @('http', 'https')) -or
+    (-not $absoluteTrackerUrl -and -not $validRelativeTrackerUrl)) {
+    throw 'ProjectTrackerUrl must be an absolute HTTP(S) URL or a root-relative application path.'
 }
 
 function Find-DotNetSdk {
@@ -48,7 +54,7 @@ $applications = @(
 New-Item -ItemType Directory -Force -Path $resolvedOutputRoot | Out-Null
 $priorTrackerUrl = $env:VITE_PROJECT_TRACKER_URL
 try {
-    $env:VITE_PROJECT_TRACKER_URL = $ProjectTrackerUrl.TrimEnd('/')
+    $env:VITE_PROJECT_TRACKER_URL = $trackerUrlValue.TrimEnd('/')
     foreach ($application in $applications) {
         $projectPath = Join-Path $resolvedRepoRoot $application.Project
         if (-not (Test-Path -LiteralPath $projectPath)) {

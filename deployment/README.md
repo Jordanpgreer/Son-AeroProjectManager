@@ -19,10 +19,12 @@ To build all four applications from the repository root:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\deployment\Publish-Hub.ps1 `
-  -ProjectTrackerUrl "http://SON-IIS2:5135"
+  -ProjectTrackerUrl "/project-tracker-api"
 ```
 
 Artifacts are written under `deployment\artifacts\hub` and are ignored by Git. Point IIS at
 separate site directories, never at the repository or staging directory. For production updates,
 use `Deploy-HubRelease.ps1`; it stages an immutable release, preserves Production settings, checks
-all four applications, and rolls IIS back to the prior paths if health verification fails.
+all four applications plus the same-origin Project Tracker gateway, and rolls IIS back to the prior
+paths if health verification fails. Run `Configure-PortalProjectTrackerGateway.ps1` once on SON-IIS2
+before the first gateway-aware release.

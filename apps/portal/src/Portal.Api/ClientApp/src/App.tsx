@@ -25,6 +25,7 @@ import { persistTheme, readThemePreference } from './theme'
 import type { AppTheme } from './theme'
 import AdminConsole from './admin/AdminConsole'
 import { isAdminHash } from './admin/api'
+import { applicationNavigationMode } from './navigation'
 
 type AppStatus = 'active' | 'comingSoon' | 'maintenance'
 
@@ -155,7 +156,10 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
-    const updateRoute = () => setLocationHash(window.location.hash)
+    const updateRoute = () => {
+      setLocationHash(window.location.hash)
+      setLaunchingAppId(null)
+    }
     window.addEventListener('hashchange', updateRoute)
     return () => window.removeEventListener('hashchange', updateRoute)
   }, [])
@@ -198,9 +202,14 @@ export default function App() {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.button === 1 || prefersReducedMotion()) return
     event.preventDefault()
     if (launchingAppId) return
+    const destination = applicationLaunchUrl(application.url)
+    if (applicationNavigationMode(destination) === 'same-document') {
+      window.location.assign(destination)
+      return
+    }
     setLaunchingAppId(application.id)
     window.setTimeout(() => {
-      window.location.assign(applicationLaunchUrl(application.url))
+      window.location.assign(destination)
     }, 240)
   }
 

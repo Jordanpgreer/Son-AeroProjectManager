@@ -1,7 +1,11 @@
+import { resolveProjectTrackerApiUrl } from './apiUrl'
+
 const configuredTrackerUrl = import.meta.env.VITE_PROJECT_TRACKER_URL?.trim()
 
-export const projectTrackerUrl = configuredTrackerUrl
-  || `${window.location.protocol}//${window.location.hostname}:5135`
+export const projectTrackerUrl = new URL(
+  configuredTrackerUrl || '/project-tracker-api',
+  window.location.origin,
+).toString().replace(/\/$/, '')
 
 export function isAdminHash(hash = window.location.hash) {
   return hash.toLowerCase().startsWith('#/admin')
@@ -48,7 +52,7 @@ export async function trackerApi<T>(
 
   let response: Response
   try {
-    response = await fetch(new URL(path, `${projectTrackerUrl.replace(/\/$/, '')}/`), {
+    response = await fetch(resolveProjectTrackerApiUrl(projectTrackerUrl, path), {
       ...init,
       headers,
       credentials: 'include',

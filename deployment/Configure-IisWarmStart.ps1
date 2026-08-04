@@ -1,5 +1,5 @@
 <#
-    Keeps the four SON-AERO Hub applications warm after reboot and IIS recycle.
+    Keeps the SON-AERO Hub applications and same-origin admin gateway warm after reboot and IIS recycle.
     Run from an elevated Windows PowerShell 5.1 session on SON-IIS2.
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
@@ -68,6 +68,13 @@ $sites = @(
     [pscustomobject]@{ Name = 'EngineeringHub'; Port = 5150 },
     [pscustomobject]@{ Name = 'EstimatingDashboard'; Port = 5160 }
 )
+$gateway = [pscustomobject]@{
+    Pool = 'ProjectTrackerAdminGateway'
+    Site = 'SonAeroPortal'
+    ApplicationPath = '/project-tracker-api'
+    HealthPath = '/project-tracker-api/api/health'
+    Port = 5140
+}
 
 $getWindowsFeature = Get-Command Get-WindowsFeature -ErrorAction SilentlyContinue
 if ($null -eq $getWindowsFeature) {
@@ -111,6 +118,12 @@ foreach ($site in $sites) {
         throw "Required IIS site '$($site.Name)' does not exist."
     }
 }
+if (-not (Test-Path -LiteralPath "IIS:\AppPools\$($gateway.Pool)")) {
+    throw "Required IIS application pool '$($gateway.Pool)' does not exist. Run Configure-PortalProjectTrackerGateway.ps1 first."
+}
+if (-not (Test-Path -LiteralPath "IIS:\Sites\$($gateway.Site)\$($gateway.ApplicationPath.TrimStart('/'))")) {
+    throw "Required IIS application '$($gateway.ApplicationPath)' does not exist. Run Configure-PortalProjectTrackerGateway.ps1 first."
+}
 
 if (-not $StartupRecoveryOnly) {
     foreach ($site in $sites) {
@@ -130,6 +143,16 @@ if (-not $StartupRecoveryOnly) {
                 -Location $site.Name -Filter 'system.webServer/applicationInitialization' `
                 -Name doAppInitAfterRestart -Value $true
         }
+    }
+
+    if ($PSCmdlet.ShouldProcess($gateway.Pool, 'Enable IIS always-running application-pool and preload settings')) {
+        $gatewayPoolPath = "IIS:\AppPools\$($gateway.Pool)"
+        Set-ItemProperty -LiteralPath $gatewayPoolPath -Name autoStart -Value $true
+        Set-ItemProperty -LiteralPath $gatewayPoolPath -Name startMode -Value 'AlwaysRunning'
+        Set-ItemProperty -LiteralPath $gatewayPoolPath -Name processModel.idleTimeout -Value ([TimeSpan]::Zero)
+        $gatewayFilter = "system.applicationHost/sites/site[@name='$($gateway.Site)']/application[@path='$($gateway.ApplicationPath)']"
+        Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' `
+            -Filter $gatewayFilter -Name preloadEnabled -Value $true
     }
 
     $operationsDirectory = Join-Path $env:ProgramData 'SonAero\Operations'
@@ -168,6 +191,9 @@ foreach ($site in $sites) {
         Start-Website -Name $site.Name
     }
 }
+if ((Get-WebAppPoolState -Name $gateway.Pool).Value -ne 'Started') {
+    Start-WebAppPool -Name $gateway.Pool
+}
 
 $results = foreach ($site in $sites) {
     $healthUri = '{0}://{1}:{2}/api/health' -f $Scheme, $ExpectedComputerName, $site.Port
@@ -179,6 +205,16 @@ $results = foreach ($site in $sites) {
         HealthUri = $healthUri
         StatusCode = $response.StatusCode
     }
+}
+
+$gatewayHealthUri = '{0}://{1}:{2}{3}' -f $Scheme, $ExpectedComputerName, $gateway.Port, $gateway.HealthPath
+$gatewayResponse = Wait-ForHealth -Uri $gatewayHealthUri -TimeoutSeconds $HealthTimeoutSeconds
+$results += [pscustomobject]@{
+    Site = $gateway.Pool
+    AppPoolState = (Get-WebAppPoolState -Name $gateway.Pool).Value
+    SiteState = (Get-Website -Name $gateway.Site).State
+    HealthUri = $gatewayHealthUri
+    StatusCode = $gatewayResponse.StatusCode
 }
 
 $results | Format-Table -AutoSize

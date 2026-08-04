@@ -50,6 +50,13 @@ $applications = @(
     }
 )
 
+$projectTrackerGateway = [pscustomobject]@{
+    Site = 'SonAeroPortal'
+    Path = '/project-tracker-api'
+    Pool = 'ProjectTrackerAdminGateway'
+    Port = 5140
+}
+
 function Assert-Administrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
@@ -132,6 +139,29 @@ function Wait-ApplicationHealth {
     }
 }
 
+function Test-ProjectTrackerGatewayHealthOnce {
+    $uri = "http://localhost:$($projectTrackerGateway.Port)$($projectTrackerGateway.Path)/api/health"
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -UseDefaultCredentials -Uri $uri -TimeoutSec 10
+        return ($response.StatusCode -eq 200)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Wait-ProjectTrackerGatewayHealth {
+    param([Parameter(Mandatory = $true)][int]$TimeoutSeconds)
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        if (Test-ProjectTrackerGatewayHealthOnce) { return }
+        Start-Sleep -Milliseconds 750
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    throw "Project Tracker gateway health verification timed out at '$($projectTrackerGateway.Path)'."
+}
+
 function Wait-IisState {
     param(
         [Parameter(Mandatory = $true)][ValidateSet('Site', 'Pool')][string]$Kind,
@@ -206,10 +236,11 @@ function Stop-HubApplications {
     }
     Wait-IisState -Kind Site -Names @($applications.Name) -State Stopped
 
-    foreach ($application in $applications) {
-        Request-IisState -Kind Pool -Name $application.Name -State Stopped
+    $poolNames = @($applications.Name) + @($projectTrackerGateway.Pool)
+    foreach ($poolName in $poolNames) {
+        Request-IisState -Kind Pool -Name $poolName -State Stopped
     }
-    Wait-IisState -Kind Pool -Names @($applications.Name) -State Stopped
+    Wait-IisState -Kind Pool -Names $poolNames -State Stopped
 }
 
 function Start-OneApplication {
@@ -226,11 +257,15 @@ function Start-HubApplications {
     Start-OneApplication -Application $tracker
     Wait-ApplicationHealth -Targets @($tracker) -TimeoutSeconds $HealthTimeoutSeconds
 
+    Request-IisState -Kind Pool -Name $projectTrackerGateway.Pool -State Started
+    Wait-IisState -Kind Pool -Names @($projectTrackerGateway.Pool) -State Started
+
     $remaining = @($applications | Where-Object Name -NE 'ProjectTracker')
     foreach ($application in $remaining) {
         Start-OneApplication -Application $application
     }
     Wait-ApplicationHealth -Targets $remaining -TimeoutSeconds $HealthTimeoutSeconds
+    Wait-ProjectTrackerGatewayHealth -TimeoutSeconds $HealthTimeoutSeconds
 }
 
 function Set-IisPhysicalPaths {
@@ -245,7 +280,15 @@ function Set-IisPhysicalPaths {
             $rootVirtualDirectory = $rootApplication.VirtualDirectories['/']
             $rootVirtualDirectory.PhysicalPath = $PathsBySite[$application.Name]
         }
-        # CommitChanges performs one IIS configuration commit for all four physical paths.
+        $portalSite = $serverManager.Sites[$projectTrackerGateway.Site]
+        $gatewayApplication = $portalSite.Applications[$projectTrackerGateway.Path]
+        if (-not $gatewayApplication) {
+            throw "IIS application '$($projectTrackerGateway.Site)$($projectTrackerGateway.Path)' disappeared during deployment."
+        }
+        $gatewayApplication.ApplicationPoolName = $projectTrackerGateway.Pool
+        $gatewayApplication.VirtualDirectories['/'].PhysicalPath = $PathsBySite['ProjectTracker']
+
+        # CommitChanges performs one IIS configuration commit for all root paths and the gateway.
         $serverManager.CommitChanges()
     }
     finally {
@@ -385,6 +428,46 @@ try {
         Assert-JsonFile -Path $productionSettings
         $currentPaths[$application.Name] = $currentPath
     }
+
+    $gatewayPool = $serverManager.ApplicationPools[$projectTrackerGateway.Pool]
+    if (-not $gatewayPool) {
+        throw "Required IIS application pool '$($projectTrackerGateway.Pool)' is missing. Run Configure-PortalProjectTrackerGateway.ps1 first."
+    }
+    if ($gatewayPool.ManagedRuntimeVersion -ne '' `
+        -or -not $gatewayPool.AutoStart `
+        -or $gatewayPool.StartMode -ne [Microsoft.Web.Administration.StartMode]::AlwaysRunning `
+        -or $gatewayPool.ProcessModel.IdentityType -ne [Microsoft.Web.Administration.ProcessModelIdentityType]::ApplicationPoolIdentity `
+        -or -not $gatewayPool.ProcessModel.LoadUserProfile `
+        -or $gatewayPool.ProcessModel.IdleTimeout -ne [TimeSpan]::Zero) {
+        throw "IIS application pool '$($projectTrackerGateway.Pool)' is not in the required restricted always-running configuration. Run Configure-PortalProjectTrackerGateway.ps1 first."
+    }
+    $portalSite = $serverManager.Sites[$projectTrackerGateway.Site]
+    $gatewayApplication = $portalSite.Applications[$projectTrackerGateway.Path]
+    if (-not $gatewayApplication) {
+        throw "Required IIS application '$($projectTrackerGateway.Site)$($projectTrackerGateway.Path)' is missing. Run Configure-PortalProjectTrackerGateway.ps1 first."
+    }
+    if ($gatewayApplication.ApplicationPoolName -ine $projectTrackerGateway.Pool) {
+        throw "IIS application '$($projectTrackerGateway.Path)' must use application pool '$($projectTrackerGateway.Pool)'."
+    }
+    $gatewayVirtualDirectory = $gatewayApplication.VirtualDirectories['/']
+    if (-not $gatewayVirtualDirectory) {
+        throw "IIS application '$($projectTrackerGateway.Path)' has no root virtual directory."
+    }
+    $gatewayCurrentPath = Get-FullPath -Path $gatewayVirtualDirectory.PhysicalPath
+    if ($gatewayCurrentPath -ine $currentPaths['ProjectTracker']) {
+        throw "IIS application '$($projectTrackerGateway.Path)' must point to the current Project Tracker release."
+    }
+    $gatewayLocation = "$($projectTrackerGateway.Site)$($projectTrackerGateway.Path)"
+    $applicationHostConfiguration = $serverManager.GetApplicationHostConfiguration()
+    $anonymousEnabled = [bool]$applicationHostConfiguration.GetSection(
+        'system.webServer/security/authentication/anonymousAuthentication',
+        $gatewayLocation).GetAttributeValue('enabled')
+    $windowsEnabled = [bool]$applicationHostConfiguration.GetSection(
+        'system.webServer/security/authentication/windowsAuthentication',
+        $gatewayLocation).GetAttributeValue('enabled')
+    if ($anonymousEnabled -or -not $windowsEnabled) {
+        throw "IIS application '$($projectTrackerGateway.Path)' must disable Anonymous Authentication and enable Windows Authentication."
+    }
 }
 finally {
     $serverManager.Dispose()
@@ -401,10 +484,16 @@ foreach ($application in $applications) {
         throw "The current '$($application.Name)' health endpoint is not HTTP 200. No changes were made."
     }
 }
+if ((Get-WebAppPoolState -Name $projectTrackerGateway.Pool).Value -ne 'Started') {
+    throw "IIS application pool '$($projectTrackerGateway.Pool)' is not started. No changes were made."
+}
+if (-not (Test-ProjectTrackerGatewayHealthOnce)) {
+    throw "The current Project Tracker gateway health endpoint is not HTTP 200. No changes were made."
+}
 
 if (-not $PSCmdlet.ShouldProcess(
         "$ExpectedComputerName release '$releasePath'",
-        'Create a sanitized immutable release, switch four IIS paths, and verify health with rollback on failure')) {
+        'Create a sanitized immutable release, switch IIS paths including the Project Tracker gateway, and verify health with rollback on failure')) {
     Write-Output 'WHATIF_READY'
     return
 }
@@ -448,6 +537,12 @@ try {
         & icacls.exe $candidatePath /grant "IIS AppPool\$($application.Name):(OI)(CI)RX" /t /c | Out-Null
         if ($LASTEXITCODE -ne 0) {
             throw "Read/execute permission assignment failed for '$candidatePath'."
+        }
+        if ($application.Name -eq 'ProjectTracker') {
+            & icacls.exe $candidatePath /grant "IIS AppPool\$($projectTrackerGateway.Pool):(OI)(CI)RX" /t /c | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                throw "Gateway read/execute permission assignment failed for '$candidatePath'."
+            }
         }
         $newPaths[$application.Name] = $candidatePath
     }

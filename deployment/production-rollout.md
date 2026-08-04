@@ -73,8 +73,14 @@ if (Test-Path -LiteralPath $packageRoot) {
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File "$repo\deployment\Publish-Hub.ps1" `
   -OutputRoot $packageRoot `
-  -ProjectTrackerUrl 'http://SON-IIS2:5135'
+  -ProjectTrackerUrl '/project-tracker-api'
 if ($LASTEXITCODE -ne 0) { throw 'Hub publish failed; IIS was not changed.' }
+
+& "$repo\deployment\Configure-PortalProjectTrackerGateway.ps1" -WhatIf
+if ($LASTEXITCODE -ne 0) { throw 'Gateway preview failed; IIS was not changed.' }
+
+& "$repo\deployment\Configure-PortalProjectTrackerGateway.ps1" -Confirm:$false
+if ($LASTEXITCODE -ne 0) { throw 'Gateway configuration failed; do not deploy the release.' }
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File "$repo\deployment\Deploy-HubRelease.ps1" `
@@ -83,8 +89,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -WhatIf
 if ($LASTEXITCODE -ne 0) { throw 'Release preview failed; IIS was not changed.' }
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File "$repo\deployment\Deploy-HubRelease.ps1" `
+& "$repo\deployment\Deploy-HubRelease.ps1" `
   -PackageRoot $packageRoot `
   -ReleaseId $releaseId `
   -Confirm:$false
@@ -128,7 +133,8 @@ Expected final line:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\SonAero\Configure-IisWarmStart.ps1' -Scheme http -Confirm:$false"
 ```
 
-Expected final line: `WARM_START_CONFIGURED_AND_HEALTHY`, with HTTP 200 for all four sites. The
+Expected final line: `WARM_START_CONFIGURED_AND_HEALTHY`, with HTTP 200 for all four sites and the
+Project Tracker gateway. The
 apply run also installs an idempotent Local System startup-recovery task with bounded retries, so a
 simultaneous SON-IIS2/SON-SQL2 reboot can recover after SQL becomes available. Stop and investigate
 if any site is not healthy; do not distribute shortcuts around a failed result.

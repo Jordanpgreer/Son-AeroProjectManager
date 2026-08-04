@@ -123,6 +123,42 @@ foreach ($site in $sites) {
         -Name enabled -Value true
 }
 
+$gatewayPoolName = 'ProjectTrackerAdminGateway'
+$gatewayApplicationName = 'project-tracker-api'
+$trackerPath = Join-Path $SiteRoot 'ProjectTracker'
+if (-not (Test-Path "IIS:\AppPools\$gatewayPoolName")) {
+    New-WebAppPool -Name $gatewayPoolName | Out-Null
+}
+Set-ItemProperty "IIS:\AppPools\$gatewayPoolName" -Name managedRuntimeVersion -Value ''
+Set-ItemProperty "IIS:\AppPools\$gatewayPoolName" -Name enable32BitAppOnWin64 -Value $false
+Set-ItemProperty "IIS:\AppPools\$gatewayPoolName" -Name processModel.identityType -Value ApplicationPoolIdentity
+Set-ItemProperty "IIS:\AppPools\$gatewayPoolName" -Name processModel.loadUserProfile -Value $true
+Set-ItemProperty "IIS:\AppPools\$gatewayPoolName" -Name autoStart -Value $true
+Set-ItemProperty "IIS:\AppPools\$gatewayPoolName" -Name startMode -Value AlwaysRunning
+Set-ItemProperty "IIS:\AppPools\$gatewayPoolName" -Name processModel.idleTimeout -Value ([TimeSpan]::Zero)
+
+$gatewayIisPath = "IIS:\Sites\SonAeroPortal\$gatewayApplicationName"
+if (-not (Test-Path $gatewayIisPath)) {
+    New-WebApplication -Site 'SonAeroPortal' -Name $gatewayApplicationName `
+        -PhysicalPath $trackerPath -ApplicationPool $gatewayPoolName | Out-Null
+}
+else {
+    Set-ItemProperty $gatewayIisPath -Name physicalPath -Value $trackerPath
+    Set-ItemProperty $gatewayIisPath -Name applicationPool -Value $gatewayPoolName
+}
+& icacls.exe $trackerPath /grant "IIS AppPool\$gatewayPoolName`:(OI)(CI)RX" /t /c | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Project Tracker gateway permission assignment failed.' }
+& $appCmd set app "/app.name:SonAeroPortal/$gatewayApplicationName" /preloadEnabled:true | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Project Tracker gateway preload configuration failed.' }
+Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' `
+    -Location "SonAeroPortal/$gatewayApplicationName" `
+    -Filter 'system.webServer/security/authentication/anonymousAuthentication' `
+    -Name enabled -Value false
+Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' `
+    -Location "SonAeroPortal/$gatewayApplicationName" `
+    -Filter 'system.webServer/security/authentication/windowsAuthentication' `
+    -Name enabled -Value true
+
 $firewallName = 'SON-AERO Hub IIS ports'
 $firewallRules = @(Get-NetFirewallRule -DisplayName $firewallName -ErrorAction SilentlyContinue)
 if ($firewallRules.Count -gt 1) {
@@ -151,6 +187,9 @@ foreach ($site in $sites) {
         Start-Website -Name $site.Name
     }
 }
+if ((Get-WebAppPoolState -Name $gatewayPoolName).Value -ne 'Started') {
+    Start-WebAppPool -Name $gatewayPoolName
+}
 
 $deadline = [DateTime]::UtcNow.AddSeconds($HealthTimeoutSeconds)
 $pending = @($sites)
@@ -172,6 +211,20 @@ do {
 
 if ($pending.Count -gt 0) {
     throw "IIS configuration was applied, but health verification timed out for: $($pending.Name -join ', '). Review Event Viewer before retrying."
+}
+
+$gatewayUri = "http://$ExpectedComputerName`:5140/$gatewayApplicationName/api/health"
+$gatewayDeadline = [DateTime]::UtcNow.AddSeconds($HealthTimeoutSeconds)
+do {
+    try {
+        $gatewayResponse = Invoke-WebRequest -UseBasicParsing -UseDefaultCredentials -Uri $gatewayUri -TimeoutSec 5
+        if ($gatewayResponse.StatusCode -eq 200) { break }
+    }
+    catch { }
+    Start-Sleep -Milliseconds 750
+} while ([DateTime]::UtcNow -lt $gatewayDeadline)
+if ($null -eq $gatewayResponse -or $gatewayResponse.StatusCode -ne 200) {
+    throw "IIS configuration was applied, but the Project Tracker gateway did not become healthy at $gatewayUri."
 }
 
 $healthResults | Format-Table -AutoSize

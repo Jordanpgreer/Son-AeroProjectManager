@@ -103,11 +103,12 @@ From the repository root on SON-IIS2:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\deployment\Publish-Hub.ps1 `
   -OutputRoot C:\SonAero\staging\hub `
-  -ProjectTrackerUrl "http://SON-IIS2:5135"
+  -ProjectTrackerUrl "/project-tracker-api"
 ```
 
-The Project Tracker URL is compiled into the Portal Admin Console and must be reachable from each
-employee's browser. The output contains `Portal`, `ProjectTracker`, `EngineeringHub`, and
+The root-relative Project Tracker URL is compiled into the Portal Admin Console. It keeps Admin API
+requests on the Portal origin so Windows-authenticated saves do not cross ports or require browser
+CORS preflight. The output contains `Portal`, `ProjectTracker`, `EngineeringHub`, and
 `EstimatingDashboard`.
 
 Copy them into timestamped release folders, then deploy them to these stable IIS paths:
@@ -148,9 +149,9 @@ powershell -ExecutionPolicy Bypass -File .\deployment\Configure-IisServer.ps1 -C
 ```
 
 The script installs Windows Authentication and Application Initialization, creates four isolated
-`ApplicationPoolIdentity` pools/sites on ports 5135-5160, applies folder permissions, disables
+sites plus the dedicated `/project-tracker-api` application and pool, applies folder permissions, disables
 Anonymous Authentication, enables Windows Authentication, reconciles the scoped firewall rule,
-and does not report success until every `/api/health` endpoint returns HTTP 200.
+and does not report success until every root and gateway `/api/health` endpoint returns HTTP 200.
 
 Start ProjectTracker first so it applies database migrations and seeds the initial administrator.
 Then start EngineeringHub, EstimatingDashboard, and Portal.
