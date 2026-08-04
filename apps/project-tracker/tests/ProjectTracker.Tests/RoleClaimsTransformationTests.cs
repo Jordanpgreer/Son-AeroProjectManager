@@ -57,6 +57,39 @@ public sealed class RoleClaimsTransformationTests
     }
 
     [Fact]
+    public async Task TransformAsync_MatchesLegacyForwardSlashAssignmentToWindowsIdentity()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>().UseSqlite(connection).Options;
+        await using var db = new ProjectTrackerDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
+        var group = new AppGroup
+        {
+            Name = ApplicationGroups.Administrators,
+            Permissions = [new AppGroupPermission { PermissionKey = ApplicationPermissions.AccessManageUsers }]
+        };
+        db.Users.Add(new AppUser
+        {
+            AccountName = "son4l/jordan.greer",
+            DisplayName = "Jordan Greer",
+            IsActive = true,
+            GroupMemberships = [new AppUserGroupMembership { Group = group }]
+        });
+        await db.SaveChangesAsync();
+
+        var principal = AuthenticatedPrincipal(@"SON4L\jordan.greer");
+        await new RoleClaimsTransformation(db).TransformAsync(principal);
+
+        Assert.True(principal.HasClaim(ApplicationClaimTypes.RegisteredUser, "true"));
+        Assert.True(principal.HasClaim(
+            ApplicationClaimTypes.Permission,
+            ApplicationPermissions.AccessManageUsers));
+        Assert.Single(await db.Users.ToListAsync());
+    }
+
+    [Fact]
     public async Task TransformAsync_ProvisionsUnknownAuthenticatedUserAsViewOnly()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

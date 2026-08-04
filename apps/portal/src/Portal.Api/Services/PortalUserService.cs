@@ -22,6 +22,9 @@ public sealed class PortalUserService(
             accountName = configuration["Authentication:DevelopmentAccount"] ?? "SONAERO\\dev.user";
         }
 
+        accountName = WindowsAccountNames.Normalize(accountName)
+            ?? throw new UnauthorizedAccessException("A valid Windows account name is required.");
+
         var role = await ResolveRoleAsync(accountName, cancellationToken);
         var moduleRoles = await roleStore.FindModuleRolesAsync(accountName, cancellationToken);
         if (moduleRoles.Count == 0 && IsDevelopmentMode())
@@ -61,12 +64,12 @@ public sealed class PortalUserService(
         var admins = configuration.GetSection("Portal:Admins").Get<string[]>() ?? Array.Empty<string>();
         var editors = configuration.GetSection("Portal:Editors").Get<string[]>() ?? Array.Empty<string>();
 
-        if (admins.Any(account => string.Equals(account, accountName, StringComparison.OrdinalIgnoreCase)))
+        if (admins.Any(account => WindowsAccountNames.Equals(account, accountName)))
         {
             return ApplicationRoles.Admin;
         }
 
-        if (editors.Any(account => string.Equals(account, accountName, StringComparison.OrdinalIgnoreCase)))
+        if (editors.Any(account => WindowsAccountNames.Equals(account, accountName)))
         {
             return ApplicationRoles.Editor;
         }
@@ -83,12 +86,7 @@ public sealed class PortalUserService(
 
     private static string ToDisplayName(string accountName)
     {
-        var name = accountName;
-        var separator = name.LastIndexOf('\\');
-        if (separator >= 0 && separator < name.Length - 1)
-        {
-            name = name[(separator + 1)..];
-        }
+        var name = WindowsAccountNames.DisplayName(accountName);
 
         name = name.Replace('.', ' ').Replace('_', ' ').Trim();
         if (name.Length == 0)

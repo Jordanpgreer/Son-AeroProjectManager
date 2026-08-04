@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Dtos;
 using ProjectTracker.Api.Services;
+using SonAero.Platform.Security;
 
 namespace ProjectTracker.Api.Endpoints;
 
@@ -107,9 +108,9 @@ public static class NotificationEndpoints
         CurrentUserService currentUser,
         CancellationToken cancellationToken)
     {
-        var normalizedAccount = currentUser.AccountName.ToUpper();
+        var lookupKeys = WindowsAccountNames.LookupKeys(currentUser.AccountName);
         return db.Users
-            .Where(user => user.IsActive && user.AccountName.ToUpper() == normalizedAccount)
+            .Where(user => user.IsActive && lookupKeys.Contains(user.AccountName.ToUpper()))
             .Select(user => (int?)user.Id)
             .FirstOrDefaultAsync(cancellationToken);
     }

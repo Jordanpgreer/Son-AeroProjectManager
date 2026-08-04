@@ -2,6 +2,7 @@ using System.Data.Common;
 using EstimatingDashboard.Api.Auth;
 using EstimatingDashboard.Api.Data;
 using Microsoft.EntityFrameworkCore;
+using SonAero.Platform.Security;
 
 namespace EstimatingDashboard.Api.Services;
 
@@ -22,13 +23,13 @@ public sealed class EstimatingAccessStore(
     {
         try
         {
-            var normalized = accountName.Trim().ToUpper();
+            var lookupKeys = WindowsAccountNames.LookupKeys(accountName);
             var record = await db.UserModuleAccess
                 .AsNoTracking()
                 .Where(access =>
                     access.ModuleKey == EstimatingModule.Key
                     && access.User.IsActive
-                    && access.User.AccountName.ToUpper() == normalized)
+                    && lookupKeys.Contains(access.User.AccountName.ToUpper()))
                 .Select(access => new
                 {
                     access.AppUserId,
@@ -43,7 +44,7 @@ public sealed class EstimatingAccessStore(
                 ? null
                 : new EstimatingAccessProfile(
                     record.AppUserId,
-                    record.AccountName,
+                    WindowsAccountNames.Normalize(record.AccountName) ?? record.AccountName,
                     record.DisplayName,
                     role,
                     true);

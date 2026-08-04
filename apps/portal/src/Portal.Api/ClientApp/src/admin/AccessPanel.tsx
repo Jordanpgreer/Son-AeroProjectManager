@@ -31,6 +31,10 @@ function sameStrings(left: string[], right: string[]) {
   return left.length === right.length && left.every((value, index) => value === right[index])
 }
 
+function accountKey(value: string | null) {
+  return value?.trim().replaceAll('/', '\\').toLowerCase() ?? ''
+}
+
 function initials(name: string) {
   const words = name.trim().split(/\s+/).filter(Boolean)
   if (!words.length) return '?'
@@ -300,7 +304,11 @@ export default function AccessPanel({
             </div>
             {canManageUsers ? (
               <form className="admin-create-form" onSubmit={createUser}>
-                <label><span>Windows account</span><input required value={newUser.accountName} onChange={(event) => setNewUser({ ...newUser, accountName: event.target.value })} placeholder="DOMAIN\\user.name" /></label>
+                <label>
+                  <span>Windows account</span>
+                  <input required value={newUser.accountName} onChange={(event) => setNewUser({ ...newUser, accountName: event.target.value })} placeholder="SON4L\\firstname.lastname" aria-describedby="windows-account-help" />
+                  <small id="windows-account-help">Paste the user&apos;s <code>whoami</code> result. Forward slash is also accepted.</small>
+                </label>
                 <label><span>Display name</span><input value={newUser.displayName} onChange={(event) => setNewUser({ ...newUser, displayName: event.target.value })} placeholder="Optional" /></label>
                 <button className="solid-button" type="submit"><Plus size={15} /> Register</button>
               </form>
@@ -310,7 +318,7 @@ export default function AccessPanel({
             <div className="admin-user-list">
               {filteredUsers.map((user) => {
                 const draft = userDrafts[user.id] ?? { groupIds: user.groupIds, isActive: user.isActive }
-                const isCurrent = currentAccountName?.toLowerCase() === user.accountName.toLowerCase()
+                const isCurrent = accountKey(currentAccountName) === accountKey(user.accountName)
                 return (
                   <article className="admin-user-card" key={user.id}>
                     <span className="admin-user-avatar" aria-hidden="true">{initials(user.displayName)}</span>

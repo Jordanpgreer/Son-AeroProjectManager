@@ -4,8 +4,8 @@ A monorepo hosting SON-AERO's internal business applications behind a single app
 **portal**. Project Tracker, Engineering Hub, and Estimating Dashboard run as isolated
 applications registered with the Portal launcher.
 
-Everything runs locally during development. IIS / server deployment is **not** configured yet
-(see [Server deployment (later)](#server-deployment-later)).
+Local development uses the desktop launcher. Production deployment is prepared for SON-IIS2 and
+SON-SQL2; see [Server deployment](#server-deployment).
 
 ## Repository structure
 
@@ -28,7 +28,7 @@ SonAeroInternalHub/
 │       ├── legacy-workbooks/   # source/backup Excel workbooks (import source)
 │       └── backups/            # local DB backups
 ├── scripts/                    # Start-Hub, Setup-Hub, Install-HubShortcut, Sync-Branding
-├── deployment/                 # server deployment notes (implemented later)
+├── deployment/                 # production publish script, templates, and server runbook
 ├── docs/                       # hub documentation
 ├── SonAeroInternalHub.sln      # root solution (both app backends + tests)
 └── README.md
@@ -148,17 +148,19 @@ the hub, so changes made in **Settings → User Roles** are reflected by both th
 The `Portal:Admins` and `Portal:Editors` configuration lists remain bootstrap fallbacks for a new
 deployment or a temporarily unavailable role store.
 
-## Server deployment (later)
+## Server deployment
 
-The following are **out of scope until development is complete** and are not configured here:
-IIS sites, production SQL Server databases, internal DNS, HTTPS certificates, and server backup
-jobs. Project Tracker's existing IIS/SQL notes remain at
-[apps/project-tracker/docs/iis-sqlserver-deployment.md](apps/project-tracker/docs/iis-sqlserver-deployment.md)
-for when that work begins.
+Production is designed for **SON-IIS2** as the IIS application server and **SON-SQL2** as the SQL
+Server/data server. Do not use the Development desktop launcher as the server host; publish the
+four applications and run them under IIS with Windows Authentication.
+
+Follow [deployment/server-deployment.md](deployment/server-deployment.md) for the exact first
+installation, `SON4L\firstname.lastname` role setup, validation, update, backup, and rollback steps.
 
 ## Documentation
 
 - [docs/local-setup.md](docs/local-setup.md) — detailed local setup and troubleshooting
 - [docs/adding-an-application.md](docs/adding-an-application.md) — register a new application
+- [deployment/server-deployment.md](deployment/server-deployment.md) — SON-IIS2/SON-SQL2 production deployment
 - [apps/project-tracker/README.md](apps/project-tracker/README.md) — Project Tracker specifics
 - [shared/branding/README.md](shared/branding/README.md) — brand assets and token sync

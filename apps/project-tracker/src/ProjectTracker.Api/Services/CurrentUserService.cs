@@ -7,15 +7,15 @@ public sealed class CurrentUserService(IHttpContextAccessor httpContextAccessor)
 {
     private ClaimsPrincipal? Principal => httpContextAccessor.HttpContext?.User;
 
-    public string AccountName => httpContextAccessor.HttpContext?.User.Identity?.Name ?? "Unknown";
+    public string AccountName => WindowsAccountNames.Normalize(
+        httpContextAccessor.HttpContext?.User.Identity?.Name) ?? "Unknown";
 
     public string DisplayName
     {
         get
         {
             var account = AccountName;
-            var slashIndex = account.LastIndexOf('\\');
-            return slashIndex >= 0 ? account[(slashIndex + 1)..] : account;
+            return WindowsAccountNames.DisplayName(account);
         }
     }
 

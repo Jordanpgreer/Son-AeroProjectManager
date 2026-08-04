@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using EstimatingDashboard.Api.Auth;
 using EstimatingDashboard.Api.Dtos;
+using SonAero.Platform.Security;
 
 namespace EstimatingDashboard.Api.Services;
 
@@ -18,7 +19,10 @@ public sealed class EstimatingUserService(
             accountName = configuration["Authentication:DevelopmentAccount"] ?? "SONAERO\\estimating.user";
         }
 
-        return await accessStore.FindEnabledAsync(accountName, cancellationToken);
+        accountName = WindowsAccountNames.Normalize(accountName);
+        return accountName is null
+            ? null
+            : await accessStore.FindEnabledAsync(accountName, cancellationToken);
     }
 
     public static MeDto Current(EstimatingAccessProfile access) => new(

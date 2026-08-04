@@ -2,6 +2,7 @@ using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 using Portal.Api.Data;
 using Portal.Api.Dtos;
+using SonAero.Platform.Security;
 
 namespace Portal.Api.Services;
 
@@ -17,10 +18,10 @@ public sealed class ApplicationNotificationService(
     {
         try
         {
-            var normalizedAccount = accountName.ToUpper();
+            var lookupKeys = WindowsAccountNames.LookupKeys(accountName);
             var userId = await db.Users
                 .AsNoTracking()
-                .Where(user => user.IsActive && user.AccountName.ToUpper() == normalizedAccount)
+                .Where(user => user.IsActive && lookupKeys.Contains(user.AccountName.ToUpper()))
                 .Select(user => (int?)user.Id)
                 .FirstOrDefaultAsync(cancellationToken);
 

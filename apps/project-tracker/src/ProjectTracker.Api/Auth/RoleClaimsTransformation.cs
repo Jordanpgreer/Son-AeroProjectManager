@@ -23,13 +23,18 @@ public sealed class RoleClaimsTransformation(ProjectTrackerDbContext db) : IClai
             return principal;
         }
 
-        var account = principal.Identity.Name;
-        var normalizedAccount = account.ToUpperInvariant();
+        var account = WindowsAccountNames.Normalize(principal.Identity.Name);
+        if (account is null)
+        {
+            return principal;
+        }
+
+        var lookupKeys = WindowsAccountNames.LookupKeys(account);
         var access = await db.Users
             .Include(user => user.GroupMemberships)
                 .ThenInclude(membership => membership.Group)
                     .ThenInclude(group => group.Permissions)
-            .FirstOrDefaultAsync(user => user.AccountName.ToUpper() == normalizedAccount);
+            .FirstOrDefaultAsync(user => lookupKeys.Contains(user.AccountName.ToUpper()));
         var identity = new ClaimsIdentity(ApplicationRoleIdentity);
 
         if (access is null)
@@ -64,7 +69,7 @@ public sealed class RoleClaimsTransformation(ProjectTrackerDbContext db) : IClai
                     .Include(user => user.GroupMemberships)
                         .ThenInclude(membership => membership.Group)
                             .ThenInclude(group => group.Permissions)
-                    .FirstOrDefaultAsync(user => user.AccountName.ToUpper() == normalizedAccount);
+                    .FirstOrDefaultAsync(user => lookupKeys.Contains(user.AccountName.ToUpper()));
                 if (access is null)
                 {
                     throw;
@@ -108,7 +113,6 @@ public sealed class RoleClaimsTransformation(ProjectTrackerDbContext db) : IClai
 
     private static string DefaultDisplayName(string accountName)
     {
-        var slashIndex = accountName.LastIndexOf('\\');
-        return slashIndex >= 0 ? accountName[(slashIndex + 1)..] : accountName;
+        return WindowsAccountNames.DisplayName(accountName);
     }
 }

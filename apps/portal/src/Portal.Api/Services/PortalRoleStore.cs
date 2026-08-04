@@ -1,6 +1,7 @@
 using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 using Portal.Api.Data;
+using SonAero.Platform.Security;
 
 namespace Portal.Api.Services;
 
@@ -18,10 +19,10 @@ public sealed class PortalRoleStore(PortalRoleDbContext db, ILogger<PortalRoleSt
     {
         try
         {
-            var normalized = accountName.ToUpper();
+            var lookupKeys = WindowsAccountNames.LookupKeys(accountName);
             return await db.Users
                 .AsNoTracking()
-                .Where(user => user.AccountName.ToUpper() == normalized)
+                .Where(user => user.IsActive && lookupKeys.Contains(user.AccountName.ToUpper()))
                 .Select(user => user.Role)
                 .FirstOrDefaultAsync(cancellationToken);
         }
@@ -38,12 +39,12 @@ public sealed class PortalRoleStore(PortalRoleDbContext db, ILogger<PortalRoleSt
     {
         try
         {
-            var normalized = accountName.ToUpper();
+            var lookupKeys = WindowsAccountNames.LookupKeys(accountName);
             var assignments = await db.UserModuleAccess
                 .AsNoTracking()
                 .Where(access =>
                     access.User.IsActive
-                    && access.User.AccountName.ToUpper() == normalized
+                    && lookupKeys.Contains(access.User.AccountName.ToUpper())
                     && access.Role != null)
                 .Select(access => new { access.ModuleKey, access.Role })
                 .ToListAsync(cancellationToken);

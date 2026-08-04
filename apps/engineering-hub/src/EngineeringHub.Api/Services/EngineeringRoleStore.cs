@@ -18,12 +18,12 @@ public sealed class EngineeringRoleStore(EngineeringRoleDbContext db, ILogger<En
     {
         try
         {
-            var normalized = accountName.ToUpperInvariant();
+            var lookupKeys = WindowsAccountNames.LookupKeys(accountName);
             var assignment = await db.UserModuleAccess
                 .AsNoTracking()
                 .Where(access =>
                     access.ModuleKey == ApplicationModules.Engineering
-                    && access.User.AccountName.ToUpper() == normalized)
+                    && lookupKeys.Contains(access.User.AccountName.ToUpper()))
                 .Select(access => new
                 {
                     access.User.IsActive,

@@ -71,6 +71,25 @@ public sealed class AccessControlSeederTests
             && permission.PermissionKey == ApplicationPermissions.ProjectCreate));
     }
 
+    [Fact]
+    public async Task Seed_DoesNotDuplicateSlashVariantOfExistingWindowsAccount()
+    {
+        await using var fixture = await AccessFixture.CreateAsync();
+        fixture.Db.Users.Add(new AppUser
+        {
+            AccountName = @"SON4L\jordan.greer",
+            DisplayName = "Jordan Greer",
+            IsActive = true
+        });
+        await fixture.Db.SaveChangesAsync();
+
+        await new AccessControlSeeder().SeedAsync(
+            fixture.Db,
+            Configuration(("Security:Admins:0", "son4l/jordan.greer")));
+
+        Assert.Single(await fixture.Db.Users.ToListAsync());
+    }
+
     private static IConfiguration Configuration(params (string Key, string Value)[] values) =>
         new ConfigurationBuilder()
             .AddInMemoryCollection(values.ToDictionary(pair => pair.Key, pair => (string?)pair.Value))

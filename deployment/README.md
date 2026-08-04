@@ -1,19 +1,24 @@
-# Deployment (Implemented Later)
+# SON-AERO Hub server deployment
 
-Server deployment for the SON-AERO Internal Hub is **intentionally not configured yet**. During
-this phase everything runs locally (see the [root README](../README.md)).
+The assigned production servers are:
 
-When deployment work begins, this folder will hold the hub-level server configuration. The
-following are explicitly deferred and must **not** be set up until development is complete:
+- **SON-IIS2** (`10.50.10.244`): application server for IIS and all four web applications.
+- **SON-SQL2** (`10.50.10.242`): SQL Server and controlled Engineering drawing storage.
 
-- IIS sites for the portal and each application
-- Production SQL Server databases
-- Internal DNS names
-- HTTPS certificates
-- Server backup jobs
+Do **not** run `scripts/Start-Hub.ps1` as the production host. That launcher intentionally uses
+Development authentication and localhost URLs. Production uses IIS, Windows Authentication, SQL
+Server, and each employee's real `SON4L\firstname.lastname` domain identity.
 
-Project Tracker already has standalone IIS + SQL Server notes that will feed into this work:
-[apps/project-tracker/docs/iis-sqlserver-deployment.md](../apps/project-tracker/docs/iis-sqlserver-deployment.md).
+Follow [server-deployment.md](server-deployment.md) for the first installation, verification,
+updates, backups, and rollback. Example Production settings are in [`templates`](templates). No
+passwords, live secrets, or certificates belong in Git.
 
-Each application keeps its own `deployment/` folder (for example
-`apps/project-tracker/deployment/publish.ps1`) for app-specific publishing.
+To build all four applications from the repository root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deployment\Publish-Hub.ps1 `
+  -ProjectTrackerUrl "http://SON-IIS2:5135"
+```
+
+Artifacts are written under `deployment\artifacts\hub` and are ignored by Git. Point IIS at
+separate site directories, never at the repository or staging directory.

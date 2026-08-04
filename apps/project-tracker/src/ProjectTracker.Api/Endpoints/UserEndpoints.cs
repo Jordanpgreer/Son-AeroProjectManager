@@ -14,9 +14,10 @@ public static class UserEndpoints
     {
         api.MapGet("/me", async (CurrentUserService currentUser, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
         {
+            var lookupKeys = WindowsAccountNames.LookupKeys(currentUser.AccountName);
             var user = await db.Users
                 .AsNoTracking()
-                .FirstOrDefaultAsync(candidate => candidate.AccountName == currentUser.AccountName, cancellationToken);
+                .FirstOrDefaultAsync(candidate => lookupKeys.Contains(candidate.AccountName.ToUpper()), cancellationToken);
             if (user is null)
             {
                 return Results.Forbid();
@@ -111,7 +112,8 @@ public static class UserEndpoints
                 return Results.BadRequest("Account name is required.");
             }
 
-            if (await db.Users.AnyAsync(user => user.AccountName == accountName, cancellationToken))
+            var accountLookupKeys = WindowsAccountNames.LookupKeys(accountName);
+            if (await db.Users.AnyAsync(user => accountLookupKeys.Contains(user.AccountName.ToUpper()), cancellationToken))
             {
                 return Results.Conflict("That user is already registered.");
             }
@@ -162,7 +164,8 @@ public static class UserEndpoints
                 return Results.BadRequest("Account name is required.");
             }
 
-            if (await db.Users.AnyAsync(candidate => candidate.Id != id && candidate.AccountName == accountName, cancellationToken))
+            var accountLookupKeys = WindowsAccountNames.LookupKeys(accountName);
+            if (await db.Users.AnyAsync(candidate => candidate.Id != id && accountLookupKeys.Contains(candidate.AccountName.ToUpper()), cancellationToken))
             {
                 return Results.Conflict("Another user is already registered with that account name.");
             }
@@ -418,12 +421,11 @@ public static class UserEndpoints
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    private static string NormalizeAccountName(string value) => value.Trim();
+    private static string NormalizeAccountName(string value) => WindowsAccountNames.Normalize(value) ?? string.Empty;
 
     private static string DefaultDisplayName(string accountName)
     {
-        var slashIndex = accountName.LastIndexOf('\\');
-        return slashIndex >= 0 ? accountName[(slashIndex + 1)..] : accountName;
+        return WindowsAccountNames.DisplayName(accountName);
     }
 
     private static async Task<bool> HasActiveAccessManagerAsync(ProjectTrackerDbContext db, CancellationToken cancellationToken)

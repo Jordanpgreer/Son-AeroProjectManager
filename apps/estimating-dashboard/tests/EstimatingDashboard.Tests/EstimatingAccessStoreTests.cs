@@ -31,7 +31,7 @@ public sealed class EstimatingAccessStoreTests
         });
         await fixture.Db.SaveChangesAsync();
 
-        var access = await fixture.Store.FindEnabledAsync("sonaero\\ESTIMATOR");
+        var access = await fixture.Store.FindEnabledAsync("sonaero/ESTIMATOR");
 
         Assert.NotNull(access);
         Assert.Equal(EstimatingRoles.Editor, access.Role);

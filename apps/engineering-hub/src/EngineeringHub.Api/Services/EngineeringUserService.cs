@@ -17,6 +17,10 @@ public sealed class EngineeringUserService(
             accountName = configuration["Authentication:DevelopmentAccount"] ?? "SONAERO\\engineering.admin";
         }
 
+
+        accountName = WindowsAccountNames.Normalize(accountName)
+            ?? throw new UnauthorizedAccessException("A valid Windows account name is required.");
+
         var access = await ResolveAccessAsync(accountName, cancellationToken);
         if (access is null || !access.IsEnabled)
         {
@@ -37,6 +41,12 @@ public sealed class EngineeringUserService(
         var resolvedAccount = string.IsNullOrWhiteSpace(accountName)
             ? configuration["Authentication:DevelopmentAccount"] ?? "SONAERO\\engineering.admin"
             : accountName;
+
+        resolvedAccount = WindowsAccountNames.Normalize(resolvedAccount);
+        if (resolvedAccount is null)
+        {
+            return null;
+        }
 
         var storedAccess = await roleStore.FindAccessAsync(resolvedAccount, cancellationToken);
         if (storedAccess is not null)
@@ -62,12 +72,7 @@ public sealed class EngineeringUserService(
 
     private static string ToDisplayName(string accountName)
     {
-        var name = accountName;
-        var separator = name.LastIndexOf('\\');
-        if (separator >= 0 && separator < name.Length - 1)
-        {
-            name = name[(separator + 1)..];
-        }
+        var name = WindowsAccountNames.DisplayName(accountName);
 
         name = name.Replace('.', ' ').Replace('_', ' ').Trim();
         if (name.Length == 0)

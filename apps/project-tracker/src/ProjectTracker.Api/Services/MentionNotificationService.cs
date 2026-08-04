@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Models;
+using SonAero.Platform.Security;
 
 namespace ProjectTracker.Api.Services;
 
@@ -62,8 +63,7 @@ public sealed partial class MentionNotificationService
 
     public static string MentionHandle(string accountName)
     {
-        var slashIndex = accountName.LastIndexOf('\\');
-        var handle = slashIndex >= 0 ? accountName[(slashIndex + 1)..] : accountName;
+        var handle = WindowsAccountNames.DisplayName(accountName);
         return new string(handle
             .Select(character => char.IsLetterOrDigit(character) || character is '.' or '_' or '-' ? character : '.')
             .ToArray());
@@ -86,13 +86,14 @@ public sealed partial class MentionNotificationService
             return [];
         }
 
-        var normalizedActor = actorAccountName.ToUpper();
         var users = await db.Users
-            .Where(user => user.IsActive && user.AccountName.ToUpper() != normalizedActor)
+            .Where(user => user.IsActive)
             .ToListAsync(cancellationToken);
 
         return users
-            .Where(user => handles.Contains(MentionHandle(user.AccountName)))
+            .Where(user =>
+                !WindowsAccountNames.Equals(user.AccountName, actorAccountName)
+                && handles.Contains(MentionHandle(user.AccountName)))
             .DistinctBy(user => user.Id)
             .ToList();
     }

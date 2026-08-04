@@ -26,7 +26,7 @@ public sealed class PortalRoleStoreTests
 
         var store = new PortalRoleStore(db, NullLogger<PortalRoleStore>.Instance);
 
-        Assert.Equal("Editor", await store.FindRoleAsync("sonaero\\planner.one"));
+        Assert.Equal("Editor", await store.FindRoleAsync("sonaero/planner.one"));
     }
 
     [Fact]
@@ -53,8 +53,30 @@ public sealed class PortalRoleStoreTests
         await db.SaveChangesAsync();
 
         var store = new PortalRoleStore(db, NullLogger<PortalRoleStore>.Instance);
-        var roles = await store.FindModuleRolesAsync("sonaero\\estimator.one");
+        var roles = await store.FindModuleRolesAsync("sonaero/estimator.one");
 
         Assert.Equal("Editor", Assert.Single(roles).Value);
+    }
+
+    [Fact]
+    public async Task FindRoleAsync_DoesNotReturnRoleForInactiveUser()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<PortalRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new PortalRoleDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        db.Users.Add(new PortalRoleRecord
+        {
+            AccountName = @"SON4L\inactive.user",
+            DisplayName = "Inactive User",
+            Role = "Admin",
+            IsActive = false
+        });
+        await db.SaveChangesAsync();
+
+        var store = new PortalRoleStore(db, NullLogger<PortalRoleStore>.Instance);
+
+        Assert.Null(await store.FindRoleAsync("son4l/inactive.user"));
     }
 }

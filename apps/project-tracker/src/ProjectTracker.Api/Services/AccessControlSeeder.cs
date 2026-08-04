@@ -87,8 +87,8 @@ public sealed class AccessControlSeeder
             return;
         }
 
-        var account = rawAccount.Trim();
-        if (existingUsers.ContainsKey(account))
+        var account = WindowsAccountNames.Normalize(rawAccount);
+        if (account is null || existingUsers.Keys.Any(existing => WindowsAccountNames.Equals(existing, account)))
         {
             return;
         }
@@ -108,7 +108,6 @@ public sealed class AccessControlSeeder
 
     private static string DefaultDisplayName(string accountName)
     {
-        var slashIndex = accountName.LastIndexOf('\\');
-        return slashIndex >= 0 ? accountName[(slashIndex + 1)..] : accountName;
+        return WindowsAccountNames.DisplayName(accountName);
     }
 }

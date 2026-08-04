@@ -1,0 +1,17 @@
+{
+  "Authentication": { "Mode": "Windows" },
+  "Database": { "Provider": "SqlServer" },
+  "ConnectionStrings": {
+    "RoleStore": "Server=tcp:SON-SQL2,1433;Database=ProjectTracker;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
+  },
+  "Portal": {
+    "Admins": [ "SON4L\\jordan.greer" ],
+    "Editors": [],
+    "Applications": [
+      { "Id": "project-tracker", "Name": "Project Tracker", "Description": "Aerospace program scheduling with working-day Gantt timelines, operation tracking, and delivery status.", "Category": "Operations", "Icon": "gantt-chart", "Url": "http://SON-IIS2:5135", "Order": 10, "Status": "Active", "AllowedRoles": [], "PreviewPath": "/api/preview" },
+      { "Id": "engineering-hub", "Name": "Engineering Hub", "Description": "Engineering workspace for drawing control, tooling management, and compound or test-data records.", "Category": "Engineering", "Icon": "database", "Url": "http://SON-IIS2:5150", "Order": 20, "Status": "Active", "AllowedRoles": [] },
+      { "Id": "estimating-dashboard", "Name": "Estimating Dashboard", "Description": "Quote preparation, cost roll-ups, and estimate tracking across active bids.", "Category": "Estimating", "Icon": "calculator", "Url": "http://SON-IIS2:5160", "Order": 30, "Status": "Active", "AllowedRoles": [] },
+      { "Id": "admin-console", "Name": "Admin Console", "Description": "Portal configuration, application catalog management, and role assignments.", "Category": "Administration", "Icon": "settings", "Url": "/#/admin/project-tracker/access", "Order": 40, "Status": "Active", "AllowedRoles": [] }
+    ]
+  }
+}

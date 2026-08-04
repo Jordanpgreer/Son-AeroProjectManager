@@ -61,7 +61,7 @@ public sealed class EngineeringAuthorizationTests
         await db.SaveChangesAsync();
 
         var store = new EngineeringRoleStore(db, NullLogger<EngineeringRoleStore>.Instance);
-        var access = await store.FindAccessAsync("sonaero\\EDITOR");
+        var access = await store.FindAccessAsync("sonaero/EDITOR");
 
         Assert.NotNull(access);
         Assert.True(access.IsEnabled);

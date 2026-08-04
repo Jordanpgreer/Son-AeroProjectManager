@@ -1,0 +1,14 @@
+{
+  "Authentication": { "Mode": "Windows" },
+  "Cors": { "HubOrigins": [ "http://SON-IIS2:5140" ] },
+  "Database": { "Provider": "SqlServer", "AutoMigrate": true },
+  "ConnectionStrings": {
+    "SqlServer": "Server=tcp:SON-SQL2,1433;Database=ProjectTracker;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
+  },
+  "Import": { "AutoImportOnEmpty": false },
+  "DemoData": { "Enabled": false },
+  "Security": {
+    "Admins": [ "SON4L\\jordan.greer" ],
+    "Editors": []
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "Authentication": { "Mode": "Windows" },
+  "Database": { "Provider": "SqlServer" },
+  "EngineeringDatabase": { "Provider": "SqlServer" },
+  "ConnectionStrings": {
+    "RoleStore": "Server=tcp:SON-SQL2,1433;Database=ProjectTracker;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true",
+    "EngineeringStore": "Server=tcp:SON-SQL2,1433;Database=EngineeringHub;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
+  },
+  "DrawingStorage": {
+    "RootPath": "\\\\SON-SQL2\\EngineeringDrawings$",
+    "RequireUncPath": true
+  },
+  "Engineering": { "SeedDemoData": false }
+}
