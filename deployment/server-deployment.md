@@ -69,9 +69,12 @@ credential while each IIS application remains locally isolated in its own pool.
 ## 4. Prepare SON-SQL2
 
 Copy `deployment\Configure-SqlServer.ps1` to SON-SQL2 and run it from elevated PowerShell. It
-validates the hostname and SQL sysadmin access before changing anything, exports a registry backup,
-configures fixed TCP 1433, restricts the firewall rule to SON-IIS2, restarts SQL, creates both
-databases, grants `SON4L\SON-IIS2$`, and creates the controlled drawing share:
+validates the hostname and Windows administrator access before changing anything, exports a
+registry backup, configures fixed TCP 1433, restricts the firewall rule to SON-IIS2, creates both
+databases, grants `SON4L\SON-IIS2$`, and creates the controlled drawing share under
+`C:\SonAero\Data`. If the current Windows identity is not already a SQL sysadmin, the script uses
+SQL Server's restricted single-user recovery mode for the database work and always restores normal
+multi-user mode; it does not create a permanent recovery login:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\Configure-SqlServer.ps1 -Confirm
