@@ -297,7 +297,18 @@ if (Test-Path -LiteralPath $releasePath) {
     throw "Release destination already exists and will not be overwritten: $releasePath"
 }
 
-Import-Module WebAdministration -ErrorAction Stop
+# The script's -WhatIf preference must not suppress loading the read-only IIS
+# types needed for preflight inspection. Import-Module honors WhatIfPreference
+# internally but doesn't expose a WhatIf parameter in Windows PowerShell 5.1, so
+# disable the preference only while loading the module and restore it immediately.
+$priorWhatIfPreference = $WhatIfPreference
+try {
+    $WhatIfPreference = $false
+    Import-Module WebAdministration -ErrorAction Stop
+}
+finally {
+    $WhatIfPreference = $priorWhatIfPreference
+}
 $serverManager = New-Object Microsoft.Web.Administration.ServerManager
 $currentPaths = @{}
 try {
