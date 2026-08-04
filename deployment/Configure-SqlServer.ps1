@@ -118,14 +118,14 @@ function Invoke-HubSql(
     [int]$connectionTimeout = 10
 ) {
     $builder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
-    $builder.DataSource = $server
-    $builder.InitialCatalog = $database
-    $builder.IntegratedSecurity = $true
-    $builder.Encrypt = $false
-    $builder.TrustServerCertificate = $true
-    $builder.ApplicationName = $applicationName
-    $builder.Pooling = $false
-    $builder.ConnectTimeout = $connectionTimeout
+    $builder['Data Source'] = $server
+    $builder['Initial Catalog'] = $database
+    $builder['Integrated Security'] = $true
+    $builder['Encrypt'] = $false
+    $builder['TrustServerCertificate'] = $true
+    $builder['Application Name'] = $applicationName
+    $builder['Pooling'] = $false
+    $builder['Connect Timeout'] = $connectionTimeout
 
     $connection = [System.Data.SqlClient.SqlConnection]::new($builder.ConnectionString)
     try {
