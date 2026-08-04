@@ -55,7 +55,8 @@ function Invoke-HubSql([string]$server, [string]$commandText) {
     }
 }
 
-$isSysAdmin = Invoke-HubSql "tcp:127.0.0.1,$currentPort" "SELECT IS_SRVROLEMEMBER('sysadmin');"
+$localSqlServer = '(local)'
+$isSysAdmin = Invoke-HubSql $localSqlServer "SELECT IS_SRVROLEMEMBER('sysadmin');"
 if ($isSysAdmin -ne 1) {
     throw 'The current Windows identity is not a SQL Server sysadmin. No changes were made.'
 }
@@ -131,7 +132,7 @@ IF IS_ROLEMEMBER(N'db_datawriter', N'$escapedAccount') <> 1 ALTER ROLE [db_dataw
 IF IS_ROLEMEMBER(N'db_ddladmin', N'$escapedAccount') <> 1 ALTER ROLE [db_ddladmin] ADD MEMBER [$escapedAccount];
 SELECT 1;
 "@
-[void](Invoke-HubSql "tcp:127.0.0.1,$SqlPort" $databaseSql)
+[void](Invoke-HubSql $localSqlServer $databaseSql)
 
 New-Item -ItemType Directory -Force -Path $DrawingRoot | Out-Null
 & icacls.exe $DrawingRoot /grant "${IisComputerAccount}:(OI)(CI)M" /t /c | Out-Null
