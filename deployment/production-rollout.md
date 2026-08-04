@@ -255,7 +255,8 @@ scope. If your domain uses a different SYSVOL package path, replace both paths w
 path.
 
 After HTTPS is fully configured and tested, rerun the same shortcut script with
-`-HubUri "https://SON-IIS2:5140"`; it updates the existing shortcut in place.
+`-HubUri "FINAL_APPROVED_PORTAL_HTTPS_URI"`; it updates the existing shortcut in place. Do not
+assume the current HTTP port `5140` is also an HTTPS endpoint.
 
 ## 6. HTTPS: readiness check only for now
 
@@ -266,6 +267,9 @@ a certificate from the trusted internal CA that:
 - has a private key and Server Authentication EKU;
 - has SANs for `SON-IIS2` and `SON-IIS2.SON4L.LOCAL`;
 - chains successfully to a CA trusted by employee workstations.
+
+If the final binding plan uses application-specific DNS names, those names must also be present in
+the certificate SAN list before the certificate is issued.
 
 Upload `Test-HubHttpsReadiness.ps1` to `C:\SonAero\Test-HubHttpsReadiness.ps1`. List candidate
 certificates without changing anything:
@@ -284,9 +288,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\SonAero\Test-HubHttp
 
 Required server status: `HTTPS_SERVER_PREREQUISITES_READY_WORKSTATION_TRUST_PENDING`. The script
 never changes bindings. After that result, verify the certificate chain on a representative domain
-workstation. Only then should a separate maintenance-window change rebuild the Portal URLs for
-HTTPS, add the four trusted IIS bindings, verify Windows Authentication on all four `/api/me`
-endpoints, and retarget the shortcut. Keep HTTP working until HTTPS verification is complete.
+workstation. Only then should a separate maintenance-window change select four non-conflicting
+HTTPS bindings (separate ports or approved DNS names/SNI), update CORS and inter-module URLs,
+rebuild the Portal for those exact URLs, verify Windows Authentication on all four `/api/me`
+endpoints, and retarget the shortcut. Keep the current HTTP bindings working while the separate
+HTTPS endpoints are validated; do not replace a working HTTP binding merely to test TLS.
 
 ## 7. Backups: readiness check only until two decisions are supplied
 
