@@ -58,7 +58,7 @@ public sealed class EngineeringDemoDataSeeder(EngineeringDbContext db)
                 "Pressure Seal Test Fixture",
                 "Apex Spaceworks",
                 ["PN-100672"],
-                "New fixture drawing awaiting its first controlled PDF upload.",
+                "New fixture drawing awaiting its first controlled drawing file upload.",
                 null,
                 ("WorkOrder", "WO-26018", "Pressure seal fixture development"))
         };
@@ -145,7 +145,7 @@ public sealed class EngineeringDemoDataSeeder(EngineeringDbContext db)
         {
             Drawing = drawing,
             Action = "DemoDrawingCreated",
-            Details = "Created metadata-only demonstration drawing. No controlled PDF was generated.",
+            Details = "Created metadata-only demonstration drawing. No controlled drawing file was generated.",
             Actor = DemoActor,
             OccurredAt = drawing.CreatedAt
         });
@@ -166,7 +166,7 @@ public sealed class EngineeringDemoDataSeeder(EngineeringDbContext db)
             UploadedAt = uploadedAt,
             ChangeDescription = description,
             Status = status,
-            OriginalFileName = "PDF not uploaded - demo metadata only",
+            OriginalFileName = "Drawing file not uploaded - demo metadata only",
             StoredFilePath = string.Empty,
             FileType = "application/pdf",
             FileSize = 0,

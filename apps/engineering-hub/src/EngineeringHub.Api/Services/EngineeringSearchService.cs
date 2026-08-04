@@ -337,10 +337,10 @@ public sealed class EngineeringSearchService(EngineeringDbContext db)
             .Where(mylar => mylar.IsCheckedOut)
             .Select(mylar => $"Mylar {mylar.MylarNumber} checked out to {mylar.CheckedOutBy ?? "an unrecorded holder"}."));
         if (drawing.Revisions.Count == 0)
-            reasons.Add("Missing revision package and controlled PDF.");
+            reasons.Add("Missing revision package and controlled drawing file.");
         reasons.AddRange(drawing.Revisions
             .Where(revision => revision.FileSize == 0 || string.IsNullOrWhiteSpace(revision.StoredFilePath))
-            .Select(revision => $"Rev {revision.RevisionNumber} needs a controlled PDF before approval."));
+            .Select(revision => $"Rev {revision.RevisionNumber} needs a controlled drawing file before approval."));
         if (drawing.EffectiveDate is not null &&
             drawing.EffectiveDate >= DateTime.UtcNow.Date &&
             drawing.EffectiveDate <= DateTime.UtcNow.Date.AddDays(30))

@@ -69,6 +69,59 @@ public sealed class DrawingFileStoreTests
         }
     }
 
+    [Fact]
+    public async Task ImageUploadPreservesItsSafeExtension()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"engineering-image-store-{Guid.NewGuid():N}");
+        try
+        {
+            var store = new DrawingFileStore(Options.Create(new DrawingStorageOptions
+            {
+                RootPath = root,
+                RequireUncPath = false
+            }));
+            var image = FormFile([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "drawing.png", "image/png");
+
+            var stored = await store.StoreRevisionAsync(
+                7, "ACME", "IMG-100", "A", image, null, CancellationToken.None);
+
+            Assert.Equal(".png", Path.GetExtension(stored.PdfRelativePath));
+            Assert.True(File.Exists(store.ResolvePath(stored.PdfRelativePath)));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SupplementalUploadUsesASeparatePackageAndRetainsItsHash()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"engineering-supplemental-store-{Guid.NewGuid():N}");
+        try
+        {
+            var store = new DrawingFileStore(Options.Create(new DrawingStorageOptions
+            {
+                RootPath = root,
+                RequireUncPath = false
+            }));
+            var content = Encoding.UTF8.GetBytes("supplemental calculation data");
+            var document = FormFile(content, "analysis.csv", "text/csv");
+
+            var stored = await store.StoreSupplementalAsync(
+                9, "ACME", "DOC-200", document, CancellationToken.None);
+
+            Assert.Contains($"{Path.DirectorySeparatorChar}Supplemental{Path.DirectorySeparatorChar}", stored.RelativePath);
+            Assert.Equal(".csv", Path.GetExtension(stored.RelativePath));
+            Assert.Equal(Convert.ToHexString(SHA256.HashData(content)), stored.Hash);
+            Assert.True(File.Exists(store.ResolvePath(stored.RelativePath)));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static FormFile FormFile(byte[] content, string fileName, string contentType)
     {
         var stream = new MemoryStream(content);

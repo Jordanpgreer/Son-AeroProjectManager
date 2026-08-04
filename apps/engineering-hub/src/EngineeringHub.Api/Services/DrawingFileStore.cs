@@ -15,6 +15,8 @@ public sealed record StoredRevisionFiles(
     string PdfHash,
     string? SourceRelativePath);
 
+public sealed record StoredSupplementalFile(string RelativePath, string Hash);
+
 public sealed record DrawingStorageStatus(
     bool Configured,
     bool IsNetworkPath,
@@ -30,6 +32,13 @@ public interface IDrawingFileStore
         string revisionNumber,
         IFormFile pdf,
         IFormFile? source,
+        CancellationToken cancellationToken);
+
+    Task<StoredSupplementalFile> StoreSupplementalAsync(
+        int drawingId,
+        string customer,
+        string drawingNumber,
+        IFormFile document,
         CancellationToken cancellationToken);
 
     string ResolvePath(string relativePath);
@@ -71,7 +80,7 @@ public sealed class DrawingFileStore(IOptions<DrawingStorageOptions> options) : 
 
         try
         {
-            var pdfPath = Path.Combine(folder, "drawing.pdf");
+            var pdfPath = Path.Combine(folder, "drawing" + SafeExtension(pdf.FileName));
             var hash = await WriteNewAndHashAsync(pdf, pdfPath, cancellationToken);
             string? sourcePath = null;
             if (source is { Length: > 0 })
@@ -88,6 +97,37 @@ public sealed class DrawingFileStore(IOptions<DrawingStorageOptions> options) : 
         catch
         {
             // Cleanup is limited to the unique package directory created by this failed upload.
+            if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
+            throw;
+        }
+    }
+
+    public async Task<StoredSupplementalFile> StoreSupplementalAsync(
+        int drawingId,
+        string customer,
+        string drawingNumber,
+        IFormFile document,
+        CancellationToken cancellationToken)
+    {
+        var root = GetValidatedRoot();
+        Directory.CreateDirectory(root);
+        var packageId = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}";
+        var relativeFolder = Path.Combine(
+            SafeSegment(customer),
+            $"{SafeSegment(drawingNumber)}-{drawingId}",
+            "Supplemental",
+            packageId);
+        var folder = ResolvePath(relativeFolder);
+        Directory.CreateDirectory(folder);
+
+        try
+        {
+            var path = Path.Combine(folder, "document" + SafeExtension(document.FileName));
+            var hash = await WriteNewAndHashAsync(document, path, cancellationToken);
+            return new StoredSupplementalFile(Path.GetRelativePath(root, path), hash);
+        }
+        catch
+        {
             if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
             throw;
         }
@@ -118,7 +158,7 @@ public sealed class DrawingFileStore(IOptions<DrawingStorageOptions> options) : 
         cancellationToken.ThrowIfCancellationRequested();
         var pdfPath = ResolvePath(pdfRelativePath);
         if (!File.Exists(pdfPath))
-            throw new FileNotFoundException("The revision PDF could not be found on the drawing share.", pdfPath);
+            throw new FileNotFoundException("The revision drawing file could not be found on the drawing share.", pdfPath);
 
         var packageFolder = Directory.GetParent(pdfPath)?.FullName
             ?? throw new InvalidOperationException("The revision package folder is invalid.");

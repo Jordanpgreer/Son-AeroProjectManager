@@ -60,13 +60,19 @@ public static class DrawingEndpoints
         if (!string.IsNullOrWhiteSpace(query))
         {
             var value = query.Trim();
-            drawings = drawings.Where(x => x.DrawingNumber.Contains(value) || x.Title.Contains(value) ||
-                x.Customer.Contains(value) || x.Parts.Any(p => p.PartNumber.Contains(value)) ||
-                x.DocumentLinks.Any(link => link.ReferenceNumber.Contains(value) || (link.Title != null && link.Title.Contains(value))) ||
-                (x.Notes != null && x.Notes.Contains(value)));
+            var pattern = $"%{EscapeLikePattern(value)}%";
+            drawings = drawings.Where(x => EF.Functions.Like(x.DrawingNumber, pattern, "\\") ||
+                EF.Functions.Like(x.Title, pattern, "\\") ||
+                EF.Functions.Like(x.Customer, pattern, "\\") ||
+                x.Parts.Any(p => EF.Functions.Like(p.PartNumber, pattern, "\\")) ||
+                x.DocumentLinks.Any(link => EF.Functions.Like(link.ReferenceNumber, pattern, "\\") ||
+                    (link.Title != null && EF.Functions.Like(link.Title, pattern, "\\"))) ||
+                (x.Notes != null && EF.Functions.Like(x.Notes, pattern, "\\")));
         }
         var records = await drawings.OrderBy(x => x.DrawingNumber).Select(x => new DrawingListDto(
             x.Id, x.DrawingNumber, x.Title, x.Customer, x.Parts.OrderBy(p => p.PartNumber).Select(p => p.PartNumber).ToList(),
+            x.DocumentLinks.Where(link => link.Kind == DrawingDocumentKind.Specification)
+                .OrderBy(link => link.ReferenceNumber).Select(link => link.ReferenceNumber).ToList(),
             x.ApprovalStatus.ToString(),
             x.CurrentApprovedRevision != null
                 ? x.CurrentApprovedRevision.RevisionNumber
@@ -168,6 +174,7 @@ public static class DrawingEndpoints
 
         var drawing = await db.Drawings
             .Include(x => x.Revisions)
+            .Include(x => x.DocumentLinks)
             .Include(x => x.Validations)
             .Include(x => x.Mylars)
             .Include(x => x.MylarTransactions)
@@ -176,7 +183,8 @@ public static class DrawingEndpoints
             .SingleOrDefaultAsync(x => x.Id == id, ct);
         if (drawing is null) return Results.NotFound();
         if (drawing.ApprovalStatus != DrawingApprovalStatus.Draft || drawing.Revisions.Count != 0 ||
-            drawing.Validations.Count != 0 || drawing.Mylars.Count != 0 || drawing.MylarTransactions.Count != 0)
+            drawing.Validations.Count != 0 || drawing.Mylars.Count != 0 || drawing.MylarTransactions.Count != 0 ||
+            drawing.DocumentLinks.Any(link => link.Kind == DrawingDocumentKind.SupplementalDocument && link.Location != null))
             return Results.Conflict(new ErrorDto("ProtectedDrawing", "Only an empty draft drawing can be deleted. Delete eligible draft files first; approved and historical records remain permanent."));
         if (!string.Equals(dto.DrawingNumber, drawing.DrawingNumber, StringComparison.Ordinal))
             return Results.BadRequest(new ErrorDto("DrawingNumberMismatch", "The entered drawing number does not exactly match this draft."));
@@ -205,9 +213,12 @@ public static class DrawingEndpoints
         var source = form.Files.GetFile("source");
         var revisionNumber = form["revisionNumber"].ToString().Trim();
         var changeDescription = form["changeDescription"].ToString().Trim();
-        if (pdf is null || pdf.Length == 0 || !await IsValidPdfAsync(pdf, ct))
-            return Results.BadRequest(new ErrorDto("PdfRequired", "A valid PDF file is required."));
-        if (pdf.Length > MaxFileBytes || source?.Length > MaxFileBytes)
+        var drawingFile = pdf is { Length: > 0 }
+            ? await DrawingFileValidation.InspectAsync(pdf, ct)
+            : null;
+        if (drawingFile is null)
+            return Results.BadRequest(new ErrorDto("DrawingFileRequired", "A valid PDF or supported image file is required."));
+        if (pdf!.Length > MaxFileBytes || source?.Length > MaxFileBytes)
             return Results.BadRequest(new ErrorDto("FileTooLarge", "Each file must be 100 MB or smaller."));
         if (string.IsNullOrWhiteSpace(revisionNumber) || string.IsNullOrWhiteSpace(changeDescription))
             return Results.BadRequest(new ErrorDto("RequiredFields", "Revision number and change description are required."));
@@ -216,7 +227,7 @@ public static class DrawingEndpoints
 
         var incomingHash = await CalculateHashAsync(pdf, ct);
         if (drawing.Revisions.Any(x => string.Equals(x.FileHash, incomingHash, StringComparison.OrdinalIgnoreCase)))
-            return Results.Conflict(new ErrorDto("DuplicateFile", "This exact PDF content is already stored on another revision for this drawing."));
+            return Results.Conflict(new ErrorDto("DuplicateFile", "This exact file content is already stored on another revision for this drawing."));
 
         StoredRevisionFiles stored;
         try
@@ -229,14 +240,14 @@ public static class DrawingEndpoints
             return Results.Problem(
                 statusCode: StatusCodes.Status503ServiceUnavailable,
                 title: "Drawing storage unavailable",
-                detail: $"The PDF could not be stored: {exception.Message}");
+                detail: $"The drawing file could not be stored: {exception.Message}");
         }
         var actor = Actor(http);
         var revision = new DrawingRevision
         {
             RevisionNumber = revisionNumber, RevisionDate = ParseDate(form["revisionDate"], DateTime.UtcNow.Date), UploadedAt = DateTime.UtcNow,
             EffectiveDate = ParseNullableDate(form["effectiveDate"]), ChangeDescription = changeDescription, Status = DrawingRevisionStatus.Draft,
-            OriginalFileName = Path.GetFileName(pdf.FileName), StoredFilePath = stored.PdfRelativePath, FileType = "application/pdf",
+            OriginalFileName = Path.GetFileName(pdf.FileName), StoredFilePath = stored.PdfRelativePath, FileType = drawingFile.ContentType,
             FileSize = pdf.Length, FileHash = stored.PdfHash, SourceOriginalFileName = source is null ? null : Path.GetFileName(source.FileName),
             SourceStoredFilePath = stored.SourceRelativePath, UploadedBy = actor, Notes = Clean(form["notes"])
         };
@@ -283,12 +294,14 @@ public static class DrawingEndpoints
             string.Equals(x.RevisionNumber, revisionNumber, StringComparison.OrdinalIgnoreCase)))
             return Results.Conflict(new ErrorDto("DuplicateRevision", "That revision number already exists for this drawing."));
 
+        DrawingFileMetadata? replacementFile = null;
         if (pdf is { Length: > 0 })
         {
             if (pdf.Length > MaxFileBytes)
-                return Results.BadRequest(new ErrorDto("FileTooLarge", "The PDF must be 100 MB or smaller."));
-            if (!await IsValidPdfAsync(pdf, ct))
-                return Results.BadRequest(new ErrorDto("InvalidPdf", "Select a valid PDF file."));
+                return Results.BadRequest(new ErrorDto("FileTooLarge", "The drawing file must be 100 MB or smaller."));
+            replacementFile = await DrawingFileValidation.InspectAsync(pdf, ct);
+            if (replacementFile is null)
+                return Results.BadRequest(new ErrorDto("InvalidDrawingFile", "Select a valid PDF or supported image file."));
         }
 
         var existingHasPdf = revision.FileSize > 0 && !string.IsNullOrWhiteSpace(revision.StoredFilePath);
@@ -296,7 +309,7 @@ public static class DrawingEndpoints
             !await files.VerifyHashAsync(revision.StoredFilePath, revision.FileHash, ct))
             return Results.Conflict(new ErrorDto(
                 "FileIntegrityFailure",
-                "The revision PDF is missing or no longer matches its controlled hash. No revision changes were saved."));
+                "The revision file is missing or no longer matches its controlled hash. No revision changes were saved."));
 
         StoredRevisionFiles? stored = null;
         IStagedFileDeletion? stagedOldPackage = null;
@@ -313,7 +326,7 @@ public static class DrawingEndpoints
                     if (revision.Drawing.Revisions.Any(x =>
                         x.Id != revision.Id &&
                         string.Equals(x.FileHash, incomingHash, StringComparison.OrdinalIgnoreCase)))
-                        return Results.Conflict(new ErrorDto("DuplicateFile", "This exact PDF content is already stored on another revision for this drawing."));
+                        return Results.Conflict(new ErrorDto("DuplicateFile", "This exact file content is already stored on another revision for this drawing."));
 
                     stored = await files.StoreRevisionAsync(
                         revision.DrawingId,
@@ -355,7 +368,7 @@ public static class DrawingEndpoints
             {
                 revision.OriginalFileName = Path.GetFileName(pdf!.FileName);
                 revision.StoredFilePath = stored.PdfRelativePath;
-                revision.FileType = "application/pdf";
+                revision.FileType = replacementFile!.ContentType;
                 revision.FileSize = pdf.Length;
                 revision.FileHash = stored.PdfHash;
                 revision.SourceOriginalFileName = null;
@@ -375,10 +388,10 @@ public static class DrawingEndpoints
                 ? "RevisionReopened"
                 : "RevisionDraftUpdated";
             var fileChange = stored is not null
-                ? $"The controlled PDF was replaced; prior SHA-256 {priorFileHash}, new SHA-256 {stored.PdfHash}."
+                ? $"The controlled drawing file was replaced; prior SHA-256 {priorFileHash}, new SHA-256 {stored.PdfHash}."
                 : existingHasPdf
-                    ? "The controlled PDF package and hash were preserved."
-                    : "The revision remains a metadata-only Draft with no PDF attached.";
+                    ? "The controlled drawing file package and hash were preserved."
+                    : "The revision remains a metadata-only Draft with no drawing file attached.";
             revision.Drawing.AuditEntries.Add(Audit(
                 revision.Drawing,
                 revisionNumber,
@@ -487,7 +500,7 @@ public static class DrawingEndpoints
             return Results.Conflict(new ErrorDto("ImmutableRevision", "Approved and historical revisions cannot be edited."));
         if (status == DrawingRevisionStatus.UnderReview &&
             (revision.FileSize <= 0 || string.IsNullOrWhiteSpace(revision.StoredFilePath)))
-            return Results.Conflict(new ErrorDto("PdfRequired", "A revision PDF is required before submitting for review."));
+            return Results.Conflict(new ErrorDto("DrawingFileRequired", "A revision drawing file is required before submitting for review."));
         var old = revision.Status;
         revision.Status = status;
         revision.Drawing.ApprovalStatus = status == DrawingRevisionStatus.UnderReview
@@ -511,7 +524,7 @@ public static class DrawingEndpoints
         if (revision.Status != DrawingRevisionStatus.UnderReview)
             return Results.Conflict(new ErrorDto("ReviewRequired", "Only a revision under review can be approved."));
         if (!await files.VerifyHashAsync(revision.StoredFilePath, revision.FileHash, ct))
-            return Results.Conflict(new ErrorDto("FileIntegrityFailure", "The drawing PDF is missing or its hash no longer matches the uploaded revision. Approval was blocked."));
+            return Results.Conflict(new ErrorDto("FileIntegrityFailure", "The drawing file is missing or its hash no longer matches the uploaded revision. Approval was blocked."));
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var now = DateTime.UtcNow;
         var actor = Actor(http);
@@ -553,7 +566,7 @@ public static class DrawingEndpoints
         if (revision.Status is not (DrawingRevisionStatus.Superseded or DrawingRevisionStatus.Obsolete))
             return Results.Conflict(new ErrorDto("HistoricalRevisionRequired", "Only a previously approved historical revision can be made current."));
         if (!await files.VerifyHashAsync(revision.StoredFilePath, revision.FileHash, ct))
-            return Results.Conflict(new ErrorDto("FileIntegrityFailure", "The drawing PDF is missing or its hash no longer matches the stored revision. Activation was blocked."));
+            return Results.Conflict(new ErrorDto("FileIntegrityFailure", "The drawing file is missing or its hash no longer matches the stored revision. Activation was blocked."));
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var now = DateTime.UtcNow;
@@ -605,7 +618,7 @@ public static class DrawingEndpoints
         if (!File.Exists(path)) return Results.NotFound();
         return source
             ? Results.File(path, "application/octet-stream", revision.SourceOriginalFileName, enableRangeProcessing: true)
-            : Results.File(path, "application/pdf", enableRangeProcessing: true);
+            : Results.File(path, revision.FileType, enableRangeProcessing: true);
     }
 
     private static async Task<IResult> DeleteRevisionAsync(int id, [FromBody] RevisionDeleteDto dto, EngineeringDbContext db, IDrawingFileStore files, HttpContext http, CancellationToken ct)
@@ -706,7 +719,7 @@ public static class DrawingEndpoints
         x.ApprovalStatus.ToString(),
         x.CurrentApprovedRevisionId is int currentRevisionId
             ? x.Revisions.SingleOrDefault(r => r.Id == currentRevisionId)?.RevisionNumber
-            : null,
+            : x.Revisions.OrderByDescending(r => r.UploadedAt).Select(r => r.RevisionNumber).FirstOrDefault(),
         x.EffectiveDate, x.IsObsolete, x.FileLocation, x.Notes,
         x.Mylars.Count == 1 ? x.Mylars[0].CurrentLocation : null,
         x.Mylars.Any(m => m.IsCheckedOut),
@@ -766,18 +779,11 @@ public static class DrawingEndpoints
         return $"Engineering Drawings/{relativePath.Replace('\\', '/')}";
     }
     private static string Actor(HttpContext http) => http.User.Identity?.Name ?? "Unknown";
+    private static string EscapeLikePattern(string value) => value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
     private static string Normalize(string value) => string.Concat(value.Trim().ToUpperInvariant().Where(char.IsLetterOrDigit));
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static DateTime ParseDate(string? value, DateTime fallback) => DateTime.TryParse(value, out var parsed) ? parsed : fallback;
     private static DateTime? ParseNullableDate(string? value) => DateTime.TryParse(value, out var parsed) ? parsed : null;
-    private static async Task<bool> IsValidPdfAsync(IFormFile file, CancellationToken cancellationToken)
-    {
-        if (!string.Equals(Path.GetExtension(file.FileName), ".pdf", StringComparison.OrdinalIgnoreCase)) return false;
-        await using var stream = file.OpenReadStream();
-        var signature = new byte[5];
-        var read = await stream.ReadAsync(signature, cancellationToken);
-        return read == signature.Length && signature.SequenceEqual("%PDF-"u8.ToArray());
-    }
     private static async Task<string> CalculateHashAsync(IFormFile file, CancellationToken cancellationToken)
     {
         await using var stream = file.OpenReadStream();

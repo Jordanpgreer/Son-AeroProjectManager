@@ -58,7 +58,7 @@ export default function ActionFeedbackDialog({ feedback, onClose }: { feedback: 
       <header className="feedback-dialog-header">
         <span className="feedback-dialog-icon"><Icon size={23}/></span>
         <div>
-          <span className="eyebrow">{feedback.kind === 'success' ? 'Revision control' : 'Unable to submit revision'}</span>
+          <span className="eyebrow">{feedback.kind === 'success' ? 'Drawing control' : 'Action could not be completed'}</span>
           <h2 id={titleId}>{feedback.title}</h2>
         </div>
         <button ref={closeRef} type="button" className="feedback-dialog-close" onClick={onClose} aria-label="Close message"><X size={18}/></button>

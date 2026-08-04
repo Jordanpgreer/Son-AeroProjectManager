@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 import {
+  Eye,
   ExternalLink,
   FileText,
   Layers3,
+  MapPin,
   Plus,
   Search,
   X,
 } from 'lucide-react'
+import HighlightedText from './HighlightedText'
 
 interface DrawingRecord {
   id: number
@@ -14,6 +17,7 @@ interface DrawingRecord {
   title: string
   customer: string
   partNumbers: string[]
+  specifications: string[]
   approvalStatus: string
   currentRevision: string | null
   currentRevisionDate: string | null
@@ -21,6 +25,8 @@ interface DrawingRecord {
   isObsolete: boolean
   physicalMylarLocation: string | null
   isMylarCheckedOut: boolean
+  mylarCount: number
+  checkedOutMylarCount: number
   createdAt: string
   revisionCount: number
   attachmentRevisionId: number | null
@@ -48,7 +54,7 @@ function shortDate(value: string | null) {
 }
 
 function recordType(record: DrawingRecord) {
-  if (record.attachmentRevisionId) return 'Controlled PDF'
+  if (record.attachmentRevisionId) return 'Controlled file'
   if (record.revisionCount > 0) return 'Metadata drawing'
   return 'Drawing index'
 }
@@ -65,6 +71,7 @@ export default function DrawingDashboard({ canEdit, onEditDrawing, onCreateDrawi
   const [status, setStatus] = useState('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [previewId, setPreviewId] = useState<number | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -83,6 +90,15 @@ export default function DrawingDashboard({ canEdit, onEditDrawing, onCreateDrawi
     return () => controller.abort()
   }, [query])
 
+  useEffect(() => {
+    if (previewId === null) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPreviewId(null)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [previewId])
+
   const visible = drawings.filter(record => {
     if (lifecycle === 'active' && record.isObsolete) return false
     if (lifecycle === 'archived' && !record.isObsolete) return false
@@ -92,6 +108,8 @@ export default function DrawingDashboard({ canEdit, onEditDrawing, onCreateDrawi
   const archivedCount = drawings.filter(record => record.isObsolete).length
   const reviewCount = drawings.filter(record => record.approvalStatus === 'UnderReview').length
   const approvedCount = drawings.filter(record => !record.isObsolete && record.approvalStatus === 'Approved').length
+  const normalizedQuery = query.trim()
+  const previewDrawing = drawings.find(record => record.id === previewId) ?? null
 
   return <div className="drawing-dashboard">
     {error && <div className="inline-alert" role="alert">{error}<button type="button" onClick={() => setError(null)}><X size={15}/></button></div>}
@@ -108,7 +126,7 @@ export default function DrawingDashboard({ canEdit, onEditDrawing, onCreateDrawi
         <div>
           <span className="eyebrow">Drawing control board</span>
           <h2>Drawing register</h2>
-          <p>Search controlled drawing records, select a drawing to open it, or view its attached PDF.</p>
+          <p>Search controlled drawing records, select a drawing to open it, or view its attached drawing file.</p>
         </div>
         {canEdit && <button className="button" type="button" onClick={onCreateDrawing}><Plus size={15}/> New drawing</button>}
       </header>
@@ -179,12 +197,29 @@ export default function DrawingDashboard({ canEdit, onEditDrawing, onCreateDrawi
               }}
             >
               <td>
-                <strong className="technical-id">{record.drawingNumber}</strong>
-                <small>{record.title}</small>
+                <span className="drawing-number-line">
+                  <strong className="technical-id drawing-number-tag"><HighlightedText value={record.drawingNumber} query={normalizedQuery}/></strong>
+                  <button
+                    className="drawing-preview-trigger"
+                    type="button"
+                    aria-label={`Preview drawing ${record.drawingNumber}`}
+                    aria-expanded={previewId === record.id}
+                    onClick={event => {
+                      event.stopPropagation()
+                      setPreviewId(record.id)
+                    }}
+                  ><Eye size={14}/></button>
+                </span>
+                <small><HighlightedText value={record.title} query={normalizedQuery}/></small>
               </td>
               <td>
-                <span>{record.customer}</span>
-                <small>{record.partNumbers.join(', ') || 'No linked parts'}</small>
+                <span><HighlightedText value={record.customer} query={normalizedQuery}/></span>
+                <small>{record.partNumbers.length
+                  ? <HighlightedText value={record.partNumbers.join(', ')} query={normalizedQuery}/>
+                  : 'No linked parts'}</small>
+                {record.specifications.length > 0 && <div className="drawing-spec-tags compact">
+                  {record.specifications.map(specification => <span key={specification}><HighlightedText value={specification} query={normalizedQuery}/></span>)}
+                </div>}
               </td>
               <td><span className="drawing-type-chip"><Layers3 size={13}/>{recordType(record)}</span></td>
               <td>
@@ -198,18 +233,80 @@ export default function DrawingDashboard({ canEdit, onEditDrawing, onCreateDrawi
                   href={`/api/drawing-revisions/${record.attachmentRevisionId}/file`}
                   target="_blank"
                   rel="noreferrer"
-                  title={record.attachmentFileName ?? 'Open attached PDF'}
+                  title={record.attachmentFileName ?? 'Open attached drawing file'}
                   onClick={event => event.stopPropagation()}
                 >
                   <FileText size={14}/>
-                  <span>View PDF</span>
+                  <span>View file</span>
                   <ExternalLink size={12}/>
-                </a> : <span className="attachment-missing">No PDF</span>}
+                </a> : <span className="attachment-missing">No file</span>}
               </td>
             </tr>)}
           </tbody>
         </table>
       </div>}
     </section>
+
+    {previewDrawing && <div className="drawing-preview-backdrop" onMouseDown={event => {
+      if (event.target === event.currentTarget) setPreviewId(null)
+    }}>
+      <aside className="drawing-preview-drawer" role="dialog" aria-modal="true" aria-labelledby="drawing-preview-title">
+        <header className="drawing-preview-header">
+          <span className="drawing-preview-icon" aria-hidden="true"><Eye size={19}/></span>
+          <div>
+            <span className="eyebrow">Drawing preview</span>
+            <h2 id="drawing-preview-title">{previewDrawing.title}</h2>
+            <span className="technical-id drawing-number-tag">{previewDrawing.drawingNumber}</span>
+          </div>
+          <button type="button" className="delete-dialog-close" aria-label="Close drawing preview" onClick={() => setPreviewId(null)}><X size={18}/></button>
+        </header>
+
+        <div className="drawing-preview-body">
+          <section className="drawing-preview-status">
+            <div><span>Approval</span><strong className={`status-pill status-${previewDrawing.approvalStatus.toLowerCase()}`}>{statusLabel(previewDrawing.approvalStatus)}</strong></div>
+            <div><span>Current revision</span><strong>{previewDrawing.currentRevision ? `Rev ${previewDrawing.currentRevision}` : 'No revision'}</strong></div>
+            <div><span>Effective date</span><strong>{shortDate(previewDrawing.effectiveDate)}</strong></div>
+            <div><span>Record type</span><strong>{recordType(previewDrawing)}</strong></div>
+          </section>
+
+          <section className="drawing-preview-section">
+            <header><span>Customer and parts</span></header>
+            <strong>{previewDrawing.customer}</strong>
+            {previewDrawing.partNumbers.length ? <div className="drawing-preview-tags">
+              {previewDrawing.partNumbers.map(part => <span key={part}>{part}</span>)}
+            </div> : <p>No linked part numbers.</p>}
+          </section>
+
+          <section className="drawing-preview-section">
+            <header><span>Specification tags</span><b>{previewDrawing.specifications.length}</b></header>
+            {previewDrawing.specifications.length ? <div className="drawing-preview-tags">
+              {previewDrawing.specifications.map(specification => <span key={specification}>{specification}</span>)}
+            </div> : <p>No specification tags applied.</p>}
+          </section>
+
+          <section className="drawing-preview-section drawing-preview-mylar">
+            <header><span>Mylar custody</span></header>
+            <div><MapPin size={17}/><span><strong>{previewDrawing.mylarCount ? (previewDrawing.isMylarCheckedOut ? 'Checked out' : 'Checked in') : 'Not registered'}</strong><small>{previewDrawing.physicalMylarLocation || 'No physical location recorded'}</small></span></div>
+          </section>
+
+          <section className="drawing-preview-section">
+            <header><span>Controlled attachment</span></header>
+            {previewDrawing.attachmentRevisionId ? <div className="drawing-preview-file">
+              <FileText size={17}/>
+              <span><strong>{previewDrawing.attachmentFileName ?? 'Controlled drawing file'}</strong><small>{previewDrawing.attachmentStatus ? statusLabel(previewDrawing.attachmentStatus) : 'Available'}</small></span>
+              <a href={`/api/drawing-revisions/${previewDrawing.attachmentRevisionId}/file`} target="_blank" rel="noreferrer" aria-label={`Open file for ${previewDrawing.drawingNumber}`}><ExternalLink size={14}/></a>
+            </div> : <p>No controlled file is attached.</p>}
+          </section>
+
+          <div className="drawing-preview-actions">
+            <button className="button" type="button" onClick={() => {
+              const drawingId = previewDrawing.id
+              setPreviewId(null)
+              onEditDrawing(drawingId)
+            }}><FileText size={14}/> Open drawing record</button>
+          </div>
+        </div>
+      </aside>
+    </div>}
   </div>
 }

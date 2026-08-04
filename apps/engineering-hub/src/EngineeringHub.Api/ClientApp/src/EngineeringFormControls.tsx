@@ -3,6 +3,9 @@ import type { FormEventHandler, KeyboardEvent as ReactKeyboardEvent } from 'reac
 import { createPortal } from 'react-dom'
 import { CalendarDays, ChevronLeft, ChevronRight, FilePlus2, Upload } from 'lucide-react'
 
+export const DRAWING_FILE_ACCEPT = 'application/pdf,image/jpeg,image/png,image/gif,image/bmp,image/webp,image/tiff,image/heic,image/heif,image/avif,.pdf,.jpg,.jpeg,.jpe,.jfif,.png,.gif,.bmp,.dib,.webp,.tif,.tiff,.heic,.heif,.avif'
+export const SUPPLEMENTAL_FILE_ACCEPT = `${DRAWING_FILE_ACCEPT},.doc,.docx,.xls,.xlsx,.csv,.txt,.rtf,.dwg,.dxf,.step,.stp,.iges,.igs,.zip`
+
 interface FilePickerProps {
   name: string
   label: string
@@ -61,14 +64,14 @@ export function RevisionUploadForm({
       <label>Revision number<input name="revisionNumber" required/></label>
       <EngineeringDatePicker name="revisionDate" label="Revision date" required/>
       <EngineeringDatePicker name="effectiveDate" label="Effective date"/>
-      <FilePicker name="pdf" label="Upload PDF" accept="application/pdf,.pdf" required className="wide"/>
+      <FilePicker name="pdf" label="Upload drawing file (PDF or image)" accept={DRAWING_FILE_ACCEPT} required className="wide"/>
       <label className="wide">Change description<textarea name="changeDescription" required rows={2}/></label>
       <label className="wide">Notes<textarea name="notes" rows={2}/></label>
     </div>
     <div className="store-revision-footer">
       <div>
         <strong>Permanent revision record</strong>
-        <span>The revision PDF will be added to controlled drawing history.</span>
+        <span>The revision file will be added to controlled drawing history.</span>
       </div>
       <div className="store-revision-actions">
         <button className="store-revision-button" type="submit" disabled={busy}>
@@ -287,6 +290,7 @@ export function EngineeringDatePicker({ name, label, required = false, initialVa
       aria-expanded={open}
       aria-controls={dialogId}
       aria-required={required}
+      aria-label={`${label}: ${selectedDate ? displayDate.format(selectedDate) : 'Select date'}`}
       onClick={() => open ? setOpen(false) : openCalendar()}
     >
       <CalendarDays size={15}/>

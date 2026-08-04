@@ -21,11 +21,157 @@ public static class DrawingOperationalEndpoints
             .RequireAuthorization(EngineeringAuthorization.WritePolicy);
         api.MapPut("/drawings/{id:int}", UpdateDrawingAsync)
             .RequireAuthorization(EngineeringAuthorization.WritePolicy);
+        api.MapPost("/drawings/{id:int}/supplemental-documents", AddSupplementalDocumentAsync)
+            .DisableAntiforgery()
+            .RequireAuthorization(EngineeringAuthorization.WritePolicy);
+        api.MapGet("/drawing-documents/{id:int}/file", DownloadSupplementalDocumentAsync);
+        api.MapDelete("/drawing-documents/{id:int}", DeleteSupplementalDocumentAsync)
+            .RequireAuthorization(EngineeringAuthorization.WritePolicy);
         api.MapGet("/drawing-review-queue", GetReviewQueueAsync);
         api.MapPost("/drawings/{id:int}/archive", ArchiveDrawingAsync)
             .RequireAuthorization(EngineeringAuthorization.WritePolicy);
         api.MapPost("/drawings/{id:int}/obsolete", ArchiveDrawingAsync)
             .RequireAuthorization(EngineeringAuthorization.WritePolicy);
+    }
+
+    private static async Task<IResult> AddSupplementalDocumentAsync(
+        int id,
+        HttpRequest request,
+        EngineeringDbContext db,
+        IDrawingFileStore files,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        if (!request.HasFormContentType)
+            return Results.BadRequest(new ErrorDto("FormRequired", "Use multipart form data."));
+
+        var drawing = await db.Drawings
+            .Include(x => x.DocumentLinks)
+            .Include(x => x.AuditEntries)
+            .SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (drawing is null) return Results.NotFound();
+        if (drawing.IsObsolete)
+            return Results.Conflict(new ErrorDto("ObsoleteDrawing", "Archived drawing attachments are locked."));
+
+        var form = await request.ReadFormAsync(cancellationToken);
+        var label = form["label"].ToString().Trim();
+        var document = form.Files.GetFile("document");
+        if (string.IsNullOrWhiteSpace(label))
+            return Results.BadRequest(new ErrorDto("LabelRequired", "Enter a label for the supplemental document."));
+        if (label.Length > 120)
+            return Results.BadRequest(new ErrorDto("LabelTooLong", "Supplemental document labels must be 120 characters or fewer."));
+        if (document is null || document.Length == 0)
+            return Results.BadRequest(new ErrorDto("DocumentRequired", "Select a supplemental document to upload."));
+        if (document.Length > MaxFileBytes)
+            return Results.BadRequest(new ErrorDto("FileTooLarge", "The supplemental document must be 100 MB or smaller."));
+        if (drawing.DocumentLinks.Any(link =>
+                link.Kind == DrawingDocumentKind.SupplementalDocument &&
+                string.Equals(link.ReferenceNumber, label, StringComparison.OrdinalIgnoreCase)))
+            return Results.Conflict(new ErrorDto("DuplicateLabel", "That supplemental document label is already in use on this drawing."));
+
+        var metadata = await SupplementalFileValidation.InspectAsync(document, cancellationToken);
+        if (metadata is null)
+            return Results.BadRequest(new ErrorDto(
+                "UnsupportedDocument",
+                "Select a supported PDF, image, Office, text, CAD, STEP/IGES, or ZIP document."));
+
+        StoredSupplementalFile stored;
+        try
+        {
+            stored = await files.StoreSupplementalAsync(
+                drawing.Id,
+                drawing.Customer,
+                drawing.DrawingNumber,
+                document,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            return Results.Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "Supplemental document storage unavailable",
+                detail: $"The supplemental document could not be stored: {exception.Message}");
+        }
+
+        var actor = Actor(http);
+        var link = new DrawingDocumentLink
+        {
+            Kind = DrawingDocumentKind.SupplementalDocument,
+            ReferenceNumber = label,
+            Title = SafeFileName(document.FileName),
+            Location = stored.RelativePath
+        };
+        drawing.DocumentLinks.Add(link);
+        drawing.AuditEntries.Add(Audit(
+            drawing,
+            null,
+            "SupplementalDocumentUploaded",
+            $"Uploaded supplemental document '{label}' ({link.Title}); SHA-256 {stored.Hash}.",
+            actor));
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch
+        {
+            await using var staged = await files.StageDeletionAsync(stored.RelativePath, cancellationToken);
+            await staged.CompleteAsync(cancellationToken);
+            throw;
+        }
+
+        return Results.Created(
+            $"/api/drawing-documents/{link.Id}/file",
+            new DrawingDocumentLinkDto(link.Id, link.Kind.ToString(), link.ReferenceNumber, link.Title, link.Location));
+    }
+
+    private static async Task<IResult> DownloadSupplementalDocumentAsync(
+        int id,
+        EngineeringDbContext db,
+        IDrawingFileStore files,
+        CancellationToken cancellationToken)
+    {
+        var document = await db.DrawingDocumentLinks.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == id && x.Kind == DrawingDocumentKind.SupplementalDocument, cancellationToken);
+        if (document is null || string.IsNullOrWhiteSpace(document.Location)) return Results.NotFound();
+        var path = files.ResolvePath(document.Location);
+        if (!File.Exists(path)) return Results.NotFound();
+        var fileName = document.Title ?? $"supplemental{Path.GetExtension(path)}";
+        var contentType = SupplementalFileValidation.GetContentType(fileName);
+        return contentType == "application/pdf" || contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
+            ? Results.File(path, contentType, enableRangeProcessing: true)
+            : Results.File(path, contentType, fileName, enableRangeProcessing: true);
+    }
+
+    private static async Task<IResult> DeleteSupplementalDocumentAsync(
+        int id,
+        [FromBody] RevisionDeleteDto dto,
+        EngineeringDbContext db,
+        IDrawingFileStore files,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        if (!dto.Confirmed)
+            return Results.BadRequest(new ErrorDto("ConfirmationRequired", "Permanent deletion must be explicitly confirmed."));
+        var document = await db.DrawingDocumentLinks
+            .Include(x => x.Drawing).ThenInclude(x => x.AuditEntries)
+            .SingleOrDefaultAsync(x => x.Id == id && x.Kind == DrawingDocumentKind.SupplementalDocument, cancellationToken);
+        if (document is null) return Results.NotFound();
+        if (document.Drawing.IsObsolete)
+            return Results.Conflict(new ErrorDto("ObsoleteDrawing", "Archived drawing attachments are locked."));
+
+        await using var staged = string.IsNullOrWhiteSpace(document.Location)
+            ? null
+            : await files.StageDeletionAsync(document.Location, cancellationToken);
+        document.Drawing.AuditEntries.Add(Audit(
+            document.Drawing,
+            null,
+            "SupplementalDocumentDeleted",
+            $"Permanently deleted supplemental document '{document.ReferenceNumber}' ({document.Title ?? "unnamed file"}).",
+            Actor(http)));
+        db.DrawingDocumentLinks.Remove(document);
+        await db.SaveChangesAsync(cancellationToken);
+        if (staged is not null) await staged.CompleteAsync(cancellationToken);
+        return Results.NoContent();
     }
 
     private static async Task<IResult> CreateWithRevisionAsync(
@@ -54,13 +200,15 @@ public static class DrawingOperationalEndpoints
 
         var pdf = form.Files.GetFile("pdf");
         var source = form.Files.GetFile("source");
-        var hasPdf = pdf is { Length: > 0 };
+        var hasDrawingFile = pdf is { Length: > 0 };
         var revisionNumber = form["revisionNumber"].ToString().Trim();
-        var changeDescription = form["changeDescription"].ToString().Trim();
-        if (hasPdf && (string.IsNullOrWhiteSpace(revisionNumber) || string.IsNullOrWhiteSpace(changeDescription)))
-            return Results.BadRequest(new ErrorDto("RevisionRequired", "Revision number and change description are required when an initial PDF is attached."));
-        if (hasPdf && !await IsValidPdfAsync(pdf!, cancellationToken))
-            return Results.BadRequest(new ErrorDto("InvalidPdf", "The initial drawing file must be a valid PDF."));
+        if (string.IsNullOrWhiteSpace(revisionNumber))
+            return Results.BadRequest(new ErrorDto("CurrentRevisionRequired", "Current revision is required."));
+        var drawingFile = hasDrawingFile
+            ? await DrawingFileValidation.InspectAsync(pdf!, cancellationToken)
+            : null;
+        if (hasDrawingFile && drawingFile is null)
+            return Results.BadRequest(new ErrorDto("InvalidDrawingFile", "Select a valid PDF or supported image file."));
         if ((pdf?.Length ?? 0) > MaxFileBytes || (source?.Length ?? 0) > MaxFileBytes)
             return Results.BadRequest(new ErrorDto("FileTooLarge", "Each file must be 100 MB or smaller."));
 
@@ -81,9 +229,11 @@ public static class DrawingOperationalEndpoints
         AddLinks(drawing, ParseLinks(form["relatedDocumentsJson"]));
         drawing.AuditEntries.Add(Audit(
             drawing,
-            null,
+            revisionNumber,
             "DrawingCreated",
-            hasPdf ? "Created drawing record with an initial revision package." : "Created metadata-only draft drawing.",
+            hasDrawingFile
+                ? $"Created drawing record at current revision {revisionNumber} with a controlled drawing file."
+                : $"Created metadata-only drawing record at current revision {revisionNumber}.",
             actor));
 
         StoredRevisionFiles? stored = null;
@@ -92,7 +242,7 @@ public static class DrawingOperationalEndpoints
         {
             db.Drawings.Add(drawing);
             await db.SaveChangesAsync(cancellationToken);
-            if (hasPdf)
+            if (hasDrawingFile)
             {
                 stored = await files.StoreRevisionAsync(
                     drawing.Id,
@@ -102,33 +252,37 @@ public static class DrawingOperationalEndpoints
                     pdf!,
                     source,
                     cancellationToken);
-                var revision = new DrawingRevision
-                {
-                    RevisionNumber = revisionNumber,
-                    RevisionDate = ParseDate(form["revisionDate"], DateTime.UtcNow.Date),
-                    UploadedAt = DateTime.UtcNow,
-                    EffectiveDate = ParseNullableDate(form["effectiveDate"]),
-                    ChangeDescription = changeDescription,
-                    Status = DrawingRevisionStatus.Draft,
-                    OriginalFileName = SafeFileName(pdf!.FileName),
-                    StoredFilePath = stored.PdfRelativePath,
-                    FileType = "application/pdf",
-                    FileSize = pdf.Length,
-                    FileHash = stored.PdfHash,
-                    SourceOriginalFileName = source is { Length: > 0 } ? SafeFileName(source.FileName) : null,
-                    SourceStoredFilePath = stored.SourceRelativePath,
-                    UploadedBy = actor,
-                    Notes = Clean(form["revisionNotes"])
-                };
-                drawing.Revisions.Add(revision);
+            }
+
+            var revision = new DrawingRevision
+            {
+                RevisionNumber = revisionNumber,
+                RevisionDate = DateTime.UtcNow.Date,
+                UploadedAt = DateTime.UtcNow,
+                EffectiveDate = ParseNullableDate(form["effectiveDate"]),
+                ChangeDescription = $"Drawing record created at current revision {revisionNumber}.",
+                Status = DrawingRevisionStatus.Draft,
+                OriginalFileName = hasDrawingFile ? SafeFileName(pdf!.FileName) : string.Empty,
+                StoredFilePath = stored?.PdfRelativePath ?? string.Empty,
+                FileType = drawingFile?.ContentType ?? "application/octet-stream",
+                FileSize = pdf?.Length ?? 0,
+                FileHash = stored?.PdfHash ?? string.Empty,
+                SourceOriginalFileName = source is { Length: > 0 } ? SafeFileName(source.FileName) : null,
+                SourceStoredFilePath = stored?.SourceRelativePath,
+                UploadedBy = actor,
+                Notes = null
+            };
+            drawing.Revisions.Add(revision);
+            if (hasDrawingFile)
+            {
                 drawing.AuditEntries.Add(Audit(
                     drawing,
                     revisionNumber,
-                    "InitialRevisionUploaded",
-                    $"Stored initial PDF {revision.OriginalFileName}; SHA-256 {stored.PdfHash}.",
+                    "CurrentDrawingFileUploaded",
+                    $"Stored current drawing file {revision.OriginalFileName}; SHA-256 {stored!.PdfHash}.",
                     actor));
-                await db.SaveChangesAsync(cancellationToken);
             }
+            await db.SaveChangesAsync(cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
             return Results.Created($"/api/drawings/{drawing.Id}", new { drawing.Id });
@@ -184,8 +338,12 @@ public static class DrawingOperationalEndpoints
         drawing.PhysicalMylarLocation = Clean(dto.PhysicalMylarLocation);
         drawing.Parts.Clear();
         AddParts(drawing, dto.PartNumbers ?? []);
-        drawing.DocumentLinks.Clear();
-        AddLinks(drawing, dto.RelatedDocuments ?? []);
+        foreach (var editableLink in drawing.DocumentLinks.Where(link =>
+                     link.Kind is DrawingDocumentKind.Specification).ToList())
+            drawing.DocumentLinks.Remove(editableLink);
+        AddLinks(drawing, (dto.RelatedDocuments ?? []).Where(link =>
+            Enum.TryParse<DrawingDocumentKind>(link.Kind, true, out var kind) &&
+            kind is DrawingDocumentKind.Specification));
         var after = Snapshot(drawing);
         if (before == after) return Results.NoContent();
 
@@ -298,16 +456,6 @@ public static class DrawingOperationalEndpoints
         {
             return [];
         }
-    }
-
-    private static async Task<bool> IsValidPdfAsync(IFormFile file, CancellationToken cancellationToken)
-    {
-        if (!string.Equals(Path.GetExtension(file.FileName), ".pdf", StringComparison.OrdinalIgnoreCase))
-            return false;
-        await using var stream = file.OpenReadStream();
-        var signature = new byte[5];
-        var read = await stream.ReadAsync(signature, cancellationToken);
-        return read == signature.Length && signature.SequenceEqual("%PDF-"u8.ToArray());
     }
 
     private static string Snapshot(Drawing drawing) =>

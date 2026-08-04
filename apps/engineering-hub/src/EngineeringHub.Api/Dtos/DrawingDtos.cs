@@ -46,6 +46,7 @@ public sealed record DrawingListDto(
     string Title,
     string Customer,
     IReadOnlyList<string> PartNumbers,
+    IReadOnlyList<string> Specifications,
     string ApprovalStatus,
     string? CurrentRevision,
     DateTime? CurrentRevisionDate,

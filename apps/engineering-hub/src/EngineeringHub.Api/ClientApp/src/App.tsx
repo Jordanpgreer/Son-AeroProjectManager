@@ -448,7 +448,7 @@ export default function App() {
                 ) : (
                   <p className="record-header-context">
                     {creatingDrawing
-                      ? 'Enter the drawing identity, linked records, and optional initial revision.'
+                      ? 'Enter the drawing identity, current revision, and optional controlled file.'
                       : 'Retrieving drawing identity and release information.'}
                   </p>
                 )}

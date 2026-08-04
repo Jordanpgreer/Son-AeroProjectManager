@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
-  AlertTriangle, Archive, ArrowRight, CalendarDays, CheckCircle2, FilePlus2, FileText,
+  AlertTriangle, Archive, ArrowRight, CalendarDays, CheckCircle2, ChevronDown, FilePlus2, FileText,
   FolderOpen, History, LogIn, LogOut, MapPin, Pencil, Trash2, UserRound, X,
 } from 'lucide-react'
 import ActionFeedbackDialog from './ActionFeedbackDialog'
 import type { ActionFeedback } from './ActionFeedbackDialog'
-import { EngineeringDatePicker, FilePicker, RevisionUploadForm } from './EngineeringFormControls'
+import { DRAWING_FILE_ACCEPT, SUPPLEMENTAL_FILE_ACCEPT, EngineeringDatePicker, FilePicker, RevisionUploadForm } from './EngineeringFormControls'
+import EngineeringTagEditor from './EngineeringTagEditor'
 
 interface DrawingList {
   id: number; drawingNumber: string; title: string; customer: string; partNumbers: string[]; approvalStatus: string
@@ -228,13 +229,9 @@ function metadataChanges(item: Audit): AuditMetadataChange[] | null {
   return fields.filter(field => field.before !== field.after)
 }
 const commaValues = (value: FormDataEntryValue | null) => String(value ?? '').split(',').map(item => item.trim()).filter(Boolean)
-const linksFromForm = (form: FormData) => [
-  ...commaValues(form.get('specifications')).map(referenceNumber => ({ kind: 'Specification', referenceNumber, title: null, location: null })),
-  ...commaValues(form.get('workOrders')).map(referenceNumber => ({ kind: 'WorkOrder', referenceNumber, title: null, location: null })),
-  ...commaValues(form.get('workInstructions')).map(referenceNumber => ({ kind: 'WorkInstruction', referenceNumber, title: null, location: null })),
-  ...commaValues(form.get('supplementalDocuments')).map(referenceNumber => ({ kind: 'SupplementalDocument', referenceNumber, title: null, location: null })),
-]
-const linksOfKind = (drawing: DrawingDetail, kind: string) => drawing.relatedDocuments.filter(link => link.kind === kind).map(link => link.referenceNumber).join(', ')
+const linksFromForm = (form: FormData) =>
+  commaValues(form.get('specifications')).map(referenceNumber => ({ kind: 'Specification', referenceNumber, title: null, location: null }))
+const linkValuesOfKind = (drawing: DrawingDetail, kind: string) => drawing.relatedDocuments.filter(link => link.kind === kind).map(link => link.referenceNumber)
 
 export default function DrawingWorkspace({
   drawingId,
@@ -266,6 +263,7 @@ export default function DrawingWorkspace({
   const [auditOpen, setAuditOpen] = useState(false)
   const [mylarMessage, setMylarMessage] = useState<string | null>(null)
   const [mylarError, setMylarError] = useState<string | null>(null)
+  const [supplementalError, setSupplementalError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -308,6 +306,7 @@ export default function DrawingWorkspace({
     setAuditOpen(false)
     setMylarMessage(null)
     setMylarError(null)
+    setSupplementalError(null)
   }
   async function refresh() {
     if (selected) await open(selected.id)
@@ -438,18 +437,28 @@ export default function DrawingWorkspace({
 
   async function createDrawing(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const form = new FormData(event.currentTarget)
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
     const pdf = form.get('pdf') as File | null
-    if (pdf?.size && (!String(form.get('revisionNumber') ?? '').trim() || !String(form.get('changeDescription') ?? '').trim())) {
-      setError('Revision number and change description are required when an initial PDF is selected.')
+    const drawingNumber = String(form.get('drawingNumber') ?? '').trim()
+    const currentRevision = String(form.get('revisionNumber') ?? '').trim()
+    if (!currentRevision) {
+      setError('Current revision is required.')
       return
     }
     form.set('relatedDocumentsJson', JSON.stringify(linksFromForm(form)))
     setBusy(true); setError(null); setUploadProgress(0)
     try {
       const created = await uploadWithProgress<{ id: number }>('/api/drawings/create-with-revision', form, setUploadProgress)
-      event.currentTarget.reset()
+      formElement.reset()
       setShowCreate(false)
+      setFeedback({
+        kind: 'success',
+        title: `${drawingNumber} created successfully`,
+        message: pdf?.size
+          ? `The drawing and its current revision ${currentRevision} file were saved. The drawing workspace is now open for further edits.`
+          : `The drawing was saved at current revision ${currentRevision}. The drawing workspace is now open for further edits.`,
+      })
       onOpenDrawing(created.id)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to create drawing.') }
     finally { setBusy(false); setUploadProgress(null) }
@@ -477,6 +486,42 @@ export default function DrawingWorkspace({
       await refresh()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to update drawing metadata.') }
     finally { setBusy(false) }
+  }
+
+  async function uploadSupplementalDocument(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selected) return
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    const label = String(form.get('label') ?? '').trim()
+    const document = form.get('document')
+    if (!label || !(document instanceof File) || document.size === 0) {
+      setSupplementalError('Add a label and select a supplemental document before uploading.')
+      return
+    }
+
+    setBusy(true)
+    setSupplementalError(null)
+    setUploadProgress(0)
+    try {
+      await uploadWithProgress<DocumentLink>(
+        `/api/drawings/${selected.id}/supplemental-documents`,
+        form,
+        setUploadProgress,
+      )
+      formElement.reset()
+      await refresh()
+      setFeedback({
+        kind: 'success',
+        title: 'Supplemental document uploaded',
+        message: `${label} was added to ${selected.drawingNumber} and is now available from the drawing record.`,
+      })
+    } catch (cause) {
+      setSupplementalError(cause instanceof Error ? cause.message : 'Unable to upload the supplemental document.')
+    } finally {
+      setBusy(false)
+      setUploadProgress(null)
+    }
   }
 
   async function recordMylarMovement(event: FormEvent<HTMLFormElement>) {
@@ -557,7 +602,7 @@ export default function DrawingWorkspace({
     const missingFields = [
       !revisionNumber && 'revision number',
       !revisionDate && 'revision date',
-      (!(pdf instanceof File) || pdf.size === 0) && 'PDF',
+      (!(pdf instanceof File) || pdf.size === 0) && 'drawing file',
       !changeDescription && 'change description',
     ].filter(Boolean) as string[]
     if (missingFields.length) {
@@ -608,7 +653,7 @@ export default function DrawingWorkspace({
   async function approveRevision(revision: Revision) {
     const revisionId = revision.id
     const hasPdf = revision.hasPdf
-    if (!hasPdf) { setError('A metadata-only demo revision cannot be approved. Upload a real PDF revision first.'); return }
+    if (!hasPdf) { setError('A metadata-only revision cannot be approved. Upload a drawing file first.'); return }
     setBusy(true); setError(null)
     try {
       await api(`/api/drawing-revisions/${revisionId}/approve`, {
@@ -677,7 +722,7 @@ export default function DrawingWorkspace({
       !revisionNumber && 'revision number',
       !revisionDate && 'revision date',
       !changeDescription && 'change description',
-      submitForApproval && !target.hasPdf && (!(pdf instanceof File) || pdf.size === 0) && 'PDF',
+      submitForApproval && !target.hasPdf && (!(pdf instanceof File) || pdf.size === 0) && 'drawing file',
     ].filter(Boolean) as string[]
     if (missing.length) {
       setRevisionEditError(`Add ${missing.join(', ')} before saving this revision.`)
@@ -844,6 +889,8 @@ export default function DrawingWorkspace({
   const summaryMylarEvent = mylar
     ? selected?.mylarHistory.find(item => item.mylarId === mylar.id) ?? null
     : null
+  const specificationTags = selected ? linkValuesOfKind(selected, 'Specification') : []
+  const supplementalDocuments = selected?.relatedDocuments.filter(link => link.kind === 'SupplementalDocument') ?? []
 
   return <div className="drawing-workspace">
     {error && <div className="inline-alert" role="alert">{error}<button type="button" onClick={() => setError(null)}><X size={15}/></button></div>}
@@ -851,18 +898,15 @@ export default function DrawingWorkspace({
     {uploadProgress !== null && <div className="upload-progress" role="status"><span style={{ width: `${uploadProgress}%` }}/><strong>{uploadProgress}%</strong><small>Transferring controlled file package</small></div>}
 
     {canEdit && showCreate && <form className="panel record-form" onSubmit={createDrawing}>
-      <div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Atomic creation</span><h2>Create drawing and optional initial PDF</h2><p>Without a PDF, this creates a metadata-only Draft. With a PDF, the drawing and revision succeed or roll back together.</p></div></div>
+      <div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Controlled drawing creation</span><h2>Create drawing record</h2><p>Record the drawing's current revision and optionally attach its current PDF or image file. Future changes are added through the revision workflow.</p></div></div>
       <div className="form-grid">
         <label>Drawing number<input name="drawingNumber" required/></label><label>Title<input name="title" required/></label>
         <label>Customer<input name="customer" required/></label><label>Linked part numbers<input name="partNumbers" placeholder="PN-1001, PN-1002"/></label>
-        <label>Specifications<input name="specifications" placeholder="SPEC-100, SPEC-200"/></label><label>Work orders<input name="workOrders" placeholder="WO-12345"/></label>
-        <label>Work instructions<input name="workInstructions" placeholder="WI-100-MFG"/></label><label>Supplemental documents<input name="supplementalDocuments" placeholder="DOC-100-CALC"/></label>
-        <label>Initial revision<input name="revisionNumber" placeholder="A"/></label>
-        <EngineeringDatePicker name="revisionDate" label="Revision date"/><EngineeringDatePicker name="effectiveDate" label="Effective date"/>
-        <FilePicker name="pdf" label="Upload PDF" accept="application/pdf,.pdf" className="wide"/>
-        <label className="wide">Change description<textarea name="changeDescription" rows={2}/></label>
+        <EngineeringTagEditor name="specifications" label="Specification tags" placeholder="Example: SPEC-100"/>
+        <label>Current revision<input name="revisionNumber" placeholder="A" required/></label>
+        <EngineeringDatePicker name="effectiveDate" label="Effective date"/>
+        <FilePicker name="pdf" label="Upload current drawing file (PDF or image)" accept={DRAWING_FILE_ACCEPT} className="wide"/>
         <label className="wide">Drawing notes<textarea name="notes" rows={2}/></label>
-        <label className="wide">Revision notes<textarea name="revisionNotes" rows={2}/></label>
       </div>
       <div className="form-actions"><button className="button" disabled={busy}><FilePlus2 size={15}/> Create drawing</button><button className="button ghost" type="button" onClick={() => { setShowCreate(false); if (!selected) onBackToDashboard() }}>Cancel</button></div>
     </form>}
@@ -879,8 +923,7 @@ export default function DrawingWorkspace({
           <div className="form-grid">
             <label>Title<input name="title" defaultValue={selected.title} required/></label><label>Customer<input name="customer" defaultValue={selected.customer} required/></label>
             <label>Part numbers<input name="partNumbers" defaultValue={selected.partNumbers.join(', ')}/></label>
-            <label>Specifications<input name="specifications" defaultValue={linksOfKind(selected, 'Specification')}/></label><label>Work orders<input name="workOrders" defaultValue={linksOfKind(selected, 'WorkOrder')}/></label>
-            <label>Work instructions<input name="workInstructions" defaultValue={linksOfKind(selected, 'WorkInstruction')}/></label><label>Supplemental documents<input name="supplementalDocuments" defaultValue={linksOfKind(selected, 'SupplementalDocument')}/></label>
+            <EngineeringTagEditor name="specifications" label="Specification tags" initialValues={linkValuesOfKind(selected, 'Specification')} placeholder="Example: SPEC-100"/>
             <label className="wide">Notes<textarea name="notes" rows={3} defaultValue={selected.notes ?? ''}/></label>
           </div>
           <div className="form-actions"><button className="button" disabled={busy}>Save Changes</button><button className="button ghost" type="button" onClick={() => setShowEdit(false)}>Cancel</button></div>
@@ -920,7 +963,7 @@ export default function DrawingWorkspace({
                 <dl className="drawing-revision-facts">
                   <div><dt>Revision date</dt><dd>{date(activeRevision.revisionDate)}</dd></div>
                   <div><dt>Effective date</dt><dd>{date(activeRevision.effectiveDate)}</dd></div>
-                  <div><dt>File</dt><dd title={activeRevision.originalFileName}>{activeRevision.hasPdf ? activeRevision.originalFileName : 'PDF not attached'}</dd></div>
+                  <div><dt>File</dt><dd title={activeRevision.originalFileName}>{activeRevision.hasPdf ? activeRevision.originalFileName : 'Drawing file not attached'}</dd></div>
                 </dl>
               </div>
 
@@ -931,10 +974,10 @@ export default function DrawingWorkspace({
 
               <div className="drawing-revision-toolbar" aria-label={`Actions for revision ${activeRevision.revisionNumber}`}>
                 {activeRevision.hasPdf && <button className="button revision-pdf-button" type="button" onClick={() => previewRevision(activeRevision)}>
-                  <FileText size={14}/> Preview PDF
+                  <FileText size={14}/> Preview file
                 </button>}
                 {activeRevision.hasPdf && <a className="button ghost" href={`/api/drawing-revisions/${activeRevision.id}/file`} target="_blank" rel="noreferrer">
-                  <ArrowRight size={14}/> Open PDF
+                  <ArrowRight size={14}/> Open file
                 </a>}
                 {canEdit && <button className="button ghost revision-edit-button" type="button" disabled={busy} onClick={() => openRevisionEditor(activeRevision)}>
                   <Pencil size={14}/> Edit revision
@@ -954,7 +997,7 @@ export default function DrawingWorkspace({
                 >
                   <CheckCircle2 size={14}/> Make current
                 </button>}
-                {canEdit && activeRevision.status === 'Draft' && <button className="button ghost" type="button" disabled={busy || !activeRevision.hasPdf} title={!activeRevision.hasPdf ? 'Attach a real PDF before review.' : undefined} onClick={() => void setRevisionStatus(activeRevision, 'UnderReview')}>Submit review</button>}
+                {canEdit && activeRevision.status === 'Draft' && <button className="button ghost" type="button" disabled={busy || !activeRevision.hasPdf} title={!activeRevision.hasPdf ? 'Attach a drawing file before review.' : undefined} onClick={() => void setRevisionStatus(activeRevision, 'UnderReview')}>Submit review</button>}
                 {canEdit && activeRevision.status === 'UnderReview' && <>
                   <button className="button ghost" type="button" disabled={busy} onClick={() => void setRevisionStatus(activeRevision, 'Draft')}>Return to draft</button>
                   <button className="button" type="button" disabled={busy || !activeRevision.hasPdf} onClick={() => void approveRevision(activeRevision)}><CheckCircle2 size={14}/> Approve</button>
@@ -965,23 +1008,23 @@ export default function DrawingWorkspace({
               <div className={`drawing-pdf-stage ${previewedRevision?.id === activeRevision.id ? 'is-previewing' : ''}`}>
                 {previewedRevision?.id === activeRevision.id ? <>
                   <div className="drawing-pdf-stagebar">
-                    <span><FileText size={14}/> Controlled PDF · Revision {previewedRevision.revisionNumber}</span>
+                    <span><FileText size={14}/> Controlled drawing file · Revision {previewedRevision.revisionNumber}</span>
                     <button type="button" onClick={() => setPreviewRevisionId(null)}><X size={14}/> Close preview</button>
                   </div>
-                  <iframe title={`Controlled drawing PDF, Revision ${previewedRevision.revisionNumber}`} src={`/api/drawing-revisions/${previewedRevision.id}/file#toolbar=1`}/>
+                  <iframe title={`Controlled drawing file, Revision ${previewedRevision.revisionNumber}`} src={`/api/drawing-revisions/${previewedRevision.id}/file${previewedRevision.fileType === 'application/pdf' ? '#toolbar=1' : ''}`}/>
                 </> : <div className="drawing-pdf-empty">
                   <span aria-hidden="true"><FileText size={29}/></span>
-                  <strong>{activeRevision.hasPdf ? 'Controlled PDF ready' : 'No PDF attached'}</strong>
+                  <strong>{activeRevision.hasPdf ? 'Controlled drawing file ready' : 'No drawing file attached'}</strong>
                   <p>{activeRevision.hasPdf
                     ? 'Preview the selected revision here without leaving the drawing record.'
-                    : 'This revision remains a metadata record until a controlled PDF is attached.'}</p>
-                  {activeRevision.hasPdf && <button className="button" type="button" onClick={() => previewRevision(activeRevision)}><FileText size={14}/> Preview PDF</button>}
+                    : 'This revision remains a metadata record until a controlled drawing file is attached.'}</p>
+                  {activeRevision.hasPdf && <button className="button" type="button" onClick={() => previewRevision(activeRevision)}><FileText size={14}/> Preview file</button>}
                 </div>}
               </div>
             </> : <div className="drawing-pdf-empty drawing-no-revisions">
               <span aria-hidden="true"><FilePlus2 size={29}/></span>
               <strong>No revisions recorded</strong>
-              <p>Upload the first controlled PDF package to begin permanent revision history.</p>
+              <p>Upload the first controlled drawing file to begin permanent revision history.</p>
               {canEdit && !selected.isObsolete && <button className="button" type="button" onClick={openRevisionUpload}><FilePlus2 size={14}/> Upload first revision</button>}
             </div>}
           </section>
@@ -1008,7 +1051,7 @@ export default function DrawingWorkspace({
                     <span><CalendarDays size={12}/><small>Uploaded</small><strong>{auditTimestamp(revision.uploadedAt).date}</strong></span>
                     <span><UserRound size={12}/><small>Uploaded by</small><strong title={revision.uploadedBy}>{revision.uploadedBy}</strong></span>
                   </span>
-                  <span className="drawing-history-file">{revision.hasPdf ? <><FileText size={12}/>{revision.originalFileName}</> : <><AlertTriangle size={12}/>PDF not attached</>}</span>
+                  <span className="drawing-history-file">{revision.hasPdf ? <><FileText size={12}/>{revision.originalFileName}</> : <><AlertTriangle size={12}/>Drawing file not attached</>}</span>
                   {revision.id === selected.currentApprovedRevisionId && <span className="drawing-current-marker"><CheckCircle2 size={12}/> Current controlled revision</span>}
                 </button>
               </article>)}
@@ -1054,6 +1097,41 @@ export default function DrawingWorkspace({
               </button>}
             </div>
           </section>
+
+          <details className="panel drawing-reference-panel">
+            <summary className="drawing-reference-header">
+              <div><span className="eyebrow">Linked engineering information</span><h2>Specifications and supplemental documents</h2></div>
+              <span className="drawing-reference-summary-count">{specificationTags.length + supplementalDocuments.length} linked <ChevronDown size={16}/></span>
+            </summary>
+            <div className="drawing-reference-grid">
+              <article className="drawing-specification-card">
+                <header><h3>Specification tags</h3><span>{specificationTags.length}</span></header>
+                {specificationTags.length ? <div className="drawing-spec-tags">
+                  {specificationTags.map(specification => <span key={specification}>{specification}</span>)}
+                </div> : <p>No specification tags applied.</p>}
+                {canEdit && !selected.isObsolete && <small>Use Edit metadata to add or remove specification tags.</small>}
+              </article>
+
+              <article className="drawing-supplemental-card">
+                <header><h3>Supplemental documents</h3><span>{supplementalDocuments.length}</span></header>
+                {supplementalDocuments.length ? <div className="drawing-supplemental-list">
+                  {supplementalDocuments.map(document => <div key={document.id}>
+                    <span><strong>{document.referenceNumber}</strong><small title={document.title ?? undefined}>{document.title ?? 'Legacy document reference'}</small></span>
+                    {document.location
+                      ? <a className="button ghost" href={`/api/drawing-documents/${document.id}/file`} target="_blank" rel="noreferrer"><ArrowRight size={13}/> Open</a>
+                      : <em>Reference only</em>}
+                  </div>)}
+                </div> : <p>No supplemental documents attached.</p>}
+
+                {canEdit && !selected.isObsolete && <form className="supplemental-upload-form" onSubmit={uploadSupplementalDocument}>
+                  <label><span>Document label</span><input name="label" required placeholder="Example: Stress analysis"/></label>
+                  <FilePicker name="document" label="Supplemental file" accept={SUPPLEMENTAL_FILE_ACCEPT} required/>
+                  {supplementalError && <div className="inline-alert" role="alert">{supplementalError}</div>}
+                  <button className="button" type="submit" disabled={busy}><FilePlus2 size={14}/>{busy ? 'Uploading...' : 'Upload document'}</button>
+                </form>}
+              </article>
+            </div>
+          </details>
           </div>
         </div>
 
@@ -1064,7 +1142,7 @@ export default function DrawingWorkspace({
               <div>
                 <span className="eyebrow">Permanent revision record</span>
                 <h2 id="revision-upload-title">Upload drawing revision</h2>
-                <p id="revision-upload-description">Add a controlled PDF package to {selected.drawingNumber}.</p>
+                <p id="revision-upload-description">Add a controlled PDF or image file to {selected.drawingNumber}.</p>
               </div>
               <button autoFocus type="button" className="delete-dialog-close" aria-label="Close revision upload" disabled={busy} onClick={closeRevisionUpload}><X size={18}/></button>
             </header>
@@ -1260,13 +1338,13 @@ export default function DrawingWorkspace({
             <EngineeringDatePicker name="revisionDate" label="Revision date" required initialValue={dateInputValue(editRevisionTarget.revisionDate)}/>
             <EngineeringDatePicker name="effectiveDate" label="Effective date" initialValue={dateInputValue(editRevisionTarget.effectiveDate)}/>
             <div className="revision-source-file">
-              <span>Current PDF</span>
-              <strong>{editRevisionTarget.hasPdf ? editRevisionTarget.originalFileName : 'No PDF attached'}</strong>
+              <span>Current drawing file</span>
+              <strong>{editRevisionTarget.hasPdf ? editRevisionTarget.originalFileName : 'No drawing file attached'}</strong>
             </div>
             <FilePicker
               name="pdf"
-              label={editRevisionTarget.hasPdf ? 'Replace PDF (optional)' : 'Attach PDF (required for approval)'}
-              accept="application/pdf,.pdf"
+              label={editRevisionTarget.hasPdf ? 'Replace drawing file (optional)' : 'Attach drawing file (required for approval)'}
+              accept={DRAWING_FILE_ACCEPT}
               className="wide"
             />
             <label className="wide">Change description<textarea name="changeDescription" defaultValue={editRevisionTarget.changeDescription} required rows={2}/></label>

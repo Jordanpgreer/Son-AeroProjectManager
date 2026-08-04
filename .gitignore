@@ -22,6 +22,9 @@ node_modules/
 *.db-shm
 *.db-wal
 
+# Local Engineering Hub controlled drawing storage
+engineering-files/
+
 # Local test/browser artifacts
 .playwright-cli/
 .playwright-mcp/
