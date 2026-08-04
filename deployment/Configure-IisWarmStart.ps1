@@ -94,7 +94,14 @@ $webAdministration = Get-Module -ListAvailable -Name WebAdministration
 if ($null -eq $webAdministration) {
     throw 'The IIS WebAdministration module is unavailable.'
 }
-Import-Module WebAdministration
+$priorWhatIfPreference = $WhatIfPreference
+try {
+    $WhatIfPreference = $false
+    Import-Module WebAdministration -ErrorAction Stop
+}
+finally {
+    $WhatIfPreference = $priorWhatIfPreference
+}
 
 foreach ($site in $sites) {
     if (-not (Test-Path -LiteralPath "IIS:\AppPools\$($site.Name)")) {
