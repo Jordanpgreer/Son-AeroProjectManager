@@ -309,6 +309,20 @@ try {
 finally {
     $WhatIfPreference = $priorWhatIfPreference
 }
+
+# Importing WebAdministration doesn't consistently load its management assembly
+# in Windows PowerShell 5.1. Load the IIS-installed assembly explicitly so the
+# read-only ServerManager preflight works in both normal and WhatIf execution.
+if (-not ('Microsoft.Web.Administration.ServerManager' -as [type])) {
+    $webAdministrationAssembly = Join-Path $env:windir 'System32\inetsrv\Microsoft.Web.Administration.dll'
+    if (-not (Test-Path -LiteralPath $webAdministrationAssembly -PathType Leaf)) {
+        throw "The IIS administration assembly was not found: $webAdministrationAssembly"
+    }
+    Add-Type -Path $webAdministrationAssembly -ErrorAction Stop
+}
+if (-not ('Microsoft.Web.Administration.ServerManager' -as [type])) {
+    throw 'The IIS administration assembly loaded without exposing ServerManager.'
+}
 $serverManager = New-Object Microsoft.Web.Administration.ServerManager
 $currentPaths = @{}
 try {
