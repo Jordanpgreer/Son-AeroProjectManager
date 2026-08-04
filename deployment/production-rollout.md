@@ -125,7 +125,7 @@ Expected final line:
 **N-central CMD on SON-IIS2 — apply:**
 
 ```bat
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\SonAero\Configure-IisWarmStart.ps1" -Scheme http -Confirm:$false
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\SonAero\Configure-IisWarmStart.ps1' -Scheme http -Confirm:$false"
 ```
 
 Expected final line: `WARM_START_CONFIGURED_AND_HEALTHY`, with HTTP 200 for all four sites. The
@@ -238,7 +238,7 @@ Upload both files to `C:\SonAero\EmployeeShortcut` on each approved employee com
 
 ```bat
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\SonAero\EmployeeShortcut\Install-EmployeeHubShortcut.ps1" -HubUri "http://SON-IIS2:5140" -IconSource "C:\SonAero\EmployeeShortcut\son-aero.ico" -WhatIf
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\SonAero\EmployeeShortcut\Install-EmployeeHubShortcut.ps1" -HubUri "http://SON-IIS2:5140" -IconSource "C:\SonAero\EmployeeShortcut\son-aero.ico" -Confirm:$false
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\SonAero\EmployeeShortcut\Install-EmployeeHubShortcut.ps1' -HubUri 'http://SON-IIS2:5140' -IconSource 'C:\SonAero\EmployeeShortcut\son-aero.ico' -Confirm:$false"
 ```
 
 ### Group Policy deployment
@@ -247,7 +247,7 @@ Place the script and icon in a read-only domain package location, then configure
 Configuration** startup script to run as Local System:
 
 ```bat
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "\\SON4L.LOCAL\SYSVOL\SON4L.LOCAL\scripts\SonAero\Install-EmployeeHubShortcut.ps1" -HubUri "http://SON-IIS2:5140" -IconSource "\\SON4L.LOCAL\SYSVOL\SON4L.LOCAL\scripts\SonAero\son-aero.ico" -Confirm:$false
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '\\SON4L.LOCAL\SYSVOL\SON4L.LOCAL\scripts\SonAero\Install-EmployeeHubShortcut.ps1' -HubUri 'http://SON-IIS2:5140' -IconSource '\\SON4L.LOCAL\SYSVOL\SON4L.LOCAL\scripts\SonAero\son-aero.ico' -Confirm:$false"
 ```
 
 Scope the GPO to the approved workstation security group, test on one computer, then expand the
