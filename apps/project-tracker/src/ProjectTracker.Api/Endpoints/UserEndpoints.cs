@@ -100,48 +100,7 @@ public static class UserEndpoints
             return Results.Ok(new AccessOverviewDto(users, groups, permissions));
         }).RequireAuthorization(AccessOverviewAuthorization.PolicyName);
 
-        api.MapPost("/admin/users", async (
-            RegisteredUserUpsertDto dto,
-            ProjectTrackerDbContext db,
-            ModuleAccessService moduleAccess,
-            CancellationToken cancellationToken) =>
-        {
-            var accountName = NormalizeAccountName(dto.AccountName);
-            if (string.IsNullOrWhiteSpace(accountName))
-            {
-                return Results.BadRequest("Account name is required.");
-            }
-
-            var accountLookupKeys = WindowsAccountNames.LookupKeys(accountName);
-            if (await db.Users.AnyAsync(user => accountLookupKeys.Contains(user.AccountName.ToUpper()), cancellationToken))
-            {
-                return Results.Conflict("That user is already registered.");
-            }
-
-            var groupIds = NormalizeGroupIds(dto.GroupIds);
-            if (groupIds.Count > 0 && await db.Groups.CountAsync(group => groupIds.Contains(group.Id), cancellationToken) != groupIds.Count)
-            {
-                return Results.BadRequest("One or more selected groups no longer exist.");
-            }
-
-            var user = new AppUser
-            {
-                AccountName = accountName,
-                DisplayName = string.IsNullOrWhiteSpace(dto.DisplayName) ? DefaultDisplayName(accountName) : dto.DisplayName.Trim(),
-                IsActive = dto.IsActive,
-                LastSeenAt = DateTimeOffset.UnixEpoch
-            };
-            foreach (var groupId in groupIds)
-            {
-                user.GroupMemberships.Add(new AppUserGroupMembership { AppGroupId = groupId });
-            }
-
-            db.Users.Add(user);
-            await SetLegacyRoleAsync(db, user, groupIds, cancellationToken);
-            await db.SaveChangesAsync(cancellationToken);
-            await moduleAccess.BootstrapLegacyAssignmentsAsync(db, cancellationToken);
-            return Results.Created($"/api/admin/users/{user.Id}", await ToRegisteredUserDtoAsync(db, user.Id, cancellationToken));
-        }).RequireAuthorization("ManageUsers");
+        api.MapPost("/admin/users", RegisterUserAsync).RequireAuthorization("ManageUsers");
 
         api.MapPut("/admin/users/{id:int}", async (
             int id,
@@ -295,6 +254,54 @@ public static class UserEndpoints
         }).RequireAuthorization("ManageGroups");
 
         return api;
+    }
+
+    public static async Task<IResult> RegisterUserAsync(
+        RegisteredUserUpsertDto dto,
+        ProjectTrackerDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var accountName = NormalizeAccountName(dto.AccountName);
+        if (string.IsNullOrWhiteSpace(accountName))
+        {
+            return Results.BadRequest("Account name is required.");
+        }
+
+        var accountLookupKeys = WindowsAccountNames.LookupKeys(accountName);
+        if (await db.Users.AnyAsync(
+                user => accountLookupKeys.Contains(user.AccountName.ToUpper()),
+                cancellationToken))
+        {
+            return Results.Conflict("That user is already registered.");
+        }
+
+        var groupIds = NormalizeGroupIds(dto.GroupIds);
+        if (groupIds.Count > 0 &&
+            await db.Groups.CountAsync(group => groupIds.Contains(group.Id), cancellationToken) != groupIds.Count)
+        {
+            return Results.BadRequest("One or more selected groups no longer exist.");
+        }
+
+        var user = new AppUser
+        {
+            AccountName = accountName,
+            DisplayName = string.IsNullOrWhiteSpace(dto.DisplayName)
+                ? DefaultDisplayName(accountName)
+                : dto.DisplayName.Trim(),
+            IsActive = dto.IsActive,
+            LastSeenAt = DateTimeOffset.UnixEpoch
+        };
+        foreach (var groupId in groupIds)
+        {
+            user.GroupMemberships.Add(new AppUserGroupMembership { AppGroupId = groupId });
+        }
+
+        db.Users.Add(user);
+        await SetLegacyRoleAsync(db, user, groupIds, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        return Results.Created(
+            $"/api/admin/users/{user.Id}",
+            await ToRegisteredUserDtoAsync(db, user.Id, cancellationToken));
     }
 
     private static void ReplaceMemberships(AppUser user, IReadOnlyCollection<int> groupIds)

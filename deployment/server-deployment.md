@@ -147,9 +147,10 @@ after all four stable folders and Production settings exist:
 powershell -ExecutionPolicy Bypass -File .\deployment\Configure-IisServer.ps1 -Confirm
 ```
 
-The script installs Windows Authentication, creates four isolated `ApplicationPoolIdentity`
-pools/sites on ports 5135-5160, applies folder permissions, disables Anonymous Authentication,
-enables Windows Authentication, and opens those ports to the local subnet.
+The script installs Windows Authentication and Application Initialization, creates four isolated
+`ApplicationPoolIdentity` pools/sites on ports 5135-5160, applies folder permissions, disables
+Anonymous Authentication, enables Windows Authentication, reconciles the scoped firewall rule,
+and does not report success until every `/api/health` endpoint returns HTTP 200.
 
 Start ProjectTracker first so it applies database migrations and seeds the initial administrator.
 Then start EngineeringHub, EstimatingDashboard, and Portal.
@@ -170,6 +171,10 @@ Test from a SON4L domain workstation—not through the Development desktop launc
 
 `/api/health` proves a process is running. Authenticated `/api/me` proves Windows identity and the
 shared role database work.
+
+For the exact post-install sequence, including default-deny deployment, warm start, automated role
+verification, the employee shortcut, HTTPS prerequisites, and backup prerequisites, continue with
+[production-rollout.md](production-rollout.md).
 
 ## 10. Backups, updates, and rollback
 
