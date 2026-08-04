@@ -731,13 +731,13 @@ namespace ProjectTracker.Api.Data.Migrations
                     b.HasOne("ProjectTracker.Api.Models.Project", "Project")
                         .WithMany("Notifications")
                         .HasForeignKey("ProjectId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 
                     b.HasOne("ProjectTracker.Api.Models.ProjectMessage", "ProjectMessage")
                         .WithMany("Notifications")
                         .HasForeignKey("ProjectMessageId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.HasOne("ProjectTracker.Api.Models.ProjectTask", "ProjectTask")
                         .WithMany("Notifications")

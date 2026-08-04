@@ -110,7 +110,7 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
             entity.HasOne(notification => notification.Project)
                 .WithMany(project => project.Notifications)
                 .HasForeignKey(notification => notification.ProjectId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
             entity.HasOne(notification => notification.ProjectTask)
                 .WithMany(task => task.Notifications)
                 .HasForeignKey(notification => notification.ProjectTaskId)
@@ -118,7 +118,7 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
             entity.HasOne(notification => notification.ProjectMessage)
                 .WithMany(message => message.Notifications)
                 .HasForeignKey(notification => notification.ProjectMessageId)
-                .OnDelete(DeleteBehavior.SetNull);
+                .OnDelete(DeleteBehavior.NoAction);
         });
 
         modelBuilder.Entity<TaskOvertimeDay>(entity =>

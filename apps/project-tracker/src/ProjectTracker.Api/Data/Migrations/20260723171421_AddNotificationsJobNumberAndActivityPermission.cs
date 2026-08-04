@@ -43,14 +43,12 @@ namespace ProjectTracker.Api.Data.Migrations
                         name: "FK_UserNotifications_ProjectMessages_ProjectMessageId",
                         column: x => x.ProjectMessageId,
                         principalTable: "ProjectMessages",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.SetNull);
+                        principalColumn: "Id");
                     table.ForeignKey(
                         name: "FK_UserNotifications_Projects_ProjectId",
                         column: x => x.ProjectId,
                         principalTable: "Projects",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        principalColumn: "Id");
                     table.ForeignKey(
                         name: "FK_UserNotifications_Tasks_ProjectTaskId",
                         column: x => x.ProjectTaskId,

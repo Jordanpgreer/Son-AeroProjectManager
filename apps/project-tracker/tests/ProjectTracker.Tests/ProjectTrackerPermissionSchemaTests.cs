@@ -20,7 +20,7 @@ public sealed class ProjectTrackerPermissionSchemaTests
     }
 
     [Fact]
-    public void NotificationSourceRelationships_UseSetNull()
+    public void NotificationSourceRelationships_UseSetNullOnlyWhereSqlServerAllowsIt()
     {
         var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>()
             .UseSqlite("Data Source=:memory:")
@@ -32,7 +32,7 @@ public sealed class ProjectTrackerPermissionSchemaTests
             DeleteBehavior.SetNull,
             notification.GetForeignKeys().Single(key => key.Properties.Single().Name == nameof(UserNotification.ProjectTaskId)).DeleteBehavior);
         Assert.Equal(
-            DeleteBehavior.SetNull,
+            DeleteBehavior.NoAction,
             notification.GetForeignKeys().Single(key => key.Properties.Single().Name == nameof(UserNotification.ProjectMessageId)).DeleteBehavior);
         Assert.Equal(80, db.Model.FindEntityType(typeof(Project))!.FindProperty(nameof(Project.JobNumber))!.GetMaxLength());
     }
