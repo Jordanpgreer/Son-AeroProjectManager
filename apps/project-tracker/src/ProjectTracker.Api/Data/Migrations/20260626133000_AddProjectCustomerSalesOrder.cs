@@ -1,10 +1,13 @@
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 
 #nullable disable
 
 namespace ProjectTracker.Api.Data.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(ProjectTrackerDbContext))]
+    [Migration("20260626133000_AddProjectCustomerSalesOrder")]
     public partial class AddProjectCustomerSalesOrder : Migration
     {
         /// <inheritdoc />

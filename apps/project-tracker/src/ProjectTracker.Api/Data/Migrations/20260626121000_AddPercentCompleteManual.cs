@@ -1,10 +1,13 @@
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 
 #nullable disable
 
 namespace ProjectTracker.Api.Data.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(ProjectTrackerDbContext))]
+    [Migration("20260626121000_AddPercentCompleteManual")]
     public partial class AddPercentCompleteManual : Migration
     {
         /// <inheritdoc />

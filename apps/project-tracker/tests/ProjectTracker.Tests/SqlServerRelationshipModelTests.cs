@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Migrations.Operations;
+using System.Reflection;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Data.Migrations;
 using ProjectTracker.Api.Models;
@@ -9,6 +11,16 @@ namespace ProjectTracker.Tests;
 
 public sealed class SqlServerRelationshipModelTests
 {
+    private static readonly string[] HandwrittenMigrationIds =
+    [
+        "20260626120000_AddStartDateLocked",
+        "20260626121000_AddPercentCompleteManual",
+        "20260626122000_AddWorkCenters",
+        "20260626133000_AddProjectCustomerSalesOrder",
+        "20260628143000_AddTaskDependency",
+        "20260629224500_AddTaskNoteUpdatedAt"
+    ];
+
     [Fact]
     public void UserNotificationForeignKeys_AvoidSqlServerMultipleCascadePaths()
     {
@@ -44,6 +56,46 @@ public sealed class SqlServerRelationshipModelTests
 
         AddForeignKeyOperation FindForeignKey(string name) =>
             Assert.Single(table.ForeignKeys, foreignKey => foreignKey.Name == name);
+    }
+
+    [Fact]
+    public void EveryMigration_HasDiscoveryMetadata()
+    {
+        var migrationTypes = typeof(ProjectTrackerDbContext).Assembly.GetTypes()
+            .Where(type => !type.IsAbstract && typeof(Migration).IsAssignableFrom(type))
+            .ToArray();
+
+        var missingMetadata = migrationTypes
+            .Where(type => type.GetCustomAttribute<MigrationAttribute>() is null
+                || type.GetCustomAttribute<DbContextAttribute>()?.ContextType != typeof(ProjectTrackerDbContext))
+            .Select(type => type.FullName)
+            .ToArray();
+
+        Assert.NotEmpty(migrationTypes);
+        Assert.Empty(missingMetadata);
+    }
+
+    [Fact]
+    public void HandwrittenMigrations_AreDiscoverableBeforeDependencyEnforcement()
+    {
+        var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>()
+            .UseSqlServer("Server=(local);Database=MigrationDiscovery;Integrated Security=True;TrustServerCertificate=True")
+            .Options;
+        using var db = new ProjectTrackerDbContext(options);
+        var migrations = db.Database.GetMigrations().ToArray();
+        var enforcementIndex = Array.IndexOf(
+            migrations,
+            "20260723223402_EnforceExplicitProgressAndTaskDependencies");
+
+        Assert.True(enforcementIndex >= 0);
+        foreach (var migrationId in HandwrittenMigrationIds)
+        {
+            var migrationIndex = Array.IndexOf(migrations, migrationId);
+            Assert.True(migrationIndex >= 0, $"Migration {migrationId} is not discoverable.");
+            Assert.True(
+                migrationIndex < enforcementIndex,
+                $"Migration {migrationId} must run before dependency enforcement.");
+        }
     }
 
     private sealed class TestableNotificationMigration : AddNotificationsJobNumberAndActivityPermission

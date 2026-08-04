@@ -1,10 +1,13 @@
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 
 #nullable disable
 
 namespace ProjectTracker.Api.Data.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(ProjectTrackerDbContext))]
+    [Migration("20260628143000_AddTaskDependency")]
     public partial class AddTaskDependency : Migration
     {
         /// <inheritdoc />

@@ -1,4 +1,5 @@
 using System;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -6,6 +7,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace ProjectTracker.Api.Data.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(ProjectTrackerDbContext))]
+    [Migration("20260629224500_AddTaskNoteUpdatedAt")]
     public partial class AddTaskNoteUpdatedAt : Migration
     {
         /// <inheritdoc />
