@@ -56,6 +56,38 @@ export interface EngineeringAccessOverview extends AccessOverview {
   canManageGroups: boolean
 }
 
+export interface AdminPreviewApplication {
+  id: string
+  name: string
+  description: string
+  category: string
+  icon: string
+  url: string
+  order: number
+  status: 'active' | 'comingSoon' | 'maintenance'
+  hasPreview: boolean
+}
+
+export interface AdminAccessPreviewTarget {
+  key: string
+  kind: 'user' | 'group'
+  title: string
+  subtitle: string
+  role: string
+  applications: AdminPreviewApplication[]
+}
+
+export interface AdminAccessPreviewOverview {
+  users: AdminAccessPreviewTarget[]
+  groups: AdminAccessPreviewTarget[]
+}
+
+export interface AdminAccessPreviewLaunch {
+  actionUrl: string
+  token: string
+  expiresAt: string
+}
+
 export interface ProjectTrackerUser {
   accountName: string
   displayName: string

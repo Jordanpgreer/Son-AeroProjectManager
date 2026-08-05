@@ -30,5 +30,9 @@ public sealed class EstimatingUserService(
         access.DisplayName,
         EstimatingModule.Key,
         access.Role,
-        access.Permissions);
+        access.Permissions,
+        access.IsPreview,
+        access.PreviewActorAccountName,
+        access.PreviewTargetKey,
+        access.DisplayName);
 }

@@ -18,6 +18,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<CurrentUserService>();
+builder.Services.AddScoped<ProjectTrackerAccessPreviewService>();
 builder.Services.AddScoped<ProjectAuditService>();
 builder.Services.AddScoped<MentionNotificationService>();
 builder.Services.AddScoped<NotificationReadService>();
@@ -113,6 +114,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseAuthentication();
+app.UseMiddleware<AccessPreviewMiddleware>();
 app.UseAuthorization();
 app.Use(async (context, next) =>
 {
@@ -134,6 +136,7 @@ app.Use(async (context, next) =>
 await InitializeDatabaseAsync(app);
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
+app.MapAccessPreviewEndpoints();
 
 var api = app.MapGroup("/api").RequireAuthorization(ProjectTrackerAccessAuthorization.PolicyName);
 api.MapProjectReadEndpoints();

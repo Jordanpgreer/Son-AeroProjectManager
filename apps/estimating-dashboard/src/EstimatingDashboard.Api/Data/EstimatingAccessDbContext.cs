@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using SonAero.Platform.Security;
 
 namespace EstimatingDashboard.Api.Data;
 
@@ -8,6 +9,8 @@ public sealed class EstimatingAccessDbContext(
     public DbSet<EstimatingUserRecord> Users => Set<EstimatingUserRecord>();
     public DbSet<EstimatingModuleAccessRecord> UserModuleAccess =>
         Set<EstimatingModuleAccessRecord>();
+    public DbSet<AccessPreviewSessionRecord> AccessPreviewSessions =>
+        Set<AccessPreviewSessionRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -17,6 +20,7 @@ public sealed class EstimatingAccessDbContext(
             entity.HasKey(user => user.Id);
             entity.Property(user => user.AccountName).HasMaxLength(160);
             entity.Property(user => user.DisplayName).HasMaxLength(160);
+            entity.Property(user => user.PortalRole).HasColumnName("Role").HasMaxLength(32);
         });
 
         modelBuilder.Entity<EstimatingModuleAccessRecord>(entity =>
@@ -29,6 +33,17 @@ public sealed class EstimatingAccessDbContext(
                 .WithMany(user => user.ModuleAccesses)
                 .HasForeignKey(access => access.AppUserId);
         });
+
+        modelBuilder.Entity<AccessPreviewSessionRecord>(entity =>
+        {
+            entity.ToTable("AccessPreviewSessions");
+            entity.HasKey(session => session.Id);
+            entity.HasIndex(session => session.TokenHash).IsUnique();
+            entity.Property(session => session.TokenHash).HasMaxLength(64);
+            entity.Property(session => session.AdministratorAccountName).HasMaxLength(160);
+            entity.Property(session => session.TargetKey).HasMaxLength(96);
+            entity.Property(session => session.ApplicationId).HasMaxLength(64);
+        });
     }
 }
 
@@ -37,6 +52,7 @@ public sealed class EstimatingUserRecord
     public int Id { get; set; }
     public string AccountName { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
+    public string PortalRole { get; set; } = string.Empty;
     public bool IsActive { get; set; }
     public ICollection<EstimatingModuleAccessRecord> ModuleAccesses { get; set; } = [];
 }

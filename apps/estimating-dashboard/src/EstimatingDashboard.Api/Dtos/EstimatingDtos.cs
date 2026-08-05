@@ -5,6 +5,10 @@ public sealed record MeDto(
     string DisplayName,
     string ModuleKey,
     string Role,
-    IReadOnlyList<string> Permissions);
+    IReadOnlyList<string> Permissions,
+    bool IsPreview = false,
+    string? PreviewActorAccountName = null,
+    string? PreviewTargetKey = null,
+    string? PreviewTargetTitle = null);
 
 public sealed record ErrorDto(string Code, string Message);

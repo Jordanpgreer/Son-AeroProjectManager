@@ -10,7 +10,16 @@ public sealed record UserDto(
     IReadOnlyList<string> Groups,
     IReadOnlyList<string> Permissions,
     bool CanEdit,
-    bool IsAdmin);
+    bool IsAdmin,
+    AccessPreviewInfoDto? Preview);
+
+public sealed record AccessPreviewInfoDto(
+    string ActorAccountName,
+    string TargetKey,
+    string TargetKind,
+    string TargetTitle,
+    bool ReadOnly,
+    string EndUrl);
 
 public sealed record RegisteredUserDto(
     int Id,

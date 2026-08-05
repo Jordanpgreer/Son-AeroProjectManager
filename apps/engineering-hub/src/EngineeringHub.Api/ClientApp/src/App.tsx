@@ -36,6 +36,10 @@ interface Me {
   role: string
   permissions: string[]
   groups: string[]
+  isPreview: boolean
+  previewActorAccountName: string | null
+  previewTargetKey: string | null
+  previewTargetTitle: string | null
 }
 
 interface ModuleSection {
@@ -190,7 +194,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const permissions = me?.permissions ?? []
   const can = (permission: string) => hasEngineeringPermission(permissions, permission)
-  const canEditMetadata = can(engineeringPermissionKeys.drawingMetadataEdit) || can(engineeringPermissionKeys.specificationsEdit)
+  const canEditMetadata = !me?.isPreview && (can(engineeringPermissionKeys.drawingMetadataEdit) || can(engineeringPermissionKeys.specificationsEdit))
 
   useEffect(() => {
     async function load() {
@@ -389,7 +393,7 @@ export default function App() {
   const showingDrawingRegister = activeSection?.id === 'drawing-document-control' && drawingScreen === 'dashboard'
 
   return (
-    <div className="engineering-shell engineering-app">
+    <div className={`engineering-shell engineering-app ${me?.isPreview ? 'access-preview-active' : ''}`.trim()}>
       <aside className="sidebar">
         <a
           className="brand brand-hub-link"
@@ -437,7 +441,13 @@ export default function App() {
 
         {can(engineeringPermissionKeys.settingsView) && <div className="sidebar-foot">
           <nav className="foot-nav" aria-label="Engineering administration">
-            <a className="nav-button" href={engineeringAdminUrl} target="_top">
+            <a
+              className={`nav-button ${me?.isPreview ? 'is-disabled' : ''}`.trim()}
+              href={me?.isPreview ? undefined : engineeringAdminUrl}
+              target="_top"
+              aria-disabled={me?.isPreview || undefined}
+              title={me?.isPreview ? 'Return to Admin before changing Engineering settings' : undefined}
+            >
               <span className="nav-icon"><Settings size={17}/></span>
               Engineering Admin / Settings
             </a>
@@ -446,6 +456,13 @@ export default function App() {
       </aside>
 
       <main className="main-area">
+        {me?.isPreview && <section className="access-preview-banner" role="status">
+          <div>
+            <strong>Read-only preview: {me.previewTargetTitle ?? me.displayName}</strong>
+            <span>You are seeing the Engineering permissions and records available to this target. Changes are blocked.</span>
+          </div>
+          <a href="/access-preview/end" target="_top">Return to Admin</a>
+        </section>}
         <header className={`topbar ${showingDrawingRecord ? 'drawing-record-topbar' : ''}`.trim()}>
           <div className={`page-title-block ${showingDrawingRecord ? 'drawing-record-page-title' : ''}`.trim()}>
             {showingDrawingRecord ? (
@@ -527,7 +544,7 @@ export default function App() {
                   {can(engineeringPermissionKeys.auditView) && <button className="button ghost record-header-audit" type="button" onClick={() => setDrawingAuditRequest(current => current + 1)}>
                     <History size={14}/> Audit history
                   </button>}
-                  {can(engineeringPermissionKeys.drawingArchive) && !drawingHeader.isObsolete && <button className="button ghost record-header-archive" type="button" onClick={() => setDrawingArchiveRequest(current => current + 1)}>
+                  {!me?.isPreview && can(engineeringPermissionKeys.drawingArchive) && !drawingHeader.isObsolete && <button className="button ghost record-header-archive" type="button" onClick={() => setDrawingArchiveRequest(current => current + 1)}>
                     <Archive size={14}/> Archive
                   </button>}
                 </>

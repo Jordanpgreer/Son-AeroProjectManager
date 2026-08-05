@@ -9,6 +9,7 @@ import {
   Calculator,
   Clock,
   Database,
+  Eye,
   GanttChart,
   LayoutGrid,
   Search,
@@ -26,6 +27,7 @@ import type { AppTheme } from './theme'
 import AdminConsole from './admin/AdminConsole'
 import { isAdminHash } from './admin/api'
 import { applicationNavigationMode } from './navigation'
+import type { AdminAccessPreviewLaunch, AdminAccessPreviewTarget } from './admin/types'
 
 type AppStatus = 'active' | 'comingSoon' | 'maintenance'
 
@@ -108,6 +110,8 @@ export default function App() {
   const [notificationCounts, setNotificationCounts] = useState<Record<string, number>>({})
   const [launchingAppId, setLaunchingAppId] = useState<string | null>(null)
   const [locationHash, setLocationHash] = useState(() => window.location.hash)
+  const [accessPreview, setAccessPreview] = useState<AdminAccessPreviewTarget | null>(null)
+  const [previewLaunchError, setPreviewLaunchError] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
@@ -181,10 +185,11 @@ export default function App() {
     }
   }, [])
 
+  const catalogApps = accessPreview?.applications ?? apps
   const filtered = useMemo(() => {
-    if (!apps) return []
+    if (!catalogApps) return []
     const query = search.trim().toLowerCase()
-    return apps.filter((application) => {
+    return catalogApps.filter((application) => {
       if (!query) return true
       return (
         application.name.toLowerCase().includes(query) ||
@@ -193,7 +198,7 @@ export default function App() {
         capabilityLabels(application).some((label) => label.toLowerCase().includes(query))
       )
     })
-  }, [apps, search])
+  }, [catalogApps, search])
 
   const hasFilters = search.length > 0
   const adminRoute = isAdminHash(locationHash)
@@ -202,10 +207,43 @@ export default function App() {
     if (!adminRoute) document.title = 'Applications - SON-AERO'
   }, [adminRoute])
 
-  function launchApplication(application: PortalApp, event: ReactMouseEvent<HTMLAnchorElement>) {
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button === 1 || prefersReducedMotion()) return
+  useEffect(() => {
+    if (adminRoute) setAccessPreview(null)
+  }, [adminRoute])
+
+  async function launchApplication(application: PortalApp, event: ReactMouseEvent<HTMLAnchorElement>) {
+    if (!accessPreview && (event.metaKey || event.ctrlKey || event.shiftKey || event.button === 1 || prefersReducedMotion())) return
     event.preventDefault()
     if (launchingAppId) return
+    if (accessPreview) {
+      setLaunchingAppId(application.id)
+      setPreviewLaunchError(null)
+      try {
+        const response = await fetch(
+          `/api/admin/access-previews/${encodeURIComponent(accessPreview.key)}/launch/${encodeURIComponent(application.id)}`,
+          { method: 'POST', credentials: 'include' },
+        )
+        if (!response.ok) {
+          const problem = await response.json().catch(() => null) as { detail?: string } | null
+          throw new Error(problem?.detail ?? `Preview launch failed (${response.status}).`)
+        }
+        const launch = await response.json() as AdminAccessPreviewLaunch
+        const form = document.createElement('form')
+        form.method = 'POST'
+        form.action = launch.actionUrl
+        const token = document.createElement('input')
+        token.type = 'hidden'
+        token.name = 'token'
+        token.value = launch.token
+        form.append(token)
+        document.body.append(form)
+        form.submit()
+      } catch (cause) {
+        setLaunchingAppId(null)
+        setPreviewLaunchError(cause instanceof Error ? cause.message : 'The preview could not be opened.')
+      }
+      return
+    }
     const destination = applicationLaunchUrl(application.url)
     if (applicationNavigationMode(destination) === 'same-document') {
       window.location.assign(destination)
@@ -219,6 +257,19 @@ export default function App() {
 
   function clearFilters() {
     setSearch('')
+  }
+
+  function startAccessPreview(target: AdminAccessPreviewTarget) {
+    setAccessPreview(target)
+    setPreviewLaunchError(null)
+    setSearch('')
+    window.location.hash = '#/'
+  }
+
+  function returnToAdmin() {
+    setAccessPreview(null)
+    setPreviewLaunchError(null)
+    window.location.hash = '#/admin/hub/access'
   }
 
   return (
@@ -253,15 +304,34 @@ export default function App() {
         </div>
       </header>
 
+      {accessPreview && (
+        <section className="access-preview-banner" role="status">
+          <span><Eye size={17} aria-hidden="true" /></span>
+          <div>
+            <strong>Read-only preview: {accessPreview.title}</strong>
+            <small>{accessPreview.kind === 'user' ? accessPreview.subtitle : accessPreview.role} · Open an application to inspect its full read-only experience</small>
+          </div>
+          <button type="button" className="ghost-button" onClick={returnToAdmin}>Return to Admin</button>
+        </section>
+      )}
+
+      {previewLaunchError && (
+        <div className="access-preview-launch-error" role="alert">
+          <AlertTriangle size={16} aria-hidden="true" />
+          <span>{previewLaunchError}</span>
+          <button type="button" onClick={() => setPreviewLaunchError(null)} aria-label="Dismiss preview launch error">Dismiss</button>
+        </div>
+      )}
+
       {adminRoute ? (
-        <AdminConsole currentAccountName={me?.accountName ?? null} />
+        <AdminConsole currentAccountName={me?.accountName ?? null} currentPortalRole={me?.role ?? null} onPreviewAccess={startAccessPreview} />
       ) : (
         <main className="portal-main catalog-main">
         <section className="catalog-intro" aria-labelledby="catalog-title">
           <div className="catalog-intro-copy">
             <span className="kicker">SON-AERO Internal Systems</span>
-            <h1 id="catalog-title">Applications</h1>
-            <p>Choose an internal workspace for your account.</p>
+            <h1 id="catalog-title">{accessPreview ? `Access for ${accessPreview.title}` : 'Applications'}</h1>
+            <p>{accessPreview ? 'This is a read-only view of the application cards available to this target.' : 'Choose an internal workspace for your account.'}</p>
           </div>
         </section>
 
@@ -317,9 +387,10 @@ export default function App() {
               title="Application catalog"
               description="Company tools and workspaces"
               applications={filtered}
-              notificationCounts={notificationCounts}
+              notificationCounts={accessPreview ? {} : notificationCounts}
               launchingAppId={launchingAppId}
               onLaunch={launchApplication}
+              previewMode={Boolean(accessPreview)}
             />
           </div>
         )}
@@ -343,6 +414,7 @@ function ApplicationSection({
   notificationCounts,
   launchingAppId,
   onLaunch,
+  previewMode,
 }: {
   title: string
   description: string
@@ -350,6 +422,7 @@ function ApplicationSection({
   notificationCounts: Record<string, number>
   launchingAppId: string | null
   onLaunch: (application: PortalApp, event: ReactMouseEvent<HTMLAnchorElement>) => void
+  previewMode: boolean
 }) {
   return (
     <section className="catalog-section">
@@ -367,6 +440,7 @@ function ApplicationSection({
             unreadCount={notificationCounts[application.id] ?? 0}
             launching={launchingAppId === application.id}
             onLaunch={onLaunch}
+            previewMode={previewMode}
           />
         ))}
       </ul>
@@ -379,14 +453,17 @@ function ApplicationCard({
   unreadCount,
   launching,
   onLaunch,
+  previewMode,
 }: {
   application: PortalApp
   unreadCount: number
   launching: boolean
   onLaunch: (application: PortalApp, event: ReactMouseEvent<HTMLAnchorElement>) => void
+  previewMode: boolean
 }) {
   const Icon = iconFor(application.icon)
-  const openable = application.status === 'active' && application.url.length > 0
+  const available = application.status === 'active' && application.url.length > 0
+  const openable = available
   const content = (
     <>
       <div className="catalog-card-top">
@@ -412,11 +489,11 @@ function ApplicationCard({
       <ul className="catalog-capabilities" aria-label={`${application.name} capabilities`}>
         {capabilityLabels(application).map((label) => <li key={label}>{label}</li>)}
       </ul>
-      {openable && (
+      {available && (
         <div className="catalog-card-footer">
           <span className="catalog-open">
-            {launching ? 'Opening...' : 'Open application'}
-            <ArrowUpRight size={16} aria-hidden="true" />
+            {launching ? 'Opening...' : previewMode ? 'Open read-only preview' : 'Open application'}
+            {previewMode ? <Eye size={16} aria-hidden="true" /> : <ArrowUpRight size={16} aria-hidden="true" />}
           </span>
         </div>
       )}
@@ -428,14 +505,14 @@ function ApplicationCard({
       {openable ? (
         <a
           className={`catalog-app-card is-openable ${launching ? 'is-launching' : ''}`.trim()}
-          href={applicationLaunchUrl(application.url)}
+          href={previewMode ? '#' : applicationLaunchUrl(application.url)}
           onClick={(event) => onLaunch(application, event)}
           aria-label={`Open ${application.name}`}
         >
           {content}
         </a>
       ) : (
-        <article className="catalog-app-card" data-status={application.status} aria-disabled="true">
+        <article className={`catalog-app-card ${previewMode && available ? 'is-preview' : ''}`.trim()} data-status={available ? undefined : application.status} aria-disabled="true">
           <span className="sr-only">This application cannot currently be opened.</span>
           {content}
         </article>

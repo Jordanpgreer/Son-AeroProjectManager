@@ -21,13 +21,14 @@ public static class NotificationEndpoints
             var userId = await CurrentUserIdAsync(db, currentUser, cancellationToken);
             if (userId is null)
             {
+                if (currentUser.IsAccessPreview) return Results.Ok(Array.Empty<UserNotificationDto>());
                 return Results.Forbid();
             }
 
             var limit = Math.Clamp(take ?? 50, 1, 100);
             var notifications = await notificationReader.GetAsync(
                 userId.Value,
-                currentUser.AccountName,
+                currentUser.EffectiveAccountName!,
                 unreadOnly == true,
                 limit,
                 cancellationToken);
@@ -44,12 +45,13 @@ public static class NotificationEndpoints
             var userId = await CurrentUserIdAsync(db, currentUser, cancellationToken);
             if (userId is null)
             {
+                if (currentUser.IsAccessPreview) return Results.Ok(new NotificationCountDto(0));
                 return Results.Forbid();
             }
 
             var count = await notificationReader.GetUnreadCountAsync(
                 userId.Value,
-                currentUser.AccountName,
+                currentUser.EffectiveAccountName!,
                 cancellationToken);
             return Results.Ok(new NotificationCountDto(count));
         });
@@ -106,7 +108,7 @@ public static class NotificationEndpoints
         CurrentUserService currentUser,
         CancellationToken cancellationToken)
     {
-        var lookupKeys = WindowsAccountNames.LookupKeys(currentUser.AccountName);
+        var lookupKeys = WindowsAccountNames.LookupKeys(currentUser.EffectiveAccountName);
         return db.Users
             .Where(user => user.IsActive && lookupKeys.Contains(user.AccountName.ToUpper()))
             .Select(user => (int?)user.Id)

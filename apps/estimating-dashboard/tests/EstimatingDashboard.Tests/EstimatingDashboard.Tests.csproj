@@ -20,5 +20,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\EstimatingDashboard.Api\EstimatingDashboard.Api.csproj" />
+    <ProjectReference Include="..\..\..\..\shared\SonAero.Platform\SonAero.Platform.csproj" />
   </ItemGroup>
 </Project>

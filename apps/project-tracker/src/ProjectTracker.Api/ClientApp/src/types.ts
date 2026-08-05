@@ -13,6 +13,16 @@ export type User = {
   permissions: string[]
   canEdit: boolean
   isAdmin: boolean
+  preview: AccessPreview | null
+}
+
+export type AccessPreview = {
+  actorAccountName: string
+  targetKey: string
+  targetKind: string
+  targetTitle: string
+  readOnly: boolean
+  endUrl: string
 }
 
 export type Dashboard = {

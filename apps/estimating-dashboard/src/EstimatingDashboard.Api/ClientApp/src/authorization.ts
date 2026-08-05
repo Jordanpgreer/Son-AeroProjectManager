@@ -6,6 +6,10 @@ export interface EstimatingMe {
   moduleKey: 'estimating'
   role: EstimatingRole
   permissions: string[]
+  isPreview: boolean
+  previewActorAccountName: string | null
+  previewTargetKey: string | null
+  previewTargetTitle: string | null
 }
 
 export const estimatingPermissions = {

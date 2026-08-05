@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using SonAero.Platform.Security;
 
 namespace Portal.Api.Data;
 
@@ -11,8 +12,12 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
     public DbSet<PortalNotificationTaskRecord> NotificationTasks => Set<PortalNotificationTaskRecord>();
     public DbSet<PortalNotificationMessageRecord> NotificationMessages => Set<PortalNotificationMessageRecord>();
     public DbSet<PortalEngineeringGroupRecord> EngineeringGroups => Set<PortalEngineeringGroupRecord>();
+    public DbSet<PortalProjectTrackerGroupRecord> ProjectTrackerGroups => Set<PortalProjectTrackerGroupRecord>();
     public DbSet<PortalEngineeringMembershipRecord> EngineeringUserGroupMemberships => Set<PortalEngineeringMembershipRecord>();
     public DbSet<PortalEngineeringPermissionRecord> EngineeringGroupPermissions => Set<PortalEngineeringPermissionRecord>();
+    public DbSet<PortalProjectTrackerMembershipRecord> ProjectTrackerUserGroupMemberships => Set<PortalProjectTrackerMembershipRecord>();
+    public DbSet<PortalProjectTrackerPermissionRecord> ProjectTrackerGroupPermissions => Set<PortalProjectTrackerPermissionRecord>();
+    public DbSet<AccessPreviewSessionRecord> AccessPreviewSessions => Set<AccessPreviewSessionRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -24,6 +29,10 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
             entity.Property(user => user.DisplayName).HasMaxLength(160);
             entity.Property(user => user.Role).HasMaxLength(32);
             entity.HasMany(user => user.EngineeringGroupMemberships)
+                .WithOne(membership => membership.User)
+                .HasForeignKey(membership => membership.AppUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(user => user.ProjectTrackerGroupMemberships)
                 .WithOne(membership => membership.User)
                 .HasForeignKey(membership => membership.AppUserId)
                 .OnDelete(DeleteBehavior.Cascade);
@@ -88,6 +97,36 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<PortalProjectTrackerGroupRecord>(entity =>
+        {
+            entity.ToTable("Groups");
+            entity.HasKey(group => group.Id);
+            entity.Property(group => group.Name).HasMaxLength(80);
+            entity.Property(group => group.Description).HasMaxLength(240);
+            entity.HasMany(group => group.UserMemberships)
+                .WithOne(membership => membership.Group)
+                .HasForeignKey(membership => membership.AppGroupId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(group => group.Permissions)
+                .WithOne(permission => permission.Group)
+                .HasForeignKey(permission => permission.AppGroupId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PortalProjectTrackerMembershipRecord>(entity =>
+        {
+            entity.ToTable("UserGroupMemberships");
+            entity.HasKey(membership => new { membership.AppUserId, membership.AppGroupId });
+            entity.HasIndex(membership => membership.AppGroupId);
+        });
+
+        modelBuilder.Entity<PortalProjectTrackerPermissionRecord>(entity =>
+        {
+            entity.ToTable("GroupPermissions");
+            entity.HasKey(permission => new { permission.AppGroupId, permission.PermissionKey });
+            entity.Property(permission => permission.PermissionKey).HasMaxLength(120);
+        });
+
         modelBuilder.Entity<PortalEngineeringMembershipRecord>(entity =>
         {
             entity.ToTable("EngineeringUserGroupMemberships");
@@ -100,6 +139,17 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
             entity.ToTable("EngineeringGroupPermissions");
             entity.HasKey(permission => new { permission.AppGroupId, permission.PermissionKey });
             entity.Property(permission => permission.PermissionKey).HasMaxLength(120);
+        });
+
+        modelBuilder.Entity<AccessPreviewSessionRecord>(entity =>
+        {
+            entity.ToTable("AccessPreviewSessions");
+            entity.HasKey(session => session.Id);
+            entity.HasIndex(session => session.TokenHash).IsUnique();
+            entity.Property(session => session.TokenHash).HasMaxLength(64);
+            entity.Property(session => session.AdministratorAccountName).HasMaxLength(160);
+            entity.Property(session => session.TargetKey).HasMaxLength(96);
+            entity.Property(session => session.ApplicationId).HasMaxLength(64);
         });
     }
 }
@@ -114,6 +164,7 @@ public sealed class PortalRoleRecord
     public DateTimeOffset LastSeenAt { get; set; }
     public ICollection<PortalModuleAccessRecord> ModuleAccessAssignments { get; set; } = [];
     public ICollection<PortalEngineeringMembershipRecord> EngineeringGroupMemberships { get; set; } = [];
+    public ICollection<PortalProjectTrackerMembershipRecord> ProjectTrackerGroupMemberships { get; set; } = [];
 }
 
 public sealed class PortalModuleAccessRecord
@@ -166,6 +217,34 @@ public sealed class PortalEngineeringGroupRecord
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     public ICollection<PortalEngineeringMembershipRecord> UserMemberships { get; set; } = [];
     public ICollection<PortalEngineeringPermissionRecord> Permissions { get; set; } = [];
+}
+
+/// <summary>Read-only projection used by the Hub's administrator access preview.</summary>
+public sealed class PortalProjectTrackerGroupRecord
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public bool IsSystemGroup { get; set; }
+    public ICollection<PortalProjectTrackerMembershipRecord> UserMemberships { get; set; } = [];
+    public ICollection<PortalProjectTrackerPermissionRecord> Permissions { get; set; } = [];
+}
+
+public sealed class PortalProjectTrackerMembershipRecord
+{
+    public int AppUserId { get; set; }
+    public PortalRoleRecord User { get; set; } = null!;
+    public int AppGroupId { get; set; }
+    public PortalProjectTrackerGroupRecord Group { get; set; } = null!;
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
+public sealed class PortalProjectTrackerPermissionRecord
+{
+    public int AppGroupId { get; set; }
+    public PortalProjectTrackerGroupRecord Group { get; set; } = null!;
+    public string PermissionKey { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; }
 }
 
 public sealed class PortalEngineeringMembershipRecord

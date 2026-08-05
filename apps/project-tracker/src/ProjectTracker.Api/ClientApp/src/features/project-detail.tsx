@@ -212,6 +212,7 @@ export function ProjectView({
   onEditOvertime,
   onSaveRow,
   onReorder,
+  notificationTaskId,
 }: {
   project: ProjectDetail
   projects: ProjectSummary[]
@@ -238,6 +239,7 @@ export function ProjectView({
   onEditOvertime: (task: ProjectTask) => void
   onSaveRow: (row: ProjectTask) => Promise<ProjectTask>
   onReorder: (row: ProjectTask, position: number) => Promise<void>
+  notificationTaskId: number | null
 }) {
   const [ganttOpen, setGanttOpen] = useState(false)
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null)
@@ -277,6 +279,22 @@ export function ProjectView({
       : completionVariance > 0
         ? `${completionVariance} day${completionVariance === 1 ? '' : 's'} late`
         : `${Math.abs(completionVariance)} day${completionVariance === -1 ? '' : 's'} early`
+
+  useEffect(() => {
+    if (!notificationTaskId) return
+    const task = project.tasks.find((candidate) => candidate.id === notificationTaskId)
+    if (!task) return
+    setExpandedTaskId(task.id)
+    setNoteDraft(task.notes ?? '')
+    setNoteSaveError(null)
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(`operation-${task.id}`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [notificationTaskId, project.tasks])
 
   const toggleTaskNotes = (task: ProjectTask) => {
     if (expandedTaskId === task.id) {
@@ -491,7 +509,8 @@ export function ProjectView({
                     return (
                       <Fragment key={task.id}>
                         <tr
-                          className={`rail-${statusClass(task.status)} expandable-row`}
+                          id={`operation-${task.id}`}
+                          className={`rail-${statusClass(task.status)} expandable-row ${notificationTaskId === task.id ? 'notification-focus' : ''}`}
                           onClick={() => toggleTaskNotes(task)}
                         >
                           <td className="cell-mono col-seq">{index + 1}</td>

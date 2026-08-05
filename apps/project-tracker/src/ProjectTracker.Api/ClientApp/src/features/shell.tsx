@@ -20,6 +20,7 @@ import {
   Search,
   Settings2,
   StickyNote,
+  X,
 } from 'lucide-react'
 import {
   api,
@@ -140,22 +141,42 @@ export function NavButton({
 
 function NotificationsMenu({
   user,
-  onOpenProject,
+  onOpenNotification,
 }: {
   user: User | null
-  onOpenProject: (projectId: number) => Promise<void>
+  onOpenNotification: (notification: MentionNotification) => Promise<void>
 }) {
   const [open, setOpen] = useState(false)
   const [notifications, setNotifications] = useState<MentionNotification[]>([])
+  const [toasts, setToasts] = useState<MentionNotification[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  const knownNotificationIdsRef = useRef<Set<number>>(new Set())
+  const notificationsInitializedRef = useRef(false)
+
+  const dismissToast = (notificationId: number) => {
+    setToasts((current) => current.filter((notification) => notification.id !== notificationId))
+  }
 
   const loadNotifications = async (showLoading = false) => {
     if (!user?.isRegistered) return
     if (showLoading) setLoading(true)
     try {
-      setNotifications(await api<MentionNotification[]>('/api/notifications'))
+      const next = await api<MentionNotification[]>('/api/notifications')
+      if (notificationsInitializedRef.current) {
+        const arrivals = next.filter((notification) =>
+          !notification.readAt && !knownNotificationIdsRef.current.has(notification.id))
+        if (arrivals.length) {
+          setToasts((current) => [
+            ...arrivals,
+            ...current.filter((notification) => !arrivals.some((arrival) => arrival.id === notification.id)),
+          ].slice(0, 3))
+        }
+      }
+      knownNotificationIdsRef.current = new Set(next.map((notification) => notification.id))
+      notificationsInitializedRef.current = true
+      setNotifications(next)
       setError(null)
     } catch {
       setNotifications([])
@@ -167,11 +188,14 @@ function NotificationsMenu({
 
   useEffect(() => {
     setNotifications([])
+    setToasts([])
     setError(null)
     setLoading(false)
+    knownNotificationIdsRef.current = new Set()
+    notificationsInitializedRef.current = false
     if (!user?.isRegistered) return
     void loadNotifications()
-    const interval = window.setInterval(() => void loadNotifications(), 20_000)
+    const interval = window.setInterval(() => void loadNotifications(), 10_000)
     return () => window.clearInterval(interval)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.accountName, user?.isRegistered])
@@ -194,8 +218,9 @@ function NotificationsMenu({
 
   const unreadCount = notifications.filter((notification) => !notification.readAt).length
 
-  const markRead = async (notification: MentionNotification) => {
-    if (!notification.readAt) {
+  const openNotification = async (notification: MentionNotification) => {
+    dismissToast(notification.id)
+    if (!notification.readAt && !user?.preview?.readOnly) {
       const readAt = new Date().toISOString()
       setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, readAt } : item))
       try {
@@ -205,7 +230,7 @@ function NotificationsMenu({
       }
     }
     setOpen(false)
-    if (notification.projectId) await onOpenProject(notification.projectId)
+    if (notification.projectId) await onOpenNotification(notification)
   }
 
   const markAllRead = async () => {
@@ -241,7 +266,7 @@ function NotificationsMenu({
               <span className="kicker">Personal Inbox</span>
               <h2>Notifications</h2>
             </div>
-            {unreadCount > 0 && (
+            {unreadCount > 0 && !user?.preview?.readOnly && (
               <button className="notification-read-all" type="button" onClick={() => void markAllRead()}>
                 <CheckCheck size={14} /> Mark all read
               </button>
@@ -267,7 +292,7 @@ function NotificationsMenu({
                 type="button"
                 className={`notification-item ${notification.readAt ? '' : 'unread'}`}
                 key={notification.id}
-                onClick={() => void markRead(notification)}
+                onClick={() => void openNotification(notification)}
               >
                 <span className={`notification-source ${notification.kind === 'OperationNoteMention' ? 'note' : 'chat'}`}>
                   {notification.kind === 'OperationNoteMention' ? <StickyNote size={14} /> : <MessageSquare size={14} />}
@@ -286,7 +311,59 @@ function NotificationsMenu({
           </div>
         </section>
       )}
+      {toasts.length > 0 && (
+        <aside className="notification-toast-stack" aria-live="polite" aria-label="New notifications">
+          {toasts.map((notification) => (
+            <NotificationToast
+              key={notification.id}
+              notification={notification}
+              onDismiss={() => dismissToast(notification.id)}
+              onOpen={() => void openNotification(notification)}
+            />
+          ))}
+        </aside>
+      )}
     </div>
+  )
+}
+
+function NotificationToast({
+  notification,
+  onDismiss,
+  onOpen,
+}: {
+  notification: MentionNotification
+  onDismiss: () => void
+  onOpen: () => void
+}) {
+  const dismissRef = useRef(onDismiss)
+  dismissRef.current = onDismiss
+  useEffect(() => {
+    const timeout = window.setTimeout(() => dismissRef.current(), 5_000)
+    return () => window.clearTimeout(timeout)
+  }, [notification.id])
+
+  const destination = notification.kind === 'OperationNoteMention' && notification.operationName
+    ? `${notification.operationName} in ${notification.projectName}`
+    : `project ${notification.projectName}`
+
+  return (
+    <article className="notification-toast">
+      <button className="notification-toast-open" type="button" onClick={onOpen}>
+        <span className={`notification-source ${notification.kind === 'OperationNoteMention' ? 'note' : 'chat'}`}>
+          {notification.kind === 'OperationNoteMention' ? <StickyNote size={16} /> : <MessageSquare size={16} />}
+        </span>
+        <span>
+          <strong>{notification.actorDisplayName} mentioned you</strong>
+          <small>{destination}</small>
+          {notification.bodyPreview && <span>{notification.bodyPreview}</span>}
+        </span>
+      </button>
+      <button className="notification-toast-dismiss" type="button" onClick={onDismiss} aria-label="Dismiss notification">
+        <X size={15} />
+      </button>
+      <span className="notification-toast-timer" aria-hidden="true" />
+    </article>
   )
 }
 
@@ -350,7 +427,7 @@ export function PageHeader({
   onAddProject,
   onOpenActivity,
   user,
-  onOpenProject,
+  onOpenNotification,
 }: {
   theme: AppTheme
   onToggleTheme: () => void
@@ -369,7 +446,7 @@ export function PageHeader({
   onAddProject: () => void
   onOpenActivity: () => void
   user: User | null
-  onOpenProject: (projectId: number) => Promise<void>
+  onOpenNotification: (notification: MentionNotification) => Promise<void>
 }) {
   const portfolioExports = screen === 'dashboard'
   const pastProjectExports = screen === 'pastProjects'
@@ -403,7 +480,7 @@ export function PageHeader({
         >
           <img src="/brand/son-aero-mark.png" alt="" />
         </a>
-        <NotificationsMenu user={user} onOpenProject={onOpenProject} />
+        <NotificationsMenu user={user} onOpenNotification={onOpenNotification} />
         <div className="topbar-identity">
           <ThemeSwitch theme={theme} onToggleTheme={onToggleTheme} />
           <UserProfile user={user} />

@@ -81,6 +81,18 @@ public static class EstimatingPolicies
         claims.Add(new Claim(ClaimTypes.Role, access.Role));
         claims.AddRange(access.Permissions.Select(
             permission => new Claim(PermissionClaim, permission)));
+        claims.RemoveAll(claim => claim.Type.StartsWith("sonaero.access-preview.", StringComparison.Ordinal));
+        if (access.IsPreview)
+        {
+            claims.Add(new Claim(SonAero.Platform.Security.AccessPreviewClaimTypes.Active, bool.TrueString));
+            claims.Add(new Claim(SonAero.Platform.Security.AccessPreviewClaimTypes.ApplicationId, SonAero.Platform.Security.AccessPreviewApplications.Estimating));
+            if (!string.IsNullOrWhiteSpace(access.PreviewActorAccountName))
+                claims.Add(new Claim(SonAero.Platform.Security.AccessPreviewClaimTypes.ActorAccountName, access.PreviewActorAccountName));
+            if (!string.IsNullOrWhiteSpace(access.PreviewTargetKey))
+                claims.Add(new Claim(SonAero.Platform.Security.AccessPreviewClaimTypes.TargetKey, access.PreviewTargetKey));
+            claims.Add(new Claim(SonAero.Platform.Security.AccessPreviewClaimTypes.TargetTitle, access.DisplayName));
+            claims.Add(new Claim(SonAero.Platform.Security.AccessPreviewClaimTypes.TargetAccountName, access.AccountName));
+        }
         var identity = new ClaimsIdentity(
             claims,
             principal.Identity?.AuthenticationType,
@@ -95,7 +107,10 @@ public sealed record EstimatingAccessProfile(
     string AccountName,
     string DisplayName,
     string Role,
-    bool IsEnabled)
+    bool IsEnabled,
+    bool IsPreview = false,
+    string? PreviewActorAccountName = null,
+    string? PreviewTargetKey = null)
 {
     public IReadOnlyList<string> Permissions => EstimatingPermissions.ForRole(Role);
 }

@@ -252,6 +252,21 @@ nav { display: grid; gap: 3px; }
 /* ---------------------------------------------------------------------- */
 
 .main-area { min-width: 0; display: flex; flex-direction: column; height: 100vh; }
+.access-preview-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 10px 22px;
+  border-bottom: 1px solid #d9a72d;
+  background: #fff5ce;
+  color: #4f3b00;
+  z-index: 8;
+}
+.access-preview-banner > div { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.access-preview-banner strong { white-space: nowrap; }
+.access-preview-banner span { color: #685514; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.access-preview-banner .button { flex: 0 0 auto; min-height: 34px; text-decoration: none; background: #fff; border-color: #c49722; color: #4f3b00; }
 
 .topbar {
   position: relative;
@@ -517,6 +532,55 @@ nav { display: grid; gap: 3px; }
 .notification-state { display: grid; justify-items: center; gap: 7px; min-height: 160px; padding: 28px 20px; color: var(--muted); text-align: center; font-size: 12px; }
 .notification-state strong { color: var(--ink); font-size: 12.5px; }
 .notification-state.error > svg, .notification-state.error strong { color: var(--risk); }
+.notification-toast-stack {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 70;
+  display: grid;
+  gap: 10px;
+  width: min(390px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.notification-toast {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  pointer-events: auto;
+  animation: notification-toast-in 180ms ease-out;
+}
+.notification-toast-open {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+  padding: 13px 8px 14px 13px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  text-align: left;
+  cursor: pointer;
+}
+.notification-toast-open:hover { background: var(--surface-2); }
+.notification-toast-open > span:last-child { display: grid; gap: 3px; min-width: 0; }
+.notification-toast-open strong { color: var(--ink); font-size: 12.5px; }
+.notification-toast-open small { overflow: hidden; color: var(--steel-700); font-family: var(--font-id); font-size: 10.5px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.notification-toast-open > span:last-child > span { display: -webkit-box; overflow: hidden; color: var(--muted); font-size: 11px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.notification-toast-dismiss { display: grid; place-items: center; align-self: start; width: 28px; height: 28px; margin: 7px 5px 0 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); cursor: pointer; }
+.notification-toast-dismiss:hover { background: var(--surface-2); color: var(--ink); }
+.notification-toast-timer { position: absolute; right: 0; bottom: 0; left: 0; height: 3px; transform-origin: left; background: var(--red); animation: notification-toast-timer 5s linear forwards; }
+@keyframes notification-toast-in { from { opacity: 0; transform: translateY(-8px); } }
+@keyframes notification-toast-timer { to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .notification-toast { animation: none; }
+  .notification-toast-timer { animation: none; }
+}
 .button-dirty-dot { width: 7px; height: 7px; margin-left: 2px; border: 1px solid rgba(255, 255, 255, 0.72); border-radius: var(--r-pill); background: #ffd66b; box-shadow: 0 0 0 2px rgba(255, 214, 107, 0.18); }
 .export-menu { position: relative; }
 .export-menu summary { list-style: none; }
@@ -864,7 +928,8 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .rail-not-started td:first-child { box-shadow: inset 3px 0 0 var(--idle); }
 
 .clickable-row { cursor: pointer; }
-.expandable-row { cursor: pointer; }
+.expandable-row { cursor: pointer; transition: background 180ms ease, box-shadow 180ms ease; }
+.expandable-row.notification-focus { background: var(--red-tint); box-shadow: inset 4px 0 0 var(--red); }
 .operation-notes-row td { padding: 0 14px 12px 54px; background: var(--surface-2); }
 .operation-notes {
   display: grid;

@@ -224,15 +224,15 @@ export default function App() {
   const canManageQuotes = hasEstimatingPermission(
     me,
     estimatingPermissions.manageQuotes,
-  )
+  ) && !me?.isPreview
   const canManageInputs = hasEstimatingPermission(
     me,
     estimatingPermissions.manageInputs,
-  )
+  ) && !me?.isPreview
   const canAdministerRates = hasEstimatingPermission(
     me,
     estimatingPermissions.administerRates,
-  )
+  ) && !me?.isPreview
 
   if (accessLoading || !me) {
     return (
@@ -258,7 +258,7 @@ export default function App() {
   }
 
   return (
-    <div className={`estimating-shell estimating-app ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
+    <div className={`estimating-shell estimating-app ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${me.isPreview ? 'access-preview-active' : ''}`.trim()}>
       <a className="skip-link" href="#main-content">Skip to main content</a>
 
       <aside className="sidebar" id="estimating-sidebar">
@@ -323,6 +323,13 @@ export default function App() {
       </aside>
 
       <main className="main-area">
+        {me.isPreview && <section className="access-preview-banner" role="status">
+          <div>
+            <strong>Read-only preview: {me.previewTargetTitle ?? me.displayName}</strong>
+            <span>Role and permissions are previewed. This user&apos;s browser-local quote records are not available on this computer.</span>
+          </div>
+          <a href="/access-preview/end" target="_top">Return to Admin</a>
+        </section>}
         <header className="topbar">
           <div className="topbar-title-area">
             <button

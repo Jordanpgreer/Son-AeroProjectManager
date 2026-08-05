@@ -16,6 +16,7 @@ import {
   Users,
 } from 'lucide-react'
 import AccessPanel from './AccessPanel'
+import AccessPreviewPanel from './AccessPreviewPanel'
 import EngineeringAccessPanel from './EngineeringAccessPanel'
 import ModuleAccessPanel from './ModuleAccessPanel'
 import { projectTrackerUrl, toErrorMessage, trackerApi } from './api'
@@ -29,6 +30,7 @@ import type {
   AdminModuleKey,
   ProjectTrackerAdminSection,
   ProjectTrackerUser,
+  AdminAccessPreviewTarget,
 } from './types'
 import './admin.css'
 import './admin-responsive.css'
@@ -143,37 +145,27 @@ function NoAccess({ detail }: { detail: string }) {
 }
 
 function HubOverview({
-  user,
-  canOpenAccess,
-  error,
+  canPreviewAccess,
+  onPreviewAccess,
 }: {
-  user: ProjectTrackerUser | null
-  canOpenAccess: boolean
-  error: string | null
+  canPreviewAccess: boolean
+  onPreviewAccess: (target: AdminAccessPreviewTarget) => void
 }) {
   return (
-    <section className="admin-surface admin-placeholder" aria-labelledby="hub-overview-heading">
-      <span className="admin-placeholder-icon"><Boxes size={25} /></span>
-      <span className="kicker">Administration directory</span>
-      <h2 id="hub-overview-heading">One controlled place for module administration</h2>
-      <p>Manage each application from its module tab. Project Tracker and Engineering provide detailed users, groups, and permissions; scheduling references, recovery tools, and imports remain under Project Tracker.</p>
-      {user && <p>Signed into Project Tracker as <strong>{user.displayName}</strong>{user.groups.length ? ` (${user.groups.join(', ')})` : ''}.</p>}
-      {error && <p className="admin-notice error">{error}</p>}
-      {canOpenAccess ? (
-        <a className="solid-button" href="#/admin/project-tracker/access">
-          Open Project Tracker access <ExternalLink size={15} />
-        </a>
-      ) : (
-        <p className="admin-readonly-note">Project Tracker access administration requires Manage Registered Users or Manage Groups.</p>
-      )}
+    <section className="admin-surface admin-hub-overview" aria-label="Hub access preview">
+      {canPreviewAccess && <AccessPreviewPanel onPreview={onPreviewAccess} />}
     </section>
   )
 }
 
 export default function AdminConsole({
   currentAccountName,
+  currentPortalRole,
+  onPreviewAccess,
 }: {
   currentAccountName: string | null
+  currentPortalRole: string | null
+  onPreviewAccess: (target: AdminAccessPreviewTarget) => void
 }) {
   const route = parseRoute()
   const activeModule = MODULES.find((module) => module.key === route.module) ?? MODULES[1]
@@ -294,7 +286,7 @@ export default function AdminConsole({
         )}
 
         <div id="admin-section-panel" role={route.module === 'project-tracker' ? 'tabpanel' : undefined} aria-labelledby={route.module === 'project-tracker' ? `admin-section-tab-${route.section}` : undefined}>
-          {route.module === 'hub' && <HubOverview user={trackerUser} canOpenAccess={canOpenAccess} error={permissionsError} />}
+          {route.module === 'hub' && <HubOverview canPreviewAccess={currentPortalRole === 'Admin'} onPreviewAccess={onPreviewAccess} />}
           {route.module === 'project-tracker' && permissionsLoading && <div className="admin-loading" role="status">Checking Project Tracker permissions...</div>}
           {route.module === 'project-tracker' && !permissionsLoading && permissionsError && <NoAccess detail={permissionsError} />}
           {route.module === 'project-tracker' && !permissionsLoading && !permissionsError && !selectedSectionAllowed && <NoAccess detail="Your Project Tracker groups do not grant the permission required for this administration section." />}

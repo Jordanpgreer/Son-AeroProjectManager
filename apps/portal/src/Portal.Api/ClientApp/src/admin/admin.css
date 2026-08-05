@@ -194,6 +194,26 @@
 }
 
 .admin-surface { min-width: 0; padding: 20px; }
+.admin-hub-overview { display: grid; justify-items: start; gap: 9px; }
+.admin-access-preview { display: grid; gap: 14px; width: 100%; }
+.admin-access-preview > header { display: flex; align-items: center; gap: 12px; }
+.admin-access-preview > header .admin-placeholder-icon { width: 42px; height: 42px; flex: none; }
+.admin-access-preview > header h3 { margin: 2px 0; color: var(--ink); font-size: 16px; }
+.admin-access-preview > header p { margin: 0; color: var(--muted); font-size: 11.5px; }
+.admin-preview-search { width: min(440px, 100%); }
+.admin-preview-targets { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; max-height: 310px; overflow-y: auto; padding: 2px; }
+.admin-preview-targets > button { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-width: 0; padding: 10px 11px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: var(--ink-2); text-align: left; cursor: pointer; }
+.admin-preview-targets > button:hover { border-color: var(--line-3); background: var(--surface-2); }
+.admin-preview-targets > button.selected { border-color: var(--steel); background: var(--steel-tint); box-shadow: 0 0 0 2px color-mix(in srgb, var(--steel) 18%, transparent); }
+.admin-preview-targets > button > span:first-child { display: grid; place-items: center; width: 34px; height: 34px; border-radius: var(--r-sm); background: var(--surface-2); color: var(--steel-700); }
+.admin-preview-targets > button > span:nth-child(2) { display: grid; gap: 2px; min-width: 0; }
+.admin-preview-targets strong, .admin-preview-targets small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-preview-targets strong { font-size: 12px; }
+.admin-preview-targets small { color: var(--muted); font-size: 10px; }
+.admin-preview-targets em { color: var(--steel-700); font-size: 9px; font-style: normal; font-weight: 700; text-transform: uppercase; }
+.admin-preview-targets > p { grid-column: 1 / -1; margin: 0; padding: 20px; color: var(--muted); text-align: center; }
+.admin-access-preview > footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-top: 3px; }
+.admin-access-preview > footer p { margin: 0; color: var(--muted); font-size: 11px; }
 .admin-surface-head {
   display: flex;
   align-items: flex-start;

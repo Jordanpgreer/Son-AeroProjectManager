@@ -10,7 +10,13 @@ public sealed record EngineeringModuleAccess(
     string Role,
     bool IsEnabled,
     IReadOnlyList<string> Permissions,
-    IReadOnlyList<string> Groups);
+    IReadOnlyList<string> Groups,
+    string? AccountName = null,
+    string? DisplayName = null,
+    bool IsPreview = false,
+    string? PreviewActorAccountName = null,
+    string? PreviewTargetKey = null,
+    string? PreviewTargetTitle = null);
 
 public interface IEngineeringRoleStore
 {
@@ -29,6 +35,8 @@ public sealed class EngineeringRoleStore(EngineeringRoleDbContext db, ILogger<En
                 .Where(candidate => lookupKeys.Contains(candidate.AccountName.ToUpper()))
                 .Select(candidate => new
                 {
+                    candidate.AccountName,
+                    candidate.DisplayName,
                     candidate.IsActive,
                     Groups = candidate.GroupMemberships
                         .Select(membership => membership.Group.Name)
@@ -54,7 +62,9 @@ public sealed class EngineeringRoleStore(EngineeringRoleDbContext db, ILogger<En
                 role,
                 user.IsActive && permissions.Contains(EngineeringPermissions.ModuleView, StringComparer.OrdinalIgnoreCase),
                 permissions,
-                user.Groups.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(group => group).ToArray());
+                user.Groups.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(group => group).ToArray(),
+                WindowsAccountNames.Normalize(user.AccountName) ?? user.AccountName,
+                user.DisplayName);
         }
         catch (Exception exception) when (exception is DbException or InvalidOperationException)
         {

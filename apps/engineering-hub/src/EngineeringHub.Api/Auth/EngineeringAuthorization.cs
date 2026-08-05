@@ -10,6 +10,7 @@ public static class EngineeringAuthorization
 
     public const string PermissionClaimType = "sonaero.module.permission";
     public const string ReadPermission = EngineeringPermissions.ModuleView;
+    public const string AccessItem = "EngineeringAccess";
 
     public static IReadOnlyList<string> PermissionsForRole(string role) =>
         EngineeringPermissions.DefaultsForRole(role);

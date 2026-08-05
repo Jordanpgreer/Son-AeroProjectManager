@@ -26,6 +26,23 @@ public sealed record ApplicationDto(
 
 public sealed record ApplicationNotificationDto(string ApplicationId, int UnreadCount);
 
+public sealed record AdminAccessPreviewOverviewDto(
+    IReadOnlyList<AdminAccessPreviewTargetDto> Users,
+    IReadOnlyList<AdminAccessPreviewTargetDto> Groups);
+
+public sealed record AdminAccessPreviewTargetDto(
+    string Key,
+    string Kind,
+    string Title,
+    string Subtitle,
+    string Role,
+    IReadOnlyList<ApplicationDto> Applications);
+
+public sealed record AdminAccessPreviewLaunchDto(
+    string ActionUrl,
+    string Token,
+    DateTimeOffset ExpiresAt);
+
 /// <summary>Compact "minimized dashboard" snapshot rendered on an application card.</summary>
 public sealed record TrackerPreviewDto(
     int ActiveProjects,

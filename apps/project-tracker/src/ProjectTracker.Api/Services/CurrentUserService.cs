@@ -7,14 +7,27 @@ public sealed class CurrentUserService(IHttpContextAccessor httpContextAccessor)
 {
     private ClaimsPrincipal? Principal => httpContextAccessor.HttpContext?.User;
 
-    public string AccountName => WindowsAccountNames.Normalize(
+    public string ActorAccountName => WindowsAccountNames.Normalize(
         httpContextAccessor.HttpContext?.User.Identity?.Name) ?? "Unknown";
+
+    public string AccountName => ActorAccountName;
+
+    public bool IsAccessPreview => Principal?.HasClaim(AccessPreviewClaimTypes.Active, "true") == true;
+
+    public string? PreviewTargetKey => Principal?.FindFirstValue(AccessPreviewClaimTypes.TargetKey);
+
+    public string? PreviewTargetTitle => Principal?.FindFirstValue(AccessPreviewClaimTypes.TargetTitle);
+
+    public string? PreviewTargetAccountName => Principal?.FindFirstValue(AccessPreviewClaimTypes.TargetAccountName);
+
+    public string? EffectiveAccountName => IsAccessPreview ? PreviewTargetAccountName : ActorAccountName;
 
     public string DisplayName
     {
         get
         {
-            var account = AccountName;
+            if (IsAccessPreview && !string.IsNullOrWhiteSpace(PreviewTargetTitle)) return PreviewTargetTitle;
+            var account = ActorAccountName;
             return WindowsAccountNames.DisplayName(account);
         }
     }

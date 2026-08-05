@@ -26,6 +26,26 @@
   padding: 42px 32px 64px;
 }
 
+.access-preview-banner {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin: 14px clamp(18px, 3vw, 44px) 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--steel) 38%, var(--line));
+  border-radius: var(--r-md);
+  background: var(--steel-tint);
+  box-shadow: var(--shadow-1);
+}
+.access-preview-banner > span { display: grid; place-items: center; width: 38px; height: 38px; border-radius: var(--r-sm); background: var(--surface); color: var(--steel-700); }
+.access-preview-banner > div { display: grid; gap: 2px; min-width: 0; }
+.access-preview-banner strong { color: var(--ink); font-size: 12.5px; }
+.access-preview-banner small { overflow: hidden; color: var(--muted); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+.access-preview-launch-error { display: flex; align-items: center; gap: 9px; padding: 9px 18px; border-bottom: 1px solid color-mix(in srgb, var(--danger) 28%, transparent); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); color: var(--danger); font-size: 12px; }
+.access-preview-launch-error span { flex: 1; }
+.access-preview-launch-error button { border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; font-weight: 700; }
+
 .catalog-intro {
   display: flex;
   align-items: center;
@@ -184,6 +204,13 @@
     box-shadow 160ms ease,
     background 160ms ease;
 }
+
+.catalog-app-card.is-preview {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--steel) 38%, var(--line));
+  background: color-mix(in srgb, var(--steel-tint) 36%, var(--surface));
+}
+.catalog-app-card.is-preview .catalog-open { color: var(--steel-700); }
 
 .catalog-app-card.is-openable:hover {
   transform: translateY(-2px);
@@ -458,6 +485,9 @@
 }
 
 @media (max-width: 680px) {
+  .access-preview-banner { grid-template-columns: 38px minmax(0, 1fr); }
+  .access-preview-banner .ghost-button { grid-column: 1 / -1; width: 100%; }
+
   .catalog-main {
     padding: 26px 16px 42px;
   }

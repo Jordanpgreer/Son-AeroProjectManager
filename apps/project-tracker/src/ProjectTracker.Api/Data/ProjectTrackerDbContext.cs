@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using ProjectTracker.Api.Models;
+using SonAero.Platform.Security;
 
 namespace ProjectTracker.Api.Data;
 
@@ -21,6 +22,7 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
     public DbSet<AppGroupPermission> GroupPermissions => Set<AppGroupPermission>();
     public DbSet<AppUserModuleAccess> UserModuleAccess => Set<AppUserModuleAccess>();
     public DbSet<StatusHistory> StatusHistory => Set<StatusHistory>();
+    public DbSet<AccessPreviewSessionRecord> AccessPreviewSessions => Set<AccessPreviewSessionRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -222,6 +224,19 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
                 .WithMany()
                 .HasForeignKey(history => history.ProjectTaskId)
                 .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<AccessPreviewSessionRecord>(entity =>
+        {
+            entity.ToTable("AccessPreviewSessions");
+            entity.HasKey(session => session.Id);
+            entity.Property(session => session.Id).ValueGeneratedNever();
+            entity.Property(session => session.TokenHash).HasMaxLength(64).IsRequired();
+            entity.Property(session => session.AdministratorAccountName).HasMaxLength(160).IsRequired();
+            entity.Property(session => session.TargetKey).HasMaxLength(160).IsRequired();
+            entity.Property(session => session.ApplicationId).HasMaxLength(80).IsRequired();
+            entity.HasIndex(session => session.TokenHash).IsUnique();
+            entity.HasIndex(session => new { session.ApplicationId, session.SessionExpiresAt });
         });
     }
 

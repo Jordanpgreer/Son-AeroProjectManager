@@ -5,6 +5,7 @@ using EngineeringHub.Api.Endpoints;
 using EngineeringHub.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -186,6 +187,95 @@ public sealed class EngineeringAuthorizationTests
 
         Assert.NotNull(access);
         Assert.Equal(ApplicationRoles.Viewer, access.Role);
+    }
+
+    [Fact]
+    public async Task Preview_redeems_once_and_uses_the_target_users_live_engineering_access()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<EngineeringRoleDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new EngineeringRoleDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
+        var administrator = new EngineeringUserRecord
+        {
+            AccountName = "SONAERO\\administrator",
+            DisplayName = "Administrator",
+            IsActive = true
+        };
+        db.Users.Add(administrator);
+        db.Entry(administrator).Property("Role").CurrentValue = ApplicationRoles.Admin;
+
+        var target = new EngineeringUserRecord
+        {
+            AccountName = "SONAERO\\viewer",
+            DisplayName = "Engineering Viewer",
+            IsActive = true,
+            ModuleAccessAssignments =
+            [
+                new EngineeringModuleAccessRecord
+                {
+                    ModuleKey = EngineeringAuthorization.ModuleKey,
+                    Role = ApplicationRoles.Viewer
+                }
+            ]
+        };
+        var group = new EngineeringAccessGroupRecord
+        {
+            Name = "Drawing Readers",
+            Permissions =
+            [
+                new EngineeringGroupPermissionRecord { PermissionKey = EngineeringPermissions.ModuleView },
+                new EngineeringGroupPermissionRecord { PermissionKey = EngineeringPermissions.DrawingsView }
+            ]
+        };
+        target.GroupMemberships.Add(new EngineeringUserGroupMembershipRecord { Group = group });
+        db.Users.Add(target);
+        await db.SaveChangesAsync();
+
+        var token = AccessPreviewTokens.Create();
+        db.AccessPreviewSessions.Add(new AccessPreviewSessionRecord
+        {
+            Id = Guid.NewGuid(),
+            TokenHash = AccessPreviewTokens.Hash(token),
+            AdministratorAccountName = administrator.AccountName,
+            TargetKey = $"{AccessPreviewTargetKinds.User}:{target.Id}",
+            ApplicationId = AccessPreviewApplications.Engineering,
+            IssuedAt = DateTimeOffset.UtcNow,
+            LaunchExpiresAt = DateTimeOffset.UtcNow.AddMinutes(2),
+            SessionExpiresAt = DateTimeOffset.UtcNow.AddMinutes(10)
+        });
+        await db.SaveChangesAsync();
+
+        var service = new EngineeringAccessPreviewService(db, new ConfigurationBuilder().Build());
+        var start = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.Name, administrator.AccountName)], "Test"))
+        };
+        var first = await service.StartAsync(start, token);
+        var second = await service.StartAsync(start, token);
+
+        Assert.True(first.Succeeded);
+        Assert.False(second.Succeeded);
+        Assert.Contains(EngineeringAccessPreviewService.CookieName, start.Response.Headers.SetCookie.ToString());
+
+        var request = new DefaultHttpContext
+        {
+            User = start.User
+        };
+        request.Request.Headers.Cookie = $"{EngineeringAccessPreviewService.CookieName}={token}";
+        var access = await service.ResolveActiveAsync(request);
+
+        Assert.NotNull(access);
+        Assert.True(access.IsPreview);
+        Assert.Equal("SONAERO\\viewer", access.AccountName);
+        Assert.Equal("SONAERO\\administrator", access.PreviewActorAccountName);
+        Assert.Contains(EngineeringPermissions.DrawingsView, access.Permissions);
+        Assert.DoesNotContain(EngineeringPermissions.DrawingCreate, access.Permissions);
     }
 
     [Fact]

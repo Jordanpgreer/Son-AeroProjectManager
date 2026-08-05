@@ -10,6 +10,7 @@ using EstimatingDashboard.Api.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<EstimatingUserService>();
+builder.Services.AddScoped<EstimatingAccessPreviewService>();
 builder.Services.AddScoped<IEstimatingAccessStore, EstimatingAccessStore>();
 builder.Services.AddDbContext<EstimatingAccessDbContext>((serviceProvider, options) =>
 {
@@ -121,7 +122,48 @@ app.Use(async (context, next) =>
         return;
     }
 
+    var previews = context.RequestServices.GetRequiredService<EstimatingAccessPreviewService>();
+    var previewEndpoint = context.Request.Path.StartsWithSegments("/access-preview/start")
+        || context.Request.Path.StartsWithSegments("/access-preview/end");
+    if (previewEndpoint)
+    {
+        await next();
+        return;
+    }
+
+    var normalLaunch = context.Request.Query.ContainsKey("launch");
+    if (normalLaunch)
+        await previews.RevokeAndClearAsync(context, context.RequestAborted);
+
     var users = context.RequestServices.GetRequiredService<EstimatingUserService>();
+    if (!normalLaunch && context.Request.Cookies.ContainsKey(EstimatingAccessPreviewService.CookieName))
+    {
+        var previewAccess = await previews.ResolveActiveAsync(context, context.RequestAborted);
+        if (previewAccess is null)
+        {
+            previews.DeleteCookie(context);
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new ErrorDto(
+                "InvalidAccessPreview",
+                "This access preview is invalid, expired, or no longer authorized. Return to the Hub and start a new preview."));
+            return;
+        }
+
+        context.Items[EstimatingPolicies.AccessItem] = previewAccess;
+        context.User = EstimatingPolicies.Attach(context.User, previewAccess);
+        if (!SonAero.Platform.Security.AccessPreviewRequests.IsReadOnlyMethod(context.Request.Method))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new ErrorDto(
+                "PreviewReadOnly",
+                "Access preview is read-only. Return to Admin to make changes."));
+            return;
+        }
+
+        await next();
+        return;
+    }
+
     var access = await users.ResolveAccessAsync(context.User, context.RequestAborted);
     if (access is null)
     {
@@ -141,6 +183,29 @@ app.UseAuthorization();
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
+
+app.MapPost("/access-preview/start", async (
+    HttpContext context,
+    EstimatingAccessPreviewService previews,
+    CancellationToken cancellationToken) =>
+{
+    if (!context.Request.HasFormContentType)
+        return Results.BadRequest(new ErrorDto("InvalidAccessPreview", "A preview token is required."));
+    var form = await context.Request.ReadFormAsync(cancellationToken);
+    var result = await previews.StartAsync(context, form["token"].ToString(), cancellationToken);
+    return result.Succeeded
+        ? Results.Redirect("/")
+        : Results.Json(new ErrorDto(result.ErrorCode!, result.ErrorMessage!), statusCode: StatusCodes.Status403Forbidden);
+}).DisableAntiforgery().RequireAuthorization();
+
+app.MapGet("/access-preview/end", async (
+    HttpContext context,
+    EstimatingAccessPreviewService previews,
+    CancellationToken cancellationToken) =>
+{
+    await previews.RevokeAndClearAsync(context, cancellationToken);
+    return Results.Redirect(previews.GetReturnToAdminUrl(context));
+}).RequireAuthorization();
 
 var api = app.MapGroup("/api");
 

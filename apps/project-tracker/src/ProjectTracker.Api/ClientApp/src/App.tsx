@@ -36,6 +36,7 @@ import type {
   ProjectCreateRequest,
   ProjectVersion,
   ProjectMetadataDraft,
+  MentionNotification,
 } from './types'
 import {
   ErrorState,
@@ -133,6 +134,7 @@ function App() {
   const [overtimeTask, setOvertimeTask] = useState<ProjectTask | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
   const [activityOpen, setActivityOpen] = useState(false)
+  const [notificationTaskId, setNotificationTaskId] = useState<number | null>(null)
   const [concurrencyConflict, setConcurrencyConflict] = useState<ConcurrencyConflict | null>(null)
   const [projectChangeNotice, setProjectChangeNotice] = useState<ProjectVersion | null>(null)
   const [dismissedProjectVersion, setDismissedProjectVersion] = useState<number | null>(null)
@@ -360,6 +362,7 @@ function App() {
     setProjectLoading(true)
     setChatOpen(false)
     setActivityOpen(false)
+    setNotificationTaskId(null)
     setError(null)
     try {
       const [project] = await Promise.all([
@@ -376,6 +379,16 @@ function App() {
     } finally {
       setProjectLoading(false)
     }
+  }
+
+  async function openNotification(notification: MentionNotification) {
+    await openProject(notification.projectId)
+    if (notification.kind === 'ProjectChatMention') {
+      setActivityOpen(false)
+      setChatOpen(true)
+      return
+    }
+    if (notification.projectTaskId) setNotificationTaskId(notification.projectTaskId)
   }
 
   async function openActiveProjectWorkspace() {
@@ -830,15 +843,17 @@ function App() {
   }, [screen, loading])
 
   const userPermissions = user?.permissions ?? []
-  const canEnterProjectEdit = hasAnyPermission(userPermissions, [
+  const previewReadOnly = Boolean(user?.preview?.readOnly)
+  const mutationPermissions = previewReadOnly ? [] : userPermissions
+  const canEnterProjectEdit = hasAnyPermission(mutationPermissions, [
     ...projectMetadataEditPermissions,
     ...taskFieldEditPermissions,
     permissionKeys.taskCreate,
     permissionKeys.taskDelete,
   ])
-  const canCreateProject = hasPermission(userPermissions, permissionKeys.projectCreate)
-  const canReorderPriority = hasPermission(userPermissions, permissionKeys.projectEditPriority)
-  const canRestoreArchived = hasPermission(userPermissions, permissionKeys.archivedRestore)
+  const canCreateProject = hasPermission(mutationPermissions, permissionKeys.projectCreate)
+  const canReorderPriority = hasPermission(mutationPermissions, permissionKeys.projectEditPriority)
+  const canRestoreArchived = hasPermission(mutationPermissions, permissionKeys.archivedRestore)
   const canViewActivity = Boolean(userPermissions.includes('project.activity.view'))
   const isProjectScreen = screen === 'project'
   const holidaySet = useMemo(() => new Set(holidays.map((holiday) => holiday.date)), [holidays])
@@ -849,6 +864,12 @@ function App() {
   useEffect(() => {
     if (!canViewActivity) setActivityOpen(false)
   }, [canViewActivity])
+
+  useEffect(() => {
+    if (!notificationTaskId) return
+    const timeout = window.setTimeout(() => setNotificationTaskId(null), 5_000)
+    return () => window.clearTimeout(timeout)
+  }, [notificationTaskId])
 
   return (
     <div className="app-shell project-tracker-app">
@@ -862,6 +883,15 @@ function App() {
       />
 
       <main className="main-area">
+        {user?.preview && (
+          <aside className="access-preview-banner" role="status">
+            <div>
+              <strong>Read-only access preview</strong>
+              <span>You are viewing Project Tracker as {user.preview.targetTitle}. Changes are disabled.</span>
+            </div>
+            <a className="button ghost" href={user.preview.endUrl} target="_top">Return to Hub Admin</a>
+          </aside>
+        )}
         <PageHeader
           theme={theme}
           onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
@@ -879,7 +909,7 @@ function App() {
           refresh={() => requestNavigation(refreshCurrent)}
           onAddProject={() => void openProjectWizard()}
           user={user}
-          onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))}
+          onOpenNotification={(notification) => requestNavigation(() => openNotification(notification))}
           onOpenActivity={() => {
             setChatOpen(false)
             setActivityOpen(true)
@@ -942,7 +972,7 @@ function App() {
                   workingDaySet={workingDaySet}
                   workStations={knownWorkStations}
                   conflictKeys={workCenterConflicts}
-                  permissions={userPermissions}
+                  permissions={mutationPermissions}
                   editMode={editMode}
                   projectMetadata={projectMetadata}
                   projectMetadataDirty={projectMetadataDirty}
@@ -964,6 +994,7 @@ function App() {
                   onEditOvertime={setOvertimeTask}
                   onSaveRow={saveTaskRow}
                   onReorder={reorderTaskRow}
+                  notificationTaskId={notificationTaskId}
                 />
               )}
               {screen === 'calendar' && <CalendarView data={scheduleProjects} holidaySet={holidaySet} workingDaySet={workingDaySet} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} />}
@@ -974,7 +1005,7 @@ function App() {
       </main>
 
       {taskForm && (
-        <TaskModal form={taskForm} setForm={setTaskForm} saveTask={saveTask} onClose={() => { if (!taskSaving) setTaskForm(null) }} tasks={selectedProject?.tasks ?? []} workStations={knownWorkStations} holidaySet={holidaySet} workingDaySet={workingDaySet} permissions={userPermissions} saving={taskSaving} error={taskFormError} />
+        <TaskModal form={taskForm} setForm={setTaskForm} saveTask={saveTask} onClose={() => { if (!taskSaving) setTaskForm(null) }} tasks={selectedProject?.tasks ?? []} workStations={knownWorkStations} holidaySet={holidaySet} workingDaySet={workingDaySet} permissions={mutationPermissions} saving={taskSaving} error={taskFormError} />
       )}
       {overtimeTask && (
         <OvertimeDialog

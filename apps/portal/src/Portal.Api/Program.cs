@@ -108,6 +108,7 @@ api.MapGet("/application-notifications", async (
 }).RequireAuthorization();
 
 api.MapEngineeringAdminEndpoints();
+api.MapAdminAccessPreviewEndpoints();
 
 // Live "minimized dashboard" data for the Project Tracker card. Best-effort and read-only.
 api.MapGet("/preview/project-tracker", async (TrackerPreviewService preview, CancellationToken cancellationToken) =>

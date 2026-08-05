@@ -14,7 +14,25 @@ public static class UserEndpoints
     {
         api.MapGet("/me", async (CurrentUserService currentUser, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
         {
-            var lookupKeys = WindowsAccountNames.LookupKeys(currentUser.AccountName);
+            var effectiveAccountName = currentUser.EffectiveAccountName;
+            if (currentUser.IsAccessPreview && effectiveAccountName is null)
+            {
+                var targetKey = currentUser.PreviewTargetKey ?? string.Empty;
+                AccessPreviewTarget.TryParse(targetKey, out var target);
+                return Results.Ok(ToUserDto(
+                    targetKey,
+                    currentUser.PreviewTargetTitle ?? "Project Tracker group",
+                    currentUser,
+                    new AccessPreviewInfoDto(
+                        currentUser.ActorAccountName,
+                        targetKey,
+                        target.Kind,
+                        currentUser.PreviewTargetTitle ?? "Project Tracker group",
+                        true,
+                        "/access-preview/end")));
+            }
+
+            var lookupKeys = WindowsAccountNames.LookupKeys(effectiveAccountName);
             var user = await db.Users
                 .AsNoTracking()
                 .FirstOrDefaultAsync(candidate => lookupKeys.Contains(candidate.AccountName.ToUpper()), cancellationToken);
@@ -23,7 +41,7 @@ public static class UserEndpoints
                 return Results.Forbid();
             }
 
-            if (user.IsActive)
+            if (user.IsActive && !currentUser.IsAccessPreview)
             {
                 var tracked = await db.Users.FindAsync([user.Id], cancellationToken);
                 if (tracked is not null)
@@ -34,26 +52,25 @@ public static class UserEndpoints
                 }
             }
 
-            return Results.Ok(new UserDto(
-                currentUser.AccountName,
+            AccessPreviewInfoDto? preview = null;
+            if (currentUser.IsAccessPreview)
+            {
+                var targetKey = currentUser.PreviewTargetKey ?? string.Empty;
+                AccessPreviewTarget.TryParse(targetKey, out var target);
+                preview = new AccessPreviewInfoDto(
+                    currentUser.ActorAccountName,
+                    targetKey,
+                    target.Kind,
+                    currentUser.PreviewTargetTitle ?? user.DisplayName,
+                    true,
+                    "/access-preview/end");
+            }
+
+            return Results.Ok(ToUserDto(
+                effectiveAccountName ?? user.AccountName,
                 user.DisplayName,
-                currentUser.IsRegistered,
-                user.IsActive,
-                currentUser.Groups,
-                currentUser.Permissions,
-                currentUser.Permissions.Any(permission =>
-                    permission.StartsWith("project.edit.", StringComparison.OrdinalIgnoreCase)
-                    || permission.StartsWith("task.edit.", StringComparison.OrdinalIgnoreCase)
-                    || permission is ApplicationPermissions.ProjectCreate or ApplicationPermissions.TaskCreate or ApplicationPermissions.TaskDelete),
-                currentUser.Groups.Contains(ApplicationGroups.Administrators, StringComparer.OrdinalIgnoreCase)
-                || currentUser.Permissions.Any(permission => permission is
-                    ApplicationPermissions.SettingsWorkCalendarManage
-                    or ApplicationPermissions.SettingsHolidaysManage
-                    or ApplicationPermissions.SettingsWorkCentersManage
-                    or ApplicationPermissions.ImportManage
-                    or ApplicationPermissions.AccessManageUsers
-                    or ApplicationPermissions.AccessManageGroups
-                    or ApplicationPermissions.ArchivedRestore)));
+                currentUser,
+                preview));
         });
 
         api.MapGet("/admin/access", async (ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
@@ -254,6 +271,36 @@ public static class UserEndpoints
         }).RequireAuthorization("ManageGroups");
 
         return api;
+    }
+
+    private static UserDto ToUserDto(
+        string accountName,
+        string displayName,
+        CurrentUserService currentUser,
+        AccessPreviewInfoDto? preview)
+    {
+        var permissions = currentUser.Permissions;
+        return new UserDto(
+            accountName,
+            displayName,
+            currentUser.IsRegistered,
+            currentUser.IsActive,
+            currentUser.Groups,
+            permissions,
+            permissions.Any(permission =>
+                permission.StartsWith("project.edit.", StringComparison.OrdinalIgnoreCase)
+                || permission.StartsWith("task.edit.", StringComparison.OrdinalIgnoreCase)
+                || permission is ApplicationPermissions.ProjectCreate or ApplicationPermissions.TaskCreate or ApplicationPermissions.TaskDelete),
+            currentUser.Groups.Contains(ApplicationGroups.Administrators, StringComparer.OrdinalIgnoreCase)
+            || permissions.Any(permission => permission is
+                ApplicationPermissions.SettingsWorkCalendarManage
+                or ApplicationPermissions.SettingsHolidaysManage
+                or ApplicationPermissions.SettingsWorkCentersManage
+                or ApplicationPermissions.ImportManage
+                or ApplicationPermissions.AccessManageUsers
+                or ApplicationPermissions.AccessManageGroups
+                or ApplicationPermissions.ArchivedRestore),
+            preview);
     }
 
     public static async Task<IResult> RegisterUserAsync(

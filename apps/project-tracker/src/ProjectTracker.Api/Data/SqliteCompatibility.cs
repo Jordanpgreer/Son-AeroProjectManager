@@ -200,6 +200,20 @@ public static partial class SqliteCompatibility
                 CONSTRAINT "PK_UserModuleAccess" PRIMARY KEY ("AppUserId", "ModuleKey"),
                 CONSTRAINT "FK_UserModuleAccess_Users_AppUserId" FOREIGN KEY ("AppUserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS "AccessPreviewSessions" (
+                "Id" TEXT NOT NULL CONSTRAINT "PK_AccessPreviewSessions" PRIMARY KEY,
+                "TokenHash" TEXT NOT NULL,
+                "AdministratorAccountName" TEXT NOT NULL,
+                "TargetKey" TEXT NOT NULL,
+                "ApplicationId" TEXT NOT NULL,
+                "IssuedAt" TEXT NOT NULL,
+                "LaunchExpiresAt" TEXT NOT NULL,
+                "SessionExpiresAt" TEXT NOT NULL,
+                "RedeemedAt" TEXT NULL,
+                "RevokedAt" TEXT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_AccessPreviewSessions_TokenHash" ON "AccessPreviewSessions" ("TokenHash");
+            CREATE INDEX IF NOT EXISTS "IX_AccessPreviewSessions_ApplicationId_SessionExpiresAt" ON "AccessPreviewSessions" ("ApplicationId", "SessionExpiresAt");
             """;
 
         var connection = db.Database.GetDbConnection();

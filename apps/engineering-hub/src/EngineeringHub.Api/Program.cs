@@ -13,6 +13,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<EngineeringUserService>();
+builder.Services.AddScoped<EngineeringAccessPreviewService>();
 builder.Services.AddScoped<IEngineeringRoleStore, EngineeringRoleStore>();
 builder.Services.AddScoped<EngineeringAccessSchemaInitializer>();
 builder.Services.AddScoped<EngineeringAccessSeeder>();
@@ -119,7 +120,48 @@ app.Use(async (context, next) =>
         return;
     }
 
+    var previews = context.RequestServices.GetRequiredService<EngineeringAccessPreviewService>();
+    var previewEndpoint = context.Request.Path.StartsWithSegments("/access-preview/start")
+        || context.Request.Path.StartsWithSegments("/access-preview/end");
+    if (previewEndpoint)
+    {
+        await next();
+        return;
+    }
+
+    var normalLaunch = context.Request.Query.ContainsKey("launch");
+    if (normalLaunch)
+        await previews.RevokeAndClearAsync(context, context.RequestAborted);
+
     var users = context.RequestServices.GetRequiredService<EngineeringUserService>();
+    if (!normalLaunch && context.Request.Cookies.ContainsKey(EngineeringAccessPreviewService.CookieName))
+    {
+        var previewAccess = await previews.ResolveActiveAsync(context, context.RequestAborted);
+        if (previewAccess is null)
+        {
+            previews.DeleteCookie(context);
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new ErrorDto(
+                "InvalidAccessPreview",
+                "This access preview is invalid, expired, or no longer authorized. Return to the Hub and start a new preview."));
+            return;
+        }
+
+        context.Items[EngineeringAuthorization.AccessItem] = previewAccess;
+        context.User = users.AttachAccess(context.User, previewAccess);
+        if (!AccessPreviewRequests.IsReadOnlyMethod(context.Request.Method))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new ErrorDto(
+                "PreviewReadOnly",
+                "Access preview is read-only. Return to Admin to make changes."));
+            return;
+        }
+
+        await next();
+        return;
+    }
+
     var access = await users.ResolveAccessAsync(context.User.Identity?.Name, context.RequestAborted);
     if (access is null || !access.IsEnabled)
     {
@@ -130,6 +172,7 @@ app.Use(async (context, next) =>
         return;
     }
 
+    context.Items[EngineeringAuthorization.AccessItem] = access;
     context.User = users.AttachAccess(context.User, access);
     await next();
 });
@@ -138,6 +181,29 @@ app.UseAuthorization();
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
+
+app.MapPost("/access-preview/start", async (
+    HttpContext context,
+    EngineeringAccessPreviewService previews,
+    CancellationToken cancellationToken) =>
+{
+    if (!context.Request.HasFormContentType)
+        return Results.BadRequest(new ErrorDto("InvalidAccessPreview", "A preview token is required."));
+    var form = await context.Request.ReadFormAsync(cancellationToken);
+    var result = await previews.StartAsync(context, form["token"].ToString(), cancellationToken);
+    return result.Succeeded
+        ? Results.Redirect("/")
+        : Results.Json(new ErrorDto(result.ErrorCode!, result.ErrorMessage!), statusCode: StatusCodes.Status403Forbidden);
+}).DisableAntiforgery().RequireAuthorization();
+
+app.MapGet("/access-preview/end", async (
+    HttpContext context,
+    EngineeringAccessPreviewService previews,
+    CancellationToken cancellationToken) =>
+{
+    await previews.RevokeAndClearAsync(context, cancellationToken);
+    return Results.Redirect(previews.GetReturnToAdminUrl(context));
+}).RequireAuthorization();
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
 
@@ -148,7 +214,10 @@ api.MapDrawingOperationalEndpoints();
 api.MapEngineeringAccessEndpoints();
 
 api.MapGet("/me", async (EngineeringUserService users, HttpContext httpContext, CancellationToken cancellationToken) =>
-    await users.CurrentAsync(httpContext.User, cancellationToken));
+    await users.CurrentAsync(
+        httpContext.User,
+        httpContext.Items[EngineeringAuthorization.AccessItem] as EngineeringModuleAccess,
+        cancellationToken));
 
 api.MapGet("/dashboard", async (
     string? query,

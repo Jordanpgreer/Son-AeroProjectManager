@@ -9,7 +9,10 @@ public sealed class EngineeringUserService(
     IConfiguration configuration,
     IEngineeringRoleStore roleStore)
 {
-    public async Task<MeDto> CurrentAsync(ClaimsPrincipal principal, CancellationToken cancellationToken = default)
+    public async Task<MeDto> CurrentAsync(
+        ClaimsPrincipal principal,
+        EngineeringModuleAccess? effectiveAccess = null,
+        CancellationToken cancellationToken = default)
     {
         var accountName = principal.Identity?.Name;
         if (string.IsNullOrWhiteSpace(accountName))
@@ -21,18 +24,26 @@ public sealed class EngineeringUserService(
         accountName = WindowsAccountNames.Normalize(accountName)
             ?? throw new UnauthorizedAccessException("A valid Windows account name is required.");
 
-        var access = await ResolveAccessAsync(accountName, cancellationToken);
+        var access = effectiveAccess ?? await ResolveAccessAsync(accountName, cancellationToken);
         if (access is null || !access.IsEnabled)
         {
             throw new UnauthorizedAccessException("No active Engineering module assignment was found.");
         }
 
+        var effectiveAccountName = access.AccountName
+            ?? (access.IsPreview ? access.PreviewTargetKey : null)
+            ?? accountName;
+
         return new MeDto(
-            accountName,
-            ToDisplayName(accountName),
+            effectiveAccountName,
+            access.DisplayName ?? ToDisplayName(effectiveAccountName),
             access.Role,
             access.Permissions,
-            access.Groups);
+            access.Groups,
+            access.IsPreview,
+            access.PreviewActorAccountName,
+            access.PreviewTargetKey,
+            access.PreviewTargetTitle);
     }
 
     public async Task<EngineeringModuleAccess?> ResolveAccessAsync(
@@ -64,11 +75,25 @@ public sealed class EngineeringUserService(
         claims.RemoveAll(claim => claim.Type == ClaimTypes.Role);
         claims.RemoveAll(claim => claim.Type == EngineeringAuthorization.PermissionClaimType);
         claims.RemoveAll(claim => claim.Type == ApplicationClaimTypes.Group);
+        claims.RemoveAll(claim => claim.Type.StartsWith("sonaero.access-preview.", StringComparison.Ordinal));
         claims.Add(new Claim(ClaimTypes.Role, access.Role));
         claims.AddRange(access.Permissions
             .Select(permission => new Claim(EngineeringAuthorization.PermissionClaimType, permission)));
         claims.AddRange(access.Groups
             .Select(group => new Claim(ApplicationClaimTypes.Group, group)));
+        if (access.IsPreview)
+        {
+            claims.Add(new Claim(AccessPreviewClaimTypes.Active, bool.TrueString));
+            claims.Add(new Claim(AccessPreviewClaimTypes.ApplicationId, AccessPreviewApplications.Engineering));
+            if (!string.IsNullOrWhiteSpace(access.PreviewActorAccountName))
+                claims.Add(new Claim(AccessPreviewClaimTypes.ActorAccountName, access.PreviewActorAccountName));
+            if (!string.IsNullOrWhiteSpace(access.PreviewTargetKey))
+                claims.Add(new Claim(AccessPreviewClaimTypes.TargetKey, access.PreviewTargetKey));
+            if (!string.IsNullOrWhiteSpace(access.PreviewTargetTitle))
+                claims.Add(new Claim(AccessPreviewClaimTypes.TargetTitle, access.PreviewTargetTitle));
+            if (!string.IsNullOrWhiteSpace(access.AccountName))
+                claims.Add(new Claim(AccessPreviewClaimTypes.TargetAccountName, access.AccountName));
+        }
 
         var identity = new ClaimsIdentity(claims, principal.Identity?.AuthenticationType, ClaimTypes.Name, ClaimTypes.Role);
         return new ClaimsPrincipal(identity);

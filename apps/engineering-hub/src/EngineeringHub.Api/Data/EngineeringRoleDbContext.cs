@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using SonAero.Platform.Security;
 
 namespace EngineeringHub.Api.Data;
 
@@ -9,6 +10,7 @@ public sealed class EngineeringRoleDbContext(DbContextOptions<EngineeringRoleDbC
     public DbSet<EngineeringAccessGroupRecord> Groups => Set<EngineeringAccessGroupRecord>();
     public DbSet<EngineeringUserGroupMembershipRecord> UserGroupMemberships => Set<EngineeringUserGroupMembershipRecord>();
     public DbSet<EngineeringGroupPermissionRecord> GroupPermissions => Set<EngineeringGroupPermissionRecord>();
+    public DbSet<AccessPreviewSessionRecord> AccessPreviewSessions => Set<AccessPreviewSessionRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -67,6 +69,17 @@ public sealed class EngineeringRoleDbContext(DbContextOptions<EngineeringRoleDbC
             entity.ToTable("EngineeringGroupPermissions");
             entity.HasKey(permission => new { permission.AppGroupId, permission.PermissionKey });
             entity.Property(permission => permission.PermissionKey).HasMaxLength(120);
+        });
+
+        modelBuilder.Entity<AccessPreviewSessionRecord>(entity =>
+        {
+            entity.ToTable("AccessPreviewSessions");
+            entity.HasKey(session => session.Id);
+            entity.HasIndex(session => session.TokenHash).IsUnique();
+            entity.Property(session => session.TokenHash).HasMaxLength(64);
+            entity.Property(session => session.AdministratorAccountName).HasMaxLength(160);
+            entity.Property(session => session.TargetKey).HasMaxLength(96);
+            entity.Property(session => session.ApplicationId).HasMaxLength(64);
         });
     }
 }
