@@ -2,6 +2,7 @@ using EngineeringHub.Api.Auth;
 using EngineeringHub.Api.Data;
 using EngineeringHub.Api.Dtos;
 using Microsoft.EntityFrameworkCore;
+using SonAero.Platform.Security;
 
 namespace EngineeringHub.Api.Endpoints;
 
@@ -159,6 +160,40 @@ public static class EngineeringAccessEndpoints
         CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        var users = await db.Users
+            .Include(user => user.ModuleAccessAssignments)
+            .Include(user => user.GroupMemberships)
+                .ThenInclude(membership => membership.Group)
+                    .ThenInclude(group => group.Permissions)
+            .ToListAsync(cancellationToken);
+        foreach (var user in users)
+        {
+            var role = EngineeringPermissions.RoleFor(user.GroupMemberships
+                .SelectMany(membership => membership.Group.Permissions)
+                .Select(permission => permission.PermissionKey));
+            var legacyAccess = user.ModuleAccessAssignments.SingleOrDefault(access =>
+                access.ModuleKey == ApplicationModules.Engineering);
+            if (role is null)
+            {
+                if (legacyAccess is not null) db.UserModuleAccess.Remove(legacyAccess);
+                continue;
+            }
+            if (legacyAccess is null)
+            {
+                user.ModuleAccessAssignments.Add(new EngineeringModuleAccessRecord
+                {
+                    ModuleKey = ApplicationModules.Engineering,
+                    Role = role,
+                    UpdatedAt = DateTimeOffset.UtcNow
+                });
+            }
+            else
+            {
+                legacyAccess.Role = role;
+                legacyAccess.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+        }
         await db.SaveChangesAsync(cancellationToken);
         var administrators = await db.Users
             .AsNoTracking()

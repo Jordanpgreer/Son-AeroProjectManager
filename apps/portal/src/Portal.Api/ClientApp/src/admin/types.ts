@@ -52,6 +52,11 @@ export interface AccessOverview {
   permissions: PermissionDefinition[]
 }
 
+export interface EngineeringAccessOverview extends AccessOverview {
+  canManageUsers: boolean
+  canManageGroups: boolean
+}
+
 export interface ProjectTrackerUser {
   accountName: string
   displayName: string

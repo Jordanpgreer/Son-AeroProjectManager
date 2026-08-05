@@ -65,6 +65,7 @@
   .admin-module-head > .ghost-button { grid-column: 1 / -1; }
   .admin-search { width: 100%; }
   .admin-create-form,
+  .engineering-admin-group-fields,
   .admin-add-row,
   .admin-holiday-form { grid-template-columns: 1fr; }
   .admin-weekdays { grid-template-columns: repeat(2, 1fr); }

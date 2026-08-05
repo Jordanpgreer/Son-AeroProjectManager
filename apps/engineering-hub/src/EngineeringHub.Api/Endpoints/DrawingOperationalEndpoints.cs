@@ -7,6 +7,7 @@ using EngineeringHub.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Primitives;
+using SonAero.Platform.Security;
 
 namespace EngineeringHub.Api.Endpoints;
 

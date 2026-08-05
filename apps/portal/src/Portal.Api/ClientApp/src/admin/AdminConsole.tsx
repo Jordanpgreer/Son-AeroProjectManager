@@ -16,6 +16,7 @@ import {
   Users,
 } from 'lucide-react'
 import AccessPanel from './AccessPanel'
+import EngineeringAccessPanel from './EngineeringAccessPanel'
 import ModuleAccessPanel from './ModuleAccessPanel'
 import { projectTrackerUrl, toErrorMessage, trackerApi } from './api'
 import { ArchivedProjectsPanel, ImportsPanel } from './ProjectTrackerDataPanels'
@@ -157,7 +158,7 @@ function HubOverview({
       <span className="admin-placeholder-icon"><Boxes size={25} /></span>
       <span className="kicker">Administration directory</span>
       <h2 id="hub-overview-heading">One controlled place for module administration</h2>
-      <p>Assign Engineering and Estimating roles here, then use each module tab for its owned settings. Project Tracker retains its detailed groups, scheduling references, recovery tools, and imports.</p>
+      <p>Manage each application from its module tab. Project Tracker and Engineering provide detailed users, groups, and permissions; scheduling references, recovery tools, and imports remain under Project Tracker.</p>
       {user && <p>Signed into Project Tracker as <strong>{user.displayName}</strong>{user.groups.length ? ` (${user.groups.join(', ')})` : ''}.</p>}
       {error && <p className="admin-notice error">{error}</p>}
       {canOpenAccess ? (
@@ -311,11 +312,7 @@ export default function AdminConsole({
             </>
           )}
           {route.module === 'engineering' && (
-            <ModuleAccessPanel
-              moduleKey="engineering"
-              moduleName="Engineering"
-              currentAccountName={trackerUser?.accountName ?? currentAccountName}
-            />
+            <EngineeringAccessPanel currentAccountName={trackerUser?.accountName ?? currentAccountName}/>
           )}
           {route.module === 'estimating' && (
             <ModuleAccessPanel

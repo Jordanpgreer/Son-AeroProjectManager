@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Portal.Api.Auth;
 using Portal.Api.Data;
 using Portal.Api.Dtos;
+using Portal.Api.Endpoints;
 using Portal.Api.Models;
 using Portal.Api.Services;
 
@@ -105,6 +106,8 @@ api.MapGet("/application-notifications", async (
     var currentUser = await users.CurrentAsync(cancellationToken);
     return await notifications.GetUnreadCountsAsync(currentUser.AccountName, cancellationToken);
 }).RequireAuthorization();
+
+api.MapEngineeringAdminEndpoints();
 
 // Live "minimized dashboard" data for the Project Tracker card. Best-effort and read-only.
 api.MapGet("/preview/project-tracker", async (TrackerPreviewService preview, CancellationToken cancellationToken) =>
