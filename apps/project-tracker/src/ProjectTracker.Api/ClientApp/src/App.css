@@ -513,6 +513,23 @@ nav { display: grid; gap: 3px; }
 .notifications-popover > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 15px 12px; border-bottom: 1px solid var(--line); }
 .notifications-popover > header > div { display: grid; gap: 3px; }
 .notifications-popover h2 { font-size: 16px; }
+.desktop-notification-control { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.desktop-notification-icon { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--line-2); border-radius: var(--r-sm); color: var(--muted); background: var(--surface); }
+.desktop-notification-control.enabled .desktop-notification-icon { color: var(--steel-700); border-color: var(--steel-tint-2); background: var(--steel-tint); }
+.desktop-notification-control.insecure .desktop-notification-icon,
+.desktop-notification-control.denied .desktop-notification-icon,
+.desktop-notification-control.error .desktop-notification-icon { color: var(--risk); border-color: var(--risk-border); background: var(--risk-tint); }
+.desktop-notification-copy { display: grid; gap: 2px; min-width: 0; }
+.desktop-notification-copy strong { color: var(--ink); font-size: 11px; }
+.desktop-notification-copy > span { color: var(--muted); font-size: 10px; line-height: 1.35; }
+.desktop-notification-control > .button { padding: 6px 8px; font-size: 10px; white-space: nowrap; }
+.desktop-notification-invitation { position: fixed; z-index: 210; right: 22px; bottom: 22px; display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 11px 12px; width: min(420px, calc(100vw - 32px)); padding: 17px; border: 1px solid var(--steel-tint-2); border-radius: var(--r-lg); background: var(--surface); box-shadow: 0 18px 55px rgba(20, 39, 61, 0.22); color: var(--ink-2); }
+.desktop-notification-invitation-icon { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid var(--steel-tint-2); border-radius: var(--r-md); background: var(--steel-tint); color: var(--steel-700); }
+.desktop-notification-invitation > div { display: grid; gap: 4px; }
+.desktop-notification-invitation h2 { color: var(--ink); font-size: 16px; }
+.desktop-notification-invitation p { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+.desktop-notification-invitation-actions { grid-column: 1 / -1; display: flex !important; flex-direction: row; justify-content: flex-end; gap: 8px !important; padding-top: 3px; }
+.desktop-notification-invitation-actions .button { padding: 8px 11px; font-size: 11px; }
 .notification-read-all { display: inline-flex; align-items: center; gap: 5px; padding: 5px 7px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--steel-700); font-family: var(--font-sans); font-size: 10.5px; font-weight: 600; cursor: pointer; }
 .notification-read-all:hover { background: var(--steel-tint); }
 .notification-list { max-height: min(480px, calc(100vh - 150px)); overflow-y: auto; }
@@ -574,7 +591,7 @@ nav { display: grid; gap: 3px; }
 .notification-toast-open > span:last-child > span { display: -webkit-box; overflow: hidden; color: var(--muted); font-size: 11px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .notification-toast-dismiss { display: grid; place-items: center; align-self: start; width: 28px; height: 28px; margin: 7px 5px 0 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); cursor: pointer; }
 .notification-toast-dismiss:hover { background: var(--surface-2); color: var(--ink); }
-.notification-toast-timer { position: absolute; right: 0; bottom: 0; left: 0; height: 3px; transform-origin: left; background: var(--red); animation: notification-toast-timer 5s linear forwards; }
+.notification-toast-timer { position: absolute; right: 0; bottom: 0; left: 0; height: 3px; transform-origin: left; background: var(--red); animation: notification-toast-timer 8s linear forwards; }
 @keyframes notification-toast-in { from { opacity: 0; transform: translateY(-8px); } }
 @keyframes notification-toast-timer { to { transform: scaleX(0); } }
 @media (prefers-reduced-motion: reduce) {

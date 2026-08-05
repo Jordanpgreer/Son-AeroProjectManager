@@ -7,6 +7,11 @@
   },
   "Import": { "AutoImportOnEmpty": false },
   "DemoData": { "Enabled": false },
+  "WebPush": {
+    "Enabled": false,
+    "PublicKey": "",
+    "Subject": ""
+  },
   "Security": {
     "Admins": [ "SON4L\\jordan.greer" ],
     "Editors": []

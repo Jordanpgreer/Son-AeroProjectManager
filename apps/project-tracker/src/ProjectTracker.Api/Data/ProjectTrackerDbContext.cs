@@ -23,6 +23,7 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
     public DbSet<AppUserModuleAccess> UserModuleAccess => Set<AppUserModuleAccess>();
     public DbSet<StatusHistory> StatusHistory => Set<StatusHistory>();
     public DbSet<AccessPreviewSessionRecord> AccessPreviewSessions => Set<AccessPreviewSessionRecord>();
+    public DbSet<PushSubscriptionRecord> PushSubscriptions => Set<PushSubscriptionRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -224,6 +225,20 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
                 .WithMany()
                 .HasForeignKey(history => history.ProjectTaskId)
                 .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<PushSubscriptionRecord>(entity =>
+        {
+            entity.ToTable("PushSubscriptions");
+            entity.HasIndex(subscription => subscription.Endpoint).IsUnique();
+            entity.HasIndex(subscription => subscription.AppUserId);
+            entity.Property(subscription => subscription.Endpoint).HasMaxLength(2048).IsRequired();
+            entity.Property(subscription => subscription.P256dh).HasMaxLength(256).IsRequired();
+            entity.Property(subscription => subscription.Auth).HasMaxLength(128).IsRequired();
+            entity.HasOne(subscription => subscription.User)
+                .WithMany(user => user.PushSubscriptions)
+                .HasForeignKey(subscription => subscription.AppUserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<AccessPreviewSessionRecord>(entity =>

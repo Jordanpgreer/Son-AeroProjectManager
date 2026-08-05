@@ -214,6 +214,19 @@ public static partial class SqliteCompatibility
             );
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_AccessPreviewSessions_TokenHash" ON "AccessPreviewSessions" ("TokenHash");
             CREATE INDEX IF NOT EXISTS "IX_AccessPreviewSessions_ApplicationId_SessionExpiresAt" ON "AccessPreviewSessions" ("ApplicationId", "SessionExpiresAt");
+            CREATE TABLE IF NOT EXISTS "PushSubscriptions" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_PushSubscriptions" PRIMARY KEY AUTOINCREMENT,
+                "AppUserId" INTEGER NOT NULL,
+                "Endpoint" TEXT NOT NULL,
+                "P256dh" TEXT NOT NULL,
+                "Auth" TEXT NOT NULL,
+                "ExpirationTime" TEXT NULL,
+                "CreatedAt" TEXT NOT NULL,
+                "UpdatedAt" TEXT NOT NULL,
+                CONSTRAINT "FK_PushSubscriptions_Users_AppUserId" FOREIGN KEY ("AppUserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_PushSubscriptions_Endpoint" ON "PushSubscriptions" ("Endpoint");
+            CREATE INDEX IF NOT EXISTS "IX_PushSubscriptions_AppUserId" ON "PushSubscriptions" ("AppUserId");
             """;
 
         var connection = db.Database.GetDbConnection();

@@ -4,6 +4,8 @@ import type { ReactNode } from 'react'
 import {
   Archive,
   Bell,
+  BellOff,
+  BellRing,
   CalendarRange,
   ChevronDown,
   Check,
@@ -38,6 +40,7 @@ import type {
   MentionNotification,
 } from '../types'
 import type { AppTheme } from '../theme'
+import { usePushNotifications } from '../push-notifications'
 
 function hasPermission(user: User | null, permission: string) {
   return Boolean(user?.permissions?.includes(permission))
@@ -154,6 +157,10 @@ function NotificationsMenu({
   const rootRef = useRef<HTMLDivElement>(null)
   const knownNotificationIdsRef = useRef<Set<number>>(new Set())
   const notificationsInitializedRef = useRef(false)
+  const push = usePushNotifications({
+    registered: Boolean(user?.isRegistered),
+    previewReadOnly: Boolean(user?.preview?.readOnly),
+  })
 
   const dismissToast = (notificationId: number) => {
     setToasts((current) => current.filter((notification) => notification.id !== notificationId))
@@ -272,6 +279,13 @@ function NotificationsMenu({
               </button>
             )}
           </header>
+          <DesktopNotificationControl
+            status={push.status}
+            message={push.message}
+            onEnable={() => void push.enable()}
+            onDisable={() => void push.disable()}
+            onRetry={() => void push.refresh()}
+          />
           <div className="notification-list" aria-live="polite">
             {loading ? (
               <div className="notification-state">Loading notifications...</div>
@@ -323,6 +337,83 @@ function NotificationsMenu({
           ))}
         </aside>
       )}
+      {push.invitationOpen && (
+        <DesktopNotificationInvitation
+          onEnable={() => void push.enable()}
+          onDismiss={push.dismissInvitation}
+        />
+      )}
+    </div>
+  )
+}
+
+function DesktopNotificationInvitation({
+  onEnable,
+  onDismiss,
+}: {
+  onEnable: () => void
+  onDismiss: () => void
+}) {
+  return (
+    <section className="desktop-notification-invitation" role="dialog" aria-labelledby="desktop-notification-invitation-title" aria-describedby="desktop-notification-invitation-description">
+      <span className="desktop-notification-invitation-icon" aria-hidden="true"><BellRing size={20} /></span>
+      <div>
+        <span className="kicker">Project mentions</span>
+        <h2 id="desktop-notification-invitation-title">Receive desktop notifications?</h2>
+        <p id="desktop-notification-invitation-description">Project Tracker can notify you through Windows when someone mentions you, even while this tab is in the background.</p>
+      </div>
+      <div className="desktop-notification-invitation-actions">
+        <button className="button primary" type="button" onClick={onEnable}>Enable notifications</button>
+        <button className="button ghost" type="button" onClick={onDismiss}>Not now</button>
+      </div>
+    </section>
+  )
+}
+
+function DesktopNotificationControl({
+  status,
+  message,
+  onEnable,
+  onDisable,
+  onRetry,
+}: {
+  status: ReturnType<typeof usePushNotifications>['status']
+  message: string | null
+  onEnable: () => void
+  onDisable: () => void
+  onRetry: () => void
+}) {
+  const copy = {
+    checking: ['Checking desktop notifications', 'Your in-app notifications still work.'],
+    unsupported: ['Desktop notifications unavailable', 'This browser does not support web push. In-app notifications will still appear.'],
+    insecure: ['HTTPS required', 'Open Project Tracker over HTTPS to enable Windows desktop notifications.'],
+    preview: ['Unavailable during access preview', 'Return to your own account before changing desktop notification settings.'],
+    denied: ['Notifications blocked by the browser', 'Allow notifications for this site in browser settings, then retry.'],
+    disabled: ['Desktop notifications are off', 'Enable them to receive mentions while Project Tracker is in the background.'],
+    enabled: ['Desktop notifications are on', 'Mentions can appear through Windows even when this tab is in the background.'],
+    working: ['Updating desktop notifications', 'Please keep this window open for a moment.'],
+    error: ['Desktop notifications need attention', message ?? 'The setting could not be updated.'],
+  } satisfies Record<typeof status, [string, string]>
+  const [title, description] = copy[status]
+
+  return (
+    <div className={`desktop-notification-control ${status}`} aria-live="polite">
+      <span className="desktop-notification-icon" aria-hidden="true">
+        {status === 'enabled' ? <BellRing size={16} /> : <BellOff size={16} />}
+      </span>
+      <span className="desktop-notification-copy">
+        <strong>{title}</strong>
+        <span>{description}</span>
+      </span>
+      {status === 'disabled' && (
+        <button className="button ghost" type="button" onClick={onEnable}>Enable</button>
+      )}
+      {status === 'enabled' && (
+        <button className="button ghost" type="button" onClick={onDisable}>Turn off</button>
+      )}
+      {(status === 'denied' || status === 'error') && (
+        <button className="button ghost" type="button" onClick={onRetry}>Retry</button>
+      )}
     </div>
   )
 }
@@ -339,7 +430,7 @@ function NotificationToast({
   const dismissRef = useRef(onDismiss)
   dismissRef.current = onDismiss
   useEffect(() => {
-    const timeout = window.setTimeout(() => dismissRef.current(), 5_000)
+    const timeout = window.setTimeout(() => dismissRef.current(), 8_000)
     return () => window.clearTimeout(timeout)
   }, [notification.id])
 

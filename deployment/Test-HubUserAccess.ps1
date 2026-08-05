@@ -10,6 +10,18 @@ param(
     [ValidateSet('http', 'https')]
     [string]$Scheme = 'http',
 
+    [ValidateRange(1, 65535)]
+    [int]$ProjectTrackerHttpsPort = 6135,
+
+    [ValidateRange(1, 65535)]
+    [int]$PortalHttpsPort = 6140,
+
+    [ValidateRange(1, 65535)]
+    [int]$EngineeringHttpsPort = 6150,
+
+    [ValidateRange(1, 65535)]
+    [int]$EstimatingHttpsPort = 6160,
+
     [Parameter(Mandatory = $true)]
     [string]$ExpectedAccountName,
 
@@ -277,14 +289,15 @@ if ($ExpectedEstimatingRole -eq 'NoAccess' -and
 }
 
 $modules = @(
-    [pscustomobject]@{ Key = 'portal'; Name = 'Portal'; Port = 5140; DenialCode = '' },
-    [pscustomobject]@{ Key = 'project-tracker'; Name = 'Project Tracker'; Port = 5135; DenialCode = '' },
-    [pscustomobject]@{ Key = 'engineering'; Name = 'Engineering'; Port = 5150; DenialCode = 'ModuleAccessDenied' },
-    [pscustomobject]@{ Key = 'estimating'; Name = 'Estimating'; Port = 5160; DenialCode = 'EstimatingAccessDenied' }
+    [pscustomobject]@{ Key = 'portal'; Name = 'Portal'; HttpPort = 5140; HttpsPort = $PortalHttpsPort; DenialCode = '' },
+    [pscustomobject]@{ Key = 'project-tracker'; Name = 'Project Tracker'; HttpPort = 5135; HttpsPort = $ProjectTrackerHttpsPort; DenialCode = '' },
+    [pscustomobject]@{ Key = 'engineering'; Name = 'Engineering'; HttpPort = 5150; HttpsPort = $EngineeringHttpsPort; DenialCode = 'ModuleAccessDenied' },
+    [pscustomobject]@{ Key = 'estimating'; Name = 'Estimating'; HttpPort = 5160; HttpsPort = $EstimatingHttpsPort; DenialCode = 'EstimatingAccessDenied' }
 )
 
 $report = foreach ($module in $modules) {
-    $baseUri = '{0}://{1}:{2}' -f $Scheme, $ServerName, $module.Port
+    $selectedPort = if ($Scheme -eq 'https') { $module.HttpsPort } else { $module.HttpPort }
+    $baseUri = '{0}://{1}:{2}' -f $Scheme, $ServerName, $selectedPort
     $health = Invoke-HubRequest -Uri "$baseUri/api/health"
     if ($health.StatusCode -ne 200) {
         $failures.Add("$($module.Name) health failed: HTTP $($health.StatusCode) $($health.Error)")

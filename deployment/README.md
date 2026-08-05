@@ -15,6 +15,11 @@ backup readiness), follow [production-rollout.md](production-rollout.md) in orde
 Production settings are in [`templates`](templates). No passwords, live secrets, or certificates
 belong in Git.
 
+After a trusted HTTPS endpoint is operational, use
+`Configure-ProjectTrackerWebPush.ps1` to generate or install the VAPID pair in Project Tracker's
+server-only IIS environment and verify the public-key endpoint. Run its `-WhatIf` mode first. The
+production settings template stays disabled and never contains the private key.
+
 To build the approved employee workstation ZIP:
 
 ```powershell

@@ -10,6 +10,18 @@ param(
     [ValidateSet('http', 'https')]
     [string]$Scheme = 'http',
 
+    [ValidateRange(1, 65535)]
+    [int]$ProjectTrackerHttpsPort = 6135,
+
+    [ValidateRange(1, 65535)]
+    [int]$PortalHttpsPort = 6140,
+
+    [ValidateRange(1, 65535)]
+    [int]$EngineeringHttpsPort = 6150,
+
+    [ValidateRange(1, 65535)]
+    [int]$EstimatingHttpsPort = 6160,
+
     [ValidateRange(5, 600)]
     [int]$HealthTimeoutSeconds = 120,
 
@@ -63,17 +75,18 @@ if (-not $WhatIfPreference -and -not (Test-IsAdministrator)) {
 }
 
 $sites = @(
-    [pscustomobject]@{ Name = 'ProjectTracker'; Port = 5135 },
-    [pscustomobject]@{ Name = 'SonAeroPortal'; Port = 5140 },
-    [pscustomobject]@{ Name = 'EngineeringHub'; Port = 5150 },
-    [pscustomobject]@{ Name = 'EstimatingDashboard'; Port = 5160 }
+    [pscustomobject]@{ Name = 'ProjectTracker'; HttpPort = 5135; HttpsPort = $ProjectTrackerHttpsPort },
+    [pscustomobject]@{ Name = 'SonAeroPortal'; HttpPort = 5140; HttpsPort = $PortalHttpsPort },
+    [pscustomobject]@{ Name = 'EngineeringHub'; HttpPort = 5150; HttpsPort = $EngineeringHttpsPort },
+    [pscustomobject]@{ Name = 'EstimatingDashboard'; HttpPort = 5160; HttpsPort = $EstimatingHttpsPort }
 )
 $gateway = [pscustomobject]@{
     Pool = 'ProjectTrackerAdminGateway'
     Site = 'SonAeroPortal'
     ApplicationPath = '/project-tracker-api'
     HealthPath = '/project-tracker-api/api/health'
-    Port = 5140
+    HttpPort = 5140
+    HttpsPort = $PortalHttpsPort
 }
 
 $getWindowsFeature = Get-Command Get-WindowsFeature -ErrorAction SilentlyContinue
@@ -165,8 +178,9 @@ if (-not $StartupRecoveryOnly) {
         }
 
         $powerShellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-        $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -ExpectedComputerName "{1}" -Scheme {2} -HealthTimeoutSeconds 300 -StartupRecoveryOnly' -f `
-            $installedScriptPath, $ExpectedComputerName, $Scheme
+        $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -ExpectedComputerName "{1}" -Scheme {2} -ProjectTrackerHttpsPort {3} -PortalHttpsPort {4} -EngineeringHttpsPort {5} -EstimatingHttpsPort {6} -HealthTimeoutSeconds 300 -StartupRecoveryOnly' -f `
+            $installedScriptPath, $ExpectedComputerName, $Scheme, $ProjectTrackerHttpsPort, `
+            $PortalHttpsPort, $EngineeringHttpsPort, $EstimatingHttpsPort
         $action = New-ScheduledTaskAction -Execute $powerShellPath -Argument $arguments
         $trigger = New-ScheduledTaskTrigger -AtStartup
         $trigger.Delay = 'PT45S'
@@ -196,7 +210,8 @@ if ((Get-WebAppPoolState -Name $gateway.Pool).Value -ne 'Started') {
 }
 
 $results = foreach ($site in $sites) {
-    $healthUri = '{0}://{1}:{2}/api/health' -f $Scheme, $ExpectedComputerName, $site.Port
+    $selectedPort = if ($Scheme -eq 'https') { $site.HttpsPort } else { $site.HttpPort }
+    $healthUri = '{0}://{1}:{2}/api/health' -f $Scheme, $ExpectedComputerName, $selectedPort
     $response = Wait-ForHealth -Uri $healthUri -TimeoutSeconds $HealthTimeoutSeconds
     [pscustomobject]@{
         Site = $site.Name
@@ -207,7 +222,8 @@ $results = foreach ($site in $sites) {
     }
 }
 
-$gatewayHealthUri = '{0}://{1}:{2}{3}' -f $Scheme, $ExpectedComputerName, $gateway.Port, $gateway.HealthPath
+$gatewayPort = if ($Scheme -eq 'https') { $gateway.HttpsPort } else { $gateway.HttpPort }
+$gatewayHealthUri = '{0}://{1}:{2}{3}' -f $Scheme, $ExpectedComputerName, $gatewayPort, $gateway.HealthPath
 $gatewayResponse = Wait-ForHealth -Uri $gatewayHealthUri -TimeoutSeconds $HealthTimeoutSeconds
 $results += [pscustomobject]@{
     Site = $gateway.Pool

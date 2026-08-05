@@ -99,6 +99,42 @@ function projectMetadataFrom(project: ProjectDetail | null): ProjectMetadataDraf
   }
 }
 
+type NotificationDestination = {
+  notificationId: number | null
+  projectId: number
+  kind: MentionNotification['kind'] | null
+  taskId: number | null
+}
+
+function readNotificationDestination(): NotificationDestination | null {
+  const url = new URL(window.location.href)
+  const projectId = Number(url.searchParams.get('notificationProjectId'))
+  if (!Number.isSafeInteger(projectId) || projectId <= 0) return null
+
+  const kindValue = url.searchParams.get('notificationKind')
+  const kind = kindValue === 'ProjectChatMention' || kindValue === 'OperationNoteMention'
+    ? kindValue
+    : null
+  const taskIdValue = Number(url.searchParams.get('notificationTaskId'))
+  const notificationIdValue = Number(url.searchParams.get('notificationId'))
+
+  return {
+    notificationId: Number.isSafeInteger(notificationIdValue) && notificationIdValue > 0 ? notificationIdValue : null,
+    projectId,
+    kind,
+    taskId: Number.isSafeInteger(taskIdValue) && taskIdValue > 0 ? taskIdValue : null,
+  }
+}
+
+function clearNotificationDestination() {
+  const url = new URL(window.location.href)
+  url.searchParams.delete('notificationProjectId')
+  url.searchParams.delete('notificationKind')
+  url.searchParams.delete('notificationTaskId')
+  url.searchParams.delete('notificationId')
+  window.history.replaceState(window.history.state, '', url)
+}
+
 function App() {
   const [theme, setTheme] = useState(() => readThemePreference())
   const [user, setUser] = useState<User | null>(null)
@@ -311,14 +347,32 @@ function App() {
       ])
       setUser(me)
       setDashboard(data)
-      if (data.projects.length > 0) {
+      const notificationDestination = readNotificationDestination()
+      if (notificationDestination) {
+        setScreen('project')
+        await openProject(notificationDestination.projectId, false)
+        if (notificationDestination.kind === 'ProjectChatMention') {
+          setActivityOpen(false)
+          setChatOpen(true)
+        } else if (notificationDestination.taskId) {
+          setNotificationTaskId(notificationDestination.taskId)
+        }
+        if (notificationDestination.notificationId && !me.preview?.readOnly) {
+          try {
+            await api<void>(`/api/notifications/${notificationDestination.notificationId}/read`, { method: 'POST' })
+          } catch {
+            // Opening the destination remains useful even if read-state synchronization fails.
+          }
+        }
+        clearNotificationDestination()
+      } else if (data.projects.length > 0) {
         const storedProjectId = readStoredProjectId()
         const projectId = storedProjectId && data.projects.some((project) => project.id === storedProjectId)
           ? storedProjectId
           : data.projects[0].id
         if (screen === 'project') await openProject(projectId, false)
       }
-      if (screen !== 'project') await loadScreenData(screen)
+      if (!notificationDestination && screen !== 'project') await loadScreenData(screen)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load tracker data.')
     } finally {

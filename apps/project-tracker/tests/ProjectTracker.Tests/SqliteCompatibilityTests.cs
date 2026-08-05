@@ -136,6 +136,52 @@ public sealed class SqliteCompatibilityTests
         }
     }
 
+    [Fact]
+    public async Task EnsureAccessControlTables_CreatesPushSubscriptionsForLegacyDatabases()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"project-tracker-push-{Guid.NewGuid():N}.db");
+        try
+        {
+            await using (var connection = new SqliteConnection($"Data Source={databasePath}"))
+            {
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                command.CommandText = """
+                    CREATE TABLE "Users" (
+                        "Id" INTEGER NOT NULL CONSTRAINT "PK_Users" PRIMARY KEY AUTOINCREMENT,
+                        "AccountName" TEXT NOT NULL,
+                        "DisplayName" TEXT NOT NULL,
+                        "Role" TEXT NOT NULL,
+                        "IsActive" INTEGER NOT NULL DEFAULT 1,
+                        "LastSeenAt" TEXT NOT NULL
+                    );
+                    """;
+                await command.ExecuteNonQueryAsync();
+            }
+            var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>()
+                .UseSqlite($"Data Source={databasePath}").Options;
+            await using (var db = new ProjectTrackerDbContext(options))
+            {
+                await SqliteCompatibility.EnsureAccessControlTablesAsync(db, CancellationToken.None);
+            }
+
+            await using var check = new SqliteConnection($"Data Source={databasePath}");
+            await check.OpenAsync();
+            await using var tableCheck = check.CreateCommand();
+            tableCheck.CommandText = """
+                SELECT COUNT(*) FROM sqlite_schema
+                WHERE (type = 'table' AND name = 'PushSubscriptions')
+                   OR (type = 'index' AND name IN ('IX_PushSubscriptions_Endpoint', 'IX_PushSubscriptions_AppUserId'));
+                """;
+            Assert.Equal(3, Convert.ToInt32(await tableCheck.ExecuteScalarAsync()));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            File.Delete(databasePath);
+        }
+    }
+
     private static async Task CreateMalformedLegacyDatabaseAsync(string databasePath)
     {
         await using var connection = new SqliteConnection($"Data Source={databasePath}");

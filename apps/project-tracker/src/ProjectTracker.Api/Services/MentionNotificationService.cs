@@ -6,9 +6,9 @@ using SonAero.Platform.Security;
 
 namespace ProjectTracker.Api.Services;
 
-public sealed partial class MentionNotificationService
+public sealed partial class MentionNotificationService(IPushNotificationQueue? pushQueue = null)
 {
-    public async Task AddForProjectMessageAsync(
+    public async Task<IReadOnlyList<UserNotification>> AddForProjectMessageAsync(
         ProjectTrackerDbContext db,
         ProjectMessage message,
         string projectName,
@@ -17,9 +17,10 @@ public sealed partial class MentionNotificationService
         CancellationToken cancellationToken = default)
     {
         var recipients = await FindRecipientsAsync(db, message.Body, actorAccountName, null, cancellationToken);
+        var created = new List<UserNotification>();
         foreach (var recipient in recipients)
         {
-            db.UserNotifications.Add(new UserNotification
+            var notification = new UserNotification
             {
                 RecipientUserId = recipient.Id,
                 ProjectId = message.ProjectId,
@@ -29,11 +30,14 @@ public sealed partial class MentionNotificationService
                 ActorDisplayName = actorDisplayName,
                 Title = $"{actorDisplayName} mentioned you in {projectName}",
                 BodyPreview = Preview(message.Body)
-            });
+            };
+            db.UserNotifications.Add(notification);
+            created.Add(notification);
         }
+        return created;
     }
 
-    public async Task AddForOperationNoteAsync(
+    public async Task<IReadOnlyList<UserNotification>> AddForOperationNoteAsync(
         ProjectTrackerDbContext db,
         ProjectTask task,
         string projectName,
@@ -45,9 +49,10 @@ public sealed partial class MentionNotificationService
     {
         var existingHandles = ExtractHandles(previousNote);
         var recipients = await FindRecipientsAsync(db, note, actorAccountName, existingHandles, cancellationToken);
+        var created = new List<UserNotification>();
         foreach (var recipient in recipients)
         {
-            db.UserNotifications.Add(new UserNotification
+            var notification = new UserNotification
             {
                 RecipientUserId = recipient.Id,
                 ProjectId = task.ProjectId,
@@ -57,7 +62,19 @@ public sealed partial class MentionNotificationService
                 ActorDisplayName = actorDisplayName,
                 Title = $"{actorDisplayName} mentioned you in {projectName}",
                 BodyPreview = $"{task.Title}: {Preview(note)}"
-            });
+            };
+            db.UserNotifications.Add(notification);
+            created.Add(notification);
+        }
+        return created;
+    }
+
+    public void DispatchAfterPersistence(IEnumerable<UserNotification> notifications)
+    {
+        if (pushQueue is null) return;
+        foreach (var notification in notifications.Where(notification => notification.Id > 0))
+        {
+            pushQueue.TryEnqueue(notification.Id);
         }
     }
 

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Negotiate;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using System.Text.Json.Serialization;
 using ProjectTracker.Api.Auth;
 using ProjectTracker.Api.Configuration;
@@ -22,6 +23,14 @@ builder.Services.AddScoped<ProjectTrackerAccessPreviewService>();
 builder.Services.AddScoped<ProjectAuditService>();
 builder.Services.AddScoped<MentionNotificationService>();
 builder.Services.AddScoped<NotificationReadService>();
+builder.Services.AddScoped<PushSubscriptionService>();
+builder.Services.AddOptions<WebPushOptions>()
+    .Bind(builder.Configuration.GetSection(WebPushOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<WebPushOptions>, WebPushOptionsValidator>();
+builder.Services.AddSingleton<IPushNotificationQueue, PushNotificationQueue>();
+builder.Services.AddSingleton<IWebPushSender, WebPushSender>();
+builder.Services.AddHostedService<PushNotificationWorker>();
 builder.Services.AddScoped<AccessControlSeeder>();
 builder.Services.AddScoped<ModuleAccessService>();
 builder.Services.AddSingleton<ScheduleCalculator>();
@@ -144,6 +153,7 @@ api.MapArchivedProjectEndpoints();
 api.MapUserEndpoints();
 api.MapModuleAccessEndpoints();
 api.MapNotificationEndpoints();
+api.MapPushNotificationEndpoints();
 api.MapReportEndpoints();
 api.MapImportEndpoints();
 
@@ -217,7 +227,7 @@ api.MapPost("/projects/{id:int}/messages", async (int id, ProjectMessageCreateDt
         Body = body
     };
     db.ProjectMessages.Add(message);
-    await notifications.AddForProjectMessageAsync(
+    var mentionNotifications = await notifications.AddForProjectMessageAsync(
         db,
         message,
         project.ProgramName,
@@ -225,6 +235,7 @@ api.MapPost("/projects/{id:int}/messages", async (int id, ProjectMessageCreateDt
         currentUser.DisplayName,
         cancellationToken);
     await db.SaveChangesAsync(cancellationToken);
+    notifications.DispatchAfterPersistence(mentionNotifications);
     return Results.Created($"/api/projects/{id}/messages/{message.Id}", ToMessageDto(message));
 });
 
@@ -573,9 +584,10 @@ api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertD
             .Where(field => !string.IsNullOrWhiteSpace(field.Value))
             .Select(field => new ProjectAuditChange(field.Key, null, field.Value))
             .ToList());
+    IReadOnlyList<UserNotification> mentionNotifications = [];
     if (!string.IsNullOrWhiteSpace(task.Notes))
     {
-        await notifications.AddForOperationNoteAsync(
+        mentionNotifications = await notifications.AddForOperationNoteAsync(
             db,
             task,
             project.ProgramName,
@@ -586,6 +598,7 @@ api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertD
             cancellationToken);
     }
     await db.SaveChangesAsync(cancellationToken);
+    notifications.DispatchAfterPersistence(mentionNotifications);
     return Results.Created($"/api/projects/{projectId}", ToTaskDto(task));
 }).RequireAuthorization("TaskCreate");
 
@@ -637,9 +650,10 @@ api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectT
     {
         audit.Record(db, task.Project, "OperationUpdated", $"Updated operation {task.Sequence}: {task.Title}", changes, task.Id);
     }
+    IReadOnlyList<UserNotification> mentionNotifications = [];
     if (!string.Equals(previousNote, task.Notes, StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(task.Notes))
     {
-        await notifications.AddForOperationNoteAsync(
+        mentionNotifications = await notifications.AddForOperationNoteAsync(
             db,
             task,
             task.Project.ProgramName,
@@ -650,6 +664,7 @@ api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectT
             cancellationToken);
     }
     await db.SaveChangesAsync(cancellationToken);
+    notifications.DispatchAfterPersistence(mentionNotifications);
     return Results.Ok(ToTaskDto(task));
 }).RequireAuthorization(ProjectTrackerAccessAuthorization.PolicyName);
 

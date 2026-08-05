@@ -288,7 +288,7 @@ After HTTPS is fully configured and tested, rerun the same shortcut script with
 `-HubUri "FINAL_APPROVED_PORTAL_HTTPS_URI"`; it updates the existing shortcut in place. Do not
 assume the current HTTP port `5140` is also an HTTPS endpoint.
 
-## 6. HTTPS: readiness check only for now
+## 6. HTTPS and Web Push prerequisites
 
 Do not create a self-signed production certificate and do not change IIS bindings yet. First obtain
 a certificate from the trusted internal CA that:
@@ -318,11 +318,104 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\SonAero\Test-HubHttp
 
 Required server status: `HTTPS_SERVER_PREREQUISITES_READY_WORKSTATION_TRUST_PENDING`. The script
 never changes bindings. After that result, verify the certificate chain on a representative domain
-workstation. Only then should a separate maintenance-window change select four non-conflicting
-HTTPS bindings (separate ports or approved DNS names/SNI), update CORS and inter-module URLs,
-rebuild the Portal for those exact URLs, verify Windows Authentication on all four `/api/me`
-endpoints, and retarget the shortcut. Keep the current HTTP bindings working while the separate
-HTTPS endpoints are validated; do not replace a working HTTP binding merely to test TLS.
+workstation.
+
+Web Push and service workers require a browser secure context. Consequently, desktop mention
+notifications must remain disabled while employees use the current HTTP endpoints. A successful
+application deployment alone cannot make browser push work over HTTP.
+
+The proposed low-risk binding plan is to keep the proven HTTP bindings and add separate HTTPS
+bindings during an approved maintenance window:
+
+| Application | Existing HTTP | Proposed HTTPS |
+|---|---:|---:|
+| Project Tracker | `5135` | `6135` |
+| Portal | `5140` | `6140` |
+| Engineering | `5150` | `6150` |
+| Estimating | `5160` | `6160` |
+
+This repository deliberately does not automate certificate selection or binding creation. Those
+operations affect machine-level TLS state and require the approved certificate thumbprint, port
+ownership, workstation trust result, and a maintenance window. The binding change must be
+idempotent, must add rather than replace the HTTP bindings, and must open only the four approved
+HTTPS firewall ports. Use `SON-IIS2` as the initial URL host because it is in the required SAN and
+does not introduce a new Windows-authentication SPN alias.
+
+After the four direct HTTPS `/api/health` and `/api/me` checks succeed from a domain workstation:
+
+1. Add `https://SON-IIS2:6140` to Project Tracker's production `Cors:HubOrigins` without removing
+   the HTTP origin during the pilot.
+2. Change the three Portal application URLs to `https://SON-IIS2:6135`, `:6150`, and `:6160`,
+   republish the Portal, and deploy through the immutable release script.
+3. Confirm the same-origin Project Tracker gateway at
+   `https://SON-IIS2:6140/project-tracker-api/api/health`.
+4. Run warm start with `-Scheme https`. The script's HTTPS defaults are the proposed `61xx` ports;
+   override its four `*HttpsPort` parameters if the approved binding plan differs.
+5. Run `Test-HubUserAccess.ps1 -Scheme https` as a real employee. It uses the same HTTPS defaults
+   and accepts the same port overrides.
+6. Retarget the employee shortcut to `https://SON-IIS2:6140` only after all prior checks pass.
+
+Keep the HTTP bindings working until the HTTPS pilot is signed off. Do not repurpose ports
+`5135`-`5160` as HTTPS and do not remove a working binding merely to test TLS.
+
+### Configure Project Tracker Web Push after HTTPS is trusted
+
+`deployment/templates/project-tracker.appsettings.Production.json` intentionally contains only a
+disabled, keyless Web Push block. Never put the VAPID private key in that file, Git, chat, a ticket,
+a screenshot, or a command-line argument. Generate the P-256 VAPID pair once and reuse it across
+normal application releases. Changing the pair invalidates every existing browser subscription.
+
+Copy `Configure-ProjectTrackerWebPush.ps1` to `C:\SonAero` on `SON-IIS2`. The preferred first-time
+path creates the key pair in memory, writes the private key only to IIS configuration, and displays
+only the public key and its SHA-256 fingerprint:
+
+```powershell
+& 'C:\SonAero\Configure-ProjectTrackerWebPush.ps1' `
+  -GenerateKeys `
+  -VapidSubject 'mailto:APP_OWNER@SONAERO.COM' `
+  -VerificationUri 'https://SON-IIS2:6135/api/push/public-key' `
+  -WhatIf
+
+& 'C:\SonAero\Configure-ProjectTrackerWebPush.ps1' `
+  -GenerateKeys `
+  -VapidSubject 'mailto:APP_OWNER@SONAERO.COM' `
+  -VerificationUri 'https://SON-IIS2:6135/api/push/public-key' `
+  -Confirm:$false
+```
+
+Replace the subject with an approved real application-owner address. `-WhatIf` validates the
+operation but deliberately does not generate a throwaway pair; the apply run generates it. The
+preview must end with
+`WHATIF_READY`; the apply run must end with
+`PROJECT_TRACKER_WEB_PUSH_CONFIGURED_AND_HEALTHY`. The script writes the four `WebPush__*` values
+only to Project Tracker's IIS `aspNetCore/environmentVariables` location in
+`applicationHost.config`, restarts only that app pool, checks the HTTPS public-key endpoint, and
+restores the prior values if verification fails. IIS configuration backups now contain the private
+key and must be protected as secrets; server administrators can read it. Record the displayed
+public key and fingerprint in the operations record. The private key exists only in the protected
+IIS configuration and its protected backups.
+
+If an approved VAPID pair already exists, omit `-GenerateKeys`, enter the private key via
+`Read-Host -AsSecureString`, and pass `-VapidPublicKey`, `-VapidPrivateKey`, and `-VapidSubject`.
+Never paste the private key directly into the command line.
+
+To turn push off without deleting browser notification records, run:
+
+```powershell
+& 'C:\SonAero\Configure-ProjectTrackerWebPush.ps1' `
+  -Disable `
+  -VerificationUri 'https://SON-IIS2:6135/api/push/public-key' `
+  -Confirm:$false
+```
+
+Finally, sign in as one pilot employee at the HTTPS Project Tracker origin and explicitly enable
+desktop notifications in the application's notification control. Browser permission is per user,
+browser profile, workstation, and origin; an administrator cannot grant it centrally through the
+application. Test a real `@mention` while the browser is closed, click the notification, and verify
+that it opens the correct same-origin project page. Also confirm SON-IIS2 can reach the browser
+push-service endpoints and that Edge/Windows push notifications are not blocked by firewall or
+Group Policy. Do not enable company-wide rollout until both an online and closed-browser mention
+test succeed.
 
 ## 7. Backups: readiness check only until two decisions are supplied
 
