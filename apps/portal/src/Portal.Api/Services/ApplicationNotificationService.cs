@@ -34,13 +34,26 @@ public sealed class ApplicationNotificationService(
             var selfLookupKeys = WindowsAccountNames.LookupKeys(user.AccountName);
             var unreadCount = await db.UserNotifications
                 .AsNoTracking()
+                .Join(
+                    db.NotificationProjects.AsNoTracking().Where(project => project.DeletedAt == null),
+                    notification => notification.ProjectId,
+                    project => project.Id,
+                    (notification, _) => notification)
                 .CountAsync(
                     notification =>
                         notification.RecipientUserId == user.Id
                         && notification.ReadAt == null
                         && !selfLookupKeys.Contains(notification.ActorAccountName.ToUpper())
-                        && ((notification.Kind == ProjectChatMention && notification.ProjectMessageId != null)
-                            || (notification.Kind == OperationNoteMention && notification.ProjectTaskId != null)),
+                        && ((notification.Kind == ProjectChatMention
+                                && notification.ProjectMessageId != null
+                                && db.NotificationMessages.Any(message =>
+                                    message.Id == notification.ProjectMessageId
+                                    && message.ProjectId == notification.ProjectId))
+                            || (notification.Kind == OperationNoteMention
+                                && notification.ProjectTaskId != null
+                                && db.NotificationTasks.Any(task =>
+                                    task.Id == notification.ProjectTaskId
+                                    && task.ProjectId == notification.ProjectId))),
                     cancellationToken);
 
             return unreadCount == 0

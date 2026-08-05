@@ -58,6 +58,7 @@ public static class NotificationEndpoints
             int id,
             ProjectTrackerDbContext db,
             CurrentUserService currentUser,
+            NotificationReadService notificationReader,
             CancellationToken cancellationToken) =>
         {
             var userId = await CurrentUserIdAsync(db, currentUser, cancellationToken);
@@ -66,22 +67,22 @@ public static class NotificationEndpoints
                 return Results.Forbid();
             }
 
-            var notification = await db.UserNotifications.FirstOrDefaultAsync(
-                candidate => candidate.Id == id && candidate.RecipientUserId == userId.Value,
+            var found = await notificationReader.MarkReadAsync(
+                id,
+                userId.Value,
+                currentUser.AccountName,
                 cancellationToken);
-            if (notification is null)
+            if (!found)
             {
                 return Results.NotFound();
             }
-
-            notification.ReadAt ??= DateTimeOffset.UtcNow;
-            await db.SaveChangesAsync(cancellationToken);
             return Results.NoContent();
         });
 
         api.MapPost("/notifications/read-all", async (
             ProjectTrackerDbContext db,
             CurrentUserService currentUser,
+            NotificationReadService notificationReader,
             CancellationToken cancellationToken) =>
         {
             var userId = await CurrentUserIdAsync(db, currentUser, cancellationToken);
@@ -90,16 +91,10 @@ public static class NotificationEndpoints
                 return Results.Forbid();
             }
 
-            var unread = await db.UserNotifications
-                .Where(notification => notification.RecipientUserId == userId.Value && notification.ReadAt == null)
-                .ToListAsync(cancellationToken);
-            var readAt = DateTimeOffset.UtcNow;
-            foreach (var notification in unread)
-            {
-                notification.ReadAt = readAt;
-            }
-
-            await db.SaveChangesAsync(cancellationToken);
+            await notificationReader.MarkAllReadAsync(
+                userId.Value,
+                currentUser.AccountName,
+                cancellationToken);
             return Results.NoContent();
         });
 

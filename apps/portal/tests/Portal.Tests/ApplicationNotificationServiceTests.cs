@@ -32,13 +32,32 @@ public sealed class ApplicationNotificationServiceTests
             IsActive = true
         };
         db.Users.AddRange(currentUser, otherUser);
+        var activeProject = new PortalNotificationProjectRecord();
+        var deletedProject = new PortalNotificationProjectRecord { DeletedAt = DateTimeOffset.UtcNow };
+        db.NotificationProjects.AddRange(activeProject, deletedProject);
+        await db.SaveChangesAsync();
+
+        var activeMessage = new PortalNotificationMessageRecord { ProjectId = activeProject.Id };
+        var readMessage = new PortalNotificationMessageRecord { ProjectId = activeProject.Id };
+        var otherUserMessage = new PortalNotificationMessageRecord { ProjectId = activeProject.Id };
+        var selfMessage = new PortalNotificationMessageRecord { ProjectId = activeProject.Id };
+        var unsupportedMessage = new PortalNotificationMessageRecord { ProjectId = activeProject.Id };
+        var deletedProjectMessage = new PortalNotificationMessageRecord { ProjectId = deletedProject.Id };
+        db.NotificationMessages.AddRange(
+            activeMessage,
+            readMessage,
+            otherUserMessage,
+            selfMessage,
+            unsupportedMessage,
+            deletedProjectMessage);
         await db.SaveChangesAsync();
 
         db.UserNotifications.AddRange(
             new PortalNotificationRecord
             {
                 RecipientUserId = currentUser.Id,
-                ProjectMessageId = 10,
+                ProjectId = activeProject.Id,
+                ProjectMessageId = activeMessage.Id,
                 Kind = "ProjectChatMention",
                 ActorAccountName = otherUser.AccountName,
                 CreatedAt = DateTimeOffset.UtcNow
@@ -46,7 +65,8 @@ public sealed class ApplicationNotificationServiceTests
             new PortalNotificationRecord
             {
                 RecipientUserId = currentUser.Id,
-                ProjectMessageId = 11,
+                ProjectId = activeProject.Id,
+                ProjectMessageId = readMessage.Id,
                 Kind = "ProjectChatMention",
                 ActorAccountName = otherUser.AccountName,
                 CreatedAt = DateTimeOffset.UtcNow,
@@ -55,7 +75,8 @@ public sealed class ApplicationNotificationServiceTests
             new PortalNotificationRecord
             {
                 RecipientUserId = otherUser.Id,
-                ProjectMessageId = 12,
+                ProjectId = activeProject.Id,
+                ProjectMessageId = otherUserMessage.Id,
                 Kind = "ProjectChatMention",
                 ActorAccountName = currentUser.AccountName,
                 CreatedAt = DateTimeOffset.UtcNow
@@ -63,7 +84,8 @@ public sealed class ApplicationNotificationServiceTests
             new PortalNotificationRecord
             {
                 RecipientUserId = currentUser.Id,
-                ProjectMessageId = 13,
+                ProjectId = activeProject.Id,
+                ProjectMessageId = selfMessage.Id,
                 Kind = "ProjectChatMention",
                 ActorAccountName = currentUser.AccountName,
                 CreatedAt = DateTimeOffset.UtcNow
@@ -71,6 +93,7 @@ public sealed class ApplicationNotificationServiceTests
             new PortalNotificationRecord
             {
                 RecipientUserId = currentUser.Id,
+                ProjectId = activeProject.Id,
                 Kind = "ProjectChatMention",
                 ActorAccountName = otherUser.AccountName,
                 CreatedAt = DateTimeOffset.UtcNow
@@ -78,8 +101,27 @@ public sealed class ApplicationNotificationServiceTests
             new PortalNotificationRecord
             {
                 RecipientUserId = currentUser.Id,
-                ProjectMessageId = 14,
+                ProjectId = activeProject.Id,
+                ProjectMessageId = unsupportedMessage.Id,
                 Kind = "UnsupportedLegacyKind",
+                ActorAccountName = otherUser.AccountName,
+                CreatedAt = DateTimeOffset.UtcNow
+            },
+            new PortalNotificationRecord
+            {
+                RecipientUserId = currentUser.Id,
+                ProjectId = activeProject.Id,
+                ProjectMessageId = 999999,
+                Kind = "ProjectChatMention",
+                ActorAccountName = otherUser.AccountName,
+                CreatedAt = DateTimeOffset.UtcNow
+            },
+            new PortalNotificationRecord
+            {
+                RecipientUserId = currentUser.Id,
+                ProjectId = deletedProject.Id,
+                ProjectMessageId = deletedProjectMessage.Id,
+                Kind = "ProjectChatMention",
                 ActorAccountName = otherUser.AccountName,
                 CreatedAt = DateTimeOffset.UtcNow
             });
@@ -113,11 +155,17 @@ public sealed class ApplicationNotificationServiceTests
             IsActive = false
         };
         db.Users.Add(user);
+        var project = new PortalNotificationProjectRecord();
+        db.NotificationProjects.Add(project);
+        await db.SaveChangesAsync();
+        var message = new PortalNotificationMessageRecord { ProjectId = project.Id };
+        db.NotificationMessages.Add(message);
         await db.SaveChangesAsync();
         db.UserNotifications.Add(new PortalNotificationRecord
         {
             RecipientUserId = user.Id,
-            ProjectMessageId = 10,
+            ProjectId = project.Id,
+            ProjectMessageId = message.Id,
             Kind = "ProjectChatMention",
             ActorAccountName = @"SONAERO\Active.User",
             CreatedAt = DateTimeOffset.UtcNow
