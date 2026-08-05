@@ -15,6 +15,17 @@ backup readiness), follow [production-rollout.md](production-rollout.md) in orde
 Production settings are in [`templates`](templates). No passwords, live secrets, or certificates
 belong in Git.
 
+To build the approved employee workstation ZIP:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
+  .\deployment\New-EmployeeHubInstallerPackage.ps1
+```
+
+The ignored output is `deployment\artifacts\SonAero-Hub-Employee-Installer.zip`. Assign the
+employee's roles centrally before distributing it. On the employee computer, use **Extract All**
+and then double-click `Install Son-Aero Hub.cmd`; do not run the launcher from inside the ZIP.
+
 To build all four applications from the repository root:
 
 ```powershell

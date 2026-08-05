@@ -215,10 +215,34 @@ Admin Console assignment or the stated expectation, then rerun it. Do not bypass
 ## 5. Install the employee desktop shortcut
 
 Only start this section after the default-deny release is healthy and the intended employee's role
-test passes. Use `Install-EmployeeHubShortcut.ps1` with `son-aero.ico`; it creates an all-users
-desktop URL shortcut and can be rerun safely.
+test passes. The employee ZIP creates an all-users desktop shortcut and can be rerun safely. It
+checks Hub health and the signed-in employee's Portal identity before requesting elevation; only
+the shortcut write runs elevated.
 
-### One-computer local test
+### Double-click employee ZIP
+
+Build the ZIP from a trusted repository checkout:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
+  .\deployment\New-EmployeeHubInstallerPackage.ps1
+```
+
+Distribute `deployment\artifacts\SonAero-Hub-Employee-Installer.zip` only to approved pilot
+computers. On each employee computer:
+
+1. Sign into Windows as the intended employee.
+2. Right-click the ZIP and choose **Extract All**. Running from inside the compressed-folder view
+   is not supported.
+3. Open the extracted folder and double-click `Install Son-Aero Hub.cmd`.
+4. Approve the UAC prompt or supply approved workstation-administrator credentials.
+5. Require the final message `SONAERO_HUB_EMPLOYEE_INSTALL_COMPLETE`.
+
+The ZIP does not assign roles and does not change server settings. The administrator must still
+assign roles in the Admin Console first. The generic identity check also does not replace the exact
+`Test-HubUserAccess.ps1` role verification required for initial pilots.
+
+### Manual one-computer fallback
 
 Put both files in `C:\Temp\SonAero`, open PowerShell as Administrator, and run:
 
