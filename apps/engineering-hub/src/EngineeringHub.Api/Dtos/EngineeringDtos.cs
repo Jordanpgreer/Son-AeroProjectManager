@@ -4,7 +4,8 @@ public sealed record MeDto(
     string AccountName,
     string DisplayName,
     string Role,
-    IReadOnlyList<string> Permissions);
+    IReadOnlyList<string> Permissions,
+    IReadOnlyList<string> Groups);
 
 public sealed record EngineeringModuleDto(
     string Id,

@@ -15,6 +15,7 @@ public sealed class EngineeringSchemaInitializer(EngineeringDbContext db)
         else if (db.Database.IsSqlServer())
             await EnsureSqlServerSchemaAsync(cancellationToken);
 
+        await BackfillLegacyRevisionDocumentsAsync(cancellationToken);
         await EnsureSingleMylarConstraintAsync(cancellationToken);
         await BackfillLegacyMylarAsync(cancellationToken);
     }
@@ -49,11 +50,35 @@ public sealed class EngineeringSchemaInitializer(EngineeringDbContext db)
             await db.Database.ExecuteSqlRawAsync(
                 """ALTER TABLE "DrawingMylars" ADD COLUMN "Version" INTEGER NOT NULL DEFAULT 0;""",
                 cancellationToken);
+        if (!await SqliteColumnExistsAsync("DrawingDocumentLinks", "DrawingRevisionId", cancellationToken))
+            await db.Database.ExecuteSqlRawAsync(
+                """ALTER TABLE "DrawingDocumentLinks" ADD COLUMN "DrawingRevisionId" INTEGER NULL;""",
+                cancellationToken);
 
         await db.Database.ExecuteSqlRawAsync(
             """
             CREATE INDEX IF NOT EXISTS "IX_MylarTransactions_DrawingMylarId"
                 ON "MylarTransactions" ("DrawingMylarId");
+            CREATE INDEX IF NOT EXISTS "IX_DrawingDocumentLinks_DrawingRevisionId"
+                ON "DrawingDocumentLinks" ("DrawingRevisionId");
+            CREATE TRIGGER IF NOT EXISTS "TR_DrawingDocumentLinks_Revision_Insert"
+            BEFORE INSERT ON "DrawingDocumentLinks"
+            WHEN NEW."DrawingRevisionId" IS NOT NULL
+                AND NOT EXISTS (
+                    SELECT 1 FROM "DrawingRevisions"
+                    WHERE "Id" = NEW."DrawingRevisionId" AND "DrawingId" = NEW."DrawingId")
+            BEGIN
+                SELECT RAISE(ABORT, 'The supporting document revision does not belong to this drawing.');
+            END;
+            CREATE TRIGGER IF NOT EXISTS "TR_DrawingDocumentLinks_Revision_Update"
+            BEFORE UPDATE OF "DrawingRevisionId", "DrawingId" ON "DrawingDocumentLinks"
+            WHEN NEW."DrawingRevisionId" IS NOT NULL
+                AND NOT EXISTS (
+                    SELECT 1 FROM "DrawingRevisions"
+                    WHERE "Id" = NEW."DrawingRevisionId" AND "DrawingId" = NEW."DrawingId")
+            BEGIN
+                SELECT RAISE(ABORT, 'The supporting document revision does not belong to this drawing.');
+            END;
             CREATE TRIGGER IF NOT EXISTS "TR_MylarTransactions_NumberedMylar_Insert"
             BEFORE INSERT ON "MylarTransactions"
             WHEN NEW."DrawingMylarId" IS NOT NULL
@@ -127,6 +152,23 @@ public sealed class EngineeringSchemaInitializer(EngineeringDbContext db)
             IF COL_LENGTH(N'DrawingMylars', N'Version') IS NULL
                 ALTER TABLE [DrawingMylars] ADD [Version] bigint NOT NULL CONSTRAINT [DF_DrawingMylars_Version_Upgrade] DEFAULT 0;
 
+            IF COL_LENGTH(N'DrawingDocumentLinks', N'DrawingRevisionId') IS NULL
+                ALTER TABLE [DrawingDocumentLinks] ADD [DrawingRevisionId] int NULL;
+
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.foreign_keys
+                WHERE [name] = N'FK_DrawingDocumentLinks_DrawingRevisions_DrawingRevisionId')
+                ALTER TABLE [DrawingDocumentLinks] WITH CHECK
+                    ADD CONSTRAINT [FK_DrawingDocumentLinks_DrawingRevisions_DrawingRevisionId]
+                    FOREIGN KEY ([DrawingRevisionId]) REFERENCES [DrawingRevisions] ([Id]);
+
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.indexes
+                WHERE [name] = N'IX_DrawingDocumentLinks_DrawingRevisionId'
+                    AND [object_id] = OBJECT_ID(N'[DrawingDocumentLinks]'))
+                CREATE INDEX [IX_DrawingDocumentLinks_DrawingRevisionId]
+                    ON [DrawingDocumentLinks] ([DrawingRevisionId]);
+
             IF NOT EXISTS (
                 SELECT 1 FROM sys.foreign_keys
                 WHERE [name] = N'FK_MylarTransactions_DrawingMylars_DrawingMylarId')
@@ -142,6 +184,42 @@ public sealed class EngineeringSchemaInitializer(EngineeringDbContext db)
                     ON [MylarTransactions] ([DrawingMylarId]);
             """,
             cancellationToken);
+    }
+
+    private async Task BackfillLegacyRevisionDocumentsAsync(CancellationToken cancellationToken)
+    {
+        if (db.Database.IsSqlite())
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                UPDATE "DrawingDocumentLinks"
+                SET "DrawingRevisionId" = COALESCE(
+                    (SELECT "CurrentApprovedRevisionId" FROM "Drawings"
+                     WHERE "Drawings"."Id" = "DrawingDocumentLinks"."DrawingId"),
+                    (SELECT "Id" FROM "DrawingRevisions"
+                     WHERE "DrawingRevisions"."DrawingId" = "DrawingDocumentLinks"."DrawingId"
+                     ORDER BY "UploadedAt" DESC, "Id" DESC LIMIT 1))
+                WHERE "Kind" = 'SupplementalDocument' AND "DrawingRevisionId" IS NULL;
+                """,
+                cancellationToken);
+        }
+        else if (db.Database.IsSqlServer())
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                UPDATE links
+                SET [DrawingRevisionId] = COALESCE(
+                    drawings.[CurrentApprovedRevisionId],
+                    (SELECT TOP (1) revisions.[Id]
+                     FROM [DrawingRevisions] revisions
+                     WHERE revisions.[DrawingId] = links.[DrawingId]
+                     ORDER BY revisions.[UploadedAt] DESC, revisions.[Id] DESC))
+                FROM [DrawingDocumentLinks] links
+                INNER JOIN [Drawings] drawings ON drawings.[Id] = links.[DrawingId]
+                WHERE links.[Kind] = N'SupplementalDocument' AND links.[DrawingRevisionId] IS NULL;
+                """,
+                cancellationToken);
+        }
     }
 
     private async Task EnsureSingleMylarConstraintAsync(CancellationToken cancellationToken)

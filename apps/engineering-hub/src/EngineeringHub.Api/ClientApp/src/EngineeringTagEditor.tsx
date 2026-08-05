@@ -7,11 +7,13 @@ export default function EngineeringTagEditor({
   label,
   initialValues = [],
   placeholder,
+  disabled = false,
 }: {
   name: string
   label: string
   initialValues?: string[]
   placeholder: string
+  disabled?: boolean
 }) {
   const inputId = useId()
   const hiddenInputRef = useRef<HTMLInputElement>(null)
@@ -59,7 +61,7 @@ export default function EngineeringTagEditor({
       <div className="engineering-tag-list" aria-label={`${label} applied`}>
         {tags.map(tag => <span className="engineering-tag" key={tag}>
           {tag}
-          <button type="button" aria-label={`Remove ${tag}`} onClick={() => setTags(current => current.filter(value => value !== tag))}><X size={12}/></button>
+          {!disabled && <button type="button" aria-label={`Remove ${tag}`} onClick={() => setTags(current => current.filter(value => value !== tag))}><X size={12}/></button>}
         </span>)}
       </div>
       <div className="engineering-tag-entry">
@@ -71,10 +73,11 @@ export default function EngineeringTagEditor({
           onBlur={() => addTag()}
           placeholder={placeholder}
           aria-label={`Add ${label.toLocaleLowerCase()}`}
+          disabled={disabled}
         />
-        <button type="button" disabled={!draft.trim()} onMouseDown={event => event.preventDefault()} onClick={() => addTag()}><Plus size={14}/> Add tag</button>
+        <button type="button" disabled={disabled || !draft.trim()} onMouseDown={event => event.preventDefault()} onClick={() => addTag()}><Plus size={14}/> Add tag</button>
       </div>
-      <small>Press Enter or comma to add each specification.</small>
+      <small>{disabled ? 'Your Engineering group can view these tags but cannot change them.' : 'Press Enter or comma to add each specification.'}</small>
     </div>
   </div>
 }

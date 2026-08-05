@@ -40,8 +40,13 @@ public sealed class EngineeringDbContext(DbContextOptions<EngineeringDbContext> 
         });
         modelBuilder.Entity<DrawingPart>().HasIndex(x => new { x.DrawingId, x.PartNumber }).IsUnique();
         modelBuilder.Entity<DrawingPart>().HasOne(x => x.Drawing).WithMany(x => x.Parts).HasForeignKey(x => x.DrawingId).OnDelete(DeleteBehavior.Cascade);
-        modelBuilder.Entity<DrawingDocumentLink>().Property(x => x.Kind).HasConversion<string>().HasMaxLength(40);
-        modelBuilder.Entity<DrawingDocumentLink>().HasOne(x => x.Drawing).WithMany(x => x.DocumentLinks).HasForeignKey(x => x.DrawingId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<DrawingDocumentLink>(entity =>
+        {
+            entity.Property(x => x.Kind).HasConversion<string>().HasMaxLength(40);
+            entity.HasIndex(x => x.DrawingRevisionId);
+            entity.HasOne(x => x.Drawing).WithMany(x => x.DocumentLinks).HasForeignKey(x => x.DrawingId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.DrawingRevision).WithMany(x => x.DocumentLinks).HasForeignKey(x => x.DrawingRevisionId).OnDelete(DeleteBehavior.Restrict);
+        });
         modelBuilder.Entity<DrawingValidation>().HasOne(x => x.Drawing).WithMany(x => x.Validations).HasForeignKey(x => x.DrawingId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<DrawingMylar>(entity =>
         {

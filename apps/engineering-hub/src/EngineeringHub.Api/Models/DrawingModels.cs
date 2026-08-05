@@ -61,6 +61,7 @@ public sealed class DrawingRevision
     public string? ApprovalComments { get; set; }
     public DateTime? SupersededOrObsoleteAt { get; set; }
     public string? Notes { get; set; }
+    public List<DrawingDocumentLink> DocumentLinks { get; set; } = [];
 }
 
 public sealed class DrawingPart
@@ -76,6 +77,8 @@ public sealed class DrawingDocumentLink
     public int Id { get; set; }
     public int DrawingId { get; set; }
     public Drawing Drawing { get; set; } = null!;
+    public int? DrawingRevisionId { get; set; }
+    public DrawingRevision? DrawingRevision { get; set; }
     public DrawingDocumentKind Kind { get; set; }
     public required string ReferenceNumber { get; set; }
     public string? Title { get; set; }

@@ -8,6 +8,7 @@ import ActionFeedbackDialog from './ActionFeedbackDialog'
 import type { ActionFeedback } from './ActionFeedbackDialog'
 import { DRAWING_FILE_ACCEPT, SUPPLEMENTAL_FILE_ACCEPT, EngineeringDatePicker, FilePicker, RevisionUploadForm } from './EngineeringFormControls'
 import EngineeringTagEditor from './EngineeringTagEditor'
+import { engineeringPermissionKeys, hasEngineeringPermission } from './permissions'
 
 interface DrawingList {
   id: number; drawingNumber: string; title: string; customer: string; partNumbers: string[]; approvalStatus: string
@@ -22,7 +23,7 @@ interface Revision {
   uploadedBy: string; approvedBy: string | null
   approvalComments: string | null; notes: string | null
 }
-interface DocumentLink { id: number; kind: string; referenceNumber: string; title: string | null; location: string | null }
+interface DocumentLink { id: number; drawingRevisionId: number | null; kind: string; referenceNumber: string; title: string | null; location: string | null }
 interface Audit { id: number; revisionNumber: string | null; action: string; details: string; actor: string; occurredAt: string }
 interface DrawingMetadataSnapshot {
   Title?: string | null
@@ -75,8 +76,7 @@ interface DrawingWorkspaceProps {
   archiveRequest: number
   auditRequest: number
   actorName: string
-  canEdit: boolean
-  canAdmin: boolean
+  permissions: string[]
 }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -217,14 +217,14 @@ function metadataChanges(item: Audit): AuditMetadataChange[] | null {
   const [before, after] = snapshots
   const fields = [
     { label: 'Title', before: readableValue(before.Title), after: readableValue(after.Title) },
-    { label: 'Customer', before: readableValue(before.Customer), after: readableValue(after.Customer) },
+    { label: 'Design authority', before: readableValue(before.Customer), after: readableValue(after.Customer) },
     { label: 'Part numbers', before: readableList(before.Parts), after: readableList(after.Parts) },
     { label: 'Notes', before: readableValue(before.Notes), after: readableValue(after.Notes) },
     { label: 'Mylar location', before: readableValue(before.PhysicalMylarLocation), after: readableValue(after.PhysicalMylarLocation) },
     { label: 'Specifications', before: readableList(linkReferences(before.Links, 'Specification')), after: readableList(linkReferences(after.Links, 'Specification')) },
     { label: 'Work orders', before: readableList(linkReferences(before.Links, 'WorkOrder')), after: readableList(linkReferences(after.Links, 'WorkOrder')) },
     { label: 'Work instructions', before: readableList(linkReferences(before.Links, 'WorkInstruction')), after: readableList(linkReferences(after.Links, 'WorkInstruction')) },
-    { label: 'Supplemental documents', before: readableList(linkReferences(before.Links, 'SupplementalDocument')), after: readableList(linkReferences(after.Links, 'SupplementalDocument')) },
+    { label: 'Supporting documents', before: readableList(linkReferences(before.Links, 'SupplementalDocument')), after: readableList(linkReferences(after.Links, 'SupplementalDocument')) },
   ]
   return fields.filter(field => field.before !== field.after)
 }
@@ -243,9 +243,27 @@ export default function DrawingWorkspace({
   archiveRequest,
   auditRequest,
   actorName,
-  canEdit,
-  canAdmin,
+  permissions,
 }: DrawingWorkspaceProps) {
+  const can = (permission: string) => hasEngineeringPermission(permissions, permission)
+  const canCreateDrawing = can(engineeringPermissionKeys.drawingCreate)
+  const canEditDrawingMetadata = can(engineeringPermissionKeys.drawingMetadataEdit)
+  const canEditSpecifications = can(engineeringPermissionKeys.specificationsEdit)
+  const canOpenMetadataEditor = canEditDrawingMetadata || canEditSpecifications
+  const canArchiveDrawing = can(engineeringPermissionKeys.drawingArchive)
+  const canDeleteDrawing = can(engineeringPermissionKeys.drawingDelete)
+  const canCreateRevision = can(engineeringPermissionKeys.revisionCreate)
+  const canEditRevision = can(engineeringPermissionKeys.revisionEdit)
+  const canSubmitRevision = can(engineeringPermissionKeys.revisionSubmit)
+  const canApproveRevision = can(engineeringPermissionKeys.revisionApprove)
+  const canMakeRevisionCurrent = can(engineeringPermissionKeys.revisionMakeCurrent)
+  const canDeleteRevision = can(engineeringPermissionKeys.revisionDelete)
+  const canViewSpecifications = can(engineeringPermissionKeys.specificationsView)
+  const canViewSupportingDocuments = can(engineeringPermissionKeys.supportingDocumentsView)
+  const canManageSupportingDocuments = can(engineeringPermissionKeys.supportingDocumentsManage)
+  const canViewMylar = can(engineeringPermissionKeys.mylarView)
+  const canManageMylar = can(engineeringPermissionKeys.mylarManage)
+  const canViewAudit = can(engineeringPermissionKeys.auditView)
   const [selected, setSelected] = useState<DrawingDetail | null>(null)
   const [showCreate, setShowCreate] = useState(initialCreate)
   const [recordLoading, setRecordLoading] = useState(false)
@@ -328,9 +346,9 @@ export default function DrawingWorkspace({
       openDrawingIdRef.current = null
       setSelected(null)
       setRecordLoading(false)
-      setShowCreate(initialCreate && canEdit)
+      setShowCreate(initialCreate && canCreateDrawing)
     }
-  }, [drawingId, initialCreate, canEdit])
+  }, [drawingId, initialCreate, canCreateDrawing])
   useEffect(() => {
     onRecordChange(selected ? {
       drawingNumber: selected.drawingNumber,
@@ -359,7 +377,7 @@ export default function DrawingWorkspace({
       return
     }
     handledEditRequest.current = editRequest
-    if (canEdit && selected && !selected.isObsolete) {
+    if (canOpenMetadataEditor && selected && !selected.isObsolete) {
       setShowEdit(current => {
         const next = !current
         if (next) {
@@ -368,23 +386,23 @@ export default function DrawingWorkspace({
         return next
       })
     }
-  }, [canEdit, editRequest, selected])
+  }, [canOpenMetadataEditor, editRequest, selected])
   useEffect(() => {
     if (archiveRequest <= handledArchiveRequest.current) {
       handledArchiveRequest.current = archiveRequest
       return
     }
     handledArchiveRequest.current = archiveRequest
-    if (canEdit && selected && !selected.isObsolete) setShowArchive(true)
-  }, [archiveRequest, canEdit, selected])
+    if (canArchiveDrawing && selected && !selected.isObsolete) setShowArchive(true)
+  }, [archiveRequest, canArchiveDrawing, selected])
   useEffect(() => {
     if (auditRequest <= handledAuditRequest.current) {
       handledAuditRequest.current = auditRequest
       return
     }
     handledAuditRequest.current = auditRequest
-    if (selected) setAuditOpen(true)
-  }, [auditRequest, selected])
+    if (canViewAudit && selected) setAuditOpen(true)
+  }, [auditRequest, canViewAudit, selected])
   useEffect(() => {
     if (!showArchive && !activateTarget && !editRevisionTarget && !auditOpen && !showRevisionUpload && !showMylarCustody) return
     const previousOverflow = document.body.style.overflow
@@ -474,12 +492,14 @@ export default function DrawingWorkspace({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: form.get('title'),
-          customer: form.get('customer'),
-          partNumbers: commaValues(form.get('partNumbers')),
-          notes: form.get('notes'),
+          title: canEditDrawingMetadata ? form.get('title') : selected.title,
+          customer: canEditDrawingMetadata ? form.get('customer') : selected.customer,
+          partNumbers: canEditDrawingMetadata ? commaValues(form.get('partNumbers')) : selected.partNumbers,
+          notes: canEditDrawingMetadata ? form.get('notes') : selected.notes,
           physicalMylarLocation: selected.physicalMylarLocation,
-          relatedDocuments: linksFromForm(form),
+          relatedDocuments: canEditSpecifications
+            ? linksFromForm(form)
+            : null,
         }),
       })
       setShowEdit(false)
@@ -496,7 +516,7 @@ export default function DrawingWorkspace({
     const label = String(form.get('label') ?? '').trim()
     const document = form.get('document')
     if (!label || !(document instanceof File) || document.size === 0) {
-      setSupplementalError('Add a label and select a supplemental document before uploading.')
+      setSupplementalError('Add a label and select a supporting document before uploading.')
       return
     }
 
@@ -513,11 +533,11 @@ export default function DrawingWorkspace({
       await refresh()
       setFeedback({
         kind: 'success',
-        title: 'Supplemental document uploaded',
-        message: `${label} was added to ${selected.drawingNumber} and is now available from the drawing record.`,
+        title: 'Supporting document uploaded',
+        message: `${label} was added to Revision ${activeRevision?.revisionNumber ?? ''} of ${selected.drawingNumber}.`,
       })
     } catch (cause) {
-      setSupplementalError(cause instanceof Error ? cause.message : 'Unable to upload the supplemental document.')
+      setSupplementalError(cause instanceof Error ? cause.message : 'Unable to upload the supporting document.')
     } finally {
       setBusy(false)
       setUploadProgress(null)
@@ -603,7 +623,7 @@ export default function DrawingWorkspace({
       !revisionNumber && 'revision number',
       !revisionDate && 'revision date',
       (!(pdf instanceof File) || pdf.size === 0) && 'drawing file',
-      !changeDescription && 'change description',
+      !changeDescription && 'revision change summary',
     ].filter(Boolean) as string[]
     if (missingFields.length) {
       setFeedback({
@@ -721,7 +741,7 @@ export default function DrawingWorkspace({
     const missing = [
       !revisionNumber && 'revision number',
       !revisionDate && 'revision date',
-      !changeDescription && 'change description',
+      !changeDescription && 'revision change summary',
       submitForApproval && !target.hasPdf && (!(pdf instanceof File) || pdf.size === 0) && 'drawing file',
     ].filter(Boolean) as string[]
     if (missing.length) {
@@ -890,19 +910,20 @@ export default function DrawingWorkspace({
     ? selected?.mylarHistory.find(item => item.mylarId === mylar.id) ?? null
     : null
   const specificationTags = selected ? linkValuesOfKind(selected, 'Specification') : []
-  const supplementalDocuments = selected?.relatedDocuments.filter(link => link.kind === 'SupplementalDocument') ?? []
+  const supplementalDocuments = selected?.relatedDocuments.filter(link =>
+    link.kind === 'SupplementalDocument' && link.drawingRevisionId === activeRevision?.id) ?? []
 
   return <div className="drawing-workspace">
     {error && <div className="inline-alert" role="alert">{error}<button type="button" onClick={() => setError(null)}><X size={15}/></button></div>}
 
     {uploadProgress !== null && <div className="upload-progress" role="status"><span style={{ width: `${uploadProgress}%` }}/><strong>{uploadProgress}%</strong><small>Transferring controlled file package</small></div>}
 
-    {canEdit && showCreate && <form className="panel record-form" onSubmit={createDrawing}>
+    {canCreateDrawing && showCreate && <form className="panel record-form" onSubmit={createDrawing}>
       <div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Controlled drawing creation</span><h2>Create drawing record</h2><p>Record the drawing's current revision and optionally attach its current PDF or image file. Future changes are added through the revision workflow.</p></div></div>
       <div className="form-grid">
-        <label>Drawing number<input name="drawingNumber" required/></label><label>Title<input name="title" required/></label>
-        <label>Customer<input name="customer" required/></label><label>Linked part numbers<input name="partNumbers" placeholder="PN-1001, PN-1002"/></label>
-        <EngineeringTagEditor name="specifications" label="Specification tags" placeholder="Example: SPEC-100"/>
+        <label>Drawing number<input name="drawingNumber" required/></label><label>Title / description<input name="title" required/></label>
+        <label>Design authority<input name="customer" required/></label><label>Linked part numbers<input name="partNumbers" placeholder="PN-1001, PN-1002"/></label>
+        {canEditSpecifications && <EngineeringTagEditor name="specifications" label="Specification tags" placeholder="Example: SPEC-100"/>}
         <label>Current revision<input name="revisionNumber" placeholder="A" required/></label>
         <EngineeringDatePicker name="effectiveDate" label="Effective date"/>
         <FilePicker name="pdf" label="Upload current drawing file (PDF or image)" accept={DRAWING_FILE_ACCEPT} className="wide"/>
@@ -916,15 +937,21 @@ export default function DrawingWorkspace({
       <div className="skeleton-line"/>
       <div className="skeleton-line" style={{ width: '58%' }}/>
     </article> : !selected && !showCreate ? <article className="panel drawing-empty"><FileText size={30}/><h2>No drawing selected</h2><p>Return to the drawing register to search and open a controlled record.</p><button className="button ghost" type="button" onClick={onBackToDashboard}>Open drawing register</button></article> : selected ? <article className="drawing-detail">
-        {canAdmin && selected.approvalStatus === 'Draft' && selected.revisions.length === 0 && <div className="record-destructive-actions"><button className="button danger" type="button" onClick={requestDrawingDelete}><Trash2 size={14}/> Delete draft</button></div>}
+        {canDeleteDrawing && selected.approvalStatus === 'Draft' && selected.revisions.length === 0 && <div className="record-destructive-actions"><button className="button danger" type="button" onClick={requestDrawingDelete}><Trash2 size={14}/> Delete draft</button></div>}
 
-        {canEdit && showEdit && <form id="drawing-metadata-editor" className="panel record-form metadata-edit-form" onSubmit={updateDrawing}>
+        {canOpenMetadataEditor && showEdit && <form id="drawing-metadata-editor" className="panel record-form metadata-edit-form" onSubmit={updateDrawing}>
           <div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Audited metadata update</span><h2>Edit drawing record</h2></div></div>
           <div className="form-grid">
-            <label>Title<input name="title" defaultValue={selected.title} required/></label><label>Customer<input name="customer" defaultValue={selected.customer} required/></label>
-            <label>Part numbers<input name="partNumbers" defaultValue={selected.partNumbers.join(', ')}/></label>
-            <EngineeringTagEditor name="specifications" label="Specification tags" initialValues={linkValuesOfKind(selected, 'Specification')} placeholder="Example: SPEC-100"/>
-            <label className="wide">Notes<textarea name="notes" rows={3} defaultValue={selected.notes ?? ''}/></label>
+            <label>Title / description<input name="title" defaultValue={selected.title} required disabled={!canEditDrawingMetadata}/></label><label>Design authority<input name="customer" defaultValue={selected.customer} required disabled={!canEditDrawingMetadata}/></label>
+            <label>Part numbers<input name="partNumbers" defaultValue={selected.partNumbers.join(', ')} disabled={!canEditDrawingMetadata}/></label>
+            {canViewSpecifications && <EngineeringTagEditor
+              name="specifications"
+              label="Specification tags"
+              initialValues={linkValuesOfKind(selected, 'Specification')}
+              placeholder="Example: SPEC-100"
+              disabled={!canEditSpecifications}
+            />}
+            <label className="wide">Notes<textarea name="notes" rows={3} defaultValue={selected.notes ?? ''} disabled={!canEditDrawingMetadata}/></label>
           </div>
           <div className="form-actions"><button className="button" disabled={busy}>Save Changes</button><button className="button ghost" type="button" onClick={() => setShowEdit(false)}>Cancel</button></div>
         </form>}
@@ -933,7 +960,7 @@ export default function DrawingWorkspace({
           <div>
             <h2>Drawing workspace</h2>
           </div>
-          {canEdit && !selected.isObsolete && <button className="button drawing-upload-button" type="button" onClick={openRevisionUpload}>
+          {canCreateRevision && !selected.isObsolete && <button className="button drawing-upload-button" type="button" onClick={openRevisionUpload}>
             <FilePlus2 size={15}/> Upload revision
           </button>}
         </section>
@@ -967,7 +994,7 @@ export default function DrawingWorkspace({
                 </dl>
               </div>
 
-              {canEdit && activeRevision.status === 'UnderReview' && <label className="drawing-review-comment">
+              {canApproveRevision && activeRevision.status === 'UnderReview' && <label className="drawing-review-comment">
                 <span>Reviewer comment</span>
                 <textarea value={reviewComments[activeRevision.id] ?? ''} onChange={event => setReviewComments(current => ({ ...current, [activeRevision.id]: event.target.value }))} placeholder="Add a disposition note for this review"/>
               </label>}
@@ -979,7 +1006,7 @@ export default function DrawingWorkspace({
                 {activeRevision.hasPdf && <a className="button ghost" href={`/api/drawing-revisions/${activeRevision.id}/file`} target="_blank" rel="noreferrer">
                   <ArrowRight size={14}/> Open file
                 </a>}
-                {canEdit && <button className="button ghost revision-edit-button" type="button" disabled={busy} onClick={() => openRevisionEditor(activeRevision)}>
+                {canEditRevision && <button className="button ghost revision-edit-button" type="button" disabled={busy} onClick={() => openRevisionEditor(activeRevision)}>
                   <Pencil size={14}/> Edit revision
                 </button>}
                 {activeRevision.hasPdf && controlledFolderHref(activeRevision.controlledFilePath) && <a
@@ -989,7 +1016,7 @@ export default function DrawingWorkspace({
                 >
                   <FolderOpen size={14}/> Open folder
                 </a>}
-                {canEdit && activeRevision.hasPdf && (activeRevision.status === 'Superseded' || activeRevision.status === 'Obsolete') && <button
+                {canMakeRevisionCurrent && activeRevision.hasPdf && (activeRevision.status === 'Superseded' || activeRevision.status === 'Obsolete') && <button
                   className="button ghost revision-make-current"
                   type="button"
                   disabled={busy}
@@ -997,12 +1024,10 @@ export default function DrawingWorkspace({
                 >
                   <CheckCircle2 size={14}/> Make current
                 </button>}
-                {canEdit && activeRevision.status === 'Draft' && <button className="button ghost" type="button" disabled={busy || !activeRevision.hasPdf} title={!activeRevision.hasPdf ? 'Attach a drawing file before review.' : undefined} onClick={() => void setRevisionStatus(activeRevision, 'UnderReview')}>Submit review</button>}
-                {canEdit && activeRevision.status === 'UnderReview' && <>
-                  <button className="button ghost" type="button" disabled={busy} onClick={() => void setRevisionStatus(activeRevision, 'Draft')}>Return to draft</button>
-                  <button className="button" type="button" disabled={busy || !activeRevision.hasPdf} onClick={() => void approveRevision(activeRevision)}><CheckCircle2 size={14}/> Approve</button>
-                </>}
-                {canAdmin && activeRevision.id !== selected.currentApprovedRevisionId && activeRevision.status !== 'Approved' && <button className="button danger" type="button" disabled={busy} onClick={() => requestRevisionDelete(activeRevision)}><Trash2 size={14}/> Delete</button>}
+                {canSubmitRevision && activeRevision.status === 'Draft' && <button className="button ghost" type="button" disabled={busy || !activeRevision.hasPdf} title={!activeRevision.hasPdf ? 'Attach a drawing file before review.' : undefined} onClick={() => void setRevisionStatus(activeRevision, 'UnderReview')}>Submit review</button>}
+                {canEditRevision && activeRevision.status === 'UnderReview' && <button className="button ghost" type="button" disabled={busy} onClick={() => void setRevisionStatus(activeRevision, 'Draft')}>Return to draft</button>}
+                {canApproveRevision && activeRevision.status === 'UnderReview' && <button className="button" type="button" disabled={busy || !activeRevision.hasPdf} onClick={() => void approveRevision(activeRevision)}><CheckCircle2 size={14}/> Approve</button>}
+                {canDeleteRevision && activeRevision.id !== selected.currentApprovedRevisionId && activeRevision.status !== 'Approved' && <button className="button danger" type="button" disabled={busy} onClick={() => requestRevisionDelete(activeRevision)}><Trash2 size={14}/> Delete</button>}
               </div>
 
               <div className={`drawing-pdf-stage ${previewedRevision?.id === activeRevision.id ? 'is-previewing' : ''}`}>
@@ -1025,7 +1050,7 @@ export default function DrawingWorkspace({
               <span aria-hidden="true"><FilePlus2 size={29}/></span>
               <strong>No revisions recorded</strong>
               <p>Upload the first controlled drawing file to begin permanent revision history.</p>
-              {canEdit && !selected.isObsolete && <button className="button" type="button" onClick={openRevisionUpload}><FilePlus2 size={14}/> Upload first revision</button>}
+              {canCreateRevision && !selected.isObsolete && <button className="button" type="button" onClick={openRevisionUpload}><FilePlus2 size={14}/> Upload first revision</button>}
             </div>}
           </section>
 
@@ -1058,7 +1083,7 @@ export default function DrawingWorkspace({
             </div> : <div className="drawing-history-empty"><History size={22}/><strong>No revision history</strong><p>The first uploaded revision will appear here.</p></div>}
           </aside>
 
-          <section className={`panel drawing-mylar-card ${!mylar ? 'is-unregistered' : mylar.isCheckedOut ? 'is-out' : 'is-in'}`} aria-labelledby="drawing-mylar-title">
+          {canViewMylar && <section className={`panel drawing-mylar-card ${!mylar ? 'is-unregistered' : mylar.isCheckedOut ? 'is-out' : 'is-in'}`} aria-labelledby="drawing-mylar-title">
             <header className="drawing-mylar-card-header">
               <h2 id="drawing-mylar-title">Mylar custody</h2>
               <span className="drawing-mylar-state"><i aria-hidden="true"/>{!mylar
@@ -1086,8 +1111,8 @@ export default function DrawingWorkspace({
               </dl> : <dl className="drawing-mylar-empty-history">
                 <div><dt>Custody history</dt><dd>{selected.mylarHistory.length} retained record{selected.mylarHistory.length === 1 ? '' : 's'}</dd></div>
               </dl>}
-              {(canEdit || mylar) && <button className="button ghost drawing-mylar-button" type="button" onClick={openMylarCustody}>
-                {!canEdit
+              {(canManageMylar || mylar) && <button className="button ghost drawing-mylar-button" type="button" onClick={openMylarCustody}>
+                {!canManageMylar
                   ? <><MapPin size={14}/> View custody</>
                   : !mylar
                     ? <><FilePlus2 size={14}/> Register Mylar</>
@@ -1096,24 +1121,24 @@ export default function DrawingWorkspace({
                       : <><LogOut size={14}/> Check out Mylar</>}
               </button>}
             </div>
-          </section>
+          </section>}
 
-          <details className="panel drawing-reference-panel">
+          {(canViewSpecifications || canViewSupportingDocuments) && <details className="panel drawing-reference-panel">
             <summary className="drawing-reference-header">
-              <div><span className="eyebrow">Linked engineering information</span><h2>Specifications and supplemental documents</h2></div>
+              <div><span className="eyebrow">Revision support</span><h2>Specifications and supporting documents</h2></div>
               <span className="drawing-reference-summary-count">{specificationTags.length + supplementalDocuments.length} linked <ChevronDown size={16}/></span>
             </summary>
             <div className="drawing-reference-grid">
-              <article className="drawing-specification-card">
+              {canViewSpecifications && <article className="drawing-specification-card">
                 <header><h3>Specification tags</h3><span>{specificationTags.length}</span></header>
                 {specificationTags.length ? <div className="drawing-spec-tags">
                   {specificationTags.map(specification => <span key={specification}>{specification}</span>)}
                 </div> : <p>No specification tags applied.</p>}
-                {canEdit && !selected.isObsolete && <small>Use Edit metadata to add or remove specification tags.</small>}
-              </article>
+                {canEditSpecifications && !selected.isObsolete && <small>Use Edit metadata to add or remove specification tags.</small>}
+              </article>}
 
-              <article className="drawing-supplemental-card">
-                <header><h3>Supplemental documents</h3><span>{supplementalDocuments.length}</span></header>
+              {canViewSupportingDocuments && <article className="drawing-supplemental-card">
+                <header><h3>Revision {activeRevision?.revisionNumber ?? '—'} supporting documents</h3><span>{supplementalDocuments.length}</span></header>
                 {supplementalDocuments.length ? <div className="drawing-supplemental-list">
                   {supplementalDocuments.map(document => <div key={document.id}>
                     <span><strong>{document.referenceNumber}</strong><small title={document.title ?? undefined}>{document.title ?? 'Legacy document reference'}</small></span>
@@ -1121,21 +1146,22 @@ export default function DrawingWorkspace({
                       ? <a className="button ghost" href={`/api/drawing-documents/${document.id}/file`} target="_blank" rel="noreferrer"><ArrowRight size={13}/> Open</a>
                       : <em>Reference only</em>}
                   </div>)}
-                </div> : <p>No supplemental documents attached.</p>}
+                </div> : <p>No supporting documents are attached to this revision.</p>}
 
-                {canEdit && !selected.isObsolete && <form className="supplemental-upload-form" onSubmit={uploadSupplementalDocument}>
+                {canManageSupportingDocuments && !selected.isObsolete && activeRevision && activeRevision.status !== 'Approved' && activeRevision.status !== 'Superseded' && activeRevision.status !== 'Obsolete' && <form className="supplemental-upload-form" onSubmit={uploadSupplementalDocument}>
+                  <input type="hidden" name="revisionId" value={activeRevision.id}/>
                   <label><span>Document label</span><input name="label" required placeholder="Example: Stress analysis"/></label>
-                  <FilePicker name="document" label="Supplemental file" accept={SUPPLEMENTAL_FILE_ACCEPT} required/>
+                  <FilePicker name="document" label="Supporting file" accept={SUPPLEMENTAL_FILE_ACCEPT} required/>
                   {supplementalError && <div className="inline-alert" role="alert">{supplementalError}</div>}
                   <button className="button" type="submit" disabled={busy}><FilePlus2 size={14}/>{busy ? 'Uploading...' : 'Upload document'}</button>
                 </form>}
-              </article>
+              </article>}
             </div>
-          </details>
+          </details>}
           </div>
         </div>
 
-        {canEdit && showRevisionUpload && <div className="revision-upload-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) closeRevisionUpload() }}>
+        {canCreateRevision && showRevisionUpload && <div className="revision-upload-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) closeRevisionUpload() }}>
           <section ref={revisionUploadDialogRef} className="revision-upload-dialog" role="dialog" aria-modal="true" aria-labelledby="revision-upload-title" aria-describedby="revision-upload-description">
             <header className="revision-upload-header">
               <span className="revision-upload-icon" aria-hidden="true"><FilePlus2 size={20}/></span>
@@ -1147,7 +1173,17 @@ export default function DrawingWorkspace({
               <button autoFocus type="button" className="delete-dialog-close" aria-label="Close revision upload" disabled={busy} onClick={closeRevisionUpload}><X size={18}/></button>
             </header>
             <div className="revision-upload-body">
-              <RevisionUploadForm busy={busy} onSubmit={uploadRevision} onCancel={closeRevisionUpload}/>
+              <RevisionUploadForm
+                busy={busy}
+                onSubmit={uploadRevision}
+                onCancel={closeRevisionUpload}
+                sourceRevisionNumber={activeRevision?.revisionNumber}
+                supportingDocuments={(canManageSupportingDocuments ? supplementalDocuments : []).map(document => ({
+                  id: document.id,
+                  label: document.referenceNumber,
+                  fileName: document.title,
+                }))}
+              />
             </div>
           </section>
         </div>}
@@ -1170,7 +1206,7 @@ export default function DrawingWorkspace({
                   <p>Registration establishes the Mylar’s identity and initial checked-in storage location for this drawing.</p>
                 </header>
 
-                {canEdit && !selected.isObsolete ? <form className="mylar-register-form" onSubmit={registerMylar}>
+                {canManageMylar && !selected.isObsolete ? <form className="mylar-register-form" onSubmit={registerMylar}>
                   <div className="mylar-action-fields">
                     <label><span>Mylar number</span><input autoFocus name="mylarNumber" required placeholder="MY-001"/></label>
                     <label><span>Initial storage location</span><input name="location" required placeholder="Cabinet and slot"/></label>
@@ -1208,7 +1244,7 @@ export default function DrawingWorkspace({
                   </dl>
                 </div>
 
-                {!canEdit ? null : selected.isObsolete && !mylar.isCheckedOut ? <div className="mylar-archived-notice">
+                {!canManageMylar ? null : selected.isObsolete && !mylar.isCheckedOut ? <div className="mylar-archived-notice">
                   <Archive size={17}/>
                   <div><strong>Archived drawing</strong><p>This Mylar remains in custody history and cannot be checked out again.</p></div>
                 </div> : <form
@@ -1271,7 +1307,7 @@ export default function DrawingWorkspace({
 
       </article> : null}
 
-    {canEdit && showArchive && selected && <div className="archive-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) closeArchiveDialog() }}>
+    {canArchiveDrawing && showArchive && selected && <div className="archive-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) closeArchiveDialog() }}>
       <section className="archive-dialog" role="dialog" aria-modal="true" aria-labelledby="archive-dialog-title" aria-describedby="archive-dialog-description">
         <header className="archive-dialog-header">
           <span className="archive-dialog-icon"><Archive size={21}/></span>
@@ -1296,7 +1332,7 @@ export default function DrawingWorkspace({
       </section>
     </div>}
 
-    {canEdit && activateTarget && selected && <div className="archive-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) closeActivationDialog() }}>
+    {canMakeRevisionCurrent && activateTarget && selected && <div className="archive-dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) closeActivationDialog() }}>
       <section className="archive-dialog activation-dialog" role="dialog" aria-modal="true" aria-labelledby="activation-dialog-title" aria-describedby="activation-dialog-description">
         <header className="archive-dialog-header">
           <span className="activation-dialog-icon"><CheckCircle2 size={21}/></span>
@@ -1318,7 +1354,7 @@ export default function DrawingWorkspace({
       </section>
     </div>}
 
-    {canEdit && editRevisionTarget && <div className="revision-edit-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) closeRevisionEditor() }}>
+    {canEditRevision && editRevisionTarget && <div className="revision-edit-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) closeRevisionEditor() }}>
       <section className="revision-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="revision-edit-title">
         <header className="revision-edit-header">
           <span className="revision-edit-icon" aria-hidden="true"><Pencil size={20}/></span>
@@ -1347,7 +1383,7 @@ export default function DrawingWorkspace({
               accept={DRAWING_FILE_ACCEPT}
               className="wide"
             />
-            <label className="wide">Change description<textarea name="changeDescription" defaultValue={editRevisionTarget.changeDescription} required rows={2}/></label>
+            <label className="wide">Revision change summary<textarea name="changeDescription" defaultValue={editRevisionTarget.changeDescription} required rows={2}/></label>
             <label className="wide">Notes<textarea name="notes" defaultValue={editRevisionTarget.notes ?? ''} rows={2}/></label>
           </div>
           {revisionEditError && <div className="inline-alert" role="alert">{revisionEditError}</div>}
@@ -1356,15 +1392,15 @@ export default function DrawingWorkspace({
             <button type="submit" name="revisionIntent" value="draft" className="button ghost revision-save-draft" disabled={busy}>
               <Pencil size={15}/>{busy && revisionSaveIntent === 'draft' ? 'Saving…' : 'Save as draft'}
             </button>
-            <button type="submit" name="revisionIntent" value="approval" className="button revision-submit-approval" disabled={busy}>
+            {canSubmitRevision && <button type="submit" name="revisionIntent" value="approval" className="button revision-submit-approval" disabled={busy}>
               <CheckCircle2 size={15}/>{busy && revisionSaveIntent === 'approval' ? 'Submitting…' : 'Submit for approval'}
-            </button>
+            </button>}
           </div>
         </form>
       </section>
     </div>}
 
-    {auditOpen && selected && <div className="audit-drawer-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) closeAuditDrawer() }}>
+    {canViewAudit && auditOpen && selected && <div className="audit-drawer-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) closeAuditDrawer() }}>
       <aside ref={auditDrawerRef} className="audit-drawer" role="dialog" aria-modal="true" aria-labelledby="audit-drawer-title">
         <header className="audit-drawer-header">
           <span className="audit-drawer-icon" aria-hidden="true"><History size={19}/></span>

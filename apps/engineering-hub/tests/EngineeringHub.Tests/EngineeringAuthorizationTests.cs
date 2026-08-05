@@ -19,20 +19,21 @@ namespace EngineeringHub.Tests;
 public sealed class EngineeringAuthorizationTests
 {
     [Theory]
-    [InlineData(ApplicationRoles.Viewer, true, false, false)]
+    [InlineData(ApplicationRoles.Viewer, false, false, false)]
     [InlineData(ApplicationRoles.Editor, true, true, false)]
     [InlineData(ApplicationRoles.Admin, true, true, true)]
     public void Module_roles_map_to_expected_permissions(
         string role,
-        bool canRead,
-        bool canWrite,
-        bool canAdmin)
+        bool canViewInternalRevisions,
+        bool canEditSpecifications,
+        bool canManageAccess)
     {
         var permissions = EngineeringAuthorization.PermissionsForRole(role);
 
-        Assert.Equal(canRead, permissions.Contains(EngineeringAuthorization.ReadPermission));
-        Assert.Equal(canWrite, permissions.Contains(EngineeringAuthorization.WritePermission));
-        Assert.Equal(canAdmin, permissions.Contains(EngineeringAuthorization.AdminPermission));
+        Assert.Contains(EngineeringAuthorization.ReadPermission, permissions);
+        Assert.Equal(canViewInternalRevisions, permissions.Contains(EngineeringPermissions.PendingRevisionsView));
+        Assert.Equal(canEditSpecifications, permissions.Contains(EngineeringPermissions.SpecificationsEdit));
+        Assert.Equal(canManageAccess, permissions.Contains(EngineeringPermissions.SettingsManageGroups));
     }
 
     [Fact]
@@ -52,12 +53,15 @@ public sealed class EngineeringAuthorizationTests
             IsActive = true
         };
         db.Users.Add(user);
-        db.UserModuleAccess.Add(new EngineeringModuleAccessRecord
+        var group = new EngineeringAccessGroupRecord
         {
-            User = user,
-            ModuleKey = ApplicationModules.Engineering,
-            Role = ApplicationRoles.Editor
-        });
+            Name = "Engineering",
+            Permissions = EngineeringAuthorization.PermissionsForRole(ApplicationRoles.Editor)
+                .Select(permission => new EngineeringGroupPermissionRecord { PermissionKey = permission })
+                .ToList()
+        };
+        db.Groups.Add(group);
+        user.GroupMemberships.Add(new EngineeringUserGroupMembershipRecord { Group = group });
         await db.SaveChangesAsync();
 
         var store = new EngineeringRoleStore(db, NullLogger<EngineeringRoleStore>.Instance);
@@ -66,10 +70,12 @@ public sealed class EngineeringAuthorizationTests
         Assert.NotNull(access);
         Assert.True(access.IsEnabled);
         Assert.Equal(ApplicationRoles.Editor, access.Role);
+        Assert.Contains(EngineeringPermissions.SpecificationsView, access.Permissions);
+        Assert.Equal(["Engineering"], access.Groups);
     }
 
     [Fact]
-    public async Task Null_role_assignment_disables_module_access()
+    public async Task Registered_user_without_module_view_permission_is_denied()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -85,12 +91,13 @@ public sealed class EngineeringAuthorizationTests
             IsActive = true
         };
         db.Users.Add(user);
-        db.UserModuleAccess.Add(new EngineeringModuleAccessRecord
+        var group = new EngineeringAccessGroupRecord
         {
-            User = user,
-            ModuleKey = ApplicationModules.Engineering,
-            Role = null
-        });
+            Name = "Restricted",
+            Permissions = [new EngineeringGroupPermissionRecord { PermissionKey = EngineeringPermissions.DrawingsView }]
+        };
+        db.Groups.Add(group);
+        user.GroupMemberships.Add(new EngineeringUserGroupMembershipRecord { Group = group });
         await db.SaveChangesAsync();
 
         var store = new EngineeringRoleStore(db, NullLogger<EngineeringRoleStore>.Instance);
@@ -111,7 +118,11 @@ public sealed class EngineeringAuthorizationTests
             .Build();
         var service = new EngineeringUserService(
             configuration,
-            new StubRoleStore(new EngineeringModuleAccess(ApplicationRoles.Editor, true)));
+            new StubRoleStore(new EngineeringModuleAccess(
+                ApplicationRoles.Editor,
+                true,
+                EngineeringAuthorization.PermissionsForRole(ApplicationRoles.Editor),
+                ["Engineering"])));
         var principal = new ClaimsPrincipal(new ClaimsIdentity(
             [new Claim(ClaimTypes.Name, "SONAERO\\engineering.editor")],
             "Test"));
@@ -120,8 +131,9 @@ public sealed class EngineeringAuthorizationTests
 
         Assert.Equal(ApplicationRoles.Editor, me.Role);
         Assert.Contains(EngineeringAuthorization.ReadPermission, me.Permissions);
-        Assert.Contains(EngineeringAuthorization.WritePermission, me.Permissions);
-        Assert.DoesNotContain(EngineeringAuthorization.AdminPermission, me.Permissions);
+        Assert.Contains(EngineeringPermissions.SpecificationsEdit, me.Permissions);
+        Assert.DoesNotContain(EngineeringPermissions.SettingsManageGroups, me.Permissions);
+        Assert.Equal(["Engineering"], me.Groups);
     }
 
     [Fact]
@@ -152,7 +164,11 @@ public sealed class EngineeringAuthorizationTests
             .Build();
         var service = new EngineeringUserService(
             configuration,
-            new StubRoleStore(new EngineeringModuleAccess(ApplicationRoles.Viewer, true)));
+            new StubRoleStore(new EngineeringModuleAccess(
+                ApplicationRoles.Viewer,
+                true,
+                EngineeringAuthorization.PermissionsForRole(ApplicationRoles.Viewer),
+                ["View Only"])));
 
         var access = await service.ResolveAccessAsync("DEV\\viewer");
 
@@ -161,7 +177,7 @@ public sealed class EngineeringAuthorizationTests
     }
 
     [Fact]
-    public void Drawing_routes_enforce_read_write_and_admin_policies()
+    public void Drawing_routes_enforce_granular_permission_policies()
     {
         var builder = WebApplication.CreateBuilder();
         builder.Services.AddDbContext<EngineeringDbContext>(options =>
@@ -174,47 +190,32 @@ public sealed class EngineeringAuthorizationTests
         api.MapDrawingEndpoints();
         api.MapDrawingOperationalEndpoints();
 
-        AssertPolicies(app, "GET", "/api/drawings", EngineeringAuthorization.ReadPolicy);
-        var writeRoutes = new (string Method, string Route)[]
+        AssertPolicies(app, "GET", "/api/drawings", EngineeringAuthorization.ReadPolicy, EngineeringPermissions.DrawingsView);
+        var protectedRoutes = new (string Method, string Route, string Permission)[]
         {
-            ("POST", "/api/drawings"),
-            ("POST", "/api/drawings/create-with-revision"),
-            ("PUT", "/api/drawings/{id:int}"),
-            ("POST", "/api/drawings/{id:int}/archive"),
-            ("POST", "/api/drawings/{id:int}/obsolete"),
-            ("POST", "/api/drawings/{id:int}/revisions"),
-            ("POST", "/api/drawing-revisions/{id:int}/editable-draft"),
-            ("PUT", "/api/drawing-revisions/{id:int}/status"),
-            ("POST", "/api/drawing-revisions/{id:int}/approve"),
-            ("POST", "/api/drawing-revisions/{id:int}/make-current"),
-            ("POST", "/api/drawings/{id:int}/mylars"),
-            ("POST", "/api/drawings/{id:int}/mylars/{mylarId:int}/checkout"),
-            ("POST", "/api/drawings/{id:int}/mylars/{mylarId:int}/checkin"),
-            ("POST", "/api/drawings/{id:int}/validations")
+            ("POST", "/api/drawings", EngineeringPermissions.DrawingCreate),
+            ("POST", "/api/drawings/create-with-revision", EngineeringPermissions.DrawingCreate),
+            ("POST", "/api/drawings/{id:int}/archive", EngineeringPermissions.DrawingArchive),
+            ("POST", "/api/drawings/{id:int}/revisions", EngineeringPermissions.RevisionCreate),
+            ("POST", "/api/drawing-revisions/{id:int}/editable-draft", EngineeringPermissions.RevisionEdit),
+            ("POST", "/api/drawing-revisions/{id:int}/approve", EngineeringPermissions.RevisionApprove),
+            ("POST", "/api/drawing-revisions/{id:int}/make-current", EngineeringPermissions.RevisionMakeCurrent),
+            ("POST", "/api/drawings/{id:int}/mylars", EngineeringPermissions.MylarManage),
+            ("POST", "/api/drawings/{id:int}/validations", EngineeringPermissions.ValidationsManage),
+            ("GET", "/api/drawing-documents/{id:int}/file", EngineeringPermissions.SupportingDocumentsView)
         };
-        foreach (var (method, route) in writeRoutes)
+        foreach (var (method, route, permission) in protectedRoutes)
         {
             AssertPolicies(
                 app,
                 method,
                 route,
                 EngineeringAuthorization.ReadPolicy,
-                EngineeringAuthorization.WritePolicy);
+                permission);
         }
 
-        foreach (var route in new[]
-                 {
-                     "/api/drawings/{id:int}",
-                     "/api/drawing-revisions/{id:int}"
-                 })
-        {
-            AssertPolicies(
-                app,
-                "DELETE",
-                route,
-                EngineeringAuthorization.ReadPolicy,
-                EngineeringAuthorization.AdminPolicy);
-        }
+        AssertPolicies(app, "DELETE", "/api/drawings/{id:int}", EngineeringAuthorization.ReadPolicy, EngineeringPermissions.DrawingDelete);
+        AssertPolicies(app, "DELETE", "/api/drawing-revisions/{id:int}", EngineeringAuthorization.ReadPolicy, EngineeringPermissions.RevisionDelete);
     }
 
     private static void AssertPolicies(

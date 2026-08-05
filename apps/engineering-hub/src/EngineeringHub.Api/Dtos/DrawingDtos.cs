@@ -60,7 +60,10 @@ public sealed record DrawingListDto(
     int RevisionCount,
     int? AttachmentRevisionId,
     string? AttachmentFileName,
-    string? AttachmentStatus);
+    string? AttachmentStatus,
+    int PendingRevisionCount,
+    string? PendingRevisionNumber,
+    string? PendingRevisionStatus);
 
 public sealed record DrawingDetailDto(
     int Id,
@@ -99,7 +102,7 @@ public sealed record DrawingRevisionDto(
     string UploadedBy, string? ApprovedBy, string? ApprovalComments,
     DateTime? SupersededOrObsoleteAt, string? Notes);
 
-public sealed record DrawingDocumentLinkDto(int Id, string Kind, string ReferenceNumber, string? Title, string? Location);
+public sealed record DrawingDocumentLinkDto(int Id, int? DrawingRevisionId, string Kind, string ReferenceNumber, string? Title, string? Location);
 public sealed record DrawingValidationDto(int Id, string ValidationType, string Result, string? Notes, string ValidatedBy, DateTime ValidatedAt);
 public sealed record DrawingMylarDto(
     int Id,

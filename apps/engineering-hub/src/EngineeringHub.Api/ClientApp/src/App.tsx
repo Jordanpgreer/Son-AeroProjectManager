@@ -13,6 +13,7 @@ import {
   LoaderCircle,
   Lock,
   RefreshCw,
+  Settings,
   ShieldCheck,
   Wrench,
 } from 'lucide-react'
@@ -24,6 +25,8 @@ import DrawingWorkspace from './DrawingWorkspace'
 import type { DrawingRecordHeader } from './DrawingWorkspace'
 import EngineeringDashboard from './EngineeringDashboard'
 import type { EngineeringSearchResult } from './EngineeringDashboard'
+import EngineeringAccessSettings from './EngineeringAccessSettings'
+import { engineeringPermissionKeys, hasEngineeringPermission } from './permissions'
 
 const hubUrl = import.meta.env.VITE_HUB_URL ?? `${window.location.protocol}//${window.location.hostname}:5140`
 
@@ -32,6 +35,7 @@ interface Me {
   displayName: string
   role: string
   permissions: string[]
+  groups: string[]
 }
 
 interface ModuleSection {
@@ -55,6 +59,7 @@ const ICONS: Record<string, typeof FileStack> = {
   'drawing-document-control': FileStack,
   'tooling-management': Wrench,
   'compound-test-data-management': FlaskConical,
+  settings: Settings,
 }
 
 const SECTION_TONES: Record<string, string> = {
@@ -62,6 +67,7 @@ const SECTION_TONES: Record<string, string> = {
   'drawing-document-control': 'tone-steel',
   'tooling-management': 'tone-red',
   'compound-test-data-management': 'tone-ok',
+  settings: 'tone-steel',
 }
 
 const PAGE_NOTES: Record<string, { label: string; detail: string }> = {
@@ -184,8 +190,9 @@ export default function App() {
   const [selectedModuleRecord, setSelectedModuleRecord] = useState<EngineeringSearchResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const canEdit = me?.permissions.includes('engineering.module.edit') ?? false
-  const canAdmin = me?.permissions.includes('engineering.module.admin') ?? false
+  const permissions = me?.permissions ?? []
+  const can = (permission: string) => hasEngineeringPermission(permissions, permission)
+  const canEditMetadata = can(engineeringPermissionKeys.drawingMetadataEdit) || can(engineeringPermissionKeys.specificationsEdit)
 
   useEffect(() => {
     async function load() {
@@ -232,6 +239,14 @@ export default function App() {
         setDrawingScreen('record')
         setDrawingId(null)
         setCreatingDrawing(true)
+        return
+      }
+      if (route === 'settings') {
+        setDrawingHeader(null)
+        setActiveSectionId('settings')
+        setDrawingScreen('dashboard')
+        setDrawingId(null)
+        setCreatingDrawing(false)
         return
       }
       if (route === 'drawing-record') {
@@ -285,9 +300,33 @@ export default function App() {
     }
   }, [])
 
+  const availableSections = useMemo(() => {
+    if (!moduleData || !me) return []
+    const requiredPermissions: Record<string, string> = {
+      dashboard: engineeringPermissionKeys.dashboardView,
+      'drawing-document-control': engineeringPermissionKeys.drawingsView,
+      'tooling-management': engineeringPermissionKeys.toolingView,
+      'compound-test-data-management': engineeringPermissionKeys.compoundDataView,
+    }
+    const sections = moduleData.sections.filter(section => {
+      const required = requiredPermissions[section.id]
+      return !required || hasEngineeringPermission(me.permissions, required)
+    })
+    if (hasEngineeringPermission(me.permissions, engineeringPermissionKeys.settingsView)) {
+      sections.push({
+        id: 'settings',
+        title: 'Settings',
+        summary: 'Manage Engineering users, groups, and granular permissions.',
+        status: 'Access control',
+        highlights: ['Registered users', 'Engineering groups', 'Granular permissions'],
+      })
+    }
+    return sections
+  }, [me, moduleData])
+
   const activeSection = useMemo(
-    () => moduleData?.sections.find((section) => section.id === activeSectionId) ?? moduleData?.sections[0] ?? null,
-    [activeSectionId, moduleData],
+    () => availableSections.find((section) => section.id === activeSectionId) ?? availableSections[0] ?? null,
+    [activeSectionId, availableSections],
   )
 
   function openDrawingDashboard() {
@@ -301,6 +340,12 @@ export default function App() {
     setDrawingId(null)
     setCreatingDrawing(false)
     window.location.hash = 'drawing-dashboard'
+  }
+
+  function refreshCurrentUserAccess() {
+    void fetch('/api/me', { credentials: 'include' })
+      .then(response => response.ok ? response.json() as Promise<Me> : null)
+      .then(currentUser => { if (currentUser) setMe(currentUser) })
   }
 
   function openDrawingRecord(id: number) {
@@ -363,6 +408,7 @@ export default function App() {
 
   const showingDrawingRecord = activeSection?.id === 'drawing-document-control' && drawingScreen === 'record'
   const showingDrawingRegister = activeSection?.id === 'drawing-document-control' && drawingScreen === 'dashboard'
+  const showingSettings = activeSection?.id === 'settings'
 
   return (
     <div className="engineering-shell engineering-app">
@@ -383,7 +429,7 @@ export default function App() {
             <span className="nav-flag">Testing</span>
           </div>
           <nav aria-label="Engineering pages">
-          {moduleData?.sections.map((section) => {
+          {availableSections.map((section) => {
             const Icon = ICONS[section.id] ?? Beaker
             const active = section.id === activeSection?.id
             return (
@@ -393,6 +439,11 @@ export default function App() {
                   className={`nav-button ${active ? 'active' : ''}`.trim()}
                   onClick={() => {
                     if (section.id === 'drawing-document-control') openDrawingDashboard()
+                    else if (section.id === 'settings') {
+                      setSelectedModuleRecord(null)
+                      setActiveSectionId('settings')
+                      window.location.hash = 'settings'
+                    }
                     else {
                       setSelectedModuleRecord(null)
                       setActiveSectionId(section.id)
@@ -438,11 +489,11 @@ export default function App() {
                       <span><strong>Review pending</strong>Revision {drawingHeader.pendingReviewRevision} is awaiting engineering disposition.</span>
                     </div>}
                     <dl className="record-header-facts">
-                      <div><dt>Customer</dt><dd>{drawingHeader.customer}</dd></div>
+                      <div><dt>Design authority</dt><dd>{drawingHeader.customer}</dd></div>
                       <div><dt>Current revision</dt><dd>{drawingHeader.currentRevision ?? 'None'}</dd></div>
                       <div><dt>Effective date</dt><dd>{drawingHeader.effectiveDate ? <time dateTime={drawingHeader.effectiveDate}>{shortDate(drawingHeader.effectiveDate)}</time> : 'Not set'}</dd></div>
                       <div><dt>Linked parts</dt><dd title={drawingHeader.partNumbers.join(', ') || undefined}>{drawingHeader.partNumbers.length ? drawingHeader.partNumbers.join(', ') : 'None'}</dd></div>
-                      <div><dt>Physical Mylar</dt><dd title={mylarSummary(drawingHeader)}>{mylarSummary(drawingHeader)}</dd></div>
+                      {can(engineeringPermissionKeys.mylarView) && <div><dt>Physical Mylar</dt><dd title={mylarSummary(drawingHeader)}>{mylarSummary(drawingHeader)}</dd></div>}
                     </dl>
                   </>
                 ) : (
@@ -459,10 +510,12 @@ export default function App() {
               </>
             ) : (
               <>
-                <span className="eyebrow">{showingDrawingRegister ? 'Drawing and document control' : 'Standalone workspace'}</span>
-                <h1>{showingDrawingRegister ? 'Drawing Register' : moduleData?.name ?? 'Engineering Module'}</h1>
+                <span className="eyebrow">{showingDrawingRegister ? 'Drawing and document control' : showingSettings ? 'Engineering administration' : 'Standalone workspace'}</span>
+                <h1>{showingDrawingRegister ? 'Drawing Register' : showingSettings ? 'Settings and access' : moduleData?.name ?? 'Engineering Module'}</h1>
                 <p>{showingDrawingRegister
                   ? 'Search controlled drawings, review release status, and open complete revision records.'
+                  : showingSettings
+                    ? 'Assign registered users to Engineering groups and control exactly what each group can see or change.'
                   : moduleData?.summary ?? 'Loading module overview...'}</p>
               </>
             )}
@@ -483,7 +536,7 @@ export default function App() {
             />
             {showingDrawingRecord
               ? drawingHeader && <>
-                  {canEdit && !drawingHeader.isObsolete && <button
+                  {canEditMetadata && !drawingHeader.isObsolete && <button
                     className="button record-header-edit"
                     type="button"
                     aria-expanded={drawingHeader.isMetadataEditing}
@@ -492,10 +545,10 @@ export default function App() {
                   >
                     <Edit3 size={14}/> {drawingHeader.isMetadataEditing ? 'Close metadata' : 'Edit metadata'}
                   </button>}
-                  <button className="button ghost record-header-audit" type="button" onClick={() => setDrawingAuditRequest(current => current + 1)}>
+                  {can(engineeringPermissionKeys.auditView) && <button className="button ghost record-header-audit" type="button" onClick={() => setDrawingAuditRequest(current => current + 1)}>
                     <History size={14}/> Audit history
-                  </button>
-                  {canEdit && !drawingHeader.isObsolete && <button className="button ghost record-header-archive" type="button" onClick={() => setDrawingArchiveRequest(current => current + 1)}>
+                  </button>}
+                  {can(engineeringPermissionKeys.drawingArchive) && !drawingHeader.isObsolete && <button className="button ghost record-header-archive" type="button" onClick={() => setDrawingArchiveRequest(current => current + 1)}>
                     <Archive size={14}/> Archive
                   </button>}
                 </>
@@ -524,7 +577,7 @@ export default function App() {
               </section>
             ) : activeSection ? (
               <>
-                {!showingDrawingRecord && activeSection.id !== 'dashboard' && activeSection.id !== 'drawing-document-control' && <section className="panel engineering-hero">
+                {!showingDrawingRecord && activeSection.id !== 'dashboard' && activeSection.id !== 'drawing-document-control' && activeSection.id !== 'settings' && <section className="panel engineering-hero">
                   <div className="panel-head">
                     <div className="panel-head-text">
                       <span className="eyebrow">{moduleData?.accessNotice}</span>
@@ -542,7 +595,7 @@ export default function App() {
 
                 {activeSection.id === 'drawing-document-control' ? (
                   drawingScreen === 'dashboard' ? (
-                    <DrawingDashboard canEdit={canEdit} onEditDrawing={openDrawingRecord} onCreateDrawing={openDrawingCreation}/>
+                    <DrawingDashboard permissions={permissions} onEditDrawing={openDrawingRecord} onCreateDrawing={openDrawingCreation}/>
                   ) : (
                     <DrawingWorkspace
                       drawingId={drawingId}
@@ -554,10 +607,11 @@ export default function App() {
                       archiveRequest={drawingArchiveRequest}
                       auditRequest={drawingAuditRequest}
                       actorName={me?.accountName || me?.displayName || 'Signed-in user'}
-                      canEdit={canEdit}
-                      canAdmin={canAdmin}
+                      permissions={permissions}
                     />
                   )
+                ) : activeSection.id === 'settings' ? (
+                  <EngineeringAccessSettings permissions={permissions} onAccessChanged={refreshCurrentUserAccess}/>
                 ) : activeSection.id === 'dashboard' ? (
                   <EngineeringDashboard
                     onOpenResult={openEngineeringResult}

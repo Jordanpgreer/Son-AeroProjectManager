@@ -14,6 +14,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<EngineeringUserService>();
 builder.Services.AddScoped<IEngineeringRoleStore, EngineeringRoleStore>();
+builder.Services.AddScoped<EngineeringAccessSchemaInitializer>();
+builder.Services.AddScoped<EngineeringAccessSeeder>();
 builder.Services.AddScoped<EngineeringSearchService>();
 builder.Services.AddScoped<EngineeringDemoDataSeeder>();
 builder.Services.AddScoped<MylarCustodyService>();
@@ -69,20 +71,18 @@ builder.Services.AddAuthorization(options =>
         policy.RequireClaim(
             EngineeringAuthorization.PermissionClaimType,
             EngineeringAuthorization.ReadPermission));
-    options.AddPolicy(EngineeringAuthorization.WritePolicy, policy =>
-        policy.RequireClaim(
-            EngineeringAuthorization.PermissionClaimType,
-            EngineeringAuthorization.WritePermission));
-    options.AddPolicy(EngineeringAuthorization.AdminPolicy, policy =>
-        policy.RequireClaim(
-            EngineeringAuthorization.PermissionClaimType,
-            EngineeringAuthorization.AdminPermission));
+    foreach (var permission in EngineeringPermissions.All)
+    {
+        options.AddPolicy(permission.Key, policy =>
+            policy.RequireClaim(EngineeringAuthorization.PermissionClaimType, permission.Key));
+    }
 });
 
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
 {
+    await scope.ServiceProvider.GetRequiredService<EngineeringAccessSeeder>().SeedAsync(CancellationToken.None);
     await scope.ServiceProvider.GetRequiredService<EngineeringSchemaInitializer>().InitializeAsync(CancellationToken.None);
     if (app.Environment.IsDevelopment() && builder.Configuration.GetValue("Engineering:SeedDemoData", true))
         await scope.ServiceProvider.GetRequiredService<EngineeringDemoDataSeeder>().SeedAsync(CancellationToken.None);
@@ -145,6 +145,7 @@ var api = app.MapGroup("/api")
     .RequireAuthorization(EngineeringAuthorization.ReadPolicy);
 api.MapDrawingEndpoints();
 api.MapDrawingOperationalEndpoints();
+api.MapEngineeringAccessEndpoints();
 
 api.MapGet("/me", async (EngineeringUserService users, HttpContext httpContext, CancellationToken cancellationToken) =>
     await users.CurrentAsync(httpContext.User, cancellationToken));
@@ -156,8 +157,22 @@ api.MapGet("/dashboard", async (
     string? status,
     bool? reviewQueue,
     EngineeringSearchService search,
+    HttpContext http,
     CancellationToken cancellationToken) =>
-    Results.Ok(await search.GetDashboardAsync(query, category, customer, status, reviewQueue ?? false, cancellationToken)));
+    Results.Ok(await search.GetDashboardAsync(
+        query,
+        category,
+        customer,
+        status,
+        reviewQueue ?? false,
+        http.User.HasClaim(EngineeringAuthorization.PermissionClaimType, EngineeringPermissions.PendingRevisionsView),
+        http.User.HasClaim(EngineeringAuthorization.PermissionClaimType, EngineeringPermissions.SpecificationsView),
+        http.User.HasClaim(EngineeringAuthorization.PermissionClaimType, EngineeringPermissions.SupportingDocumentsView),
+        http.User.HasClaim(EngineeringAuthorization.PermissionClaimType, EngineeringPermissions.MylarView),
+        http.User.HasClaim(EngineeringAuthorization.PermissionClaimType, EngineeringPermissions.ToolingView),
+        http.User.HasClaim(EngineeringAuthorization.PermissionClaimType, EngineeringPermissions.CompoundDataView),
+        cancellationToken)))
+    .RequireAuthorization(EngineeringPermissions.DashboardView);
 
 api.MapGet("/navigation", () => Results.Ok(new EngineeringModuleDto(
     ApplicationModules.Engineering,

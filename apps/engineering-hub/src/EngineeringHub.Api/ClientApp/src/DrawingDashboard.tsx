@@ -3,6 +3,7 @@ import {
   Eye,
   ExternalLink,
   FileText,
+  GitPullRequest,
   Layers3,
   MapPin,
   Plus,
@@ -10,6 +11,7 @@ import {
   X,
 } from 'lucide-react'
 import HighlightedText from './HighlightedText'
+import { engineeringPermissionKeys, hasEngineeringPermission } from './permissions'
 
 interface DrawingRecord {
   id: number
@@ -32,10 +34,13 @@ interface DrawingRecord {
   attachmentRevisionId: number | null
   attachmentFileName: string | null
   attachmentStatus: string | null
+  pendingRevisionCount: number
+  pendingRevisionNumber: string | null
+  pendingRevisionStatus: string | null
 }
 
 interface DrawingDashboardProps {
-  canEdit: boolean
+  permissions: string[]
   onEditDrawing: (drawingId: number) => void
   onCreateDrawing: () => void
 }
@@ -64,7 +69,14 @@ function statusLabel(value: string) {
   return value.replace(/([a-z])([A-Z])/g, '$1 $2')
 }
 
-export default function DrawingDashboard({ canEdit, onEditDrawing, onCreateDrawing }: DrawingDashboardProps) {
+export default function DrawingDashboard({ permissions, onEditDrawing, onCreateDrawing }: DrawingDashboardProps) {
+  const can = (permission: string) => hasEngineeringPermission(permissions, permission)
+  const canCreate = can(engineeringPermissionKeys.drawingCreate)
+  const canViewPending = can(engineeringPermissionKeys.pendingRevisionsView)
+  const canViewHistory = can(engineeringPermissionKeys.revisionHistoryView)
+  const canViewSpecifications = can(engineeringPermissionKeys.specificationsView)
+  const canViewFiles = can(engineeringPermissionKeys.drawingFilesView)
+  const canViewMylar = can(engineeringPermissionKeys.mylarView)
   const [drawings, setDrawings] = useState<DrawingRecord[]>([])
   const [query, setQuery] = useState('')
   const [lifecycle, setLifecycle] = useState<'active' | 'archived' | 'all'>('active')
@@ -106,7 +118,7 @@ export default function DrawingDashboard({ canEdit, onEditDrawing, onCreateDrawi
   })
   const activeCount = drawings.filter(record => !record.isObsolete).length
   const archivedCount = drawings.filter(record => record.isObsolete).length
-  const reviewCount = drawings.filter(record => record.approvalStatus === 'UnderReview').length
+  const reviewCount = drawings.filter(record => record.pendingRevisionStatus === 'UnderReview').length
   const approvedCount = drawings.filter(record => !record.isObsolete && record.approvalStatus === 'Approved').length
   const normalizedQuery = query.trim()
   const previewDrawing = drawings.find(record => record.id === previewId) ?? null
@@ -117,7 +129,7 @@ export default function DrawingDashboard({ canEdit, onEditDrawing, onCreateDrawi
     <section className="drawing-dashboard-kpis">
       <article className="drawing-stat tone-ink"><span>Active drawings</span><strong>{activeCount}</strong><small>available for engineering work</small></article>
       <article className="drawing-stat tone-steel"><span>Approved drawings</span><strong>{approvedCount}</strong><small>released for controlled use</small></article>
-      <article className="drawing-stat tone-gold"><span>Under review</span><strong>{reviewCount}</strong><small>awaiting a disposition</small></article>
+      {canViewPending && <article className="drawing-stat tone-gold"><span>Under review</span><strong>{reviewCount}</strong><small>awaiting a disposition</small></article>}
       <article className="drawing-stat tone-graphite"><span>Archived</span><strong>{archivedCount}</strong><small>preserved historical drawings</small></article>
     </section>
 
@@ -128,7 +140,7 @@ export default function DrawingDashboard({ canEdit, onEditDrawing, onCreateDrawi
           <h2>Drawing register</h2>
           <p>Search controlled drawing records, select a drawing to open it, or view its attached drawing file.</p>
         </div>
-        {canEdit && <button className="button" type="button" onClick={onCreateDrawing}><Plus size={15}/> New drawing</button>}
+        {canCreate && <button className="button" type="button" onClick={onCreateDrawing}><Plus size={15}/> New drawing</button>}
       </header>
 
       <div className="drawing-register-filters">
@@ -138,7 +150,7 @@ export default function DrawingDashboard({ canEdit, onEditDrawing, onCreateDrawi
             value={query}
             onChange={event => setQuery(event.target.value)}
             aria-label="Filter drawing register"
-            placeholder="Drawing number, title, customer, part, specification, work order, or note"
+            placeholder={canViewSpecifications ? 'Drawing number, title, design authority, part, specification, or note' : 'Drawing number, title, design authority, part, or note'}
           />
         </label>
         <label>
@@ -153,8 +165,8 @@ export default function DrawingDashboard({ canEdit, onEditDrawing, onCreateDrawi
           <span>Approval status</span>
           <select value={status} onChange={event => setStatus(event.target.value)}>
             <option value="all">All statuses</option>
-            <option value="Draft">Draft</option>
-            <option value="UnderReview">Under review</option>
+            {canViewPending && <option value="Draft">Draft</option>}
+            {canViewPending && <option value="UnderReview">Under review</option>}
             <option value="Approved">Approved</option>
             <option value="Obsolete">Archived</option>
           </select>
@@ -175,11 +187,11 @@ export default function DrawingDashboard({ canEdit, onEditDrawing, onCreateDrawi
           <thead>
             <tr>
               <th>Drawing</th>
-              <th>Customer / Parts</th>
+              <th>Design authority / Parts</th>
               <th>Type</th>
               <th>Revision</th>
               <th>Approval</th>
-              <th>Attachment</th>
+              {canViewFiles && <th>Attachment</th>}
             </tr>
           </thead>
           <tbody>
@@ -211,23 +223,28 @@ export default function DrawingDashboard({ canEdit, onEditDrawing, onCreateDrawi
                   ><Eye size={14}/></button>
                 </span>
                 <small><HighlightedText value={record.title} query={normalizedQuery}/></small>
+                {canViewPending && record.pendingRevisionNumber && <span className={`drawing-pending-revision is-${record.pendingRevisionStatus?.toLowerCase()}`}>
+                  <GitPullRequest size={11}/>
+                  Rev {record.pendingRevisionNumber} {record.pendingRevisionStatus === 'UnderReview' ? 'awaiting approval' : 'draft in progress'}
+                  {record.pendingRevisionCount > 1 && ` +${record.pendingRevisionCount - 1}`}
+                </span>}
               </td>
               <td>
                 <span><HighlightedText value={record.customer} query={normalizedQuery}/></span>
                 <small>{record.partNumbers.length
                   ? <HighlightedText value={record.partNumbers.join(', ')} query={normalizedQuery}/>
                   : 'No linked parts'}</small>
-                {record.specifications.length > 0 && <div className="drawing-spec-tags compact">
+                {canViewSpecifications && record.specifications.length > 0 && <div className="drawing-spec-tags compact">
                   {record.specifications.map(specification => <span key={specification}><HighlightedText value={specification} query={normalizedQuery}/></span>)}
                 </div>}
               </td>
               <td><span className="drawing-type-chip"><Layers3 size={13}/>{recordType(record)}</span></td>
               <td>
                 <strong>{record.currentRevision ? `Rev ${record.currentRevision}` : 'No revision'}</strong>
-                <small>{shortDate(record.currentRevisionDate)} · {record.revisionCount} total</small>
+                <small>{shortDate(record.currentRevisionDate)}{(canViewHistory || canViewPending) && ` · ${record.revisionCount} visible`}</small>
               </td>
               <td><span className={`status-pill status-${record.approvalStatus.toLowerCase()}`}>{statusLabel(record.approvalStatus)}</span></td>
-              <td>
+              {canViewFiles && <td>
                 {record.attachmentRevisionId ? <a
                   className="drawing-pdf-button"
                   href={`/api/drawing-revisions/${record.attachmentRevisionId}/file`}
@@ -240,7 +257,7 @@ export default function DrawingDashboard({ canEdit, onEditDrawing, onCreateDrawi
                   <span>View file</span>
                   <ExternalLink size={12}/>
                 </a> : <span className="attachment-missing">No file</span>}
-              </td>
+              </td>}
             </tr>)}
           </tbody>
         </table>
@@ -270,33 +287,38 @@ export default function DrawingDashboard({ canEdit, onEditDrawing, onCreateDrawi
           </section>
 
           <section className="drawing-preview-section">
-            <header><span>Customer and parts</span></header>
+            <header><span>Design authority and parts</span></header>
             <strong>{previewDrawing.customer}</strong>
             {previewDrawing.partNumbers.length ? <div className="drawing-preview-tags">
               {previewDrawing.partNumbers.map(part => <span key={part}>{part}</span>)}
             </div> : <p>No linked part numbers.</p>}
           </section>
 
-          <section className="drawing-preview-section">
+          {canViewPending && previewDrawing.pendingRevisionNumber && <section className={`drawing-preview-pending is-${previewDrawing.pendingRevisionStatus?.toLowerCase()}`}>
+            <GitPullRequest size={18}/>
+            <span><strong>Revision {previewDrawing.pendingRevisionNumber}</strong><small>{previewDrawing.pendingRevisionStatus === 'UnderReview' ? 'Submitted and awaiting approval' : 'Draft revision in progress'}</small></span>
+          </section>}
+
+          {canViewSpecifications && <section className="drawing-preview-section">
             <header><span>Specification tags</span><b>{previewDrawing.specifications.length}</b></header>
             {previewDrawing.specifications.length ? <div className="drawing-preview-tags">
               {previewDrawing.specifications.map(specification => <span key={specification}>{specification}</span>)}
             </div> : <p>No specification tags applied.</p>}
-          </section>
+          </section>}
 
-          <section className="drawing-preview-section drawing-preview-mylar">
+          {canViewMylar && <section className="drawing-preview-section drawing-preview-mylar">
             <header><span>Mylar custody</span></header>
             <div><MapPin size={17}/><span><strong>{previewDrawing.mylarCount ? (previewDrawing.isMylarCheckedOut ? 'Checked out' : 'Checked in') : 'Not registered'}</strong><small>{previewDrawing.physicalMylarLocation || 'No physical location recorded'}</small></span></div>
-          </section>
+          </section>}
 
-          <section className="drawing-preview-section">
+          {canViewFiles && <section className="drawing-preview-section">
             <header><span>Controlled attachment</span></header>
             {previewDrawing.attachmentRevisionId ? <div className="drawing-preview-file">
               <FileText size={17}/>
               <span><strong>{previewDrawing.attachmentFileName ?? 'Controlled drawing file'}</strong><small>{previewDrawing.attachmentStatus ? statusLabel(previewDrawing.attachmentStatus) : 'Available'}</small></span>
               <a href={`/api/drawing-revisions/${previewDrawing.attachmentRevisionId}/file`} target="_blank" rel="noreferrer" aria-label={`Open file for ${previewDrawing.drawingNumber}`}><ExternalLink size={14}/></a>
             </div> : <p>No controlled file is attached.</p>}
-          </section>
+          </section>}
 
           <div className="drawing-preview-actions">
             <button className="button" type="button" onClick={() => {

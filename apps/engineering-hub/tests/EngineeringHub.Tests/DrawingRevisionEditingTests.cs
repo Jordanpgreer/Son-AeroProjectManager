@@ -6,6 +6,7 @@ using EngineeringHub.Api.Dtos;
 using EngineeringHub.Api.Endpoints;
 using EngineeringHub.Api.Models;
 using EngineeringHub.Api.Services;
+using EngineeringHub.Api.Auth;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
@@ -221,6 +222,65 @@ public sealed class DrawingRevisionEditingTests
         Assert.Empty(await fixture.Db.DrawingAuditEntries.ToListAsync());
     }
 
+    [Fact]
+    public async Task DeletingRevisionRemovesOnlyItsSupportingDocumentAssociation()
+    {
+        await using var fixture = await RevisionFixture.CreateAsync(
+            DrawingRevisionStatus.Draft,
+            hasPdf: true);
+        var retainedRevision = new DrawingRevision
+        {
+            RevisionNumber = "B",
+            RevisionDate = new DateTime(2026, 8, 1),
+            UploadedAt = new DateTime(2026, 8, 1),
+            ChangeDescription = "Retained draft revision",
+            Status = DrawingRevisionStatus.Draft,
+            OriginalFileName = string.Empty,
+            StoredFilePath = string.Empty,
+            FileType = string.Empty,
+            FileSize = 0,
+            FileHash = string.Empty,
+            UploadedBy = "upload-user"
+        };
+        fixture.Drawing.Revisions.Add(retainedRevision);
+        await fixture.Db.SaveChangesAsync();
+
+        const string sharedLocation = "support/shared-document.pdf";
+        var sharedPath = fixture.Files.ResolvePath(sharedLocation);
+        Directory.CreateDirectory(Path.GetDirectoryName(sharedPath)!);
+        await File.WriteAllTextAsync(sharedPath, "%PDF-1.4\nshared supporting document");
+        fixture.Drawing.DocumentLinks.AddRange([
+            new DrawingDocumentLink
+            {
+                DrawingRevisionId = fixture.Revision.Id,
+                Kind = DrawingDocumentKind.SupplementalDocument,
+                ReferenceNumber = "CALC",
+                Title = "calculation.pdf",
+                Location = sharedLocation
+            },
+            new DrawingDocumentLink
+            {
+                DrawingRevisionId = retainedRevision.Id,
+                Kind = DrawingDocumentKind.SupplementalDocument,
+                ReferenceNumber = "CALC",
+                Title = "calculation.pdf",
+                Location = sharedLocation
+            }]);
+        await fixture.Db.SaveChangesAsync();
+
+        var response = await fixture.InvokeJsonAsync(
+            "DELETE",
+            "/api/drawing-revisions/{id:int}",
+            fixture.Revision.Id,
+            new RevisionDeleteDto(true));
+
+        Assert.Equal(StatusCodes.Status204NoContent, response.StatusCode);
+        Assert.Equal([retainedRevision.Id], await fixture.Db.DrawingRevisions.Select(item => item.Id).ToArrayAsync());
+        var retainedDocument = await fixture.Db.DrawingDocumentLinks.SingleAsync();
+        Assert.Equal(retainedRevision.Id, retainedDocument.DrawingRevisionId);
+        Assert.True(File.Exists(sharedPath));
+    }
+
     private static Dictionary<string, StringValues> EditFields(
         string revisionNumber,
         string changeDescription) => new()
@@ -391,7 +451,11 @@ public sealed class DrawingRevisionEditingTests
             {
                 RequestServices = scope.ServiceProvider,
                 User = new ClaimsPrincipal(new ClaimsIdentity(
-                    [new Claim(ClaimTypes.Name, @"SONAERO\revision.editor")],
+                    [
+                        new Claim(ClaimTypes.Name, @"SONAERO\revision.editor"),
+                        .. EngineeringPermissions.All.Select(permission =>
+                            new Claim(EngineeringAuthorization.PermissionClaimType, permission.Key))
+                    ],
                     "Test"))
             };
             context.Request.Method = method;

@@ -31,7 +31,8 @@ public sealed class EngineeringUserService(
             accountName,
             ToDisplayName(accountName),
             access.Role,
-            EngineeringAuthorization.PermissionsForRole(access.Role));
+            access.Permissions,
+            access.Groups);
     }
 
     public async Task<EngineeringModuleAccess?> ResolveAccessAsync(
@@ -62,9 +63,12 @@ public sealed class EngineeringUserService(
         var claims = principal.Claims.ToList();
         claims.RemoveAll(claim => claim.Type == ClaimTypes.Role);
         claims.RemoveAll(claim => claim.Type == EngineeringAuthorization.PermissionClaimType);
+        claims.RemoveAll(claim => claim.Type == ApplicationClaimTypes.Group);
         claims.Add(new Claim(ClaimTypes.Role, access.Role));
-        claims.AddRange(EngineeringAuthorization.PermissionsForRole(access.Role)
+        claims.AddRange(access.Permissions
             .Select(permission => new Claim(EngineeringAuthorization.PermissionClaimType, permission)));
+        claims.AddRange(access.Groups
+            .Select(group => new Claim(ApplicationClaimTypes.Group, group)));
 
         var identity = new ClaimsIdentity(claims, principal.Identity?.AuthenticationType, ClaimTypes.Name, ClaimTypes.Role);
         return new ClaimsPrincipal(identity);

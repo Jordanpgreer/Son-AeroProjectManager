@@ -1,11 +1,16 @@
 using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
+using EngineeringHub.Api.Auth;
 using EngineeringHub.Api.Data;
 using SonAero.Platform.Security;
 
 namespace EngineeringHub.Api.Services;
 
-public sealed record EngineeringModuleAccess(string Role, bool IsEnabled);
+public sealed record EngineeringModuleAccess(
+    string Role,
+    bool IsEnabled,
+    IReadOnlyList<string> Permissions,
+    IReadOnlyList<string> Groups);
 
 public interface IEngineeringRoleStore
 {
@@ -19,22 +24,42 @@ public sealed class EngineeringRoleStore(EngineeringRoleDbContext db, ILogger<En
         try
         {
             var lookupKeys = WindowsAccountNames.LookupKeys(accountName);
-            var assignment = await db.UserModuleAccess
+            var user = await db.Users
                 .AsNoTracking()
-                .Where(access =>
-                    access.ModuleKey == ApplicationModules.Engineering
-                    && lookupKeys.Contains(access.User.AccountName.ToUpper()))
-                .Select(access => new
+                .Where(candidate => lookupKeys.Contains(candidate.AccountName.ToUpper()))
+                .Select(candidate => new
                 {
-                    access.User.IsActive,
-                    access.Role
+                    candidate.IsActive,
+                    Groups = candidate.GroupMemberships
+                        .Select(membership => membership.Group.Name)
+                        .ToList(),
+                    Permissions = candidate.GroupMemberships
+                        .SelectMany(membership => membership.Group.Permissions)
+                        .Where(permission => permission.PermissionKey.StartsWith("engineering."))
+                        .Select(permission => permission.PermissionKey)
+                        .ToList()
                 })
                 .FirstOrDefaultAsync(cancellationToken);
 
-            var role = ApplicationModuleRoles.Normalize(assignment?.Role);
-            return assignment is null
-                ? null
-                : new EngineeringModuleAccess(role ?? ApplicationRoles.Viewer, assignment.IsActive && role is not null);
+            if (user is null)
+            {
+                return null;
+            }
+
+            var permissions = EngineeringPermissions.Expand(user.Permissions)
+                .OrderBy(permission => permission)
+                .ToArray();
+            var role = permissions.Contains(EngineeringPermissions.SettingsManageGroups, StringComparer.OrdinalIgnoreCase)
+                || permissions.Contains(EngineeringPermissions.SettingsManageUsers, StringComparer.OrdinalIgnoreCase)
+                    ? ApplicationRoles.Admin
+                    : permissions.Any(IsMutationPermission)
+                        ? ApplicationRoles.Editor
+                        : ApplicationRoles.Viewer;
+            return new EngineeringModuleAccess(
+                role,
+                user.IsActive && permissions.Contains(EngineeringPermissions.ModuleView, StringComparer.OrdinalIgnoreCase),
+                permissions,
+                user.Groups.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(group => group).ToArray());
         }
         catch (Exception exception) when (exception is DbException or InvalidOperationException)
         {
@@ -42,4 +67,13 @@ public sealed class EngineeringRoleStore(EngineeringRoleDbContext db, ILogger<En
             return null;
         }
     }
+
+    private static bool IsMutationPermission(string permission) =>
+        permission.EndsWith(".edit", StringComparison.OrdinalIgnoreCase)
+        || permission.EndsWith(".create", StringComparison.OrdinalIgnoreCase)
+        || permission.EndsWith(".manage", StringComparison.OrdinalIgnoreCase)
+        || permission.EndsWith(".approve", StringComparison.OrdinalIgnoreCase)
+        || permission.EndsWith(".archive", StringComparison.OrdinalIgnoreCase)
+        || permission.EndsWith(".delete", StringComparison.OrdinalIgnoreCase)
+        || permission.EndsWith(".submit", StringComparison.OrdinalIgnoreCase);
 }

@@ -18,20 +18,21 @@ public static class DrawingOperationalEndpoints
     {
         api.MapPost("/drawings/create-with-revision", CreateWithRevisionAsync)
             .DisableAntiforgery()
-            .RequireAuthorization(EngineeringAuthorization.WritePolicy);
-        api.MapPut("/drawings/{id:int}", UpdateDrawingAsync)
-            .RequireAuthorization(EngineeringAuthorization.WritePolicy);
+            .RequireAuthorization(EngineeringPermissions.DrawingCreate);
+        api.MapPut("/drawings/{id:int}", UpdateDrawingAsync);
         api.MapPost("/drawings/{id:int}/supplemental-documents", AddSupplementalDocumentAsync)
             .DisableAntiforgery()
-            .RequireAuthorization(EngineeringAuthorization.WritePolicy);
-        api.MapGet("/drawing-documents/{id:int}/file", DownloadSupplementalDocumentAsync);
+            .RequireAuthorization(EngineeringPermissions.SupportingDocumentsManage);
+        api.MapGet("/drawing-documents/{id:int}/file", DownloadSupplementalDocumentAsync)
+            .RequireAuthorization(EngineeringPermissions.SupportingDocumentsView);
         api.MapDelete("/drawing-documents/{id:int}", DeleteSupplementalDocumentAsync)
-            .RequireAuthorization(EngineeringAuthorization.WritePolicy);
-        api.MapGet("/drawing-review-queue", GetReviewQueueAsync);
+            .RequireAuthorization(EngineeringPermissions.SupportingDocumentsManage);
+        api.MapGet("/drawing-review-queue", GetReviewQueueAsync)
+            .RequireAuthorization(EngineeringPermissions.PendingRevisionsView);
         api.MapPost("/drawings/{id:int}/archive", ArchiveDrawingAsync)
-            .RequireAuthorization(EngineeringAuthorization.WritePolicy);
+            .RequireAuthorization(EngineeringPermissions.DrawingArchive);
         api.MapPost("/drawings/{id:int}/obsolete", ArchiveDrawingAsync)
-            .RequireAuthorization(EngineeringAuthorization.WritePolicy);
+            .RequireAuthorization(EngineeringPermissions.DrawingArchive);
     }
 
     private static async Task<IResult> AddSupplementalDocumentAsync(
@@ -47,6 +48,7 @@ public static class DrawingOperationalEndpoints
 
         var drawing = await db.Drawings
             .Include(x => x.DocumentLinks)
+            .Include(x => x.Revisions)
             .Include(x => x.AuditEntries)
             .SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (drawing is null) return Results.NotFound();
@@ -55,6 +57,13 @@ public static class DrawingOperationalEndpoints
 
         var form = await request.ReadFormAsync(cancellationToken);
         var label = form["label"].ToString().Trim();
+        if (!int.TryParse(form["revisionId"], out var revisionId))
+            return Results.BadRequest(new ErrorDto("RevisionRequired", "Select the revision this supporting document belongs to."));
+        var revision = drawing.Revisions.SingleOrDefault(item => item.Id == revisionId);
+        if (revision is null)
+            return Results.BadRequest(new ErrorDto("InvalidRevision", "The selected revision does not belong to this drawing."));
+        if (revision.Status is not (DrawingRevisionStatus.Draft or DrawingRevisionStatus.UnderReview))
+            return Results.Conflict(new ErrorDto("RevisionLocked", "Supporting documents can only be changed while a revision is draft or under review."));
         var document = form.Files.GetFile("document");
         if (string.IsNullOrWhiteSpace(label))
             return Results.BadRequest(new ErrorDto("LabelRequired", "Enter a label for the supplemental document."));
@@ -66,8 +75,9 @@ public static class DrawingOperationalEndpoints
             return Results.BadRequest(new ErrorDto("FileTooLarge", "The supplemental document must be 100 MB or smaller."));
         if (drawing.DocumentLinks.Any(link =>
                 link.Kind == DrawingDocumentKind.SupplementalDocument &&
+                link.DrawingRevisionId == revisionId &&
                 string.Equals(link.ReferenceNumber, label, StringComparison.OrdinalIgnoreCase)))
-            return Results.Conflict(new ErrorDto("DuplicateLabel", "That supplemental document label is already in use on this drawing."));
+            return Results.Conflict(new ErrorDto("DuplicateLabel", "That supporting document label is already in use on this revision."));
 
         var metadata = await SupplementalFileValidation.InspectAsync(document, cancellationToken);
         if (metadata is null)
@@ -96,6 +106,7 @@ public static class DrawingOperationalEndpoints
         var actor = Actor(http);
         var link = new DrawingDocumentLink
         {
+            DrawingRevisionId = revisionId,
             Kind = DrawingDocumentKind.SupplementalDocument,
             ReferenceNumber = label,
             Title = SafeFileName(document.FileName),
@@ -104,9 +115,9 @@ public static class DrawingOperationalEndpoints
         drawing.DocumentLinks.Add(link);
         drawing.AuditEntries.Add(Audit(
             drawing,
-            null,
+            revision.RevisionNumber,
             "SupplementalDocumentUploaded",
-            $"Uploaded supplemental document '{label}' ({link.Title}); SHA-256 {stored.Hash}.",
+            $"Uploaded supporting document '{label}' ({link.Title}) to revision {revision.RevisionNumber}; SHA-256 {stored.Hash}.",
             actor));
         try
         {
@@ -121,7 +132,7 @@ public static class DrawingOperationalEndpoints
 
         return Results.Created(
             $"/api/drawing-documents/{link.Id}/file",
-            new DrawingDocumentLinkDto(link.Id, link.Kind.ToString(), link.ReferenceNumber, link.Title, link.Location));
+            new DrawingDocumentLinkDto(link.Id, link.DrawingRevisionId, link.Kind.ToString(), link.ReferenceNumber, link.Title, link.Location));
     }
 
     private static async Task<IResult> DownloadSupplementalDocumentAsync(
@@ -154,19 +165,27 @@ public static class DrawingOperationalEndpoints
             return Results.BadRequest(new ErrorDto("ConfirmationRequired", "Permanent deletion must be explicitly confirmed."));
         var document = await db.DrawingDocumentLinks
             .Include(x => x.Drawing).ThenInclude(x => x.AuditEntries)
+            .Include(x => x.DrawingRevision)
             .SingleOrDefaultAsync(x => x.Id == id && x.Kind == DrawingDocumentKind.SupplementalDocument, cancellationToken);
         if (document is null) return Results.NotFound();
         if (document.Drawing.IsObsolete)
             return Results.Conflict(new ErrorDto("ObsoleteDrawing", "Archived drawing attachments are locked."));
+        if (document.DrawingRevision is not null &&
+            document.DrawingRevision.Status is not (DrawingRevisionStatus.Draft or DrawingRevisionStatus.UnderReview))
+            return Results.Conflict(new ErrorDto("RevisionLocked", "Supporting documents cannot be changed after a revision is approved or superseded."));
 
-        await using var staged = string.IsNullOrWhiteSpace(document.Location)
+        var usedElsewhere = !string.IsNullOrWhiteSpace(document.Location) &&
+            await db.DrawingDocumentLinks.AnyAsync(
+                link => link.Id != document.Id && link.Location == document.Location,
+                cancellationToken);
+        await using var staged = string.IsNullOrWhiteSpace(document.Location) || usedElsewhere
             ? null
             : await files.StageDeletionAsync(document.Location, cancellationToken);
         document.Drawing.AuditEntries.Add(Audit(
             document.Drawing,
-            null,
+            document.DrawingRevision?.RevisionNumber,
             "SupplementalDocumentDeleted",
-            $"Permanently deleted supplemental document '{document.ReferenceNumber}' ({document.Title ?? "unnamed file"}).",
+            $"Removed supporting document '{document.ReferenceNumber}' ({document.Title ?? "unnamed file"}) from revision {document.DrawingRevision?.RevisionNumber ?? "legacy"}.",
             Actor(http)));
         db.DrawingDocumentLinks.Remove(document);
         await db.SaveChangesAsync(cancellationToken);
@@ -189,14 +208,14 @@ public static class DrawingOperationalEndpoints
         var title = form["title"].ToString().Trim();
         var customer = form["customer"].ToString().Trim();
         if (string.IsNullOrWhiteSpace(drawingNumber) || string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(customer))
-            return Results.BadRequest(new ErrorDto("RequiredFields", "Drawing number, title, and customer are required."));
+            return Results.BadRequest(new ErrorDto("RequiredFields", "Drawing number, title / description, and design authority are required."));
 
         var normalizedNumber = Normalize(drawingNumber);
         var normalizedCustomer = Normalize(customer);
         if (await db.Drawings.AnyAsync(
                 x => x.NormalizedDrawingNumber == normalizedNumber && x.NormalizedCustomer == normalizedCustomer,
                 cancellationToken))
-            return Results.Conflict(new ErrorDto("DuplicateDrawing", "That drawing number already exists for this customer."));
+            return Results.Conflict(new ErrorDto("DuplicateDrawing", "That drawing number already exists for this design authority."));
 
         var pdf = form.Files.GetFile("pdf");
         var source = form.Files.GetFile("source");
@@ -310,7 +329,7 @@ public static class DrawingOperationalEndpoints
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(dto.Title) || string.IsNullOrWhiteSpace(dto.Customer))
-            return Results.BadRequest(new ErrorDto("RequiredFields", "Title and customer are required."));
+            return Results.BadRequest(new ErrorDto("RequiredFields", "Title / description and design authority are required."));
 
         var drawing = await db.Drawings
             .Include(x => x.Parts)
@@ -328,7 +347,40 @@ public static class DrawingOperationalEndpoints
                     x.NormalizedCustomer == normalizedCustomer &&
                     x.NormalizedDrawingNumber == drawing.NormalizedDrawingNumber,
                 cancellationToken))
-            return Results.Conflict(new ErrorDto("DuplicateDrawing", "That drawing number already exists for the selected customer."));
+            return Results.Conflict(new ErrorDto("DuplicateDrawing", "That drawing number already exists for the selected design authority."));
+
+        var requestedParts = (dto.PartNumbers ?? [])
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var currentParts = drawing.Parts.Select(part => part.PartNumber)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var currentSpecifications = drawing.DocumentLinks
+            .Where(link => link.Kind == DrawingDocumentKind.Specification)
+            .Select(link => LinkIdentity(new DrawingDocumentLinkCreateDto(
+                link.Kind.ToString(), link.ReferenceNumber, link.Title, link.Location)))
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var requestedSpecifications = dto.RelatedDocuments is null
+            ? currentSpecifications
+            : dto.RelatedDocuments
+                .Where(link => Enum.TryParse<DrawingDocumentKind>(link.Kind, true, out var kind) && kind == DrawingDocumentKind.Specification)
+                .Select(LinkIdentity)
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        var metadataChanged =
+            !string.Equals(drawing.Title, dto.Title.Trim(), StringComparison.Ordinal) ||
+            !string.Equals(drawing.Customer, newCustomer, StringComparison.Ordinal) ||
+            !string.Equals(drawing.Notes, Clean(dto.Notes), StringComparison.Ordinal) ||
+            !string.Equals(drawing.PhysicalMylarLocation, Clean(dto.PhysicalMylarLocation), StringComparison.Ordinal) ||
+            !currentParts.SequenceEqual(requestedParts, StringComparer.OrdinalIgnoreCase);
+        var specificationsChanged = !currentSpecifications.SequenceEqual(requestedSpecifications, StringComparer.OrdinalIgnoreCase);
+        if (metadataChanged && !HasPermission(http, EngineeringPermissions.DrawingMetadataEdit)) return Results.Forbid();
+        if (specificationsChanged && !HasPermission(http, EngineeringPermissions.SpecificationsEdit)) return Results.Forbid();
+        if (!metadataChanged && !specificationsChanged) return Results.NoContent();
 
         var before = Snapshot(drawing);
         drawing.Title = dto.Title.Trim();
@@ -338,12 +390,15 @@ public static class DrawingOperationalEndpoints
         drawing.PhysicalMylarLocation = Clean(dto.PhysicalMylarLocation);
         drawing.Parts.Clear();
         AddParts(drawing, dto.PartNumbers ?? []);
-        foreach (var editableLink in drawing.DocumentLinks.Where(link =>
-                     link.Kind is DrawingDocumentKind.Specification).ToList())
-            drawing.DocumentLinks.Remove(editableLink);
-        AddLinks(drawing, (dto.RelatedDocuments ?? []).Where(link =>
-            Enum.TryParse<DrawingDocumentKind>(link.Kind, true, out var kind) &&
-            kind is DrawingDocumentKind.Specification));
+        if (dto.RelatedDocuments is not null)
+        {
+            foreach (var editableLink in drawing.DocumentLinks.Where(link =>
+                         link.Kind is DrawingDocumentKind.Specification).ToList())
+                drawing.DocumentLinks.Remove(editableLink);
+            AddLinks(drawing, dto.RelatedDocuments.Where(link =>
+                Enum.TryParse<DrawingDocumentKind>(link.Kind, true, out var kind) &&
+                kind is DrawingDocumentKind.Specification));
+        }
         var after = Snapshot(drawing);
         if (before == after) return Results.NoContent();
 
@@ -479,6 +534,12 @@ public static class DrawingOperationalEndpoints
             before = JsonSerializer.Deserialize<JsonElement>(before),
             after = JsonSerializer.Deserialize<JsonElement>(after)
         });
+
+    private static string LinkIdentity(DrawingDocumentLinkCreateDto link) =>
+        $"{link.ReferenceNumber.Trim()}:{Clean(link.Title)}:{Clean(link.Location)}";
+
+    private static bool HasPermission(HttpContext http, string permission) =>
+        http.User.HasClaim(EngineeringAuthorization.PermissionClaimType, permission);
 
     private static DrawingAuditEntry Audit(
         Drawing drawing,

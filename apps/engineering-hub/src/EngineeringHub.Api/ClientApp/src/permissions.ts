@@ -1,0 +1,36 @@
+export const engineeringPermissionKeys = {
+  moduleView: 'engineering.module.view',
+  dashboardView: 'engineering.dashboard.view',
+  drawingsView: 'engineering.drawings.view',
+  drawingFilesView: 'engineering.drawings.files.view',
+  drawingCreate: 'engineering.drawings.create',
+  drawingMetadataEdit: 'engineering.drawings.metadata.edit',
+  drawingArchive: 'engineering.drawings.archive',
+  drawingDelete: 'engineering.drawings.delete',
+  pendingRevisionsView: 'engineering.revisions.pending.view',
+  revisionHistoryView: 'engineering.revisions.history.view',
+  revisionCreate: 'engineering.revisions.create',
+  revisionEdit: 'engineering.revisions.edit',
+  revisionSubmit: 'engineering.revisions.submit',
+  revisionApprove: 'engineering.revisions.approve',
+  revisionMakeCurrent: 'engineering.revisions.current.manage',
+  revisionDelete: 'engineering.revisions.delete',
+  specificationsView: 'engineering.specifications.view',
+  specificationsEdit: 'engineering.specifications.edit',
+  supportingDocumentsView: 'engineering.supporting-documents.view',
+  supportingDocumentsManage: 'engineering.supporting-documents.manage',
+  mylarView: 'engineering.mylar.view',
+  mylarManage: 'engineering.mylar.manage',
+  validationsView: 'engineering.validations.view',
+  validationsManage: 'engineering.validations.manage',
+  auditView: 'engineering.audit.view',
+  toolingView: 'engineering.tooling.view',
+  compoundDataView: 'engineering.compound-data.view',
+  settingsView: 'engineering.settings.view',
+  settingsManageUsers: 'engineering.settings.users.manage',
+  settingsManageGroups: 'engineering.settings.groups.manage',
+} as const
+
+export function hasEngineeringPermission(permissions: string[], permission: string) {
+  return permissions.includes(permission)
+}

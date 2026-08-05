@@ -54,10 +54,14 @@ export function RevisionUploadForm({
   busy,
   onSubmit,
   onCancel,
+  supportingDocuments = [],
+  sourceRevisionNumber,
 }: {
   busy: boolean
   onSubmit: FormEventHandler<HTMLFormElement>
   onCancel?: () => void
+  supportingDocuments?: { id: number; label: string; fileName: string | null }[]
+  sourceRevisionNumber?: string
 }) {
   return <form className="record-form" noValidate onSubmit={onSubmit}>
     <div className="form-grid">
@@ -65,9 +69,19 @@ export function RevisionUploadForm({
       <EngineeringDatePicker name="revisionDate" label="Revision date" required/>
       <EngineeringDatePicker name="effectiveDate" label="Effective date"/>
       <FilePicker name="pdf" label="Upload drawing file (PDF or image)" accept={DRAWING_FILE_ACCEPT} required className="wide"/>
-      <label className="wide">Change description<textarea name="changeDescription" required rows={2}/></label>
+      <label className="wide">Revision change summary<textarea name="changeDescription" required rows={2}/></label>
       <label className="wide">Notes<textarea name="notes" rows={2}/></label>
     </div>
+    {supportingDocuments.length > 0 && <fieldset className="revision-carry-forward">
+      <legend>Carry supporting documents forward</legend>
+      <p>Select any attachments from Revision {sourceRevisionNumber ?? 'current'} that should also apply to this new revision. Unselected documents remain only with their original revision.</p>
+      <div className="revision-carry-forward-list">
+        {supportingDocuments.map(document => <label key={document.id}>
+          <input type="checkbox" name="carryForwardDocumentIds" value={document.id}/>
+          <span><strong>{document.label}</strong><small>{document.fileName ?? 'Supporting document'}</small></span>
+        </label>)}
+      </div>
+    </fieldset>}
     <div className="store-revision-footer">
       <div>
         <strong>Permanent revision record</strong>

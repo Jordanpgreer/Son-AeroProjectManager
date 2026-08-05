@@ -210,6 +210,12 @@ public sealed class EngineeringSearchService(EngineeringDbContext db)
         string? customer,
         string? status,
         bool reviewQueue,
+        bool canViewPending,
+        bool canViewSpecifications,
+        bool canViewSupportingDocuments,
+        bool canViewMylar,
+        bool canViewTooling,
+        bool canViewCompoundData,
         CancellationToken cancellationToken)
     {
         var drawings = await db.Drawings.AsNoTracking()
@@ -220,10 +226,21 @@ public sealed class EngineeringSearchService(EngineeringDbContext db)
             .AsSplitQuery()
             .OrderBy(x => x.DrawingNumber)
             .ToListAsync(cancellationToken);
+        if (!canViewPending)
+            drawings = drawings.Where(drawing => drawing.CurrentApprovedRevisionId.HasValue || drawing.IsObsolete).ToList();
 
-        var liveRecords = drawings.SelectMany(ToSearchRecords).ToList();
+        var liveRecords = drawings.SelectMany(drawing => ToSearchRecords(
+            drawing,
+            canViewPending,
+            canViewSpecifications,
+            canViewMylar)).ToList();
         var catalogRecords = Records
             .Where(x => x.Category != "drawings")
+            .Where(record => canViewSpecifications || record.Category != "specifications")
+            .Where(record => canViewSupportingDocuments || record.Category != "documents")
+            .Where(record => canViewTooling || record.Category != "tools")
+            .Where(record => canViewCompoundData || record.Category is not ("compounds" or "test-reports"))
+            .Select(record => canViewSpecifications ? record : record with { SpecificationNumber = null })
             .Select(record => record with { DrawingId = ResolveDrawingLink(record, drawings) });
         var records = catalogRecords.Concat(liveRecords).ToList();
         var normalized = query?.Trim();
@@ -243,24 +260,32 @@ public sealed class EngineeringSearchService(EngineeringDbContext db)
 
         var results = filtered.ToList();
         var categories = CategoryDefinitions
+            .Where(definition => canViewSpecifications || definition.Id != "specifications")
+            .Where(definition => canViewSupportingDocuments || definition.Id != "documents")
+            .Where(definition => canViewTooling || definition.Id != "tools")
+            .Where(definition => canViewCompoundData || definition.Id is not ("compounds" or "test-reports"))
             .Select(definition => new EngineeringSearchCategoryDto(
                 definition.Id,
                 definition.Title,
                 records.Count(record => record.Category == definition.Id)))
             .ToList();
 
-        var reviewQueueCount = drawings.Count(drawing => BuildAttentionReasons(drawing).Count > 0);
+        var reviewQueueCount = canViewPending
+            ? drawings.Count(drawing => BuildAttentionReasons(drawing).Count > 0)
+            : 0;
 
         return new EngineeringDashboardDto(
-            "Search by part number, tool number, drawing number, compound number or name, customer, specification number, work order, report number, or keyword / note text.",
+            canViewSpecifications
+                ? "Search by part number, tool number, drawing number, compound number or name, design authority, specification number, report number, or keyword / note text."
+                : "Search by part number, drawing number, design authority, or keyword / note text.",
             categories,
             results,
             new EngineeringOperationalSummaryDto(
                 drawings.Count,
-                drawings.Count(x => x.ApprovalStatus == DrawingApprovalStatus.Draft),
+                canViewPending ? drawings.Count(x => x.ApprovalStatus == DrawingApprovalStatus.Draft) : 0,
                 reviewQueueCount,
                 drawings.Count(x => x.ApprovalStatus == DrawingApprovalStatus.Approved),
-                drawings.Sum(x => x.Mylars.Count(mylar => mylar.IsCheckedOut))),
+                canViewMylar ? drawings.Sum(x => x.Mylars.Count(mylar => mylar.IsCheckedOut)) : 0),
             records.Where(x => !string.IsNullOrWhiteSpace(x.Customer))
                 .Select(x => x.Customer!)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -268,25 +293,61 @@ public sealed class EngineeringSearchService(EngineeringDbContext db)
                 .ToList());
     }
 
-    private static IEnumerable<EngineeringSearchResultDto> ToSearchRecords(Drawing drawing)
+    public Task<EngineeringDashboardDto> GetDashboardAsync(
+        string? query,
+        string? category,
+        string? customer,
+        string? status,
+        bool reviewQueue,
+        CancellationToken cancellationToken) =>
+        GetDashboardAsync(
+            query,
+            category,
+            customer,
+            status,
+            reviewQueue,
+            canViewPending: true,
+            canViewSpecifications: true,
+            canViewSupportingDocuments: true,
+            canViewMylar: true,
+            canViewTooling: true,
+            canViewCompoundData: true,
+            cancellationToken);
+
+    private static IEnumerable<EngineeringSearchResultDto> ToSearchRecords(
+        Drawing drawing,
+        bool canViewPending,
+        bool canViewSpecifications,
+        bool canViewMylar)
     {
-        var specification = drawing.DocumentLinks.FirstOrDefault(x => x.Kind == DrawingDocumentKind.Specification)?.ReferenceNumber;
+        var specification = canViewSpecifications
+            ? drawing.DocumentLinks.FirstOrDefault(x => x.Kind == DrawingDocumentKind.Specification)?.ReferenceNumber
+            : null;
         var workOrder = drawing.DocumentLinks.FirstOrDefault(x => x.Kind == DrawingDocumentKind.WorkOrder)?.ReferenceNumber;
-        var status = drawing.ApprovalStatus.ToString();
+        var status = (canViewPending
+            ? drawing.ApprovalStatus
+            : drawing.IsObsolete
+                ? DrawingApprovalStatus.Obsolete
+                : drawing.CurrentApprovedRevisionId.HasValue
+                    ? DrawingApprovalStatus.Approved
+                    : DrawingApprovalStatus.Draft).ToString();
         var displayStatus = status == nameof(DrawingApprovalStatus.Obsolete) ? "Archived" : status;
-        var attentionReasons = BuildAttentionReasons(drawing);
+        var attentionReasons = canViewPending ? BuildAttentionReasons(drawing) : [];
+        var visibleRevisionCount = canViewPending
+            ? drawing.Revisions.Count
+            : drawing.CurrentApprovedRevisionId.HasValue ? 1 : 0;
         yield return new(
             $"drawing-{drawing.Id}",
             "drawings",
             "Drawings",
             drawing.Title,
             drawing.DrawingNumber,
-            $"{displayStatus} controlled drawing with {drawing.Revisions.Count} revision record{(drawing.Revisions.Count == 1 ? string.Empty : "s")}.",
+            $"{displayStatus} controlled drawing with {visibleRevisionCount} visible revision record{(visibleRevisionCount == 1 ? string.Empty : "s")}.",
             drawing.Customer,
             specification,
             workOrder,
             null,
-            ["Drawing number", status, .. drawing.Parts.Select(x => x.PartNumber), .. drawing.Mylars.Select(x => x.MylarNumber)],
+            ["Drawing number", status, .. drawing.Parts.Select(x => x.PartNumber), .. (canViewMylar ? drawing.Mylars.Select(x => x.MylarNumber) : [])],
             drawing.Notes ?? "No drawing notes recorded.",
             drawing.Id,
             attentionReasons);
