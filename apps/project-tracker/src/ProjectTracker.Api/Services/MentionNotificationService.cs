@@ -87,7 +87,11 @@ public sealed partial class MentionNotificationService
         }
 
         var users = await db.Users
-            .Where(user => user.IsActive)
+            .Where(user =>
+                user.IsActive
+                && user.GroupMemberships.Any(membership =>
+                    membership.Group.Permissions.Any(permission =>
+                        permission.PermissionKey == ApplicationPermissions.ModuleView)))
             .ToListAsync(cancellationToken);
 
         return users

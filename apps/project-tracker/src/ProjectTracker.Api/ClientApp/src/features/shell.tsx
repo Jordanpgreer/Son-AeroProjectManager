@@ -137,14 +137,18 @@ function NotificationsMenu({
     try {
       setNotifications(await api<MentionNotification[]>('/api/notifications'))
       setError(null)
-    } catch (err) {
-      if (showLoading) setError(err instanceof Error ? err.message : 'Notifications could not be loaded.')
+    } catch {
+      setNotifications([])
+      setError('Notifications could not be refreshed. Please try again.')
     } finally {
       if (showLoading) setLoading(false)
     }
   }
 
   useEffect(() => {
+    setNotifications([])
+    setError(null)
+    setLoading(false)
     if (!user?.isRegistered) return
     void loadNotifications()
     const interval = window.setInterval(() => void loadNotifications(), 20_000)

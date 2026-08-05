@@ -132,13 +132,17 @@ export default function App() {
   async function loadApplicationNotifications() {
     try {
       const response = await fetch('/api/application-notifications', { credentials: 'include' })
-      if (!response.ok) return
+      if (!response.ok) {
+        setNotificationCounts({})
+        return
+      }
       const notifications = await response.json() as ApplicationNotification[]
       setNotificationCounts(Object.fromEntries(
         notifications.map((notification) => [notification.applicationId, notification.unreadCount]),
       ))
     } catch {
       // Notification badges are best-effort and must never block the application catalog.
+      setNotificationCounts({})
     }
   }
 

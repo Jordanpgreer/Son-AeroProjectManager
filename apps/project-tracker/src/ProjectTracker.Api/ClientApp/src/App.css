@@ -1032,10 +1032,14 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .program-topbar.is-editing .project-picker-trigger:disabled { opacity: 0.78; cursor: not-allowed; background: var(--surface-2); }
 .program-topbar.is-editing .stat-strip { width: 100%; padding-top: 12px; border-top: 1px solid var(--line); }
 .program-lead { display: grid; gap: 9px; min-width: 0; }
-.program-topbar:not(.is-editing) { position: relative; align-items: flex-start; }
+.program-topbar:not(.is-editing) { align-items: flex-start; row-gap: 0; }
 .program-topbar:not(.is-editing) .program-lead { flex: 1 1 100%; width: 100%; }
-.program-topbar:not(.is-editing) .program-sub { padding-right: 420px; }
-.program-topbar:not(.is-editing) > .project-actions { position: absolute; right: 18px; bottom: 13px; }
+.program-topbar:not(.is-editing) > .project-actions {
+  width: 100%;
+  margin: var(--space-4) 0 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
 .program-summary-line { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; min-width: 0; }
 .program-summary-line .program-pick { flex: 0 1 420px; }
 .program-summary-line .stat-strip { flex: 0 1 auto; }
@@ -1123,7 +1127,7 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .project-detail-save-error { grid-column: 1 / -1; margin-top: -2px; }
 
 .stat-strip { display: flex; gap: 8px; flex-wrap: wrap; }
-.project-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.project-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); flex-wrap: wrap; margin-left: auto; }
 .stat-chip {
   display: grid; gap: 6px; align-content: center;
   min-width: 94px; padding: 9px 13px;
@@ -2049,8 +2053,6 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
   .program-header { grid-template-columns: 1fr; }
   .program-stats { flex-wrap: wrap; }
   .program-meta-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .program-topbar:not(.is-editing) .program-sub { padding-right: 0; }
-  .program-topbar:not(.is-editing) > .project-actions { position: static; }
   .calendar-layout { flex-direction: column; }
   .day-panel { width: auto; }
   .completed-schedule-strip { grid-template-columns: repeat(3, minmax(118px, 1fr)); }
@@ -2078,6 +2080,7 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
   .topbar-search, .topbar-search input { width: 100%; }
   .program-pick { width: 100%; }
   .program-meta-grid { grid-template-columns: 1fr; }
+  .program-topbar:not(.is-editing) > .project-actions .button { flex: 1 1 160px; }
   .project-detail-save-row { align-items: stretch; flex-direction: column; }
   .project-detail-save-button { width: 100%; min-width: 0; }
   .confirmation-modal { grid-template-columns: 1fr; }

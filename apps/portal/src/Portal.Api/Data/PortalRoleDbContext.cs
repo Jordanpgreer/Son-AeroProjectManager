@@ -69,6 +69,10 @@ public sealed class PortalNotificationRecord
 {
     public int Id { get; set; }
     public int RecipientUserId { get; set; }
+    public int? ProjectTaskId { get; set; }
+    public int? ProjectMessageId { get; set; }
+    public string Kind { get; set; } = string.Empty;
+    public string ActorAccountName { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? ReadAt { get; set; }
 }

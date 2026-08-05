@@ -38,17 +38,49 @@ public sealed class ApplicationNotificationServiceTests
             new PortalNotificationRecord
             {
                 RecipientUserId = currentUser.Id,
+                ProjectMessageId = 10,
+                Kind = "ProjectChatMention",
+                ActorAccountName = otherUser.AccountName,
                 CreatedAt = DateTimeOffset.UtcNow
             },
             new PortalNotificationRecord
             {
                 RecipientUserId = currentUser.Id,
+                ProjectMessageId = 11,
+                Kind = "ProjectChatMention",
+                ActorAccountName = otherUser.AccountName,
                 CreatedAt = DateTimeOffset.UtcNow,
                 ReadAt = DateTimeOffset.UtcNow
             },
             new PortalNotificationRecord
             {
                 RecipientUserId = otherUser.Id,
+                ProjectMessageId = 12,
+                Kind = "ProjectChatMention",
+                ActorAccountName = currentUser.AccountName,
+                CreatedAt = DateTimeOffset.UtcNow
+            },
+            new PortalNotificationRecord
+            {
+                RecipientUserId = currentUser.Id,
+                ProjectMessageId = 13,
+                Kind = "ProjectChatMention",
+                ActorAccountName = currentUser.AccountName,
+                CreatedAt = DateTimeOffset.UtcNow
+            },
+            new PortalNotificationRecord
+            {
+                RecipientUserId = currentUser.Id,
+                Kind = "ProjectChatMention",
+                ActorAccountName = otherUser.AccountName,
+                CreatedAt = DateTimeOffset.UtcNow
+            },
+            new PortalNotificationRecord
+            {
+                RecipientUserId = currentUser.Id,
+                ProjectMessageId = 14,
+                Kind = "UnsupportedLegacyKind",
+                ActorAccountName = otherUser.AccountName,
                 CreatedAt = DateTimeOffset.UtcNow
             });
         await db.SaveChangesAsync();
@@ -85,6 +117,9 @@ public sealed class ApplicationNotificationServiceTests
         db.UserNotifications.Add(new PortalNotificationRecord
         {
             RecipientUserId = user.Id,
+            ProjectMessageId = 10,
+            Kind = "ProjectChatMention",
+            ActorAccountName = @"SONAERO\Active.User",
             CreatedAt = DateTimeOffset.UtcNow
         });
         await db.SaveChangesAsync();

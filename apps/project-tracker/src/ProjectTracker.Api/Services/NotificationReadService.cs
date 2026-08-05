@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Dtos;
+using ProjectTracker.Api.Models;
+using SonAero.Platform.Security;
 
 namespace ProjectTracker.Api.Services;
 
@@ -8,13 +10,12 @@ public sealed class NotificationReadService(ProjectTrackerDbContext db)
 {
     public async Task<IReadOnlyList<UserNotificationDto>> GetAsync(
         int recipientUserId,
+        string recipientAccountName,
         bool unreadOnly,
         int take,
         CancellationToken cancellationToken = default)
     {
-        var query = db.UserNotifications
-            .AsNoTracking()
-            .Where(notification => notification.RecipientUserId == recipientUserId);
+        var query = SourceBackedForRecipient(recipientUserId, recipientAccountName);
 
         if (unreadOnly)
         {
@@ -52,5 +53,28 @@ public sealed class NotificationReadService(ProjectTrackerDbContext db)
             .ThenByDescending(notification => notification.Id)
             .Take(take)
             .ToListAsync(cancellationToken);
+    }
+
+    public Task<int> GetUnreadCountAsync(
+        int recipientUserId,
+        string recipientAccountName,
+        CancellationToken cancellationToken = default) =>
+        SourceBackedForRecipient(recipientUserId, recipientAccountName)
+            .CountAsync(notification => notification.ReadAt == null, cancellationToken);
+
+    private IQueryable<UserNotification> SourceBackedForRecipient(
+        int recipientUserId,
+        string recipientAccountName)
+    {
+        var selfLookupKeys = WindowsAccountNames.LookupKeys(recipientAccountName);
+        return db.UserNotifications
+            .AsNoTracking()
+            .Where(notification =>
+                notification.RecipientUserId == recipientUserId
+                && !selfLookupKeys.Contains(notification.ActorAccountName.ToUpper())
+                && ((notification.Kind == NotificationKind.ProjectChatMention
+                        && notification.ProjectMessageId != null)
+                    || (notification.Kind == NotificationKind.OperationNoteMention
+                        && notification.ProjectTaskId != null)));
     }
 }

@@ -27,6 +27,7 @@ public static class NotificationEndpoints
             var limit = Math.Clamp(take ?? 50, 1, 100);
             var notifications = await notificationReader.GetAsync(
                 userId.Value,
+                currentUser.AccountName,
                 unreadOnly == true,
                 limit,
                 cancellationToken);
@@ -37,6 +38,7 @@ public static class NotificationEndpoints
         api.MapGet("/notifications/unread-count", async (
             ProjectTrackerDbContext db,
             CurrentUserService currentUser,
+            NotificationReadService notificationReader,
             CancellationToken cancellationToken) =>
         {
             var userId = await CurrentUserIdAsync(db, currentUser, cancellationToken);
@@ -45,8 +47,9 @@ public static class NotificationEndpoints
                 return Results.Forbid();
             }
 
-            var count = await db.UserNotifications.CountAsync(
-                notification => notification.RecipientUserId == userId.Value && notification.ReadAt == null,
+            var count = await notificationReader.GetUnreadCountAsync(
+                userId.Value,
+                currentUser.AccountName,
                 cancellationToken);
             return Results.Ok(new NotificationCountDto(count));
         });

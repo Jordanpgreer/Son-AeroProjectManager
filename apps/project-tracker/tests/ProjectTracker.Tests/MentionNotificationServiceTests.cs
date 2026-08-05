@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Models;
 using ProjectTracker.Api.Services;
+using SonAero.Platform.Security;
 
 namespace ProjectTracker.Tests;
 
@@ -17,7 +18,7 @@ public sealed class MentionNotificationServiceTests
             ProjectId = fixture.Project.Id,
             AuthorAccountName = fixture.Actor.AccountName,
             AuthorDisplayName = fixture.Actor.DisplayName,
-            Body = "@alex.morgan please review this schedule."
+            Body = "@author @alex.morgan @inactive.user @outside.user please review this schedule."
         };
         fixture.Db.ProjectMessages.Add(message);
 
@@ -125,10 +126,29 @@ public sealed class MentionNotificationServiceTests
             var actor = new AppUser { AccountName = @"SON-AERO\author", DisplayName = "Author" };
             var alex = new AppUser { AccountName = @"SON-AERO\alex.morgan", DisplayName = "Alex Morgan" };
             var casey = new AppUser { AccountName = @"SON-AERO\casey.lee", DisplayName = "Casey Lee" };
+            var inactive = new AppUser
+            {
+                AccountName = @"SON-AERO\inactive.user",
+                DisplayName = "Inactive User",
+                IsActive = false
+            };
+            var outside = new AppUser { AccountName = @"SON-AERO\outside.user", DisplayName = "Outside User" };
+            var projectTrackerUsers = new AppGroup
+            {
+                Name = "Project Tracker Users",
+                Permissions =
+                [
+                    new AppGroupPermission { PermissionKey = ApplicationPermissions.ModuleView }
+                ]
+            };
+            foreach (var user in new[] { actor, alex, casey, inactive })
+            {
+                user.GroupMemberships.Add(new AppUserGroupMembership { Group = projectTrackerUsers });
+            }
             var project = new Project { ProgramName = "Notification Test" };
             var task = new ProjectTask { Project = project, Sequence = 1, Title = "CNC Machining" };
             project.Tasks.Add(task);
-            db.AddRange(actor, alex, casey, project);
+            db.AddRange(actor, alex, casey, inactive, outside, projectTrackerUsers, project);
             await db.SaveChangesAsync();
 
             return new NotificationFixture(connection, db, project, task, actor, alex, casey);

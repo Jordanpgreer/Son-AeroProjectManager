@@ -414,19 +414,19 @@ export function ProjectView({
           )}
           {editMode && projectStats}
         </div>
-        {!editMode && <div className="project-actions">
-          <button className="button ghost" onClick={onOpenChat}><MessageSquare size={15} /> Chat</button>
+        {!editMode && <div className="project-actions" role="group" aria-label="Project actions">
+          <button className="button ghost" type="button" onClick={onOpenChat}><MessageSquare size={15} /> Chat</button>
           {(isCompleted
             ? hasPermission(permissions, permissionKeys.projectReopen)
             : hasPermission(permissions, permissionKeys.projectComplete)) && (
             isCompleted ? (
-              <button className="button ghost" onClick={onReopenProject}><RefreshCw size={15} /> Make Active</button>
+              <button className="button ghost" type="button" onClick={onReopenProject}><RefreshCw size={15} /> Make Active</button>
             ) : (
-              <button className="button ghost" onClick={onCompleteProject}><CheckCircle2 size={15} /> Complete Project</button>
+              <button className="button ghost" type="button" onClick={onCompleteProject}><CheckCircle2 size={15} /> Complete Project</button>
             )
           )}
           {hasPermission(permissions, permissionKeys.projectArchive) && (
-            <button className="button danger" onClick={onDeleteProject}><Trash2 size={15} /> Archive Project</button>
+            <button className="button danger" type="button" onClick={onDeleteProject}><Trash2 size={15} /> Archive Project</button>
           )}
         </div>}
       </header>
