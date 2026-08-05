@@ -1,6 +1,4 @@
-using SonAero.Platform.Security;
-
-namespace EngineeringHub.Api.Auth;
+namespace SonAero.Platform.Security;
 
 public static class EngineeringPermissions
 {
@@ -125,6 +123,15 @@ public static class EngineeringPermissions
         return expanded;
     }
 
+    public static string? RoleFor(IEnumerable<string> permissions)
+    {
+        var expanded = Expand(permissions);
+        if (!expanded.Contains(ModuleView)) return null;
+        if (expanded.Contains(SettingsManageGroups) || expanded.Contains(SettingsManageUsers))
+            return ApplicationRoles.Admin;
+        return expanded.Any(IsMutationPermission) ? ApplicationRoles.Editor : ApplicationRoles.Viewer;
+    }
+
     private static readonly string[] BasicViewerDefaults =
     [
         ModuleView,
@@ -170,4 +177,13 @@ public static class EngineeringPermissions
     {
         if (permissions.Contains(permission)) permissions.Add(dependency);
     }
+
+    private static bool IsMutationPermission(string permission) =>
+        permission.EndsWith(".edit", StringComparison.OrdinalIgnoreCase)
+        || permission.EndsWith(".create", StringComparison.OrdinalIgnoreCase)
+        || permission.EndsWith(".manage", StringComparison.OrdinalIgnoreCase)
+        || permission.EndsWith(".approve", StringComparison.OrdinalIgnoreCase)
+        || permission.EndsWith(".archive", StringComparison.OrdinalIgnoreCase)
+        || permission.EndsWith(".delete", StringComparison.OrdinalIgnoreCase)
+        || permission.EndsWith(".submit", StringComparison.OrdinalIgnoreCase);
 }

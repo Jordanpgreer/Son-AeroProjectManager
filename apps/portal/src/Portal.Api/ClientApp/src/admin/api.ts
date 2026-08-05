@@ -1,9 +1,9 @@
-import { resolveProjectTrackerApiUrl } from './apiUrl'
+import { defaultProjectTrackerApiUrl, resolveProjectTrackerApiUrl } from './apiUrl'
 
 const configuredTrackerUrl = import.meta.env.VITE_PROJECT_TRACKER_URL?.trim()
 
 export const projectTrackerUrl = new URL(
-  configuredTrackerUrl || '/project-tracker-api',
+  configuredTrackerUrl || defaultProjectTrackerApiUrl(window.location),
   window.location.origin,
 ).toString().replace(/\/$/, '')
 
@@ -11,7 +11,7 @@ export function isAdminHash(hash = window.location.hash) {
   return hash.toLowerCase().startsWith('#/admin')
 }
 
-function errorMessage(status: number, statusText: string, payload: unknown) {
+function errorMessage(status: number, statusText: string, payload: unknown, source: string) {
   if (typeof payload === 'string' && payload.trim()) return payload.trim()
   if (payload && typeof payload === 'object') {
     const record = payload as Record<string, unknown>
@@ -25,7 +25,7 @@ function errorMessage(status: number, statusText: string, payload: unknown) {
       if (messages.length) return messages.join(' ')
     }
   }
-  return `Project Tracker responded ${status} ${statusText || ''}`.trim()
+  return `${source} responded ${status} ${statusText || ''}`.trim()
 }
 
 export class TrackerApiError extends Error {
@@ -73,12 +73,39 @@ export async function trackerApi<T>(
       payload = null
     }
     throw new TrackerApiError(
-      errorMessage(response.status, response.statusText, payload),
+      errorMessage(response.status, response.statusText, payload, 'Project Tracker'),
       response.status,
     )
   }
 
   if (response.status === 204) return undefined as T
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!contentType.includes('json')) {
+    throw new TrackerApiError(
+      'Project Tracker returned a web page instead of API data. The Hub gateway is not configured for this environment.',
+      response.status,
+    )
+  }
+  return await response.json() as T
+}
+
+export async function portalApi<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers)
+  if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+  const response = await fetch(path, { ...init, headers, credentials: 'include' })
+  if (!response.ok) {
+    const contentType = response.headers.get('content-type') ?? ''
+    const payload = contentType.includes('json')
+      ? await response.json().catch(() => null)
+      : await response.text().catch(() => null)
+    throw new TrackerApiError(
+      errorMessage(response.status, response.statusText, payload, 'Hub Admin'),
+      response.status,
+    )
+  }
+  if (response.status === 204 || response.headers.get('content-length') === '0') return undefined as T
   return await response.json() as T
 }
 

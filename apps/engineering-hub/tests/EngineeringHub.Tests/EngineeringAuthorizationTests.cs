@@ -37,6 +37,18 @@ public sealed class EngineeringAuthorizationTests
     }
 
     [Fact]
+    public void Shared_permission_catalog_infers_legacy_module_role()
+    {
+        Assert.Null(EngineeringPermissions.RoleFor([]));
+        Assert.Equal(ApplicationRoles.Viewer, EngineeringPermissions.RoleFor(
+            [EngineeringPermissions.ModuleView, EngineeringPermissions.DrawingsView]));
+        Assert.Equal(ApplicationRoles.Editor, EngineeringPermissions.RoleFor(
+            [EngineeringPermissions.ModuleView, EngineeringPermissions.DrawingCreate]));
+        Assert.Equal(ApplicationRoles.Admin, EngineeringPermissions.RoleFor(
+            [EngineeringPermissions.ModuleView, EngineeringPermissions.SettingsManageGroups]));
+    }
+
+    [Fact]
     public async Task Role_store_reads_active_engineering_assignment_from_shared_contract()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

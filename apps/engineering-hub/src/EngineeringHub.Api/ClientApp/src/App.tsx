@@ -25,10 +25,10 @@ import DrawingWorkspace from './DrawingWorkspace'
 import type { DrawingRecordHeader } from './DrawingWorkspace'
 import EngineeringDashboard from './EngineeringDashboard'
 import type { EngineeringSearchResult } from './EngineeringDashboard'
-import EngineeringAccessSettings from './EngineeringAccessSettings'
 import { engineeringPermissionKeys, hasEngineeringPermission } from './permissions'
 
 const hubUrl = import.meta.env.VITE_HUB_URL ?? `${window.location.protocol}//${window.location.hostname}:5140`
+const engineeringAdminUrl = new URL('/#/admin/engineering/access', hubUrl).toString()
 
 interface Me {
   accountName: string
@@ -59,7 +59,6 @@ const ICONS: Record<string, typeof FileStack> = {
   'drawing-document-control': FileStack,
   'tooling-management': Wrench,
   'compound-test-data-management': FlaskConical,
-  settings: Settings,
 }
 
 const SECTION_TONES: Record<string, string> = {
@@ -67,7 +66,6 @@ const SECTION_TONES: Record<string, string> = {
   'drawing-document-control': 'tone-steel',
   'tooling-management': 'tone-red',
   'compound-test-data-management': 'tone-ok',
-  settings: 'tone-steel',
 }
 
 const PAGE_NOTES: Record<string, { label: string; detail: string }> = {
@@ -242,11 +240,7 @@ export default function App() {
         return
       }
       if (route === 'settings') {
-        setDrawingHeader(null)
-        setActiveSectionId('settings')
-        setDrawingScreen('dashboard')
-        setDrawingId(null)
-        setCreatingDrawing(false)
+        window.location.replace(engineeringAdminUrl)
         return
       }
       if (route === 'drawing-record') {
@@ -312,15 +306,6 @@ export default function App() {
       const required = requiredPermissions[section.id]
       return !required || hasEngineeringPermission(me.permissions, required)
     })
-    if (hasEngineeringPermission(me.permissions, engineeringPermissionKeys.settingsView)) {
-      sections.push({
-        id: 'settings',
-        title: 'Settings',
-        summary: 'Manage Engineering users, groups, and granular permissions.',
-        status: 'Access control',
-        highlights: ['Registered users', 'Engineering groups', 'Granular permissions'],
-      })
-    }
     return sections
   }, [me, moduleData])
 
@@ -340,12 +325,6 @@ export default function App() {
     setDrawingId(null)
     setCreatingDrawing(false)
     window.location.hash = 'drawing-dashboard'
-  }
-
-  function refreshCurrentUserAccess() {
-    void fetch('/api/me', { credentials: 'include' })
-      .then(response => response.ok ? response.json() as Promise<Me> : null)
-      .then(currentUser => { if (currentUser) setMe(currentUser) })
   }
 
   function openDrawingRecord(id: number) {
@@ -408,7 +387,6 @@ export default function App() {
 
   const showingDrawingRecord = activeSection?.id === 'drawing-document-control' && drawingScreen === 'record'
   const showingDrawingRegister = activeSection?.id === 'drawing-document-control' && drawingScreen === 'dashboard'
-  const showingSettings = activeSection?.id === 'settings'
 
   return (
     <div className="engineering-shell engineering-app">
@@ -439,11 +417,6 @@ export default function App() {
                   className={`nav-button ${active ? 'active' : ''}`.trim()}
                   onClick={() => {
                     if (section.id === 'drawing-document-control') openDrawingDashboard()
-                    else if (section.id === 'settings') {
-                      setSelectedModuleRecord(null)
-                      setActiveSectionId('settings')
-                      window.location.hash = 'settings'
-                    }
                     else {
                       setSelectedModuleRecord(null)
                       setActiveSectionId(section.id)
@@ -462,9 +435,14 @@ export default function App() {
           </nav>
         </div>
 
-        <div className="sidebar-foot">
-          <UserProfile me={me} className="sidebar-user-chip" />
-        </div>
+        {can(engineeringPermissionKeys.settingsView) && <div className="sidebar-foot">
+          <nav className="foot-nav" aria-label="Engineering administration">
+            <a className="nav-button" href={engineeringAdminUrl} target="_top">
+              <span className="nav-icon"><Settings size={17}/></span>
+              Engineering Admin / Settings
+            </a>
+          </nav>
+        </div>}
       </aside>
 
       <main className="main-area">
@@ -510,12 +488,10 @@ export default function App() {
               </>
             ) : (
               <>
-                <span className="eyebrow">{showingDrawingRegister ? 'Drawing and document control' : showingSettings ? 'Engineering administration' : 'Standalone workspace'}</span>
-                <h1>{showingDrawingRegister ? 'Drawing Register' : showingSettings ? 'Settings and access' : moduleData?.name ?? 'Engineering Module'}</h1>
+                <span className="eyebrow">{showingDrawingRegister ? 'Drawing and document control' : 'Standalone workspace'}</span>
+                <h1>{showingDrawingRegister ? 'Drawing Register' : moduleData?.name ?? 'Engineering Module'}</h1>
                 <p>{showingDrawingRegister
                   ? 'Search controlled drawings, review release status, and open complete revision records.'
-                  : showingSettings
-                    ? 'Assign registered users to Engineering groups and control exactly what each group can see or change.'
                   : moduleData?.summary ?? 'Loading module overview...'}</p>
               </>
             )}
@@ -530,10 +506,13 @@ export default function App() {
             >
               <img src="/brand/son-aero-mark.png" alt="" />
             </a>
-            <ThemeSwitch
-              theme={theme}
-              onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
-            />
+            <div className="topbar-identity">
+              <ThemeSwitch
+                theme={theme}
+                onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+              />
+              <UserProfile me={me} className="topbar-user-chip" />
+            </div>
             {showingDrawingRecord
               ? drawingHeader && <>
                   {canEditMetadata && !drawingHeader.isObsolete && <button
@@ -555,7 +534,6 @@ export default function App() {
               : <button className="button ghost" type="button" onClick={() => window.location.reload()}>
                   <RefreshCw size={15} /> Refresh
                 </button>}
-            <UserProfile me={me} className="mobile-user-chip" />
           </div>
         </header>
 
@@ -577,7 +555,7 @@ export default function App() {
               </section>
             ) : activeSection ? (
               <>
-                {!showingDrawingRecord && activeSection.id !== 'dashboard' && activeSection.id !== 'drawing-document-control' && activeSection.id !== 'settings' && <section className="panel engineering-hero">
+                {!showingDrawingRecord && activeSection.id !== 'dashboard' && activeSection.id !== 'drawing-document-control' && <section className="panel engineering-hero">
                   <div className="panel-head">
                     <div className="panel-head-text">
                       <span className="eyebrow">{moduleData?.accessNotice}</span>
@@ -610,8 +588,6 @@ export default function App() {
                       permissions={permissions}
                     />
                   )
-                ) : activeSection.id === 'settings' ? (
-                  <EngineeringAccessSettings permissions={permissions} onAccessChanged={refreshCurrentUserAccess}/>
                 ) : activeSection.id === 'dashboard' ? (
                   <EngineeringDashboard
                     onOpenResult={openEngineeringResult}

@@ -7,6 +7,9 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
     public DbSet<PortalRoleRecord> Users => Set<PortalRoleRecord>();
     public DbSet<PortalModuleAccessRecord> UserModuleAccess => Set<PortalModuleAccessRecord>();
     public DbSet<PortalNotificationRecord> UserNotifications => Set<PortalNotificationRecord>();
+    public DbSet<PortalEngineeringGroupRecord> EngineeringGroups => Set<PortalEngineeringGroupRecord>();
+    public DbSet<PortalEngineeringMembershipRecord> EngineeringUserGroupMemberships => Set<PortalEngineeringMembershipRecord>();
+    public DbSet<PortalEngineeringPermissionRecord> EngineeringGroupPermissions => Set<PortalEngineeringPermissionRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -17,6 +20,10 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
             entity.Property(user => user.AccountName).HasMaxLength(160);
             entity.Property(user => user.DisplayName).HasMaxLength(160);
             entity.Property(user => user.Role).HasMaxLength(32);
+            entity.HasMany(user => user.EngineeringGroupMemberships)
+                .WithOne(membership => membership.User)
+                .HasForeignKey(membership => membership.AppUserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<PortalModuleAccessRecord>(entity =>
@@ -42,6 +49,37 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
                 notification.CreatedAt
             });
         });
+
+        modelBuilder.Entity<PortalEngineeringGroupRecord>(entity =>
+        {
+            entity.ToTable("EngineeringGroups");
+            entity.HasKey(group => group.Id);
+            entity.HasIndex(group => group.Name).IsUnique();
+            entity.Property(group => group.Name).HasMaxLength(80);
+            entity.Property(group => group.Description).HasMaxLength(240);
+            entity.HasMany(group => group.UserMemberships)
+                .WithOne(membership => membership.Group)
+                .HasForeignKey(membership => membership.AppGroupId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(group => group.Permissions)
+                .WithOne(permission => permission.Group)
+                .HasForeignKey(permission => permission.AppGroupId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PortalEngineeringMembershipRecord>(entity =>
+        {
+            entity.ToTable("EngineeringUserGroupMemberships");
+            entity.HasKey(membership => new { membership.AppUserId, membership.AppGroupId });
+            entity.HasIndex(membership => membership.AppGroupId);
+        });
+
+        modelBuilder.Entity<PortalEngineeringPermissionRecord>(entity =>
+        {
+            entity.ToTable("EngineeringGroupPermissions");
+            entity.HasKey(permission => new { permission.AppGroupId, permission.PermissionKey });
+            entity.Property(permission => permission.PermissionKey).HasMaxLength(120);
+        });
     }
 }
 
@@ -54,6 +92,7 @@ public sealed class PortalRoleRecord
     public bool IsActive { get; set; } = true;
     public DateTimeOffset LastSeenAt { get; set; }
     public ICollection<PortalModuleAccessRecord> ModuleAccessAssignments { get; set; } = [];
+    public ICollection<PortalEngineeringMembershipRecord> EngineeringGroupMemberships { get; set; } = [];
 }
 
 public sealed class PortalModuleAccessRecord
@@ -75,4 +114,33 @@ public sealed class PortalNotificationRecord
     public string ActorAccountName { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? ReadAt { get; set; }
+}
+
+public sealed class PortalEngineeringGroupRecord
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public bool IsSystemGroup { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public ICollection<PortalEngineeringMembershipRecord> UserMemberships { get; set; } = [];
+    public ICollection<PortalEngineeringPermissionRecord> Permissions { get; set; } = [];
+}
+
+public sealed class PortalEngineeringMembershipRecord
+{
+    public int AppUserId { get; set; }
+    public PortalRoleRecord User { get; set; } = null!;
+    public int AppGroupId { get; set; }
+    public PortalEngineeringGroupRecord Group { get; set; } = null!;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class PortalEngineeringPermissionRecord
+{
+    public int AppGroupId { get; set; }
+    public PortalEngineeringGroupRecord Group { get; set; } = null!;
+    public string PermissionKey { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

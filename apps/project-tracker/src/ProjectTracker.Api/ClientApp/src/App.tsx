@@ -838,6 +838,7 @@ function App() {
   ])
   const canCreateProject = hasPermission(userPermissions, permissionKeys.projectCreate)
   const canReorderPriority = hasPermission(userPermissions, permissionKeys.projectEditPriority)
+  const canRestoreArchived = hasPermission(userPermissions, permissionKeys.archivedRestore)
   const canViewActivity = Boolean(userPermissions.includes('project.activity.view'))
   const isProjectScreen = screen === 'project'
   const holidaySet = useMemo(() => new Set(holidays.map((holiday) => holiday.date)), [holidays])
@@ -931,7 +932,7 @@ function App() {
           {!loading && !screenDataLoading && !error && !projectLoading && (
             <>
               {screen === 'dashboard' && (
-                <DashboardView dashboard={dashboard} search={dashboardSearch} canReorderPriority={canReorderPriority} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} onMovePriority={updateProjectPriority} />
+                <DashboardView dashboard={dashboard} search={dashboardSearch} currentUser={user} canReorderPriority={canReorderPriority} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} onMovePriority={updateProjectPriority} />
               )}
               {isProjectScreen && selectedProject && (
                 <ProjectView
@@ -966,7 +967,7 @@ function App() {
                 />
               )}
               {screen === 'calendar' && <CalendarView data={scheduleProjects} holidaySet={holidaySet} workingDaySet={workingDaySet} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} />}
-              {screen === 'pastProjects' && <PastProjectsView projects={dashboard.projects} search={pastProjectsSearch} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} />}
+              {screen === 'pastProjects' && <PastProjectsView projects={dashboard.projects} search={pastProjectsSearch} canRestoreArchived={canRestoreArchived} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} onProjectRestored={async () => setDashboard(await api<Dashboard>('/api/dashboard'))} />}
             </>
           )}
         </div>

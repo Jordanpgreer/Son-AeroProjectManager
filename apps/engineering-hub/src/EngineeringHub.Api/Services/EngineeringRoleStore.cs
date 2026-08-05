@@ -49,12 +49,7 @@ public sealed class EngineeringRoleStore(EngineeringRoleDbContext db, ILogger<En
             var permissions = EngineeringPermissions.Expand(user.Permissions)
                 .OrderBy(permission => permission)
                 .ToArray();
-            var role = permissions.Contains(EngineeringPermissions.SettingsManageGroups, StringComparer.OrdinalIgnoreCase)
-                || permissions.Contains(EngineeringPermissions.SettingsManageUsers, StringComparer.OrdinalIgnoreCase)
-                    ? ApplicationRoles.Admin
-                    : permissions.Any(IsMutationPermission)
-                        ? ApplicationRoles.Editor
-                        : ApplicationRoles.Viewer;
+            var role = EngineeringPermissions.RoleFor(permissions) ?? ApplicationRoles.Viewer;
             return new EngineeringModuleAccess(
                 role,
                 user.IsActive && permissions.Contains(EngineeringPermissions.ModuleView, StringComparer.OrdinalIgnoreCase),
@@ -68,12 +63,4 @@ public sealed class EngineeringRoleStore(EngineeringRoleDbContext db, ILogger<En
         }
     }
 
-    private static bool IsMutationPermission(string permission) =>
-        permission.EndsWith(".edit", StringComparison.OrdinalIgnoreCase)
-        || permission.EndsWith(".create", StringComparison.OrdinalIgnoreCase)
-        || permission.EndsWith(".manage", StringComparison.OrdinalIgnoreCase)
-        || permission.EndsWith(".approve", StringComparison.OrdinalIgnoreCase)
-        || permission.EndsWith(".archive", StringComparison.OrdinalIgnoreCase)
-        || permission.EndsWith(".delete", StringComparison.OrdinalIgnoreCase)
-        || permission.EndsWith(".submit", StringComparison.OrdinalIgnoreCase);
 }

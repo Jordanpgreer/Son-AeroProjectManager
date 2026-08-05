@@ -1,6 +1,7 @@
 using EngineeringHub.Api.Auth;
 using EngineeringHub.Api.Data;
 using Microsoft.EntityFrameworkCore;
+using SonAero.Platform.Security;
 
 namespace EngineeringHub.Api.Services;
 

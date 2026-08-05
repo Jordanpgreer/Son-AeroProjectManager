@@ -28,6 +28,7 @@ import {
   screenEyebrow,
   screenTitle,
   screenSubtitle,
+  userInitials,
 } from '../lib'
 import type {
   Screen,
@@ -39,6 +40,25 @@ import type { AppTheme } from '../theme'
 
 function hasPermission(user: User | null, permission: string) {
   return Boolean(user?.permissions?.includes(permission))
+}
+
+function UserProfile({ user }: { user: User | null }) {
+  const accessLabel = user?.isAdmin ? 'Admin' : user?.groups[0] ?? 'User'
+  const avatarLabel = user
+    ? userInitials(user.displayName).padEnd(2, user.displayName.slice(1, 2).toUpperCase())
+    : '...'
+
+  return (
+    <div className="topbar-user-chip" aria-live="polite">
+      <div className="topbar-user-copy">
+        <strong>{user?.displayName ?? 'Checking access'}</strong>
+        <span>{user ? accessLabel : 'Loading'}</span>
+      </div>
+      <span className="topbar-user-avatar" title={user?.accountName}>
+        {avatarLabel}
+      </span>
+    </div>
+  )
 }
 
 export function Sidebar({
@@ -384,7 +404,10 @@ export function PageHeader({
           <img src="/brand/son-aero-mark.png" alt="" />
         </a>
         <NotificationsMenu user={user} onOpenProject={onOpenProject} />
-        <ThemeSwitch theme={theme} onToggleTheme={onToggleTheme} />
+        <div className="topbar-identity">
+          <ThemeSwitch theme={theme} onToggleTheme={onToggleTheme} />
+          <UserProfile user={user} />
+        </div>
         <button className="button ghost" onClick={refresh} title="Reload tracker data">
           <RefreshCw size={15} /> Refresh
         </button>

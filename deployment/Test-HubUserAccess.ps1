@@ -163,10 +163,57 @@ function Test-ExactSet {
 }
 
 function Get-RolePermissions {
-    param([string]$ModuleKey, [string]$Role)
+    param(
+        [string]$ModuleKey,
+        [string]$Role,
+        [switch]$GranularEngineering
+    )
 
     if ($Role -eq 'NoAccess') { return @() }
     if ($ModuleKey -eq 'engineering') {
+        if ($GranularEngineering) {
+            $permissions = @(
+                'engineering.module.view',
+                'engineering.dashboard.view',
+                'engineering.drawings.view',
+                'engineering.drawings.files.view'
+            )
+            if ($Role -in @('Editor', 'Admin')) {
+                $permissions += @(
+                    'engineering.revisions.pending.view',
+                    'engineering.revisions.history.view',
+                    'engineering.revisions.submit',
+                    'engineering.revisions.approve',
+                    'engineering.revisions.current.manage',
+                    'engineering.specifications.view',
+                    'engineering.supporting-documents.view',
+                    'engineering.mylar.view',
+                    'engineering.validations.view',
+                    'engineering.audit.view',
+                    'engineering.tooling.view',
+                    'engineering.compound-data.view',
+                    'engineering.drawings.create',
+                    'engineering.drawings.metadata.edit',
+                    'engineering.revisions.create',
+                    'engineering.revisions.edit',
+                    'engineering.specifications.edit',
+                    'engineering.supporting-documents.manage',
+                    'engineering.mylar.manage',
+                    'engineering.validations.manage'
+                )
+            }
+            if ($Role -eq 'Admin') {
+                $permissions += @(
+                    'engineering.drawings.archive',
+                    'engineering.drawings.delete',
+                    'engineering.revisions.delete',
+                    'engineering.settings.view',
+                    'engineering.settings.users.manage',
+                    'engineering.settings.groups.manage'
+                )
+            }
+            return $permissions
+        }
         $permissions = @('engineering.module.view')
         if ($Role -in @('Editor', 'Admin')) { $permissions += 'engineering.module.edit' }
         if ($Role -eq 'Admin') { $permissions += 'engineering.module.admin' }
@@ -343,7 +390,7 @@ $report = foreach ($module in $modules) {
                 $expectedPermissions = if ($PSBoundParameters.ContainsKey('ExpectedEngineeringPermissions')) {
                     $ExpectedEngineeringPermissions
                 } elseif ($PSBoundParameters.ContainsKey('ExpectedEngineeringRole')) {
-                    Get-RolePermissions -ModuleKey engineering -Role $ExpectedEngineeringRole
+                    Get-RolePermissions -ModuleKey engineering -Role $ExpectedEngineeringRole -GranularEngineering
                 }
                 if ($null -ne $expectedPermissions) {
                     Test-ExactSet -Actual $payload.permissions -Expected $expectedPermissions -Label 'Engineering permissions'
