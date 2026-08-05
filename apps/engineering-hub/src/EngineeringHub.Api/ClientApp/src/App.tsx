@@ -59,7 +59,6 @@ const ICONS: Record<string, typeof FileStack> = {
   'drawing-document-control': FileStack,
   'tooling-management': Wrench,
   'compound-test-data-management': FlaskConical,
-  'admin-settings': Settings,
 }
 
 const SECTION_TONES: Record<string, string> = {
@@ -67,7 +66,6 @@ const SECTION_TONES: Record<string, string> = {
   'drawing-document-control': 'tone-steel',
   'tooling-management': 'tone-red',
   'compound-test-data-management': 'tone-ok',
-  'admin-settings': 'tone-steel',
 }
 
 const PAGE_NOTES: Record<string, { label: string; detail: string }> = {
@@ -308,15 +306,6 @@ export default function App() {
       const required = requiredPermissions[section.id]
       return !required || hasEngineeringPermission(me.permissions, required)
     })
-    if (hasEngineeringPermission(me.permissions, engineeringPermissionKeys.settingsView)) {
-      sections.push({
-        id: 'admin-settings',
-        title: 'Engineering Admin',
-        summary: 'Open Hub Admin to manage Engineering users, groups, and granular permissions.',
-        status: 'Access control',
-        highlights: ['Registered users', 'Engineering groups', 'Granular permissions'],
-      })
-    }
     return sections
   }, [me, moduleData])
 
@@ -421,14 +410,6 @@ export default function App() {
           {availableSections.map((section) => {
             const Icon = ICONS[section.id] ?? Beaker
             const active = section.id === activeSection?.id
-            if (section.id === 'admin-settings') {
-              return <div className="engineering-nav-item" key={section.id}>
-                <a className="nav-button" href={engineeringAdminUrl} target="_top">
-                  <span className="nav-icon"><Icon size={17}/></span>
-                  {section.title}
-                </a>
-              </div>
-            }
             return (
               <div className="engineering-nav-item" key={section.id}>
                 <button
@@ -454,9 +435,14 @@ export default function App() {
           </nav>
         </div>
 
-        <div className="sidebar-foot">
-          <UserProfile me={me} className="sidebar-user-chip" />
-        </div>
+        {can(engineeringPermissionKeys.settingsView) && <div className="sidebar-foot">
+          <nav className="foot-nav" aria-label="Engineering administration">
+            <a className="nav-button" href={engineeringAdminUrl} target="_top">
+              <span className="nav-icon"><Settings size={17}/></span>
+              Engineering Admin / Settings
+            </a>
+          </nav>
+        </div>}
       </aside>
 
       <main className="main-area">
@@ -520,10 +506,13 @@ export default function App() {
             >
               <img src="/brand/son-aero-mark.png" alt="" />
             </a>
-            <ThemeSwitch
-              theme={theme}
-              onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
-            />
+            <div className="topbar-identity">
+              <ThemeSwitch
+                theme={theme}
+                onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+              />
+              <UserProfile me={me} className="topbar-user-chip" />
+            </div>
             {showingDrawingRecord
               ? drawingHeader && <>
                   {canEditMetadata && !drawingHeader.isObsolete && <button
@@ -545,7 +534,6 @@ export default function App() {
               : <button className="button ghost" type="button" onClick={() => window.location.reload()}>
                   <RefreshCw size={15} /> Refresh
                 </button>}
-            <UserProfile me={me} className="mobile-user-chip" />
           </div>
         </header>
 

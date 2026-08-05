@@ -931,7 +931,7 @@ function App() {
           {!loading && !screenDataLoading && !error && !projectLoading && (
             <>
               {screen === 'dashboard' && (
-                <DashboardView dashboard={dashboard} search={dashboardSearch} canReorderPriority={canReorderPriority} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} onMovePriority={updateProjectPriority} />
+                <DashboardView dashboard={dashboard} search={dashboardSearch} currentUser={user} canReorderPriority={canReorderPriority} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} onMovePriority={updateProjectPriority} />
               )}
               {isProjectScreen && selectedProject && (
                 <ProjectView

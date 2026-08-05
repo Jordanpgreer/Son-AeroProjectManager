@@ -10,6 +10,7 @@ import {
   Factory,
   Gauge,
   ChevronUp,
+  UserRoundCheck,
 } from 'lucide-react'
 import {
   statusClass,
@@ -23,7 +24,9 @@ import type {
   DashboardSortField,
   DashboardSort,
   ProjectSummary,
+  User,
 } from '../types'
+import { buildPersonalPriorityRanks, isProjectAssignedToUser } from './dashboard-priority'
 import {
   Kpi,
   StatusBar,
@@ -36,26 +39,32 @@ import {
 export function DashboardView({
   dashboard,
   search,
+  currentUser,
   canReorderPriority,
   onOpenProject,
   onMovePriority,
 }: {
   dashboard: Dashboard
   search: string
+  currentUser: Pick<User, 'accountName' | 'displayName'> | null
   canReorderPriority: boolean
   onOpenProject: (projectId: number) => Promise<void>
   onMovePriority: (projectId: number, priorityRank: number) => Promise<void>
 }) {
   // Completed programs live on the Past Projects page, not here.
   const [sort, setSort] = useState<DashboardSort>({ field: 'priority', dir: 'asc' })
+  const [myProjectsOnly, setMyProjectsOnly] = useState(false)
   const active = dashboard.projects.filter((project) => project.status !== 'Complete')
+  const myProjects = active.filter((project) => isProjectAssignedToUser(project, currentUser))
+  const personalPriorityRanks = buildPersonalPriorityRanks(myProjects)
+  const scopedProjects = myProjectsOnly ? myProjects : active
   const query = search.trim().toLowerCase()
   const filtered = query
-    ? active.filter((project) =>
+    ? scopedProjects.filter((project) =>
       project.programName.toLowerCase().includes(query) ||
       (project.customerName ?? '').toLowerCase().includes(query) ||
       (project.salesOrderNumber ?? '').toLowerCase().includes(query))
-    : active
+    : scopedProjects
 
   const handleSort = (field: DashboardSortField) =>
     setSort((current) => current.field === field
@@ -130,21 +139,45 @@ export function DashboardView({
             <span className="kicker">Portfolio Control Board</span>
             <h2>Development Queue</h2>
           </div>
-          {total > 0 && (
-            <StatusBar segments={[
-              { key: 'behind', count: behind, label: 'Behind' },
-              { key: 'on-track', count: onTrack, label: 'On track' },
-              { key: 'not-started', count: notStarted, label: 'Not started' },
-            ]} total={total} />
-          )}
+          <div className="dashboard-head-tools">
+            <button
+              type="button"
+              className={`my-projects-filter ${myProjectsOnly ? 'active' : ''}`}
+              aria-pressed={myProjectsOnly}
+              onClick={() => setMyProjectsOnly((current) => !current)}
+              title={myProjectsOnly ? 'Show all active projects' : 'Show projects where you are the engineer or project lead'}
+            >
+              <UserRoundCheck size={16} />
+              <span>{myProjectsOnly ? 'Showing My Projects' : 'My Projects'}</span>
+              <span className="my-projects-count">{myProjects.length}</span>
+            </button>
+            {total > 0 && (
+              <StatusBar segments={[
+                { key: 'behind', count: behind, label: 'Behind' },
+                { key: 'on-track', count: onTrack, label: 'On track' },
+                { key: 'not-started', count: notStarted, label: 'Not started' },
+              ]} total={total} />
+            )}
+          </div>
         </header>
         {total === 0 ? (
           <EmptyState
-            title={query ? 'No matching programs' : 'No active programs'}
-            body={query ? 'Try another part number, sales order number, or customer name.' : 'Import or add programs to begin tracking schedule progress.'}
+            title={myProjectsOnly ? 'No assigned projects found' : query ? 'No matching programs' : 'No active programs'}
+            body={myProjectsOnly
+              ? (query ? 'No assigned projects match the current search.' : 'You are not listed as the engineer or project lead on an active project.')
+              : query ? 'Try another part number, sales order number, or customer name.' : 'Import or add programs to begin tracking schedule progress.'}
           />
         ) : (
-          <PortfolioTable projects={visible} maxPriority={active.length} canReorderPriority={canReorderPriority} sort={sort} onSort={handleSort} onOpenProject={onOpenProject} onMovePriority={onMovePriority} />
+          <PortfolioTable
+            projects={visible}
+            maxPriority={active.length}
+            canReorderPriority={canReorderPriority && !myProjectsOnly}
+            personalPriorityRanks={myProjectsOnly ? personalPriorityRanks : null}
+            sort={sort}
+            onSort={handleSort}
+            onOpenProject={onOpenProject}
+            onMovePriority={onMovePriority}
+          />
         )}
       </section>
     </section>
@@ -246,18 +279,35 @@ export function PastProjectsTable({ projects, onOpenProject }: { projects: Proje
 
 export function PriorityControl({
   rank,
+  personalRank,
   maxPriority,
   canReorderPriority,
   programName,
   onMove,
 }: {
   rank: number | null
+  personalRank?: number
   maxPriority: number
   canReorderPriority: boolean
   programName: string
   onMove: (rank: number) => Promise<void>
 }) {
   const tier = rank === null ? 'none' : rank === 1 ? 'top' : rank <= 3 ? 'high' : 'normal'
+  if (personalRank !== undefined) {
+    return (
+      <div className="priority-pair" aria-label={`Personal priority ${personalRank}, overall priority ${rank ?? 'not set'}`}>
+        <span className="priority-rank-block">
+          <span className="priority-rank-label">Mine</span>
+          <span className="priority-badge personal">{personalRank}</span>
+        </span>
+        <span className="priority-rank-block">
+          <span className="priority-rank-label">Overall</span>
+          <span className={`priority-badge tier-${tier}`}>{rank ?? '–'}</span>
+        </span>
+      </div>
+    )
+  }
+
   return (
     <div className="priority-cell">
       <span className={`priority-badge tier-${tier}`} title={rank ? `Priority ${rank}` : 'No priority'}>{rank ?? '–'}</span>
@@ -306,6 +356,7 @@ export function PortfolioTable({
   projects,
   maxPriority,
   canReorderPriority,
+  personalPriorityRanks,
   sort,
   onSort,
   onOpenProject,
@@ -314,6 +365,7 @@ export function PortfolioTable({
   projects: ProjectSummary[]
   maxPriority: number
   canReorderPriority: boolean
+  personalPriorityRanks: Map<number, number> | null
   sort: DashboardSort
   onSort: (field: DashboardSortField) => void
   onOpenProject: (projectId: number) => Promise<void>
@@ -324,7 +376,7 @@ export function PortfolioTable({
       <table className="data-table portfolio-table">
         <thead>
           <tr>
-            <SortableHeader label="Priority" field="priority" sort={sort} onSort={onSort} className="col-priority" />
+            <SortableHeader label={personalPriorityRanks ? 'Priority: Mine / Overall' : 'Priority'} field="priority" sort={sort} onSort={onSort} className={`col-priority ${personalPriorityRanks ? 'dual' : ''}`} />
             <th>Part / Program</th>
             <th>Current Operation</th>
             <th>Contact Lead</th>
@@ -340,8 +392,8 @@ export function PortfolioTable({
         <tbody>
           {projects.map((project) => (
             <tr key={project.id} className={`clickable-row rail-${statusClass(project.status)}`} onClick={() => onOpenProject(project.id)}>
-              <td className="col-priority" onClick={(event) => event.stopPropagation()}>
-                <PriorityControl rank={project.priorityRank} maxPriority={maxPriority} canReorderPriority={canReorderPriority} programName={project.programName} onMove={(rank) => onMovePriority(project.id, rank)} />
+              <td className={`col-priority ${personalPriorityRanks ? 'dual' : ''}`} onClick={(event) => event.stopPropagation()}>
+                <PriorityControl rank={project.priorityRank} personalRank={personalPriorityRanks?.get(project.id)} maxPriority={maxPriority} canReorderPriority={canReorderPriority} programName={project.programName} onMove={(rank) => onMovePriority(project.id, rank)} />
               </td>
               <td>
                 <span className="mono-id">{project.programName}</span>
