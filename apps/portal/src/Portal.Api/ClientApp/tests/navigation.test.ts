@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applicationNavigationMode } from './navigation'
+import { applicationNavigationMode } from '../src/navigation'
 
 describe('applicationNavigationMode', () => {
   const catalogUrl = 'http://SON-IIS2:5140/'

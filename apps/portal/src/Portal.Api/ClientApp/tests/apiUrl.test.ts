@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveProjectTrackerApiUrl } from './apiUrl'
+import { resolveProjectTrackerApiUrl } from '../src/admin/apiUrl'
 
 describe('resolveProjectTrackerApiUrl', () => {
   it('keeps root-absolute API paths under the same-origin gateway', () => {

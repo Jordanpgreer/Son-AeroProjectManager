@@ -38,8 +38,8 @@
   </ItemGroup>
 
   <Target Name="BuildClient" BeforeTargets="ComputeFilesToPublish" Condition="'$(SkipClientBuild)' != 'true'">
-    <Exec WorkingDirectory="$(SpaRoot)" Command="npm ci" Condition="!Exists('$(SpaRoot)node_modules') and Exists('$(SpaRoot)package-lock.json')" />
-    <Exec WorkingDirectory="$(SpaRoot)" Command="npm install" Condition="!Exists('$(SpaRoot)node_modules') and !Exists('$(SpaRoot)package-lock.json')" />
+    <Error Condition="!Exists('$(SpaRoot)package-lock.json')" Text="The Project Tracker client package-lock.json is required for a deterministic publish." />
+    <Exec WorkingDirectory="$(SpaRoot)" Command="npm ci --include=dev --no-audit --no-fund" />
     <Exec WorkingDirectory="$(SpaRoot)" Command="npm run build" />
     <ItemGroup>
       <ClientDist Include="$(SpaRoot)dist\**" />

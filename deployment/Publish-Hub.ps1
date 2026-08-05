@@ -40,8 +40,20 @@ function Find-DotNetSdk {
     throw 'The .NET 8 SDK is required to publish the Hub.'
 }
 $dotnet = Find-DotNetSdk
-if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
-    throw 'Node.js LTS and npm are required to build the Hub frontends.'
+$nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
+$npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
+if (-not $nodeCommand -or -not $npmCommand) {
+    throw 'Node.js and npm are required to build the Hub frontends.'
+}
+$nodeVersionText = (& $nodeCommand.Source --version).Trim().TrimStart('v')
+$nodeVersion = $null
+if (-not [Version]::TryParse($nodeVersionText, [ref]$nodeVersion)) {
+    throw "Could not parse the installed Node.js version: $nodeVersionText"
+}
+$supportedNode = ($nodeVersion.Major -eq 20 -and $nodeVersion -ge [Version]'20.19.0') `
+    -or $nodeVersion -ge [Version]'22.12.0'
+if (-not $supportedNode) {
+    throw "Node.js 20.19+ or 22.12+ is required; installed version is $nodeVersion."
 }
 
 $applications = @(
@@ -51,7 +63,17 @@ $applications = @(
     [pscustomobject]@{ Name = 'Portal'; Project = 'apps\portal\src\Portal.Api\Portal.Api.csproj' }
 )
 
-New-Item -ItemType Directory -Force -Path $resolvedOutputRoot | Out-Null
+if (Test-Path -LiteralPath $resolvedOutputRoot) {
+    if (-not (Test-Path -LiteralPath $resolvedOutputRoot -PathType Container)) {
+        throw "OutputRoot is not a directory: $resolvedOutputRoot"
+    }
+    if (@(Get-ChildItem -LiteralPath $resolvedOutputRoot -Force).Count -gt 0) {
+        throw "OutputRoot must be new or empty so stale release files cannot be reused: $resolvedOutputRoot"
+    }
+}
+else {
+    New-Item -ItemType Directory -Path $resolvedOutputRoot | Out-Null
+}
 $priorTrackerUrl = $env:VITE_PROJECT_TRACKER_URL
 try {
     $env:VITE_PROJECT_TRACKER_URL = $trackerUrlValue.TrimEnd('/')
