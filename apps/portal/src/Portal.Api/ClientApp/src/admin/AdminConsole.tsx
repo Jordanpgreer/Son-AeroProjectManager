@@ -22,6 +22,7 @@ import EngineeringAccessPanel from './EngineeringAccessPanel'
 import EngineeringStoragePanel from './EngineeringStoragePanel'
 import ModuleAccessPanel from './ModuleAccessPanel'
 import { projectTrackerUrl, toErrorMessage, trackerApi } from './api'
+import { resolveModuleApplicationUrl } from './moduleUrls'
 import { ImportsPanel } from './ProjectTrackerDataPanels'
 import {
   HolidaysPanel,
@@ -81,7 +82,11 @@ const MODULES: {
     description: 'Engineering module administration',
     icon: Database,
     href: '#/admin/engineering/access',
-    openUrl: `${window.location.protocol}//${window.location.hostname}:5150`,
+    openUrl: resolveModuleApplicationUrl(
+      import.meta.env.VITE_ENGINEERING_HUB_URL,
+      window.location,
+      5150,
+    ),
   },
   {
     key: 'estimating',
@@ -89,7 +94,11 @@ const MODULES: {
     description: 'Estimating module administration',
     icon: Calculator,
     href: '#/admin/estimating/access',
-    openUrl: `${window.location.protocol}//${window.location.hostname}:5160`,
+    openUrl: resolveModuleApplicationUrl(
+      import.meta.env.VITE_ESTIMATING_DASHBOARD_URL,
+      window.location,
+      5160,
+    ),
   },
 ]
 

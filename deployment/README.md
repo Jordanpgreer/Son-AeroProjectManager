@@ -15,6 +15,10 @@ backup readiness), follow [production-rollout.md](production-rollout.md) in orde
 Production settings are in [`templates`](templates). No passwords, live secrets, or certificates
 belong in Git.
 
+For the explicitly limited Jordan/Josh HTTPS test, use
+[two-person-https-pilot.md](two-person-https-pilot.md). Its private mini-CA and per-computer ZIPs
+are pilot-only; they do not replace the managed PKI/trust design required for company rollout.
+
 After a trusted HTTPS endpoint is operational, use
 `Configure-ProjectTrackerWebPush.ps1` to generate or install the VAPID pair in Project Tracker's
 server-only IIS environment and verify the public-key endpoint. Run its `-WhatIf` mode first. The

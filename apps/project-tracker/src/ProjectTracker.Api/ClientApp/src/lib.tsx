@@ -17,7 +17,8 @@ const initialUrlParameters = new URLSearchParams(window.location.search)
 export const isPortalDashboardPreview = initialUrlParameters.get('preview') === 'dashboard'
 export const isPortalDashboardLaunch = initialUrlParameters.get('launch') === 'dashboard'
 export const isPortalEmbedded = initialUrlParameters.get('embed') === 'portal'
-export const hubUrl = import.meta.env.VITE_HUB_URL ?? `${window.location.protocol}//${window.location.hostname}:5140`
+export const hubUrl = import.meta.env.VITE_HUB_URL?.trim()
+  || `${window.location.protocol}//${window.location.hostname}:5140`
 
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {

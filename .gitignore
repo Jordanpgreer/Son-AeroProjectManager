@@ -72,3 +72,9 @@ Project Tracker - *.xlsm
 .env
 .env.local
 .env.*.local
+
+# Private certificate/key material (pilot bundles must also be created outside a Git worktree)
+*.pfx
+*.p12
+*.pem
+*.key

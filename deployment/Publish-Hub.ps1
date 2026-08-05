@@ -3,6 +3,9 @@
 param(
     [string]$OutputRoot = (Join-Path $PSScriptRoot 'artifacts\hub'),
     [string]$ProjectTrackerUrl = '/project-tracker-api',
+    [string]$HubUrl,
+    [string]$EngineeringHubUrl,
+    [string]$EstimatingDashboardUrl,
     [ValidateSet('Release', 'Debug')]
     [string]$Configuration = 'Release'
 )
@@ -22,6 +25,32 @@ if (($absoluteTrackerUrl -and $trackerUri.Scheme -notin @('http', 'https')) -or
     (-not $absoluteTrackerUrl -and -not $validRelativeTrackerUrl)) {
     throw 'ProjectTrackerUrl must be an absolute HTTP(S) URL or a root-relative application path.'
 }
+
+function ConvertTo-OptionalAbsoluteHttpUrl {
+    param(
+        [string]$Value,
+        [Parameter(Mandatory = $true)][string]$ParameterName
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
+    $parsed = $null
+    if (-not [Uri]::TryCreate($Value.Trim(), [UriKind]::Absolute, [ref]$parsed) -or
+        $parsed.Scheme -notin @('http', 'https') -or
+        [string]::IsNullOrWhiteSpace($parsed.Host) -or
+        -not [string]::IsNullOrWhiteSpace($parsed.UserInfo) -or
+        -not [string]::IsNullOrWhiteSpace($parsed.Query) -or
+        -not [string]::IsNullOrWhiteSpace($parsed.Fragment) -or
+        $parsed.AbsolutePath -ne '/') {
+        throw "$ParameterName must be an absolute HTTP(S) origin without credentials, a path, query, or fragment."
+    }
+    return $parsed.GetLeftPart([UriPartial]::Authority)
+}
+
+$hubUrlValue = ConvertTo-OptionalAbsoluteHttpUrl -Value $HubUrl -ParameterName 'HubUrl'
+$engineeringHubUrlValue = ConvertTo-OptionalAbsoluteHttpUrl `
+    -Value $EngineeringHubUrl -ParameterName 'EngineeringHubUrl'
+$estimatingDashboardUrlValue = ConvertTo-OptionalAbsoluteHttpUrl `
+    -Value $EstimatingDashboardUrl -ParameterName 'EstimatingDashboardUrl'
 
 function Find-DotNetSdk {
     $candidates = @(
@@ -75,8 +104,16 @@ else {
     New-Item -ItemType Directory -Path $resolvedOutputRoot | Out-Null
 }
 $priorTrackerUrl = $env:VITE_PROJECT_TRACKER_URL
+$priorHubUrl = $env:VITE_HUB_URL
+$priorEngineeringHubUrl = $env:VITE_ENGINEERING_HUB_URL
+$priorEstimatingDashboardUrl = $env:VITE_ESTIMATING_DASHBOARD_URL
 try {
     $env:VITE_PROJECT_TRACKER_URL = $trackerUrlValue.TrimEnd('/')
+    if ($hubUrlValue) { $env:VITE_HUB_URL = $hubUrlValue }
+    if ($engineeringHubUrlValue) { $env:VITE_ENGINEERING_HUB_URL = $engineeringHubUrlValue }
+    if ($estimatingDashboardUrlValue) {
+        $env:VITE_ESTIMATING_DASHBOARD_URL = $estimatingDashboardUrlValue
+    }
     foreach ($application in $applications) {
         $projectPath = Join-Path $resolvedRepoRoot $application.Project
         if (-not (Test-Path -LiteralPath $projectPath)) {
@@ -98,6 +135,9 @@ try {
 }
 finally {
     $env:VITE_PROJECT_TRACKER_URL = $priorTrackerUrl
+    $env:VITE_HUB_URL = $priorHubUrl
+    $env:VITE_ENGINEERING_HUB_URL = $priorEngineeringHubUrl
+    $env:VITE_ESTIMATING_DASHBOARD_URL = $priorEstimatingDashboardUrl
 }
 
 Write-Host ''
