@@ -171,7 +171,7 @@ public sealed class DrawingRevisionEditingTests
         var revisionId = fixture.Revision.Id;
         var originalDescription = fixture.Revision.ChangeDescription;
         await File.WriteAllTextAsync(
-            fixture.Files.ResolvePath(fixture.Revision.StoredFilePath),
+            await fixture.Files.ResolvePathAsync(fixture.Revision.StoredFilePath, CancellationToken.None),
             "tampered");
 
         var response = await fixture.InvokeFormAsync(
@@ -247,7 +247,7 @@ public sealed class DrawingRevisionEditingTests
         await fixture.Db.SaveChangesAsync();
 
         const string sharedLocation = "support/shared-document.pdf";
-        var sharedPath = fixture.Files.ResolvePath(sharedLocation);
+        var sharedPath = await fixture.Files.ResolvePathAsync(sharedLocation, CancellationToken.None);
         Directory.CreateDirectory(Path.GetDirectoryName(sharedPath)!);
         await File.WriteAllTextAsync(sharedPath, "%PDF-1.4\nshared supporting document");
         fixture.Drawing.DocumentLinks.AddRange([
@@ -320,6 +320,7 @@ public sealed class DrawingRevisionEditingTests
                 RootPath = root,
                 RequireUncPath = false
             }));
+            await files.EnsureDesignAuthoritiesAsync(["SON-AERO"], CancellationToken.None);
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
             var db = new EngineeringDbContext(

@@ -41,9 +41,15 @@ public sealed class EngineeringAccessSeeder(
                 groups.Add(group);
             }
 
-            if (group.Permissions.Count == 0)
+            var expectedPermissions = EngineeringPermissions.DefaultsForGroup(group.Name);
+            if (group.Permissions.Count == 0 ||
+                string.Equals(group.Name, "Administrators", StringComparison.OrdinalIgnoreCase))
             {
-                foreach (var permission in EngineeringPermissions.DefaultsForGroup(group.Name))
+                foreach (var permission in expectedPermissions.Where(permission =>
+                             group.Permissions.All(existing => !string.Equals(
+                                 existing.PermissionKey,
+                                 permission,
+                                 StringComparison.OrdinalIgnoreCase))))
                 {
                     group.Permissions.Add(new EngineeringGroupPermissionRecord
                     {

@@ -34,6 +34,7 @@ public sealed class EngineeringAuthorizationTests
         Assert.Equal(canViewInternalRevisions, permissions.Contains(EngineeringPermissions.PendingRevisionsView));
         Assert.Equal(canEditSpecifications, permissions.Contains(EngineeringPermissions.SpecificationsEdit));
         Assert.Equal(canManageAccess, permissions.Contains(EngineeringPermissions.SettingsManageGroups));
+        Assert.Equal(canManageAccess, permissions.Contains(EngineeringPermissions.SettingsManageStorage));
     }
 
     [Fact]
@@ -46,6 +47,9 @@ public sealed class EngineeringAuthorizationTests
             [EngineeringPermissions.ModuleView, EngineeringPermissions.DrawingCreate]));
         Assert.Equal(ApplicationRoles.Admin, EngineeringPermissions.RoleFor(
             [EngineeringPermissions.ModuleView, EngineeringPermissions.SettingsManageGroups]));
+        Assert.Contains(
+            EngineeringPermissions.SettingsView,
+            EngineeringPermissions.Expand([EngineeringPermissions.SettingsManageStorage]));
     }
 
     [Fact]

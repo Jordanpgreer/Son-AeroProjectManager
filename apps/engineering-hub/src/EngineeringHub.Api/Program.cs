@@ -21,7 +21,7 @@ builder.Services.AddScoped<EngineeringDemoDataSeeder>();
 builder.Services.AddScoped<MylarCustodyService>();
 builder.Services.AddScoped<EngineeringSchemaInitializer>();
 builder.Services.Configure<DrawingStorageOptions>(builder.Configuration.GetSection(DrawingStorageOptions.SectionName));
-builder.Services.AddSingleton<IDrawingFileStore, DrawingFileStore>();
+builder.Services.AddScoped<IDrawingFileStore, DrawingFileStore>();
 builder.Services.AddDbContext<EngineeringDbContext>((serviceProvider, options) =>
 {
     var configuration = serviceProvider.GetRequiredService<IConfiguration>();
@@ -86,6 +86,20 @@ using (var scope = app.Services.CreateScope())
     await scope.ServiceProvider.GetRequiredService<EngineeringSchemaInitializer>().InitializeAsync(CancellationToken.None);
     if (app.Environment.IsDevelopment() && builder.Configuration.GetValue("Engineering:SeedDemoData", true))
         await scope.ServiceProvider.GetRequiredService<EngineeringDemoDataSeeder>().SeedAsync(CancellationToken.None);
+    try
+    {
+        var db = scope.ServiceProvider.GetRequiredService<EngineeringDbContext>();
+        var authorities = await db.Drawings.AsNoTracking()
+            .Select(drawing => drawing.Customer)
+            .Distinct()
+            .ToListAsync(CancellationToken.None);
+        await scope.ServiceProvider.GetRequiredService<IDrawingFileStore>()
+            .EnsureDesignAuthoritiesAsync(authorities, CancellationToken.None);
+    }
+    catch (Exception exception)
+    {
+        app.Logger.LogWarning(exception, "Design-authority folders could not be synchronized during startup.");
+    }
 }
 
 app.Use(async (context, next) =>

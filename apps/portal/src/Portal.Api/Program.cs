@@ -18,7 +18,10 @@ builder.Services.AddSingleton<ApplicationRegistry>();
 builder.Services.AddScoped<PortalUserService>();
 builder.Services.AddScoped<IPortalRoleStore, PortalRoleStore>();
 builder.Services.AddScoped<ApplicationNotificationService>();
+builder.Services.AddScoped<PortalEngineeringStorageSchemaInitializer>();
 builder.Services.AddHttpClient<TrackerPreviewService>();
+builder.Services.Configure<EngineeringStorageAdminOptions>(
+    builder.Configuration.GetSection(EngineeringStorageAdminOptions.SectionName));
 builder.Services.AddDbContext<PortalRoleDbContext>((serviceProvider, options) =>
 {
     var configuration = serviceProvider.GetRequiredService<IConfiguration>();
@@ -56,6 +59,12 @@ else
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    await scope.ServiceProvider.GetRequiredService<PortalEngineeringStorageSchemaInitializer>()
+        .InitializeAsync(CancellationToken.None);
+}
 
 app.Use(async (context, next) =>
 {

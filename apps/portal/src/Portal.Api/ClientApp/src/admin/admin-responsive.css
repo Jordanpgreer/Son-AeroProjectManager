@@ -30,6 +30,9 @@
   .admin-holiday-form { grid-template-columns: 1fr 1fr; }
   .module-user-row { grid-template-columns: 38px minmax(180px, 1fr) minmax(130px, 0.4fr); }
   .module-access-state { grid-column: 2 / -1; justify-self: start; }
+  .engineering-storage-status { grid-template-columns: 46px minmax(0, 1fr); }
+  .engineering-storage-status dl { grid-column: 2; flex-wrap: wrap; }
+  .engineering-authority-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 720px) {
@@ -65,6 +68,9 @@
   .module-role-field,
   .module-access-state { grid-column: 2; justify-self: stretch; }
   .module-access-state { text-align: center; }
+  .engineering-storage-path-form,
+  .engineering-authority-create { grid-template-columns: 1fr; }
+  .engineering-authority-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 420px) {

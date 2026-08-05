@@ -9,6 +9,7 @@ public sealed class EngineeringRoleDbContext(DbContextOptions<EngineeringRoleDbC
     public DbSet<EngineeringAccessGroupRecord> Groups => Set<EngineeringAccessGroupRecord>();
     public DbSet<EngineeringUserGroupMembershipRecord> UserGroupMemberships => Set<EngineeringUserGroupMembershipRecord>();
     public DbSet<EngineeringGroupPermissionRecord> GroupPermissions => Set<EngineeringGroupPermissionRecord>();
+    public DbSet<EngineeringStorageSettingRecord> StorageSettings => Set<EngineeringStorageSettingRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -68,6 +69,14 @@ public sealed class EngineeringRoleDbContext(DbContextOptions<EngineeringRoleDbC
             entity.HasKey(permission => new { permission.AppGroupId, permission.PermissionKey });
             entity.Property(permission => permission.PermissionKey).HasMaxLength(120);
         });
+
+        modelBuilder.Entity<EngineeringStorageSettingRecord>(entity =>
+        {
+            entity.ToTable("EngineeringStorageSettings");
+            entity.HasKey(setting => setting.Id);
+            entity.Property(setting => setting.RootPath).HasMaxLength(2048);
+            entity.Property(setting => setting.UpdatedBy).HasMaxLength(160);
+        });
     }
 }
 
@@ -118,4 +127,13 @@ public sealed class EngineeringGroupPermissionRecord
     public EngineeringAccessGroupRecord Group { get; set; } = null!;
     public string PermissionKey { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class EngineeringStorageSettingRecord
+{
+    public int Id { get; set; }
+    public string RootPath { get; set; } = string.Empty;
+    public string PreviousRootPathsJson { get; set; } = "[]";
+    public DateTimeOffset UpdatedAt { get; set; }
+    public string UpdatedBy { get; set; } = string.Empty;
 }

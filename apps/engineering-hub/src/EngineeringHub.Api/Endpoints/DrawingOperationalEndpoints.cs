@@ -145,7 +145,7 @@ public static class DrawingOperationalEndpoints
         var document = await db.DrawingDocumentLinks.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == id && x.Kind == DrawingDocumentKind.SupplementalDocument, cancellationToken);
         if (document is null || string.IsNullOrWhiteSpace(document.Location)) return Results.NotFound();
-        var path = files.ResolvePath(document.Location);
+        var path = await files.ResolvePathAsync(document.Location, cancellationToken);
         if (!File.Exists(path)) return Results.NotFound();
         var fileName = document.Title ?? $"supplemental{Path.GetExtension(path)}";
         var contentType = SupplementalFileValidation.GetContentType(fileName);
@@ -211,8 +211,23 @@ public static class DrawingOperationalEndpoints
         if (string.IsNullOrWhiteSpace(drawingNumber) || string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(customer))
             return Results.BadRequest(new ErrorDto("RequiredFields", "Drawing number, title / description, and design authority are required."));
 
+        string? designAuthority;
+        try
+        {
+            designAuthority = await files.ResolveDesignAuthorityAsync(customer, cancellationToken);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return Results.Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "Engineering storage unavailable",
+                detail: exception.Message);
+        }
+        if (designAuthority is null)
+            return Results.BadRequest(new ErrorDto("InvalidDesignAuthority", "Select an approved design authority from Engineering storage."));
+
         var normalizedNumber = Normalize(drawingNumber);
-        var normalizedCustomer = Normalize(customer);
+        var normalizedCustomer = Normalize(designAuthority);
         if (await db.Drawings.AnyAsync(
                 x => x.NormalizedDrawingNumber == normalizedNumber && x.NormalizedCustomer == normalizedCustomer,
                 cancellationToken))
@@ -238,7 +253,7 @@ public static class DrawingOperationalEndpoints
             DrawingNumber = drawingNumber,
             NormalizedDrawingNumber = normalizedNumber,
             Title = title,
-            Customer = customer,
+            Customer = designAuthority,
             NormalizedCustomer = normalizedCustomer,
             Notes = Clean(form["notes"]),
             PhysicalMylarLocation = Clean(form["mylarLocation"]),
@@ -326,6 +341,7 @@ public static class DrawingOperationalEndpoints
         int id,
         [FromBody] DrawingUpdateDto dto,
         EngineeringDbContext db,
+        IDrawingFileStore files,
         HttpContext http,
         CancellationToken cancellationToken)
     {
@@ -341,7 +357,20 @@ public static class DrawingOperationalEndpoints
         if (drawing.IsObsolete)
             return Results.Conflict(new ErrorDto("ObsoleteDrawing", "Archived drawing metadata is locked."));
 
-        var newCustomer = dto.Customer.Trim();
+        string? newCustomer;
+        try
+        {
+            newCustomer = await files.ResolveDesignAuthorityAsync(dto.Customer, cancellationToken);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return Results.Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "Engineering storage unavailable",
+                detail: exception.Message);
+        }
+        if (newCustomer is null)
+            return Results.BadRequest(new ErrorDto("InvalidDesignAuthority", "Select an approved design authority from Engineering storage."));
         var normalizedCustomer = Normalize(newCustomer);
         if (await db.Drawings.AnyAsync(
                 x => x.Id != id &&

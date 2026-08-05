@@ -1,6 +1,10 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Portal.Api.Data;
 using Portal.Api.Dtos;
+using Portal.Api.Services;
+using SonAero.Platform.Engineering;
 using SonAero.Platform.Security;
 
 namespace Portal.Api.Endpoints;
@@ -13,6 +17,157 @@ public static class EngineeringAdminEndpoints
         api.MapPut("/admin/engineering-access/users/{id:int}/groups", UpdateUserGroupsAsync).RequireAuthorization();
         api.MapPost("/admin/engineering-access/groups", CreateGroupAsync).RequireAuthorization();
         api.MapPut("/admin/engineering-access/groups/{id:int}", UpdateGroupAsync).RequireAuthorization();
+        api.MapGet("/admin/engineering-storage", GetStorageAsync).RequireAuthorization();
+        api.MapPut("/admin/engineering-storage", UpdateStorageAsync).RequireAuthorization();
+        api.MapPost("/admin/engineering-storage/design-authorities", CreateDesignAuthorityAsync).RequireAuthorization();
+    }
+
+    private static async Task<IResult> GetStorageAsync(
+        HttpContext http,
+        PortalRoleDbContext db,
+        IOptions<EngineeringStorageAdminOptions> options,
+        CancellationToken cancellationToken)
+    {
+        var permissions = await CurrentPermissionsAsync(http, db, cancellationToken);
+        if (!permissions.Contains(EngineeringPermissions.SettingsView)) return AccessDenied();
+        return Results.Ok(await StorageOverviewAsync(
+            db,
+            options.Value,
+            permissions.Contains(EngineeringPermissions.SettingsManageStorage),
+            cancellationToken));
+    }
+
+    private static async Task<IResult> UpdateStorageAsync(
+        EngineeringStorageUpdateDto dto,
+        HttpContext http,
+        PortalRoleDbContext db,
+        IOptions<EngineeringStorageAdminOptions> options,
+        CancellationToken cancellationToken)
+    {
+        if (!await HasPermissionAsync(http, db, EngineeringPermissions.SettingsManageStorage, cancellationToken))
+            return AccessDenied();
+
+        var setting = await db.EngineeringStorageSettings
+            .SingleOrDefaultAsync(candidate => candidate.Id == EngineeringStorageSchema.SettingsId, cancellationToken);
+        var currentRoot = setting?.RootPath;
+        if (string.IsNullOrWhiteSpace(currentRoot) && !string.IsNullOrWhiteSpace(options.Value.RootPath))
+            currentRoot = EngineeringStoragePolicy.NormalizeRoot(options.Value.RootPath, requireUncPath: false);
+
+        string root;
+        try
+        {
+            root = EngineeringStoragePolicy.NormalizeRoot(dto.RootPath, options.Value.RequireUncPath);
+            EngineeringStoragePolicy.VerifyWritable(root);
+            _ = EngineeringStoragePolicy.EnumerateAuthorities(root);
+            if (!string.IsNullOrWhiteSpace(currentRoot) &&
+                !string.Equals(currentRoot, root, StringComparison.OrdinalIgnoreCase) &&
+                Directory.Exists(currentRoot))
+            {
+                foreach (var authority in EngineeringStoragePolicy.EnumerateAuthorities(currentRoot))
+                    Directory.CreateDirectory(EngineeringStoragePolicy.AuthorityPath(root, authority));
+            }
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return Results.BadRequest(new { detail = exception.Message });
+        }
+
+        var previous = DeserializeRoots(setting?.PreviousRootPathsJson)
+            .Where(path => !string.Equals(path, root, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (!string.IsNullOrWhiteSpace(currentRoot) &&
+            !string.Equals(currentRoot, root, StringComparison.OrdinalIgnoreCase) &&
+            !previous.Contains(currentRoot, StringComparer.OrdinalIgnoreCase))
+        {
+            previous.Insert(0, currentRoot);
+        }
+        previous = previous.Distinct(StringComparer.OrdinalIgnoreCase).Take(8).ToList();
+
+        setting ??= new PortalEngineeringStorageSettingRecord { Id = EngineeringStorageSchema.SettingsId };
+        setting.RootPath = root;
+        setting.PreviousRootPathsJson = JsonSerializer.Serialize(previous);
+        setting.UpdatedAt = DateTimeOffset.UtcNow;
+        setting.UpdatedBy = WindowsAccountNames.Normalize(http.User.Identity?.Name) ?? "Unknown";
+        if (db.Entry(setting).State == EntityState.Detached) db.EngineeringStorageSettings.Add(setting);
+        await db.SaveChangesAsync(cancellationToken);
+        return Results.Ok(await StorageOverviewAsync(db, options.Value, true, cancellationToken));
+    }
+
+    private static async Task<IResult> CreateDesignAuthorityAsync(
+        EngineeringDesignAuthorityCreateDto dto,
+        HttpContext http,
+        PortalRoleDbContext db,
+        IOptions<EngineeringStorageAdminOptions> options,
+        CancellationToken cancellationToken)
+    {
+        if (!await HasPermissionAsync(http, db, EngineeringPermissions.SettingsManageStorage, cancellationToken))
+            return AccessDenied();
+
+        try
+        {
+            var setting = await db.EngineeringStorageSettings.AsNoTracking()
+                .SingleOrDefaultAsync(candidate => candidate.Id == EngineeringStorageSchema.SettingsId, cancellationToken);
+            var root = EngineeringStoragePolicy.NormalizeRoot(
+                setting?.RootPath ?? options.Value.RootPath,
+                options.Value.RequireUncPath);
+            EngineeringStoragePolicy.VerifyWritable(root);
+            var authority = EngineeringStoragePolicy.NormalizeDesignAuthority(dto.Name);
+            if (EngineeringStoragePolicy.EnumerateAuthorities(root).Contains(authority, StringComparer.OrdinalIgnoreCase))
+                return Results.Conflict(new { detail = "That design authority already exists in Engineering storage." });
+            Directory.CreateDirectory(EngineeringStoragePolicy.AuthorityPath(root, authority));
+            return Results.Created(
+                "/api/admin/engineering-storage/design-authorities",
+                await StorageOverviewAsync(db, options.Value, true, cancellationToken));
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return Results.BadRequest(new { detail = exception.Message });
+        }
+    }
+
+    private static async Task<EngineeringStorageOverviewDto> StorageOverviewAsync(
+        PortalRoleDbContext db,
+        EngineeringStorageAdminOptions options,
+        bool canManageStorage,
+        CancellationToken cancellationToken)
+    {
+        var setting = await db.EngineeringStorageSettings.AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.Id == EngineeringStorageSchema.SettingsId, cancellationToken);
+        var configuredPath = setting?.RootPath ?? options.RootPath;
+        var previousRoots = DeserializeRoots(setting?.PreviousRootPathsJson);
+        if (string.IsNullOrWhiteSpace(configuredPath))
+        {
+            return new EngineeringStorageOverviewDto(
+                string.Empty, false, false, false, false,
+                "Set the controlled drawing root before creating drawings or design authorities.",
+                [], previousRoots.Count, setting?.UpdatedAt, setting?.UpdatedBy, canManageStorage);
+        }
+
+        string root;
+        try
+        {
+            root = EngineeringStoragePolicy.NormalizeRoot(configuredPath, options.RequireUncPath);
+            EngineeringStoragePolicy.VerifyWritable(root);
+            var authorities = EngineeringStoragePolicy.EnumerateAuthorities(root);
+            return new EngineeringStorageOverviewDto(
+                root, true, EngineeringStoragePolicy.IsUncPath(root), true, true,
+                $"Storage is reachable and writable. Indexed {authorities.Count} design-authority folder{(authorities.Count == 1 ? string.Empty : "s")}.",
+                authorities, previousRoots.Count, setting?.UpdatedAt, setting?.UpdatedBy, canManageStorage);
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return new EngineeringStorageOverviewDto(
+                configuredPath, true, EngineeringStoragePolicy.IsUncPath(configuredPath), false, false,
+                $"The configured storage root is unavailable: {exception.Message}",
+                [], previousRoots.Count, setting?.UpdatedAt, setting?.UpdatedBy, canManageStorage);
+        }
+    }
+
+    private static IReadOnlyList<string> DeserializeRoots(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<string[]>(json) ?? []; }
+        catch (JsonException) { return []; }
     }
 
     private static async Task<IResult> GetOverviewAsync(

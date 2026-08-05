@@ -8,6 +8,7 @@ import {
   Database,
   ExternalLink,
   Factory,
+  FolderTree,
   GanttChart,
   LockKeyhole,
   Settings2,
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react'
 import AccessPanel from './AccessPanel'
 import EngineeringAccessPanel from './EngineeringAccessPanel'
+import EngineeringStoragePanel from './EngineeringStoragePanel'
 import ModuleAccessPanel from './ModuleAccessPanel'
 import { projectTrackerUrl, toErrorMessage, trackerApi } from './api'
 import { ImportsPanel } from './ProjectTrackerDataPanels'
@@ -27,6 +29,7 @@ import {
 } from './ProjectTrackerSettingsPanels'
 import type {
   AdminModuleKey,
+  EngineeringAdminSection,
   ProjectTrackerAdminSection,
   ProjectTrackerUser,
 } from './types'
@@ -100,6 +103,15 @@ const PROJECT_TRACKER_SECTIONS: {
   { key: 'imports', label: 'Imports', icon: UploadCloud },
 ]
 
+const ENGINEERING_SECTIONS: {
+  key: EngineeringAdminSection
+  label: string
+  icon: typeof Settings2
+}[] = [
+  { key: 'access', label: 'Access', icon: Users },
+  { key: 'file-storage', label: 'File Storage', icon: FolderTree },
+]
+
 function parseRoute(hash = window.location.hash): AdminRoute {
   const path = hash.replace(/^#\/?/, '').split('?')[0]
   const [, rawModule, rawSection] = path.split('/')
@@ -109,9 +121,16 @@ function parseRoute(hash = window.location.hash): AdminRoute {
   const validTrackerSection = PROJECT_TRACKER_SECTIONS.some(
     (candidate) => candidate.key === rawSection,
   )
+  const validEngineeringSection = ENGINEERING_SECTIONS.some(
+    (candidate) => candidate.key === rawSection,
+  )
   return {
     module,
-    section: module === 'project-tracker' && validTrackerSection ? rawSection : 'access',
+    section: module === 'project-tracker' && validTrackerSection
+      ? rawSection
+      : module === 'engineering' && validEngineeringSection
+        ? rawSection
+        : 'access',
   }
 }
 
@@ -200,8 +219,8 @@ export default function AdminConsole({
   }, [])
 
   useEffect(() => {
-    const canonical = route.module === 'project-tracker'
-      ? `#/admin/project-tracker/${route.section}`
+    const canonical = route.module === 'project-tracker' || route.module === 'engineering'
+      ? `#/admin/${route.module}/${route.section}`
       : `#/admin/${route.module}/access`
     if (window.location.hash.split('?')[0] !== canonical) {
       window.history.replaceState(null, '', canonical)
@@ -292,8 +311,38 @@ export default function AdminConsole({
             })}
           </nav>
         )}
+        {route.module === 'engineering' && (
+          <nav className="admin-section-tabs" role="tablist" aria-label="Engineering admin sections" onKeyDown={(event) => handleTabKeys(event, `#/admin/engineering/${route.section}`)}>
+            {ENGINEERING_SECTIONS.map((section) => {
+              const SectionIcon = section.icon
+              const selected = section.key === route.section
+              return (
+                <a
+                  key={section.key}
+                  role="tab"
+                  id={`admin-engineering-section-tab-${section.key}`}
+                  aria-selected={selected}
+                  aria-controls="admin-section-panel"
+                  tabIndex={selected ? 0 : -1}
+                  className={selected ? 'active' : ''}
+                  href={`#/admin/engineering/${section.key}`}
+                >
+                  <SectionIcon size={15} aria-hidden="true"/> {section.label}
+                </a>
+              )
+            })}
+          </nav>
+        )}
 
-        <div id="admin-section-panel" role={route.module === 'project-tracker' ? 'tabpanel' : undefined} aria-labelledby={route.module === 'project-tracker' ? `admin-section-tab-${route.section}` : undefined}>
+        <div
+          id="admin-section-panel"
+          role={route.module === 'project-tracker' || route.module === 'engineering' ? 'tabpanel' : undefined}
+          aria-labelledby={route.module === 'project-tracker'
+            ? `admin-section-tab-${route.section}`
+            : route.module === 'engineering'
+              ? `admin-engineering-section-tab-${route.section}`
+              : undefined}
+        >
           {route.module === 'hub' && <HubOverview user={trackerUser} canOpenAccess={canOpenAccess} error={permissionsError} />}
           {route.module === 'project-tracker' && permissionsLoading && <div className="admin-loading" role="status">Checking Project Tracker permissions...</div>}
           {route.module === 'project-tracker' && !permissionsLoading && permissionsError && <NoAccess detail={permissionsError} />}
@@ -308,7 +357,9 @@ export default function AdminConsole({
             </>
           )}
           {route.module === 'engineering' && (
-            <EngineeringAccessPanel currentAccountName={trackerUser?.accountName ?? currentAccountName}/>
+            route.section === 'file-storage'
+              ? <EngineeringStoragePanel/>
+              : <EngineeringAccessPanel currentAccountName={trackerUser?.accountName ?? currentAccountName}/>
           )}
           {route.module === 'estimating' && (
             <ModuleAccessPanel

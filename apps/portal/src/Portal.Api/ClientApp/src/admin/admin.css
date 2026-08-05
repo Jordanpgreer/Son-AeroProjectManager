@@ -642,3 +642,84 @@
   background: var(--ok-tint);
   border-color: color-mix(in srgb, var(--ok) 30%, var(--line));
 }
+
+.engineering-storage { display: grid; gap: 18px; }
+.engineering-storage-head { align-items: flex-start; }
+.engineering-storage-status {
+  display: grid;
+  grid-template-columns: 46px minmax(220px, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 15px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.engineering-storage-status.healthy { border-color: color-mix(in srgb, var(--ok) 38%, var(--line)); }
+.engineering-storage-status.unavailable { border-color: var(--red-tint-2); }
+.engineering-storage-status-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border-radius: var(--r-sm);
+}
+.engineering-storage-status.healthy .engineering-storage-status-icon { color: var(--ok-700); background: var(--ok-tint); }
+.engineering-storage-status.unavailable .engineering-storage-status-icon { color: var(--risk-700); background: var(--risk-tint); }
+.engineering-storage-status strong { color: var(--ink); font-size: 13px; }
+.engineering-storage-status p { margin: 4px 0 0; color: var(--muted); font-size: 10.5px; }
+.engineering-storage-status dl { display: flex; gap: 18px; margin: 0; }
+.engineering-storage-status dl div { display: grid; gap: 3px; }
+.engineering-storage-status dt { color: var(--muted); font-size: 8px; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }
+.engineering-storage-status dd { margin: 0; color: var(--ink-2); font-family: var(--font-mono); font-size: 9.5px; }
+.engineering-storage-path-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.engineering-storage-path-form label,
+.engineering-authority-create label { display: grid; gap: 6px; }
+.engineering-storage-path-form label > span,
+.engineering-authority-create label > span { color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }
+.engineering-storage-path-form input { min-height: 42px; font-family: var(--font-mono); font-size: 11px; }
+.engineering-storage-path-form small { color: var(--muted); font-size: 9.5px; line-height: 1.45; }
+.engineering-storage-path-form code { color: var(--ink-2); font-family: var(--font-mono); }
+.engineering-storage-history-note { margin: -8px 0 0; }
+.engineering-authorities { display: grid; gap: 12px; }
+.engineering-authority-create {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.engineering-authority-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.engineering-authority-grid article {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 11px;
+  color: var(--steel-700);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.engineering-authority-grid article > span { display: grid; gap: 2px; min-width: 0; }
+.engineering-authority-grid strong { overflow: hidden; color: var(--ink); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.engineering-authority-grid small { color: var(--ok-700); font-size: 8.5px; }
+.engineering-authority-empty { display: grid; min-height: 130px; place-items: center; align-content: center; gap: 6px; color: var(--muted); background: var(--surface-2); border: 1px dashed var(--line-2); border-radius: var(--r-md); text-align: center; }
+.engineering-authority-empty strong { color: var(--ink-2); font-size: 12px; }
+.engineering-authority-empty p { margin: 0; font-size: 10px; }
+.engineering-storage-meta { padding-top: 4px; color: var(--muted); font-size: 9px; border-top: 1px solid var(--line); }
+.engineering-storage-meta strong { color: var(--ink-2); font-family: var(--font-mono); font-weight: 600; }

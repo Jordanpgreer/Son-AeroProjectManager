@@ -32,6 +32,7 @@ public static class EngineeringPermissions
     public const string SettingsView = "engineering.settings.view";
     public const string SettingsManageUsers = "engineering.settings.users.manage";
     public const string SettingsManageGroups = "engineering.settings.groups.manage";
+    public const string SettingsManageStorage = "engineering.settings.storage.manage";
 
     public static readonly IReadOnlyList<PermissionDefinition> All =
     [
@@ -64,7 +65,8 @@ public static class EngineeringPermissions
         Permission(CompoundDataView, "View compound and test data", "Open compound, certification, and test-data records.", "Other engineering areas"),
         Permission(SettingsView, "View Engineering settings", "Open the Engineering access and permissions page.", "Administration"),
         Permission(SettingsManageUsers, "Manage Engineering users", "Assign registered users to access groups.", "Administration"),
-        Permission(SettingsManageGroups, "Manage Engineering groups", "Create groups and change Engineering permissions.", "Administration")
+        Permission(SettingsManageGroups, "Manage Engineering groups", "Create groups and change Engineering permissions.", "Administration"),
+        Permission(SettingsManageStorage, "Manage Engineering file storage", "Set the controlled drawing root and create approved design-authority folders.", "Administration")
     ];
 
     public static readonly IReadOnlySet<string> Keys = All
@@ -105,6 +107,7 @@ public static class EngineeringPermissions
         AddDependency(expanded, RevisionDelete, RevisionHistoryView);
         AddDependency(expanded, SettingsManageUsers, SettingsView);
         AddDependency(expanded, SettingsManageGroups, SettingsView);
+        AddDependency(expanded, SettingsManageStorage, SettingsView);
         foreach (var revisionPermission in new[]
                  {
                      RevisionCreate, RevisionEdit, RevisionSubmit, RevisionApprove,
@@ -127,7 +130,7 @@ public static class EngineeringPermissions
     {
         var expanded = Expand(permissions);
         if (!expanded.Contains(ModuleView)) return null;
-        if (expanded.Contains(SettingsManageGroups) || expanded.Contains(SettingsManageUsers))
+        if (expanded.Contains(SettingsManageGroups) || expanded.Contains(SettingsManageUsers) || expanded.Contains(SettingsManageStorage))
             return ApplicationRoles.Admin;
         return expanded.Any(IsMutationPermission) ? ApplicationRoles.Editor : ApplicationRoles.Viewer;
     }

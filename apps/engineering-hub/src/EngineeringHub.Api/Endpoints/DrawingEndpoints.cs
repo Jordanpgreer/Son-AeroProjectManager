@@ -18,9 +18,12 @@ public static class DrawingEndpoints
     {
         api.MapGet("/drawings", ListAsync).RequireAuthorization(EngineeringPermissions.DrawingsView);
         api.MapGet("/drawings/{id:int}", GetAsync).RequireAuthorization(EngineeringPermissions.DrawingsView);
+        api.MapGet("/design-authorities", GetDesignAuthoritiesAsync)
+            .RequireAuthorization(EngineeringPermissions.DrawingsView);
         api.MapPost("/drawings", CreateAsync).RequireAuthorization(EngineeringPermissions.DrawingCreate);
         api.MapDelete("/drawings/{id:int}", DeleteDrawingAsync).RequireAuthorization(EngineeringPermissions.DrawingDelete);
-        api.MapGet("/drawing-storage/status", (IDrawingFileStore files) => Results.Ok(files.GetStatus()))
+        api.MapGet("/drawing-storage/status", async (IDrawingFileStore files, CancellationToken ct) =>
+                Results.Ok(await files.GetStatusAsync(ct)))
             .RequireAuthorization(EngineeringPermissions.DrawingCreate);
         api.MapPost("/drawings/{id:int}/revisions", UploadRevisionAsync)
             .DisableAntiforgery()
@@ -141,7 +144,7 @@ public static class DrawingEndpoints
         return Results.Ok(records);
     }
 
-    private static async Task<IResult> GetAsync(int id, EngineeringDbContext db, IDrawingFileStore files, HttpContext http, CancellationToken ct)
+    private static async Task<IResult> GetAsync(int id, EngineeringDbContext db, HttpContext http, CancellationToken ct)
     {
         var drawing = await db.Drawings.AsNoTracking()
             .Include(x => x.Parts).Include(x => x.Revisions).Include(x => x.DocumentLinks)
@@ -153,16 +156,53 @@ public static class DrawingEndpoints
         if (drawing.CurrentApprovedRevisionId is null && !drawing.IsObsolete &&
             !HasPermission(http, EngineeringPermissions.PendingRevisionsView))
             return Results.NotFound();
-        return Results.Ok(ToDetail(drawing, files, http));
+        return Results.Ok(ToDetail(drawing, http));
     }
 
-    private static async Task<IResult> CreateAsync(DrawingCreateDto dto, EngineeringDbContext db, HttpContext http, CancellationToken ct)
+    private static async Task<IResult> GetDesignAuthoritiesAsync(
+        IDrawingFileStore files,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Results.Ok(await files.GetDesignAuthoritiesAsync(cancellationToken));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return Results.Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "Engineering storage unavailable",
+                detail: exception.Message);
+        }
+    }
+
+    private static async Task<IResult> CreateAsync(
+        DrawingCreateDto dto,
+        EngineeringDbContext db,
+        IDrawingFileStore files,
+        HttpContext http,
+        CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(dto.DrawingNumber) || string.IsNullOrWhiteSpace(dto.Title) || string.IsNullOrWhiteSpace(dto.Customer))
             return Results.BadRequest(new ErrorDto("RequiredFields", "Drawing number, title / description, and design authority are required."));
 
+        string? designAuthority;
+        try
+        {
+            designAuthority = await files.ResolveDesignAuthorityAsync(dto.Customer, ct);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return Results.Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "Engineering storage unavailable",
+                detail: exception.Message);
+        }
+        if (designAuthority is null)
+            return Results.BadRequest(new ErrorDto("InvalidDesignAuthority", "Select an approved design authority from Engineering storage."));
+
         var normalizedNumber = Normalize(dto.DrawingNumber);
-        var normalizedCustomer = Normalize(dto.Customer);
+        var normalizedCustomer = Normalize(designAuthority);
         if (await db.Drawings.AnyAsync(x => x.NormalizedDrawingNumber == normalizedNumber && x.NormalizedCustomer == normalizedCustomer, ct))
             return Results.Conflict(new ErrorDto("DuplicateDrawing", "That drawing number already exists for this design authority."));
 
@@ -170,7 +210,7 @@ public static class DrawingEndpoints
         var drawing = new Drawing
         {
             DrawingNumber = dto.DrawingNumber.Trim(), NormalizedDrawingNumber = normalizedNumber,
-            Title = dto.Title.Trim(), Customer = dto.Customer.Trim(), NormalizedCustomer = normalizedCustomer,
+            Title = dto.Title.Trim(), Customer = designAuthority, NormalizedCustomer = normalizedCustomer,
             Notes = Clean(dto.Notes), PhysicalMylarLocation = Clean(dto.PhysicalMylarLocation),
             CreatedBy = actor, CreatedAt = DateTime.UtcNow
         };
@@ -206,7 +246,7 @@ public static class DrawingEndpoints
         drawing.AuditEntries.Add(Audit(drawing, null, "DrawingCreated", $"Created drawing {drawing.DrawingNumber} for {drawing.Customer}.", actor));
         db.Drawings.Add(drawing);
         await db.SaveChangesAsync(ct);
-        return Results.Created($"/api/drawings/{drawing.Id}", ToDetail(drawing, null, http));
+        return Results.Created($"/api/drawings/{drawing.Id}", ToDetail(drawing, http));
     }
 
     private static async Task<IResult> DeleteDrawingAsync(int id, [FromBody] DrawingDeleteDto dto, EngineeringDbContext db, CancellationToken ct)
@@ -701,7 +741,7 @@ public static class DrawingEndpoints
             return Results.Forbid();
         var relative = source ? revision.SourceStoredFilePath : revision.StoredFilePath;
         if (string.IsNullOrWhiteSpace(relative)) return Results.NotFound();
-        var path = files.ResolvePath(relative);
+        var path = await files.ResolvePathAsync(relative, ct);
         if (!File.Exists(path)) return Results.NotFound();
         return source
             ? Results.File(path, "application/octet-stream", revision.SourceOriginalFileName, enableRangeProcessing: true)
@@ -821,7 +861,7 @@ public static class DrawingEndpoints
         return Results.NoContent();
     }
 
-    private static DrawingDetailDto ToDetail(Drawing x, IDrawingFileStore? files, HttpContext http)
+    private static DrawingDetailDto ToDetail(Drawing x, HttpContext http)
     {
         var canViewPending = HasPermission(http, EngineeringPermissions.PendingRevisionsView);
         var canViewHistory = HasPermission(http, EngineeringPermissions.RevisionHistoryView);
@@ -868,7 +908,7 @@ public static class DrawingEndpoints
                 r.Id, r.RevisionNumber, r.RevisionDate, r.UploadedAt, r.EffectiveDate, r.ApprovalDate,
                 r.ChangeDescription, r.Status.ToString(), r.OriginalFileName, r.FileType, r.FileSize, r.FileHash,
                 canViewFiles && r.FileSize > 0 && r.StoredFilePath != string.Empty,
-                canViewFiles ? ControlledFilePath(r.StoredFilePath, files) : null,
+                canViewFiles ? ControlledFilePath(r.StoredFilePath) : null,
                 canViewFiles && r.SourceStoredFilePath != null, r.UploadedBy, r.ApprovedBy, r.ApprovalComments,
                 r.SupersededOrObsoleteAt, r.Notes)).ToList(),
             x.DocumentLinks
@@ -910,20 +950,9 @@ public static class DrawingEndpoints
         mylar.Transactions.Count);
 
     private static DrawingAuditEntry Audit(Drawing drawing, string? revision, string action, string details, string actor) => new() { Drawing = drawing, RevisionNumber = revision, Action = action, Details = details, Actor = actor, OccurredAt = DateTime.UtcNow };
-    private static string? ControlledFilePath(string? relativePath, IDrawingFileStore? files)
+    private static string? ControlledFilePath(string? relativePath)
     {
         if (string.IsNullOrWhiteSpace(relativePath)) return null;
-        if (files is not null)
-        {
-            try
-            {
-                return files.ResolvePath(relativePath);
-            }
-            catch (InvalidOperationException)
-            {
-                // Keep the record readable while the controlled share is being configured or is temporarily unavailable.
-            }
-        }
         return $"Engineering Drawings/{relativePath.Replace('\\', '/')}";
     }
     private static string Actor(HttpContext http) => http.User.Identity?.Name ?? "Unknown";

@@ -286,6 +286,9 @@ export default function DrawingWorkspace({
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null)
+  const [designAuthorities, setDesignAuthorities] = useState<string[]>([])
+  const [designAuthoritiesLoading, setDesignAuthoritiesLoading] = useState(false)
+  const [designAuthorityError, setDesignAuthorityError] = useState<string | null>(null)
   const [reviewComments, setReviewComments] = useState<Record<number, string>>({})
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [deleteAcknowledged, setDeleteAcknowledged] = useState(false)
@@ -298,6 +301,22 @@ export default function DrawingWorkspace({
   const mylarDrawerRef = useRef<HTMLElement | null>(null)
   const revisionUploadDialogRef = useRef<HTMLElement | null>(null)
   const openDrawingIdRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!canCreateDrawing && !canEditDrawingMetadata) return
+    let active = true
+    setDesignAuthoritiesLoading(true)
+    setDesignAuthorityError(null)
+    void api<string[]>('/api/design-authorities')
+      .then(authorities => { if (active) setDesignAuthorities(authorities) })
+      .catch(cause => {
+        if (active) setDesignAuthorityError(cause instanceof Error
+          ? cause.message
+          : 'Unable to load approved Design Authorities.')
+      })
+      .finally(() => { if (active) setDesignAuthoritiesLoading(false) })
+    return () => { active = false }
+  }, [canCreateDrawing, canEditDrawingMetadata])
 
   async function open(id: number) {
     const drawing = await api<DrawingDetail>(`/api/drawings/${id}`)
@@ -920,16 +939,17 @@ export default function DrawingWorkspace({
 
     {canCreateDrawing && showCreate && <form className="panel record-form" onSubmit={createDrawing}>
       <div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Controlled drawing creation</span><h2>Create drawing record</h2><p>Record the drawing's current revision and optionally attach its current PDF or image file. Future changes are added through the revision workflow.</p></div></div>
+      {designAuthorityError && <p className="form-error" role="alert"><AlertTriangle size={15}/> {designAuthorityError}</p>}
       <div className="form-grid">
         <label>Drawing number<input name="drawingNumber" required/></label><label>Title / description<input name="title" required/></label>
-        <label>Design authority<input name="customer" required/></label><label>Linked part numbers<input name="partNumbers" placeholder="PN-1001, PN-1002"/></label>
+        <label>Design authority<select name="customer" required defaultValue="" disabled={designAuthoritiesLoading || !designAuthorities.length}><option value="" disabled>{designAuthoritiesLoading ? 'Indexing storage folders...' : designAuthorities.length ? 'Select approved authority' : 'No approved authorities configured'}</option>{designAuthorities.map(authority => <option key={authority} value={authority}>{authority}</option>)}</select><small>Managed in Engineering Admin / File Storage</small></label><label>Linked part numbers<input name="partNumbers" placeholder="PN-1001, PN-1002"/></label>
         {canEditSpecifications && <EngineeringTagEditor name="specifications" label="Specification tags" placeholder="Example: SPEC-100"/>}
         <label>Current revision<input name="revisionNumber" placeholder="A" required/></label>
         <EngineeringDatePicker name="effectiveDate" label="Effective date"/>
         <FilePicker name="pdf" label="Upload current drawing file (PDF or image)" accept={DRAWING_FILE_ACCEPT} className="wide"/>
         <label className="wide">Drawing notes<textarea name="notes" rows={2}/></label>
       </div>
-      <div className="form-actions"><button className="button" disabled={busy}><FilePlus2 size={15}/> Create drawing</button><button className="button ghost" type="button" onClick={() => { setShowCreate(false); if (!selected) onBackToDashboard() }}>Cancel</button></div>
+      <div className="form-actions"><button className="button" disabled={busy || designAuthoritiesLoading || !designAuthorities.length}><FilePlus2 size={15}/> Create drawing</button><button className="button ghost" type="button" onClick={() => { setShowCreate(false); if (!selected) onBackToDashboard() }}>Cancel</button></div>
     </form>}
 
     {recordLoading ? <article className="panel skeleton-panel drawing-record-loading" aria-label="Loading drawing record">
@@ -941,8 +961,9 @@ export default function DrawingWorkspace({
 
         {canOpenMetadataEditor && showEdit && <form id="drawing-metadata-editor" className="panel record-form metadata-edit-form" onSubmit={updateDrawing}>
           <div className="panel-head compact"><div className="panel-head-text"><span className="eyebrow">Audited metadata update</span><h2>Edit drawing record</h2></div></div>
+          {designAuthorityError && <p className="form-error" role="alert"><AlertTriangle size={15}/> {designAuthorityError}</p>}
           <div className="form-grid">
-            <label>Title / description<input name="title" defaultValue={selected.title} required disabled={!canEditDrawingMetadata}/></label><label>Design authority<input name="customer" defaultValue={selected.customer} required disabled={!canEditDrawingMetadata}/></label>
+            <label>Title / description<input name="title" defaultValue={selected.title} required disabled={!canEditDrawingMetadata}/></label><label>Design authority<select name="customer" defaultValue={selected.customer} required disabled={!canEditDrawingMetadata || designAuthoritiesLoading || !designAuthorities.length}>{!designAuthorities.some(authority => authority.toLowerCase() === selected.customer.toLowerCase()) && <option value={selected.customer} disabled>{selected.customer} (not indexed)</option>}{designAuthorities.map(authority => <option key={authority} value={authority}>{authority}</option>)}</select><small>Only approved storage folders can be selected</small></label>
             <label>Part numbers<input name="partNumbers" defaultValue={selected.partNumbers.join(', ')} disabled={!canEditDrawingMetadata}/></label>
             {canViewSpecifications && <EngineeringTagEditor
               name="specifications"
@@ -953,7 +974,7 @@ export default function DrawingWorkspace({
             />}
             <label className="wide">Notes<textarea name="notes" rows={3} defaultValue={selected.notes ?? ''} disabled={!canEditDrawingMetadata}/></label>
           </div>
-          <div className="form-actions"><button className="button" disabled={busy}>Save Changes</button><button className="button ghost" type="button" onClick={() => setShowEdit(false)}>Cancel</button></div>
+          <div className="form-actions"><button className="button" disabled={busy || (canEditDrawingMetadata && (designAuthoritiesLoading || !designAuthorities.length))}>Save Changes</button><button className="button ghost" type="button" onClick={() => setShowEdit(false)}>Cancel</button></div>
         </form>}
 
         <section className="panel drawing-control-commandbar">

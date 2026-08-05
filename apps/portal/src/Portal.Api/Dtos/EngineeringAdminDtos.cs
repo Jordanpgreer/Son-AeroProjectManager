@@ -29,6 +29,23 @@ public sealed record EngineeringAdminOverviewDto(
     bool CanManageUsers,
     bool CanManageGroups);
 
+public sealed record EngineeringStorageOverviewDto(
+    string RootPath,
+    bool Configured,
+    bool IsNetworkPath,
+    bool Available,
+    bool Writable,
+    string Message,
+    IReadOnlyList<string> DesignAuthorities,
+    int PreviousRootCount,
+    DateTimeOffset? UpdatedAt,
+    string? UpdatedBy,
+    bool CanManageStorage);
+
+public sealed record EngineeringStorageUpdateDto(string RootPath);
+
+public sealed record EngineeringDesignAuthorityCreateDto(string Name);
+
 public sealed record EngineeringAdminUserGroupsUpdateDto(IReadOnlyList<int> GroupIds);
 
 public sealed record EngineeringAdminGroupUpsertDto(
