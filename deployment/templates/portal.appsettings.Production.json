@@ -4,6 +4,10 @@
   "ConnectionStrings": {
     "RoleStore": "Server=tcp:SON-SQL2,1433;Database=ProjectTracker;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
   },
+  "DrawingStorage": {
+    "RootPath": "\\\\SON-SQL2\\EngineeringDrawings$",
+    "RequireUncPath": true
+  },
   "Portal": {
     "Admins": [ "SON4L\\jordan.greer" ],
     "Editors": [],

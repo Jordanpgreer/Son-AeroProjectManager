@@ -1,5 +1,6 @@
 using EngineeringHub.Api.Data;
 using Microsoft.EntityFrameworkCore;
+using SonAero.Platform.Engineering;
 
 namespace EngineeringHub.Api.Services;
 
@@ -46,7 +47,7 @@ public sealed class EngineeringAccessSchemaInitializer(EngineeringRoleDbContext 
             CONSTRAINT "PK_EngineeringGroupPermissions" PRIMARY KEY ("AppGroupId", "PermissionKey"),
             CONSTRAINT "FK_EngineeringGroupPermissions_EngineeringGroups_AppGroupId" FOREIGN KEY ("AppGroupId") REFERENCES "EngineeringGroups" ("Id") ON DELETE CASCADE
         );
-        """;
+        """ + EngineeringStorageSchema.Sqlite;
 
     private const string SqlServerSchema = """
         IF OBJECT_ID(N'[EngineeringGroups]', N'U') IS NULL
@@ -84,5 +85,5 @@ public sealed class EngineeringAccessSchemaInitializer(EngineeringRoleDbContext 
                 CONSTRAINT [FK_EngineeringGroupPermissions_EngineeringGroups_AppGroupId] FOREIGN KEY ([AppGroupId]) REFERENCES [EngineeringGroups] ([Id]) ON DELETE CASCADE
             );
         END;
-        """;
+        """ + EngineeringStorageSchema.SqlServer;
 }

@@ -130,7 +130,7 @@ Copy the matching file from `deployment\templates` into each stable site folder 
 | Site | Template | Values to finish |
 |---|---|---|
 | ProjectTracker | `project-tracker...json` | Confirm Portal origin `http://SON-IIS2:5140` |
-| Portal | `portal...json` | Confirm the SON-IIS2 module URLs |
+| Portal | `portal...json` | Confirm SON-IIS2 module URLs and the Engineering drawings UNC share |
 | EngineeringHub | `engineering-hub...json` | Confirm the `\\SON-SQL2\EngineeringDrawings$` share |
 | EstimatingDashboard | `estimating-dashboard...json` | Confirm SQL port/instance |
 
@@ -155,6 +155,12 @@ and does not report success until every root and gateway `/api/health` endpoint 
 
 Start ProjectTracker first so it applies database migrations and seeds the initial administrator.
 Then start EngineeringHub, EstimatingDashboard, and Portal.
+
+Grant the EngineeringHub and Portal application-pool identities Modify access at both the SMB share
+and NTFS levels for the Engineering drawings root. In Hub Admin, open **Engineering > File Storage**,
+save the UNC path behind the Q drive, confirm **Storage online**, and verify the indexed Design
+Authority folders before enabling drawing creation. Do not configure `Q:\...` on IIS; mapped drives
+belong to interactive user sessions and may disappear after logout or restart.
 
 ## 9. Verify identity and roles
 

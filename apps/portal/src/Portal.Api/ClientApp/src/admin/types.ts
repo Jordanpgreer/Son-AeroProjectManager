@@ -11,6 +11,10 @@ export type ProjectTrackerAdminSection =
   | 'holidays'
   | 'imports'
 
+export type EngineeringAdminSection =
+  | 'access'
+  | 'file-storage'
+
 export type DayOfWeekName =
   | 'Sunday'
   | 'Monday'
@@ -86,6 +90,20 @@ export interface AdminAccessPreviewLaunch {
   actionUrl: string
   token: string
   expiresAt: string
+}
+
+export interface EngineeringStorageOverview {
+  rootPath: string
+  configured: boolean
+  isNetworkPath: boolean
+  available: boolean
+  writable: boolean
+  message: string
+  designAuthorities: string[]
+  previousRootCount: number
+  updatedAt: string | null
+  updatedBy: string | null
+  canManageStorage: boolean
 }
 
 export interface ProjectTrackerUser {

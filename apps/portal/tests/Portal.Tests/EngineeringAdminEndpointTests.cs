@@ -28,5 +28,13 @@ public sealed class EngineeringAdminEndpointTests
 
         Assert.Equal(4, routes.Count);
         Assert.All(routes, endpoint => Assert.NotEmpty(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()));
+
+        var storageRoutes = ((IEndpointRouteBuilder)app).DataSources
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Where(endpoint => endpoint.RoutePattern.RawText?.StartsWith("/api/admin/engineering-storage") == true)
+            .ToList();
+        Assert.Equal(3, storageRoutes.Count);
+        Assert.All(storageRoutes, endpoint => Assert.NotEmpty(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()));
     }
 }

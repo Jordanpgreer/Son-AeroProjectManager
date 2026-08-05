@@ -18,6 +18,7 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
     public DbSet<PortalProjectTrackerMembershipRecord> ProjectTrackerUserGroupMemberships => Set<PortalProjectTrackerMembershipRecord>();
     public DbSet<PortalProjectTrackerPermissionRecord> ProjectTrackerGroupPermissions => Set<PortalProjectTrackerPermissionRecord>();
     public DbSet<AccessPreviewSessionRecord> AccessPreviewSessions => Set<AccessPreviewSessionRecord>();
+    public DbSet<PortalEngineeringStorageSettingRecord> EngineeringStorageSettings => Set<PortalEngineeringStorageSettingRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -151,6 +152,14 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
             entity.Property(session => session.TargetKey).HasMaxLength(96);
             entity.Property(session => session.ApplicationId).HasMaxLength(64);
         });
+
+        modelBuilder.Entity<PortalEngineeringStorageSettingRecord>(entity =>
+        {
+            entity.ToTable("EngineeringStorageSettings");
+            entity.HasKey(setting => setting.Id);
+            entity.Property(setting => setting.RootPath).HasMaxLength(2048);
+            entity.Property(setting => setting.UpdatedBy).HasMaxLength(160);
+        });
     }
 }
 
@@ -262,4 +271,13 @@ public sealed class PortalEngineeringPermissionRecord
     public PortalEngineeringGroupRecord Group { get; set; } = null!;
     public string PermissionKey { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class PortalEngineeringStorageSettingRecord
+{
+    public int Id { get; set; }
+    public string RootPath { get; set; } = string.Empty;
+    public string PreviousRootPathsJson { get; set; } = "[]";
+    public DateTimeOffset UpdatedAt { get; set; }
+    public string UpdatedBy { get; set; } = string.Empty;
 }

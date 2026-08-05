@@ -1,5 +1,9 @@
 using System.Security.Cryptography;
+using System.Text.Json;
+using EngineeringHub.Api.Data;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using SonAero.Platform.Engineering;
 
 namespace EngineeringHub.Api.Services;
 
@@ -41,10 +45,13 @@ public interface IDrawingFileStore
         IFormFile document,
         CancellationToken cancellationToken);
 
-    string ResolvePath(string relativePath);
+    Task<string> ResolvePathAsync(string relativePath, CancellationToken cancellationToken);
     Task<bool> VerifyHashAsync(string relativePath, string expectedHash, CancellationToken cancellationToken);
     Task<IStagedFileDeletion> StageDeletionAsync(string pdfRelativePath, CancellationToken cancellationToken);
-    DrawingStorageStatus GetStatus();
+    Task<DrawingStorageStatus> GetStatusAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<string>> GetDesignAuthoritiesAsync(CancellationToken cancellationToken);
+    Task<string?> ResolveDesignAuthorityAsync(string authority, CancellationToken cancellationToken);
+    Task EnsureDesignAuthoritiesAsync(IEnumerable<string> authorities, CancellationToken cancellationToken);
 }
 
 public interface IStagedFileDeletion : IAsyncDisposable
@@ -52,9 +59,18 @@ public interface IStagedFileDeletion : IAsyncDisposable
     Task CompleteAsync(CancellationToken cancellationToken);
 }
 
-public sealed class DrawingFileStore(IOptions<DrawingStorageOptions> options) : IDrawingFileStore
+public sealed class DrawingFileStore : IDrawingFileStore
 {
-    private readonly DrawingStorageOptions _options = options.Value;
+    private readonly DrawingStorageOptions _options;
+    private readonly EngineeringRoleDbContext? _settingsDb;
+
+    public DrawingFileStore(
+        IOptions<DrawingStorageOptions> options,
+        EngineeringRoleDbContext? settingsDb = null)
+    {
+        _options = options.Value;
+        _settingsDb = settingsDb;
+    }
 
     public async Task<StoredRevisionFiles> StoreRevisionAsync(
         int drawingId,
@@ -65,17 +81,20 @@ public sealed class DrawingFileStore(IOptions<DrawingStorageOptions> options) : 
         IFormFile? source,
         CancellationToken cancellationToken)
     {
-        var root = GetValidatedRoot();
+        var roots = await GetRootsAsync(cancellationToken);
+        var root = roots.Active;
+        var canonicalAuthority = ResolveDesignAuthority(root, customer)
+            ?? throw new InvalidOperationException("The selected design authority is not an approved folder in Engineering storage.");
         Directory.CreateDirectory(root);
 
         // The immutable package ID makes every upload create a new location; files are never replaced in place.
         var packageId = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}";
         var relativeFolder = Path.Combine(
-            SafeSegment(customer),
+            canonicalAuthority,
             $"{SafeSegment(drawingNumber)}-{drawingId}",
             $"Rev-{SafeSegment(revisionNumber)}",
             packageId);
-        var folder = ResolvePath(relativeFolder);
+        var folder = ResolvePathUnderRoot(root, relativeFolder);
         Directory.CreateDirectory(folder);
 
         try
@@ -109,15 +128,18 @@ public sealed class DrawingFileStore(IOptions<DrawingStorageOptions> options) : 
         IFormFile document,
         CancellationToken cancellationToken)
     {
-        var root = GetValidatedRoot();
+        var roots = await GetRootsAsync(cancellationToken);
+        var root = roots.Active;
+        var canonicalAuthority = ResolveDesignAuthority(root, customer)
+            ?? throw new InvalidOperationException("The selected design authority is not an approved folder in Engineering storage.");
         Directory.CreateDirectory(root);
         var packageId = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}";
         var relativeFolder = Path.Combine(
-            SafeSegment(customer),
+            canonicalAuthority,
             $"{SafeSegment(drawingNumber)}-{drawingId}",
             "Supplemental",
             packageId);
-        var folder = ResolvePath(relativeFolder);
+        var folder = ResolvePathUnderRoot(root, relativeFolder);
         Directory.CreateDirectory(folder);
 
         try
@@ -133,82 +155,162 @@ public sealed class DrawingFileStore(IOptions<DrawingStorageOptions> options) : 
         }
     }
 
-    public string ResolvePath(string relativePath)
+    public async Task<string> ResolvePathAsync(string relativePath, CancellationToken cancellationToken)
     {
-        var root = GetValidatedRoot();
-        var path = Path.GetFullPath(Path.Combine(root, relativePath));
-        var prefix = root.EndsWith(Path.DirectorySeparatorChar) ? root : root + Path.DirectorySeparatorChar;
-        if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("The stored drawing path is outside the configured drawing share.");
-        return path;
+        cancellationToken.ThrowIfCancellationRequested();
+        var roots = await GetRootsAsync(cancellationToken);
+        foreach (var root in roots.All)
+        {
+            var candidate = ResolvePathUnderRoot(root, relativePath);
+            if (File.Exists(candidate) || Directory.Exists(candidate)) return candidate;
+        }
+        return ResolvePathUnderRoot(roots.Active, relativePath);
     }
 
     public async Task<bool> VerifyHashAsync(string relativePath, string expectedHash, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(relativePath) || string.IsNullOrWhiteSpace(expectedHash)) return false;
-        var path = ResolvePath(relativePath);
+        var path = await ResolvePathAsync(relativePath, cancellationToken);
         if (!File.Exists(path)) return false;
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
         var actual = Convert.ToHexString(await SHA256.HashDataAsync(stream, cancellationToken));
         return string.Equals(actual, expectedHash, StringComparison.OrdinalIgnoreCase);
     }
 
-    public Task<IStagedFileDeletion> StageDeletionAsync(string pdfRelativePath, CancellationToken cancellationToken)
+    public async Task<IStagedFileDeletion> StageDeletionAsync(string pdfRelativePath, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var pdfPath = ResolvePath(pdfRelativePath);
+        var pdfPath = await ResolvePathAsync(pdfRelativePath, cancellationToken);
         if (!File.Exists(pdfPath))
             throw new FileNotFoundException("The revision drawing file could not be found on the drawing share.", pdfPath);
 
         var packageFolder = Directory.GetParent(pdfPath)?.FullName
             ?? throw new InvalidOperationException("The revision package folder is invalid.");
-        var root = GetValidatedRoot();
+        var roots = await GetRootsAsync(cancellationToken);
+        var root = roots.All.First(candidate => IsUnderRoot(candidate, pdfPath));
         var deletionRoot = Path.Combine(root, ".pending-deletions");
         Directory.CreateDirectory(deletionRoot);
         var stagedFolder = Path.Combine(deletionRoot, Guid.NewGuid().ToString("N"));
         Directory.Move(packageFolder, stagedFolder);
-        return Task.FromResult<IStagedFileDeletion>(new StagedFileDeletion(packageFolder, stagedFolder));
+        return new StagedFileDeletion(packageFolder, stagedFolder);
     }
 
-    public DrawingStorageStatus GetStatus()
+    public async Task<DrawingStorageStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
+        var configured = !string.IsNullOrWhiteSpace(_options.RootPath) ||
+            (_settingsDb is not null && await _settingsDb.StorageSettings.AsNoTracking()
+                .AnyAsync(setting => setting.Id == EngineeringStorageSchema.SettingsId, cancellationToken));
         try
         {
-            var root = GetValidatedRoot();
-            var isNetwork = IsUncPath(root);
-            Directory.CreateDirectory(root);
-            var probe = Path.Combine(root, $".drawing-storage-probe-{Guid.NewGuid():N}.tmp");
-            try
-            {
-                using (new FileStream(probe, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
-                File.Delete(probe);
-            }
-            finally
-            {
-                if (File.Exists(probe)) File.Delete(probe);
-            }
+            var root = (await GetRootsAsync(cancellationToken)).Active;
+            var isNetwork = EngineeringStoragePolicy.IsUncPath(root);
+            EngineeringStoragePolicy.VerifyWritable(root);
             return new(true, isNetwork, true, isNetwork
                 ? "The drawing network share is reachable and writable by the application identity."
                 : "Development file storage is writable; production requires a UNC network share.");
         }
         catch (Exception exception)
         {
-            return new(!string.IsNullOrWhiteSpace(_options.RootPath), false, false,
+            return new(configured, false, false,
                 $"The configured drawing share is unavailable or not writable: {exception.Message}");
         }
     }
 
-    private string GetValidatedRoot()
+    public async Task<IReadOnlyList<string>> GetDesignAuthoritiesAsync(CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_options.RootPath))
-            throw new InvalidOperationException("DrawingStorage:RootPath is not configured.");
-        var root = Path.GetFullPath(_options.RootPath);
-        if (_options.RequireUncPath && !IsUncPath(root))
-            throw new InvalidOperationException("Production drawing storage must use a UNC path such as \\\\server\\share\\Engineering\\Drawings.");
-        return root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var root = (await GetRootsAsync(cancellationToken)).Active;
+        if (!Directory.Exists(root))
+            throw new DirectoryNotFoundException("The configured drawing storage root is unavailable.");
+        return EngineeringStoragePolicy.EnumerateAuthorities(root);
     }
 
-    private static bool IsUncPath(string path) => path.StartsWith(@"\\", StringComparison.Ordinal);
+    public async Task<string?> ResolveDesignAuthorityAsync(string authority, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(authority)) return null;
+        var root = (await GetRootsAsync(cancellationToken)).Active;
+        return ResolveDesignAuthority(root, authority);
+    }
+
+    public async Task EnsureDesignAuthoritiesAsync(
+        IEnumerable<string> authorities,
+        CancellationToken cancellationToken)
+    {
+        var root = (await GetRootsAsync(cancellationToken)).Active;
+        Directory.CreateDirectory(root);
+        foreach (var authority in authorities
+                     .Where(value => !string.IsNullOrWhiteSpace(value))
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Directory.CreateDirectory(EngineeringStoragePolicy.AuthorityPath(root, authority));
+        }
+    }
+
+    private async Task<StorageRoots> GetRootsAsync(CancellationToken cancellationToken)
+    {
+        EngineeringStorageSettingRecord? setting = null;
+        if (_settingsDb is not null)
+        {
+            setting = await _settingsDb.StorageSettings.AsNoTracking()
+                .SingleOrDefaultAsync(candidate => candidate.Id == EngineeringStorageSchema.SettingsId, cancellationToken);
+        }
+
+        var active = EngineeringStoragePolicy.NormalizeRoot(
+            setting?.RootPath ?? _options.RootPath,
+            _options.RequireUncPath);
+        var previous = DeserializeRoots(setting?.PreviousRootPathsJson)
+            .Select(path => EngineeringStoragePolicy.NormalizeRoot(path, requireUncPath: false))
+            .Where(path => !string.Equals(path, active, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return new StorageRoots(active, previous);
+    }
+
+    private static string? ResolveDesignAuthority(string root, string authority)
+    {
+        if (string.IsNullOrWhiteSpace(authority)) return null;
+        if (!Directory.Exists(root))
+            throw new DirectoryNotFoundException("The configured drawing storage root is unavailable.");
+        return EngineeringStoragePolicy.EnumerateAuthorities(root).SingleOrDefault(candidate =>
+            string.Equals(candidate, authority.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static IReadOnlyList<string> DeserializeRoots(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            return JsonSerializer.Deserialize<string[]>(json) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static string ResolvePathUnderRoot(string root, string relativePath)
+    {
+        var path = Path.GetFullPath(Path.Combine(root, relativePath));
+        if (!IsUnderRoot(root, path))
+            throw new InvalidOperationException("The stored drawing path is outside the configured drawing share.");
+        return path;
+    }
+
+    private static bool IsUnderRoot(string root, string path)
+    {
+        var normalizedRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        var normalizedPath = Path.GetFullPath(path);
+        var prefix = normalizedRoot.EndsWith(Path.DirectorySeparatorChar)
+            ? normalizedRoot
+            : normalizedRoot + Path.DirectorySeparatorChar;
+        return normalizedPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed record StorageRoots(string Active, IReadOnlyList<string> Previous)
+    {
+        public IEnumerable<string> All => new[] { Active }.Concat(Previous);
+    }
+
     private static string SafeSegment(string value)
     {
         var invalid = Path.GetInvalidFileNameChars();
