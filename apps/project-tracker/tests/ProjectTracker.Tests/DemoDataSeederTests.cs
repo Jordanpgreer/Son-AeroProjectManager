@@ -77,5 +77,20 @@ public sealed class DemoDataSeederTests
         var lateProject = completed.Single(project => project.ProgramName == "Test 4");
         Assert.Equal(-3, earlyProject.CompletedOn!.Value.DayNumber - earlyProject.TargetDelivery!.Value.DayNumber);
         Assert.Equal(5, lateProject.CompletedOn!.Value.DayNumber - lateProject.TargetDelivery!.Value.DayNumber);
+
+        var archivedProject = active.Single(project => project.ProgramName == "Test 6");
+        archivedProject.DeletedAt = DateTimeOffset.UtcNow;
+        archivedProject.DeletedByDisplayName = "Test Administrator";
+        await db.SaveChangesAsync();
+
+        await DemoDataSeeder.SeedAsync(db, notifications);
+
+        var archivedCopies = await db.Projects
+            .IgnoreQueryFilters()
+            .Where(project => project.ProgramName == "Test 6")
+            .ToListAsync();
+        var preservedArchive = Assert.Single(archivedCopies);
+        Assert.NotNull(preservedArchive.DeletedAt);
+        Assert.Equal("Test Administrator", preservedArchive.DeletedByDisplayName);
     }
 }

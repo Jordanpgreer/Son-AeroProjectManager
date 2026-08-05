@@ -718,6 +718,31 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
   font-family: var(--font-mono); font-size: 10px; font-weight: 700;
 }
 .my-projects-filter.active .my-projects-count { background: rgba(255, 255, 255, 0.2); color: #fff; }
+.past-project-head-tools { display: flex; align-items: center; justify-content: flex-end; gap: 14px; flex-wrap: wrap; }
+.archived-project-toggle {
+  display: inline-flex; align-items: center; gap: 8px;
+  min-height: 36px; padding: 7px 9px 7px 11px;
+  border: 1px solid var(--line-2); border-radius: var(--r-pill);
+  background: var(--surface); color: var(--ink-2);
+  font-family: var(--font-display); font-size: 12px; font-weight: 650;
+  cursor: pointer; box-shadow: var(--shadow-1);
+  transition: border-color 130ms ease, background 130ms ease, color 130ms ease, transform 130ms ease;
+}
+.archived-project-toggle:hover { border-color: var(--steel); background: var(--steel-tint); color: var(--steel-700); transform: translateY(-1px); }
+.archived-project-toggle.active { border-color: var(--steel); background: var(--steel); color: #fff; }
+.archived-project-toggle > span { display: inline-grid; place-items: center; min-width: 21px; height: 21px; padding: 0 6px; border-radius: var(--r-pill); background: var(--surface-3); color: var(--ink); font-family: var(--font-mono); font-size: 9px; }
+.archived-project-toggle.active > span { background: rgba(255, 255, 255, .2); color: #fff; }
+.archived-projects-panel { border-color: var(--line-2); animation: archived-panel-in 180ms ease-out; }
+.archived-projects-table { min-width: 760px; }
+.archived-project-name { display: inline-flex; align-items: center; gap: 8px; color: var(--steel-700); }
+.archived-project-action { width: 118px; text-align: right; }
+.icon-button.restore { color: var(--steel-700); }
+.icon-button.restore:hover:not(:disabled) { border-color: var(--steel); background: var(--steel-tint); }
+.archived-project-notice { display: flex; align-items: center; gap: 8px; margin: 0 14px 10px; padding: 9px 11px; border: 1px solid var(--line-2); border-radius: var(--r-sm); font-size: 12px; }
+.archived-project-notice.error { border-color: var(--red-tint-2); background: var(--red-tint); color: var(--red-700); }
+.archived-project-notice.success { border-color: #bfe0cb; background: var(--ok-tint); color: var(--ok-700); }
+.archived-project-loading { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 160px; color: var(--muted); font-size: 12px; }
+@keyframes archived-panel-in { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
 
 /* ---------------------------------------------------------------------- */
 /* KPI tiles                                                              */

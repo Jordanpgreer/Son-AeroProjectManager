@@ -3,6 +3,7 @@ import { useState } from 'react'
 import {
   AlertTriangle,
   Archive,
+  ArchiveRestore,
   ArrowRight,
   CheckCircle2,
   ChevronDown,
@@ -10,9 +11,14 @@ import {
   Factory,
   Gauge,
   ChevronUp,
+  Eye,
+  EyeOff,
+  LoaderCircle,
+  RefreshCw,
   UserRoundCheck,
 } from 'lucide-react'
 import {
+  api,
   statusClass,
   formatPercent,
   compactDate,
@@ -23,6 +29,7 @@ import type {
   Dashboard,
   DashboardSortField,
   DashboardSort,
+  ArchivedProject,
   ProjectSummary,
   User,
 } from '../types'
@@ -35,6 +42,13 @@ import {
   StatusBadge,
   EmptyState,
 } from '../components'
+
+function formatArchivedDate(value: string) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? '—'
+    : new Intl.DateTimeFormat(undefined, { month: 'short', day: '2-digit', year: 'numeric' }).format(date)
+}
 
 export function DashboardView({
   dashboard,
@@ -184,7 +198,25 @@ export function DashboardView({
   )
 }
 
-export function PastProjectsView({ projects, search, onOpenProject }: { projects: ProjectSummary[]; search: string; onOpenProject: (projectId: number) => Promise<void> }) {
+export function PastProjectsView({
+  projects,
+  search,
+  canRestoreArchived,
+  onOpenProject,
+  onProjectRestored,
+}: {
+  projects: ProjectSummary[]
+  search: string
+  canRestoreArchived: boolean
+  onOpenProject: (projectId: number) => Promise<void>
+  onProjectRestored: () => Promise<void>
+}) {
+  const [showArchived, setShowArchived] = useState(false)
+  const [archivedProjects, setArchivedProjects] = useState<ArchivedProject[] | null>(null)
+  const [archivedLoading, setArchivedLoading] = useState(false)
+  const [archivedError, setArchivedError] = useState<string | null>(null)
+  const [archivedMessage, setArchivedMessage] = useState<string | null>(null)
+  const [restoringId, setRestoringId] = useState<number | null>(null)
   const completed = projects.filter((project) => project.status === 'Complete')
   const query = search.trim().toLowerCase()
   const visible = query
@@ -198,10 +230,56 @@ export function PastProjectsView({ projects, search, onOpenProject }: { projects
   const late = dated.length - onTime
   const onTimePercent = dated.length === 0 ? 0 : onTime / dated.length
   const avgCompletion = visible.length === 0 ? 0 : visible.reduce((sum, project) => sum + project.progress, 0) / visible.length
+  const visibleArchived = (archivedProjects ?? []).filter((project) => !query
+    || project.programName.toLowerCase().includes(query)
+    || (project.customerName ?? '').toLowerCase().includes(query)
+    || (project.salesOrderNumber ?? '').toLowerCase().includes(query))
+
+  async function loadArchived() {
+    setArchivedLoading(true)
+    setArchivedError(null)
+    try {
+      setArchivedProjects(await api<ArchivedProject[]>('/api/archived-projects'))
+    } catch (error) {
+      setArchivedError(error instanceof Error ? error.message : 'Archived projects could not be loaded.')
+    } finally {
+      setArchivedLoading(false)
+    }
+  }
+
+  async function toggleArchived() {
+    if (showArchived) {
+      setShowArchived(false)
+      return
+    }
+    setShowArchived(true)
+    if (archivedProjects === null) await loadArchived()
+  }
+
+  async function restoreArchived(project: ArchivedProject) {
+    if (!canRestoreArchived || restoringId !== null) return
+    setRestoringId(project.id)
+    setArchivedError(null)
+    setArchivedMessage(null)
+    try {
+      await api<void>(`/api/archived-projects/${project.id}/restore`, {
+        method: 'POST',
+        body: JSON.stringify({ version: project.version }),
+      })
+      setArchivedProjects((current) => current?.filter((candidate) => candidate.id !== project.id) ?? [])
+      setArchivedMessage(`${project.programName} was restored to Project Tracker.`)
+      await onProjectRestored()
+    } catch (error) {
+      setArchivedError(error instanceof Error ? error.message : 'The project could not be restored.')
+    } finally {
+      setRestoringId(null)
+    }
+  }
+
   return (
     <section className="view dashboard-view">
       <div className="kpi-row">
-        <Kpi label="Completed Projects" value={visible.length.toString()} hint="archived programs" tone="ink" icon={<Archive size={17} />} />
+        <Kpi label="Completed Projects" value={visible.length.toString()} hint="completed programs" tone="ink" icon={<Archive size={17} />} />
         <Kpi label="On Time Percentage" value={formatPercent(onTimePercent)} hint={dated.length === 0 ? 'needs target and completion dates' : `${onTime} on time - ${late} late`} tone="ok" icon={<CheckCircle2 size={17} />} bar={onTimePercent} />
         <Kpi label="Late Projects" value={late.toString()} hint={late > 0 ? 'finished after target' : 'none in filtered set'} tone="risk" icon={<AlertTriangle size={17} />} />
         <Kpi label="Avg Completion" value={formatPercent(avgCompletion)} tone="steel" icon={<Gauge size={17} />} bar={avgCompletion} />
@@ -213,12 +291,25 @@ export function PastProjectsView({ projects, search, onOpenProject }: { projects
             <h2>Past Projects · {visible.length}</h2>
             <p>Completed programs with target versus final completion dates.</p>
           </div>
-          {visible.length > 0 && (
-            <StatusBar segments={[
-              { key: 'on-track', count: onTime, label: 'On time' },
-              { key: 'behind', count: late, label: 'Late' },
-            ]} total={Math.max(dated.length, 1)} />
-          )}
+          <div className="past-project-head-tools">
+            <button
+              type="button"
+              className={`archived-project-toggle ${showArchived ? 'active' : ''}`}
+              aria-expanded={showArchived}
+              aria-controls="archived-projects-panel"
+              onClick={() => void toggleArchived()}
+            >
+              {showArchived ? <EyeOff size={16} /> : <Eye size={16} />}
+              {showArchived ? 'Hide Archived' : 'Show Archived'}
+              {archivedProjects !== null && <span>{archivedProjects.length}</span>}
+            </button>
+            {visible.length > 0 && (
+              <StatusBar segments={[
+                { key: 'on-track', count: onTime, label: 'On time' },
+                { key: 'behind', count: late, label: 'Late' },
+              ]} total={Math.max(dated.length, 1)} />
+            )}
+          </div>
         </header>
         {visible.length === 0 ? (
           <EmptyState
@@ -229,7 +320,79 @@ export function PastProjectsView({ projects, search, onOpenProject }: { projects
           <PastProjectsTable projects={visible} onOpenProject={onOpenProject} />
         )}
       </section>
+      {showArchived && (
+        <section className="panel table-panel archived-projects-panel" id="archived-projects-panel" aria-labelledby="archived-projects-heading">
+          <header className="panel-head">
+            <div className="panel-head-text">
+              <span className="kicker">Hidden Records</span>
+              <h2 id="archived-projects-heading">Archived Projects · {visibleArchived.length}</h2>
+              <p>Archived records stay hidden from normal project views. Restore access is permission controlled.</p>
+            </div>
+            <button className="icon-button" type="button" disabled={archivedLoading} onClick={() => void loadArchived()}>
+              <RefreshCw size={14} className={archivedLoading ? 'spin' : ''} /> Refresh
+            </button>
+          </header>
+          {archivedError && <p className="archived-project-notice error" role="alert"><AlertTriangle size={15} /> {archivedError}</p>}
+          {archivedMessage && <p className="archived-project-notice success" role="status"><CheckCircle2 size={15} /> {archivedMessage}</p>}
+          {archivedLoading && archivedProjects === null ? (
+            <div className="archived-project-loading" role="status"><LoaderCircle size={18} className="spin" /> Loading archived projects...</div>
+          ) : visibleArchived.length === 0 ? (
+            <EmptyState
+              title={query && (archivedProjects?.length ?? 0) > 0 ? 'No matching archived projects' : 'No archived projects'}
+              body={query && (archivedProjects?.length ?? 0) > 0 ? 'The archived records do not match the current Past Projects search.' : 'Projects that are archived will be stored here.'}
+            />
+          ) : (
+            <ArchivedProjectsTable projects={visibleArchived} canRestore={canRestoreArchived} restoringId={restoringId} onRestore={restoreArchived} />
+          )}
+        </section>
+      )}
     </section>
+  )
+}
+
+function ArchivedProjectsTable({
+  projects,
+  canRestore,
+  restoringId,
+  onRestore,
+}: {
+  projects: ArchivedProject[]
+  canRestore: boolean
+  restoringId: number | null
+  onRestore: (project: ArchivedProject) => Promise<void>
+}) {
+  return (
+    <div className="table-wrap">
+      <table className="data-table archived-projects-table">
+        <thead>
+          <tr>
+            <th>Part / Program</th>
+            <th>Customer</th>
+            <th>Sales Order</th>
+            <th>Archived</th>
+            <th>Archived By</th>
+            {canRestore && <th aria-label="Restore" />}
+          </tr>
+        </thead>
+        <tbody>
+          {projects.map((project) => (
+            <tr key={project.id}>
+              <td><span className="archived-project-name"><ArchiveRestore size={15} /><span className="mono-id">{project.programName}</span></span></td>
+              <td className="cell-muted">{project.customerName ?? '—'}</td>
+              <td className="cell-mono">{project.salesOrderNumber ?? '—'}</td>
+              <td className="cell-mono">{formatArchivedDate(project.deletedAt)}</td>
+              <td className="cell-muted">{project.deletedByDisplayName ?? '—'}</td>
+              {canRestore && <td className="archived-project-action">
+                <button className="icon-button restore" type="button" disabled={restoringId !== null} onClick={() => void onRestore(project)}>
+                  {restoringId === project.id ? <LoaderCircle size={14} className="spin" /> : <ArchiveRestore size={14} />}
+                  {restoringId === project.id ? 'Restoring...' : 'Restore'}
+                </button>
+              </td>}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

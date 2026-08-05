@@ -9,7 +9,6 @@ export type ProjectTrackerAdminSection =
   | 'calendar'
   | 'work-centers'
   | 'holidays'
-  | 'archived'
   | 'imports'
 
 export type DayOfWeekName =
@@ -109,16 +108,6 @@ export interface Holiday {
 export interface ScheduleSettings {
   workingDays: DayOfWeekName[]
   updatedAt: string
-}
-
-export interface ArchivedProject {
-  id: number
-  version: number
-  programName: string
-  customerName: string | null
-  salesOrderNumber: string | null
-  deletedAt: string
-  deletedByDisplayName: string | null
 }
 
 export interface ImportResult {

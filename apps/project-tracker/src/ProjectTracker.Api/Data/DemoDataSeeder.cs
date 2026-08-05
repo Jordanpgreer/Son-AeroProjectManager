@@ -150,9 +150,14 @@ public static class DemoDataSeeder
         CancellationToken cancellationToken)
     {
         var project = await db.Projects
+            .IgnoreQueryFilters()
             .Include(candidate => candidate.Tasks)
             .Include(candidate => candidate.Messages)
             .FirstOrDefaultAsync(candidate => candidate.ProgramName == name, cancellationToken);
+        if (project?.DeletedAt is not null)
+        {
+            return;
+        }
         if (project is null)
         {
             project = new Project
@@ -221,9 +226,14 @@ public static class DemoDataSeeder
         CancellationToken cancellationToken)
     {
         var project = await db.Projects
+            .IgnoreQueryFilters()
             .Include(candidate => candidate.Tasks)
             .Include(candidate => candidate.Messages)
             .FirstOrDefaultAsync(candidate => candidate.ProgramName == name, cancellationToken);
+        if (project?.DeletedAt is not null)
+        {
+            return;
+        }
         if (project is null)
         {
             project = new Project { ProgramName = name };

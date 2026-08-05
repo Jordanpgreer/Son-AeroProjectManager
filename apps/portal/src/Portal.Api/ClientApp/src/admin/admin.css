@@ -321,8 +321,7 @@
 
 .admin-user-list,
 .admin-group-list,
-.admin-record-list,
-.admin-archive-list {
+.admin-record-list {
   display: grid;
   gap: 8px;
 }

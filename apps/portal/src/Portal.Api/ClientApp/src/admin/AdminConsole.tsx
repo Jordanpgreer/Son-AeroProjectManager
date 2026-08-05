@@ -19,7 +19,7 @@ import AccessPanel from './AccessPanel'
 import EngineeringAccessPanel from './EngineeringAccessPanel'
 import ModuleAccessPanel from './ModuleAccessPanel'
 import { projectTrackerUrl, toErrorMessage, trackerApi } from './api'
-import { ArchivedProjectsPanel, ImportsPanel } from './ProjectTrackerDataPanels'
+import { ImportsPanel } from './ProjectTrackerDataPanels'
 import {
   HolidaysPanel,
   WorkCalendarPanel,
@@ -44,7 +44,6 @@ const PERMISSIONS = {
   calendar: 'settings.workCalendar.manage',
   workCenters: 'settings.workCenters.manage',
   holidays: 'settings.holidays.manage',
-  archived: 'archived.restore',
   imports: 'import.manage',
 } as const
 
@@ -98,7 +97,6 @@ const PROJECT_TRACKER_SECTIONS: {
   { key: 'calendar', label: 'Work Calendar', icon: CalendarDays },
   { key: 'work-centers', label: 'Work Centers', icon: Factory },
   { key: 'holidays', label: 'Holidays', icon: CalendarDays },
-  { key: 'archived', label: 'Archived Projects', icon: ShieldCheck },
   { key: 'imports', label: 'Imports', icon: UploadCloud },
 ]
 
@@ -224,7 +222,6 @@ export default function AdminConsole({
     if (section === 'calendar') return granted.has(PERMISSIONS.calendar)
     if (section === 'work-centers') return granted.has(PERMISSIONS.workCenters)
     if (section === 'holidays') return granted.has(PERMISSIONS.holidays)
-    if (section === 'archived') return granted.has(PERMISSIONS.archived)
     return granted.has(PERMISSIONS.imports)
   }
   const selectedTrackerSection = route.section as ProjectTrackerAdminSection
@@ -307,7 +304,6 @@ export default function AdminConsole({
               {route.section === 'calendar' && <WorkCalendarPanel />}
               {route.section === 'work-centers' && <WorkCentersPanel />}
               {route.section === 'holidays' && <HolidaysPanel />}
-              {route.section === 'archived' && <ArchivedProjectsPanel />}
               {route.section === 'imports' && <ImportsPanel />}
             </>
           )}

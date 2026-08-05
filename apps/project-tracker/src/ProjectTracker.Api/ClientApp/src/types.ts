@@ -61,6 +61,16 @@ export type ProjectSummary = {
   schedulePerformance?: string | null
 }
 
+export type ArchivedProject = {
+  id: number
+  version: number
+  programName: string
+  customerName: string | null
+  salesOrderNumber: string | null
+  deletedAt: string
+  deletedByDisplayName: string | null
+}
+
 export type ProjectDetail = {
   id: number
   version: number

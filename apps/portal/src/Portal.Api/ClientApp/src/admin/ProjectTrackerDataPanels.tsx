@@ -1,95 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   AlertTriangle,
-  ArchiveRestore,
   CheckCircle2,
   FileSpreadsheet,
-  RefreshCw,
   UploadCloud,
 } from 'lucide-react'
 import { toErrorMessage, trackerApi } from './api'
-import type { ArchivedProject, ImportResult } from './types'
-
-function formatDate(value: string) {
-  const date = new Date(value)
-  return Number.isFinite(date.getTime())
-    ? new Intl.DateTimeFormat('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      }).format(date)
-    : value
-}
-
-export function ArchivedProjectsPanel() {
-  const [projects, setProjects] = useState<ArchivedProject[] | null>(null)
-  const [restoringId, setRestoringId] = useState<number | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [message, setMessage] = useState<string | null>(null)
-
-  async function load() {
-    setError(null)
-    try {
-      setProjects(await trackerApi<ArchivedProject[]>('/api/admin/archived-projects'))
-    } catch (cause) {
-      setError(toErrorMessage(cause))
-    }
-  }
-
-  useEffect(() => { void load() }, [])
-
-  async function restore(project: ArchivedProject) {
-    if (!window.confirm(`Restore “${project.programName}” to Project Tracker?`)) return
-    setRestoringId(project.id)
-    setError(null)
-    setMessage(null)
-    try {
-      await trackerApi<void>(`/api/admin/archived-projects/${project.id}/restore`, {
-        method: 'POST',
-        body: JSON.stringify({ version: project.version }),
-      })
-      setMessage(`${project.programName} restored.`)
-      await load()
-    } catch (cause) {
-      setError(toErrorMessage(cause))
-    } finally {
-      setRestoringId(null)
-    }
-  }
-
-  return (
-    <section className="admin-surface" aria-labelledby="archived-heading">
-      <header className="admin-surface-head">
-        <div><span className="kicker">Recovery</span><h2 id="archived-heading">Archived projects</h2><p>Restore soft-deleted projects to their previous completed or active state.</p></div>
-        <button className="ghost-button" type="button" onClick={() => void load()}><RefreshCw size={15} /> Refresh</button>
-      </header>
-      {error && <p className="admin-notice error" role="alert"><AlertTriangle size={16} /> {error}</p>}
-      {message && <p className="admin-notice success" role="status"><CheckCircle2 size={16} /> {message}</p>}
-      {projects === null ? (
-        <div className="admin-loading">Loading archived projects…</div>
-      ) : projects.length === 0 ? (
-        <p className="admin-empty">No archived projects.</p>
-      ) : (
-        <div className="admin-archive-list">
-          {projects.map((project) => (
-            <article key={project.id}>
-              <span className="admin-archive-icon"><ArchiveRestore size={18} /></span>
-              <div>
-                <strong>{project.programName}</strong>
-                <span>{project.customerName || 'No customer'}{project.salesOrderNumber ? ` · SO ${project.salesOrderNumber}` : ''}</span>
-                <small>Archived {formatDate(project.deletedAt)}{project.deletedByDisplayName ? ` by ${project.deletedByDisplayName}` : ''}</small>
-              </div>
-              <button className="ghost-button" type="button" disabled={restoringId !== null} onClick={() => void restore(project)}>
-                <ArchiveRestore size={15} /> {restoringId === project.id ? 'Restoring…' : 'Restore'}
-              </button>
-            </article>
-          ))}
-        </div>
-      )}
-    </section>
-  )
-}
+import type { ImportResult } from './types'
 
 export function ImportsPanel() {
   const inputRef = useRef<HTMLInputElement>(null)

@@ -10,7 +10,7 @@ public static class ArchivedProjectEndpoints
 {
     public static RouteGroupBuilder MapArchivedProjectEndpoints(this RouteGroupBuilder api)
     {
-        api.MapGet("/admin/archived-projects", async (ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
+        api.MapGet("/archived-projects", async (ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
         {
             var projects = await db.Projects
                 .IgnoreQueryFilters()
@@ -28,9 +28,9 @@ public static class ArchivedProjectEndpoints
                     project.DeletedAt!.Value,
                     project.DeletedByDisplayName))
                 .ToList();
-        }).RequireAuthorization("RestoreArchived");
+        });
 
-        api.MapPost("/admin/archived-projects/{id:int}/restore", async (
+        api.MapPost("/archived-projects/{id:int}/restore", async (
             int id,
             ProjectActionDto dto,
             ProjectTrackerDbContext db,
