@@ -1,9 +1,9 @@
-import { resolveProjectTrackerApiUrl } from './apiUrl'
+import { defaultProjectTrackerApiUrl, resolveProjectTrackerApiUrl } from './apiUrl'
 
 const configuredTrackerUrl = import.meta.env.VITE_PROJECT_TRACKER_URL?.trim()
 
 export const projectTrackerUrl = new URL(
-  configuredTrackerUrl || '/project-tracker-api',
+  configuredTrackerUrl || defaultProjectTrackerApiUrl(window.location),
   window.location.origin,
 ).toString().replace(/\/$/, '')
 
@@ -79,6 +79,13 @@ export async function trackerApi<T>(
   }
 
   if (response.status === 204) return undefined as T
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!contentType.includes('json')) {
+    throw new TrackerApiError(
+      'Project Tracker returned a web page instead of API data. The Hub gateway is not configured for this environment.',
+      response.status,
+    )
+  }
   return await response.json() as T
 }
 
