@@ -1,6 +1,8 @@
+using System.Reflection;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -14,6 +16,17 @@ namespace ProjectTracker.Tests;
 
 public sealed class PushNotificationEndpointTests
 {
+    [Fact]
+    public void DeleteSubscription_ExplicitlyBindsItsRequestBody()
+    {
+        var requestParameter = typeof(PushNotificationEndpoints)
+            .GetMethod(nameof(PushNotificationEndpoints.DeleteAsync), BindingFlags.Public | BindingFlags.Static)!
+            .GetParameters()
+            .Single(parameter => parameter.ParameterType == typeof(ProjectTracker.Api.Dtos.PushSubscriptionDeleteDto));
+
+        Assert.NotNull(requestParameter.GetCustomAttribute<FromBodyAttribute>());
+    }
+
     [Fact]
     public async Task UnregisteredUser_CannotRegisterSubscription()
     {

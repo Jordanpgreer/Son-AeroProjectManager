@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ProjectTracker.Api.Configuration;
@@ -48,7 +49,7 @@ public static class PushNotificationEndpoints
     }
 
     public static async Task<IResult> DeleteAsync(
-        PushSubscriptionDeleteDto request,
+        [FromBody] PushSubscriptionDeleteDto request,
         ProjectTrackerDbContext db,
         CurrentUserService currentUser,
         PushSubscriptionService subscriptions,
