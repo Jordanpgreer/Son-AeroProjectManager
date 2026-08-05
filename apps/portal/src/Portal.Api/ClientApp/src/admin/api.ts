@@ -105,8 +105,27 @@ export async function portalApi<T>(path: string, init: RequestInit = {}): Promis
       response.status,
     )
   }
-  if (response.status === 204 || response.headers.get('content-length') === '0') return undefined as T
-  return await response.json() as T
+  if (response.status === 204) return undefined as T
+
+  const body = await response.text()
+  if (!body.trim()) return undefined as T
+
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!contentType.includes('json')) {
+    throw new TrackerApiError(
+      'Hub Admin returned an unexpected response instead of API data.',
+      response.status,
+    )
+  }
+
+  try {
+    return JSON.parse(body) as T
+  } catch {
+    throw new TrackerApiError(
+      'Hub Admin returned invalid API data. Please refresh and try again.',
+      response.status,
+    )
+  }
 }
 
 export function toErrorMessage(error: unknown) {

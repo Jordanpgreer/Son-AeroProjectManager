@@ -120,7 +120,7 @@ public static class EngineeringAdminEndpoints
         }
 
         await transaction.CommitAsync(cancellationToken);
-        return Results.Ok();
+        return Results.NoContent();
     }
 
     private static async Task<IResult> CreateGroupAsync(
@@ -204,7 +204,7 @@ public static class EngineeringAdminEndpoints
         }
 
         await transaction.CommitAsync(cancellationToken);
-        return Results.Ok();
+        return Results.NoContent();
     }
 
     private static async Task<HashSet<string>> CurrentPermissionsAsync(

@@ -113,6 +113,70 @@ public sealed class NotificationReadServiceTests
         Assert.Equal(1, unreadCount);
     }
 
+    [Fact]
+    public async Task MarkReadAsync_and_MarkAllReadAsync_update_only_valid_non_self_notifications()
+    {
+        await using var db = CreateDb();
+        await db.Database.EnsureCreatedAsync();
+
+        var user = new AppUser { AccountName = @"TEST\Reader", DisplayName = "Reader" };
+        var project = new Project { ProgramName = "READ-TEST" };
+        var firstMessage = new ProjectMessage
+        {
+            Project = project,
+            AuthorAccountName = @"TEST\Author",
+            AuthorDisplayName = "Author",
+            Body = "First"
+        };
+        var secondMessage = new ProjectMessage
+        {
+            Project = project,
+            AuthorAccountName = @"TEST\Author",
+            AuthorDisplayName = "Author",
+            Body = "Second"
+        };
+        var selfMessage = new ProjectMessage
+        {
+            Project = project,
+            AuthorAccountName = user.AccountName,
+            AuthorDisplayName = user.DisplayName,
+            Body = "Self"
+        };
+        db.AddRange(user, project, firstMessage, secondMessage, selfMessage);
+        await db.SaveChangesAsync();
+
+        var first = CreateNotification(user.Id, project.Id, firstMessage.Id, "First", DateTimeOffset.UtcNow);
+        var second = CreateNotification(user.Id, project.Id, secondMessage.Id, "Second", DateTimeOffset.UtcNow);
+        var self = new UserNotification
+        {
+            RecipientUserId = user.Id,
+            ProjectId = project.Id,
+            ProjectMessageId = selfMessage.Id,
+            Kind = NotificationKind.ProjectChatMention,
+            ActorAccountName = user.AccountName,
+            ActorDisplayName = user.DisplayName,
+            Title = "Self",
+            BodyPreview = "Self"
+        };
+        db.UserNotifications.AddRange(first, second, self);
+        await db.SaveChangesAsync();
+
+        var service = new NotificationReadService(db);
+        Assert.True(await service.MarkReadAsync(first.Id, user.Id, user.AccountName));
+        Assert.False(await service.MarkReadAsync(999999, user.Id, user.AccountName));
+        await service.MarkAllReadAsync(user.Id, user.AccountName);
+        db.ChangeTracker.Clear();
+
+        var readStates = await db.UserNotifications
+            .IgnoreQueryFilters()
+            .OrderBy(notification => notification.Id)
+            .Select(notification => notification.ReadAt)
+            .ToListAsync();
+        Assert.NotNull(readStates[0]);
+        Assert.NotNull(readStates[1]);
+        Assert.Null(readStates[2]);
+    }
+
     private static ProjectTrackerDbContext CreateDb()
     {
         var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>()

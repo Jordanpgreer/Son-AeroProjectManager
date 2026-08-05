@@ -7,6 +7,9 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
     public DbSet<PortalRoleRecord> Users => Set<PortalRoleRecord>();
     public DbSet<PortalModuleAccessRecord> UserModuleAccess => Set<PortalModuleAccessRecord>();
     public DbSet<PortalNotificationRecord> UserNotifications => Set<PortalNotificationRecord>();
+    public DbSet<PortalNotificationProjectRecord> NotificationProjects => Set<PortalNotificationProjectRecord>();
+    public DbSet<PortalNotificationTaskRecord> NotificationTasks => Set<PortalNotificationTaskRecord>();
+    public DbSet<PortalNotificationMessageRecord> NotificationMessages => Set<PortalNotificationMessageRecord>();
     public DbSet<PortalEngineeringGroupRecord> EngineeringGroups => Set<PortalEngineeringGroupRecord>();
     public DbSet<PortalEngineeringMembershipRecord> EngineeringUserGroupMemberships => Set<PortalEngineeringMembershipRecord>();
     public DbSet<PortalEngineeringPermissionRecord> EngineeringGroupPermissions => Set<PortalEngineeringPermissionRecord>();
@@ -48,6 +51,24 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
                 notification.ReadAt,
                 notification.CreatedAt
             });
+        });
+
+        // Read-only projections over the Project Tracker tables let the Hub count only
+        // notifications whose originating project/message/operation still exists.
+        modelBuilder.Entity<PortalNotificationProjectRecord>(entity =>
+        {
+            entity.ToTable("Projects");
+            entity.HasKey(project => project.Id);
+        });
+        modelBuilder.Entity<PortalNotificationTaskRecord>(entity =>
+        {
+            entity.ToTable("Tasks");
+            entity.HasKey(task => task.Id);
+        });
+        modelBuilder.Entity<PortalNotificationMessageRecord>(entity =>
+        {
+            entity.ToTable("ProjectMessages");
+            entity.HasKey(message => message.Id);
         });
 
         modelBuilder.Entity<PortalEngineeringGroupRecord>(entity =>
@@ -108,12 +129,31 @@ public sealed class PortalNotificationRecord
 {
     public int Id { get; set; }
     public int RecipientUserId { get; set; }
+    public int ProjectId { get; set; }
     public int? ProjectTaskId { get; set; }
     public int? ProjectMessageId { get; set; }
     public string Kind { get; set; } = string.Empty;
     public string ActorAccountName { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? ReadAt { get; set; }
+}
+
+public sealed class PortalNotificationProjectRecord
+{
+    public int Id { get; set; }
+    public DateTimeOffset? DeletedAt { get; set; }
+}
+
+public sealed class PortalNotificationTaskRecord
+{
+    public int Id { get; set; }
+    public int ProjectId { get; set; }
+}
+
+public sealed class PortalNotificationMessageRecord
+{
+    public int Id { get; set; }
+    public int ProjectId { get; set; }
 }
 
 public sealed class PortalEngineeringGroupRecord
