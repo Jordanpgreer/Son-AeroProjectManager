@@ -40,6 +40,23 @@ function Get-Sha256 {
     $hasher = [Security.Cryptography.SHA256]::Create(); try { return ([BitConverter]::ToString($hasher.ComputeHash([IO.File]::ReadAllBytes($Path)))).Replace('-', '') } finally { $hasher.Dispose() }
 }
 
+function Get-CertificateEkuOidValues {
+    param([Parameter(Mandatory)][Security.Cryptography.X509Certificates.X509Certificate2]$Certificate)
+    $extensions = @($Certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' })
+    if ($extensions.Count -ne 1) {
+        throw "Certificate must contain exactly one Enhanced Key Usage extension; found $($extensions.Count)."
+    }
+    try {
+        $parsed = New-Object Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension(
+            $extensions[0], $extensions[0].Critical)
+        $values = @($parsed.EnhancedKeyUsages | ForEach-Object { [string]$_.Value } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    }
+    catch { throw "Certificate Enhanced Key Usage extension could not be parsed: $($_.Exception.Message)" }
+    if ($values.Count -eq 0) { throw 'Certificate Enhanced Key Usage extension contains no usable OIDs.' }
+    return $values
+}
+
 function Resolve-HandoffFile {
     param(
         [Parameter(Mandatory)][string]$Directory,
@@ -97,7 +114,7 @@ function Assert-LeafCertificate {
         throw 'The pilot leaf is not currently valid for at least seven more days.'
     }
     $serverAuthenticationOid = '1.3.6.1.5.5.7.3.1'
-    $eku = @($Certificate.EnhancedKeyUsageList | ForEach-Object { $_.ObjectId.Value })
+    $eku = @(Get-CertificateEkuOidValues -Certificate $Certificate)
     if ($eku -notcontains $serverAuthenticationOid) {
         throw 'The pilot leaf does not include the Server Authentication EKU.'
     }

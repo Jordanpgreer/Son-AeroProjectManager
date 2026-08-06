@@ -1,10 +1,8 @@
 <#
     PILOT ONLY. Creates a private pilot root CA and one SON-IIS2 IIS leaf certificate.
-
     Run interactively on the explicitly named, secured admin workstation. Never run this script on
     SON-IIS2 or SON-SQL2. This is not a replacement for managed enterprise PKI: the lightweight
     pilot CA has no CA database, CRL distribution point, or OCSP responder.
-
     Only SERVER-PILOT-HANDOFF may be copied to SON-IIS2. Keep the root PFX offline.
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
@@ -66,10 +64,8 @@ function Test-SecureStringEqual {
         }
     }
 }
-
 function Read-ConfirmedPfxPassword {
     param([Parameter(Mandatory)][string]$Purpose)
-
     while ($true) {
         $first = Read-Host "$Purpose (minimum 16 characters; it will not be displayed)" -AsSecureString
         if ($first.Length -lt 16) {
@@ -83,10 +79,8 @@ function Read-ConfirmedPfxPassword {
         Write-Warning 'The passwords did not match. Try again.'
     }
 }
-
 function Assert-PrivateOutputLocation {
     param([Parameter(Mandatory)][string]$Path)
-
     if (-not [IO.Path]::IsPathRooted($Path)) {
         throw 'OutputDirectory must be an absolute local path.'
     }
@@ -95,7 +89,6 @@ function Assert-PrivateOutputLocation {
         $fullPath -match '^[A-Za-z]:\\?$') {
         throw 'OutputDirectory must be a non-root directory on a local NTFS or ReFS volume, not a UNC path.'
     }
-
     $qualifier = Split-Path -Path $fullPath -Qualifier
     if ($qualifier -notmatch '^[A-Za-z]:$') {
         throw 'OutputDirectory must use a local drive-letter path.'
@@ -323,6 +316,12 @@ try {
     if ($leafCertificate.Subject -eq $leafCertificate.Issuer -or $leafCertificate.Issuer -ne $rootCertificate.Subject) {
         throw 'The leaf was not issued by the new pilot root.'
     }
+    $generatedEkuExtensions = @($leafCertificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' })
+    if ($generatedEkuExtensions.Count -ne 1) { throw 'Generated leaf must contain exactly one Enhanced Key Usage extension.' }
+    $generatedEku = New-Object Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension(
+        $generatedEkuExtensions[0], $generatedEkuExtensions[0].Critical)
+    $generatedEkuOids = @($generatedEku.EnhancedKeyUsages | ForEach-Object { [string]$_.Value })
+    if ($generatedEkuOids -notcontains '1.3.6.1.5.5.7.3.1') { throw 'Generated leaf is missing the Server Authentication EKU.' }
     $actualDnsNames = @($leafCertificate.DnsNameList | ForEach-Object { $_.Punycode })
     foreach ($requiredName in $requiredDnsNames) {
         if ($actualDnsNames -inotcontains $requiredName) {

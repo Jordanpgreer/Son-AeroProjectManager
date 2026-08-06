@@ -78,9 +78,20 @@ else {
 }
 
 $serverAuthenticationOid = '1.3.6.1.5.5.7.3.1'
-$ekuOids = @($certificate.EnhancedKeyUsageList | ForEach-Object { $_.ObjectId.Value })
-if ($ekuOids -notcontains $serverAuthenticationOid) {
-    $failures.Add('The certificate does not include the Server Authentication EKU.')
+$ekuExtensions = @($certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' })
+if ($ekuExtensions.Count -ne 1) {
+    $failures.Add("The certificate must contain exactly one Enhanced Key Usage extension; found $($ekuExtensions.Count).")
+}
+else {
+    try {
+        $parsedEku = New-Object Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension(
+            $ekuExtensions[0], $ekuExtensions[0].Critical)
+        $ekuOids = @($parsedEku.EnhancedKeyUsages | ForEach-Object { [string]$_.Value } | Where-Object { $_ })
+        if ($ekuOids -notcontains $serverAuthenticationOid) {
+            $failures.Add('The certificate does not include the Server Authentication EKU.')
+        }
+    }
+    catch { $failures.Add("The Enhanced Key Usage extension could not be decoded: $($_.Exception.Message)") }
 }
 
 $keyUsageExtension = $certificate.Extensions |

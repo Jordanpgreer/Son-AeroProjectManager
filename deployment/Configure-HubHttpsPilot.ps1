@@ -5,9 +5,7 @@
       .\Configure-HubHttpsPilot.ps1 -CertificateThumbprint <LEAF> -PilotRootThumbprint <ROOT> -PilotRemoteAddress 10.50.10.25 -WhatIf
     Apply:
       .\Configure-HubHttpsPilot.ps1 -CertificateThumbprint <LEAF> -PilotRootThumbprint <ROOT> -PilotRemoteAddress 10.50.10.25 -Confirm:$false
-    Roll back the last successful apply:
-      .\Configure-HubHttpsPilot.ps1 -Rollback -Confirm:$false
-
+    Roll back: .\Configure-HubHttpsPilot.ps1 -Rollback -Confirm:$false
     HTTP bindings on ports 5135-5160 are never removed. The pilot firewall rule is separate
     from the existing HTTP rule and never permits Any or LocalSubnet.
 #>
@@ -16,27 +14,20 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = 'Apply')]
     [ValidatePattern('^(?:[A-Fa-f0-9]{2}\s*){20}$')]
     [string]$CertificateThumbprint,
-
     [Parameter(Mandatory = $true, ParameterSetName = 'Apply')]
     [ValidatePattern('^(?:[A-Fa-f0-9]{2}\s*){20}$')]
     [string]$PilotRootThumbprint,
-
     [Parameter(Mandatory = $true, ParameterSetName = 'Apply')]
     [ValidateNotNullOrEmpty()]
     [string[]]$PilotRemoteAddress,
-
     [Parameter(Mandatory = $true, ParameterSetName = 'Rollback')]
     [switch]$Rollback,
-
     [ValidateRange(7, 365)]
     [int]$MinimumRemainingDays = 30,
-
     [ValidateRange(30, 600)]
     [int]$HealthTimeoutSeconds = 180,
-
     [string]$StatePath = 'C:\ProgramData\SonAero\deployment-state\https-pilot.json'
 )
-
 $ErrorActionPreference = 'Stop'
 $expectedComputerName = 'SON-IIS2'
 $firewallRuleName = 'SON-AERO Hub HTTPS pilot'
@@ -48,13 +39,11 @@ $applications = @(
     [pscustomobject]@{ Site = 'EngineeringHub'; HttpPort = 5150; HttpsPort = 6150 },
     [pscustomobject]@{ Site = 'EstimatingDashboard'; HttpPort = 5160; HttpsPort = 6160 }
 )
-
 function Assert-Host {
     if ($env:COMPUTERNAME -ine $expectedComputerName) {
         throw "This transaction is restricted to $expectedComputerName; current computer is $env:COMPUTERNAME."
     }
 }
-
 function Assert-Administrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
@@ -62,7 +51,6 @@ function Assert-Administrator {
         throw 'Run this script from an elevated Windows PowerShell session.'
     }
 }
-
 function Import-IisAdministration {
     $priorWhatIf = $WhatIfPreference
     try {
@@ -76,14 +64,12 @@ function Import-IisAdministration {
     }
     Add-Type -Path $assemblyPath -ErrorAction Stop
 }
-
 function Convert-HashToHex {
     param($Value)
     if ($null -eq $Value) { return '' }
     if ($Value -is [byte[]]) { return ([BitConverter]::ToString($Value)).Replace('-', '') }
     return ([string]$Value).Replace(' ', '').Replace('-', '').ToUpperInvariant()
 }
-
 function Convert-HexToBytes {
     param([Parameter(Mandatory = $true)][string]$Value)
     $hex = (Convert-HashToHex $Value)
@@ -92,6 +78,19 @@ function Convert-HexToBytes {
         [Convert]::ToByte($hex.Substring($index, 2), 16)
     })
     return $bytes
+}
+function Get-CertificateEkuOidValues {
+    param([Parameter(Mandatory)]$Certificate)
+    $extensions = @($Certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' })
+    if ($extensions.Count -ne 1) { throw "Certificate must contain exactly one Enhanced Key Usage extension; found $($extensions.Count)." }
+    try {
+        $parsed = New-Object Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension(
+            $extensions[0], $extensions[0].Critical)
+        $values = @($parsed.EnhancedKeyUsages | ForEach-Object { [string]$_.Value } | Where-Object { $_ })
+    }
+    catch { throw "Certificate Enhanced Key Usage extension could not be parsed: $($_.Exception.Message)" }
+    if ($values.Count -eq 0) { throw 'Certificate Enhanced Key Usage extension contains no usable OIDs.' }
+    return $values
 }
 
 function Convert-BindingToSnapshot {
@@ -205,7 +204,7 @@ function Assert-Certificate {
         throw 'The pilot root validity period does not cover the leaf validity period.'
     }
     if ($certificate.Issuer -ne $rootCertificate.Subject) { throw 'The pilot leaf issuer does not match the explicit pilot root subject.' }
-    $eku = @($certificate.EnhancedKeyUsageList | ForEach-Object { $_.ObjectId.Value })
+    $eku = @(Get-CertificateEkuOidValues -Certificate $certificate)
     if ($eku -notcontains '1.3.6.1.5.5.7.3.1') { throw 'The certificate lacks the Server Authentication EKU.' }
     if ($certificate.PSObject.Properties.Name -notcontains 'DnsNameList') {
         throw 'DnsNameList is unavailable, so SAN validation cannot be completed safely.'
