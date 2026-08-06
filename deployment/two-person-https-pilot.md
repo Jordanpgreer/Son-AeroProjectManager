@@ -167,19 +167,27 @@ Require `WHATIF_READY`, then `HUB_RELEASE_DEPLOYED_AND_HEALTHY`.
 
 ## 5. Apply HTTPS module URLs and dual-origin CORS
 
-Copy `Configure-HubHttpsApplicationConfig.ps1` to `C:\SonAero` and run on SON-IIS2:
+Run the script from the clean server checkout on SON-IIS2 so the reviewed version is used:
 
 ```powershell
-$configScript = 'C:\SonAero\Configure-HubHttpsApplicationConfig.ps1'
+$repo = 'C:\SonAero\src\SonAeroInternalHub'
+$configScript = "$repo\deployment\Configure-HubHttpsApplicationConfig.ps1"
 & $configScript -WhatIf
+```
+
+Require `WHATIF_READY`. Only then apply it:
+
+```powershell
 & $configScript -Confirm:$false
 ```
 
-Require `WHATIF_READY`, then
+Require
 `HTTPS_APPLICATION_CONFIG_APPLIED_AND_DUAL_SCHEME_GATEWAY_HEALTHY`. The transaction backs up the
 two active production JSON files under a restricted ACL, uses HTTPS-first dual CORS, restarts only
 the three affected pools, checks both schemes plus both gateway paths, and restores the originals
-on failure.
+on failure. Its state file is restricted to
+`C:\ProgramData\SonAero\deployment-state\https-application-config.json`; do not relocate it to a
+web root or another application directory.
 
 ## 6. Configure HTTPS warm start
 
@@ -290,6 +298,27 @@ HTTPS binding set, but it refuses to remove bindings or a firewall rule unless t
 this saved transaction. It restores the recorded baseline and verifies all four HTTP health
 endpoints before allowing another apply attempt. If recovery reports drift or a health error, stop
 and preserve `C:\ProgramData\SonAero\deployment-state\https-pilot.json` for diagnosis.
+
+### Recover an interrupted HTTPS application-config transaction
+
+Do not rerun application-config apply when its state is `Prepared`, `ApplyInProgress`,
+`ApplyFailedRollbackPending`, `ManualRollbackPending`, or `RollbackFailed`. Pull the corrected
+script, then preview recovery from elevated Windows PowerShell on SON-IIS2:
+
+```powershell
+$repo = 'C:\SonAero\src\SonAeroInternalHub'
+git -C $repo pull --ff-only origin main
+if ($LASTEXITCODE -ne 0) { throw 'Git pull failed; no IIS configuration was changed.' }
+
+& "$repo\deployment\Configure-HubHttpsApplicationConfig.ps1" -Rollback -WhatIf
+```
+
+Require `WHATIF_READY_ROLLBACK`. Then run the same script with
+`-Rollback -Confirm:$false` and require
+`HTTPS_APPLICATION_CONFIG_ROLLED_BACK_AND_DUAL_SCHEME_HEALTHY`. Recovery validates the exact IIS
+paths, the secured backup locations and hashes, and every active file hash before changing either
+production file. A terminal rollback can be rerun safely and returns
+`HTTPS_APPLICATION_CONFIG_ALREADY_ROLLED_BACK_AND_DUAL_SCHEME_HEALTHY` after verification.
 
 ## Pilot completion gate
 
