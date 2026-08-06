@@ -94,27 +94,23 @@ else {
     catch { $failures.Add("The Enhanced Key Usage extension could not be decoded: $($_.Exception.Message)") }
 }
 
-$keyUsageExtension = $certificate.Extensions |
-    Where-Object { $_.Oid.Value -eq '2.5.29.15' } |
-    Select-Object -First 1
-$keyUsageNames = @()
-$hasDigitalSignature = $false
-$hasKeyEncipherment = $false
-if (-not $keyUsageExtension) {
-    $failures.Add('The certificate has no Key Usage extension, so TLS key usage cannot be constrained.')
+$keyUsageExtensions = @($certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.15' })
+$keyUsageNames = @('Unconstrained (extension absent)')
+$allowsDigitalSignature = $true
+if ($keyUsageExtensions.Count -gt 1) {
+    $allowsDigitalSignature = $false
+    $failures.Add('The certificate contains duplicate Key Usage extensions.')
 }
-else {
+elseif ($keyUsageExtensions.Count -eq 1) {
     try {
         $keyUsage = [Security.Cryptography.X509Certificates.X509KeyUsageExtension]::new(
-            $keyUsageExtension,
-            $keyUsageExtension.Critical
+            $keyUsageExtensions[0],
+            $keyUsageExtensions[0].Critical
         )
         $keyUsageNames = @($keyUsage.KeyUsages.ToString().Split(',') | ForEach-Object { $_.Trim() })
-        $hasDigitalSignature = ($keyUsage.KeyUsages -band
+        $allowsDigitalSignature = ($keyUsage.KeyUsages -band
             [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature) -ne 0
-        $hasKeyEncipherment = ($keyUsage.KeyUsages -band
-            [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyEncipherment) -ne 0
-        if (-not $hasDigitalSignature) {
+        if (-not $allowsDigitalSignature) {
             $failures.Add('The certificate Key Usage does not permit Digital Signature.')
         }
     }
@@ -148,9 +144,6 @@ switch ($certificate.PublicKey.Oid.Value) {
             try { $publicKeySize = $publicKey.KeySize } finally { $publicKey.Dispose() }
             if ($publicKeySize -lt 2048) {
                 $failures.Add("The RSA public key is only $publicKeySize bits; at least 2048 bits are required.")
-            }
-            if (-not $hasKeyEncipherment) {
-                $failures.Add('An RSA IIS certificate must permit Key Encipherment as well as Digital Signature.')
             }
         }
         catch {

@@ -92,7 +92,6 @@ function Get-CertificateEkuOidValues {
     if ($values.Count -eq 0) { throw 'Certificate Enhanced Key Usage extension contains no usable OIDs.' }
     return $values
 }
-
 function Convert-BindingToSnapshot {
     param([Parameter(Mandatory = $true)]$Binding, [Parameter(Mandatory = $true)][string]$Site)
     return [pscustomobject]@{
@@ -104,7 +103,6 @@ function Convert-BindingToSnapshot {
         SslFlags = [int]$Binding.SslFlags
     }
 }
-
 function Get-IisBindingSnapshot {
     $manager = New-Object Microsoft.Web.Administration.ServerManager
     try {
@@ -118,7 +116,6 @@ function Get-IisBindingSnapshot {
     }
     finally { $manager.Dispose() }
 }
-
 function Get-TargetBindingSnapshot {
     param([Parameter(Mandatory = $true)][object[]]$Snapshot)
     $ports = @($applications.HttpsPort)
@@ -127,7 +124,6 @@ function Get-TargetBindingSnapshot {
         $parts.Count -ge 2 -and [int]$parts[1] -in $ports
     })
 }
-
 function Assert-RequiredHttpBindings {
     param([Parameter(Mandatory = $true)][object[]]$Snapshot)
     foreach ($application in $applications) {
@@ -140,7 +136,6 @@ function Assert-RequiredHttpBindings {
         }
     }
 }
-
 function Assert-TargetBindingsAvailable {
     param(
         [Parameter(Mandatory = $true)][object[]]$Snapshot,
@@ -175,7 +170,6 @@ function Assert-TargetBindingsAvailable {
         }
     }
 }
-
 function Assert-Certificate {
     param(
         [Parameter(Mandatory = $true)][string]$Thumbprint,
@@ -206,6 +200,18 @@ function Assert-Certificate {
     if ($certificate.Issuer -ne $rootCertificate.Subject) { throw 'The pilot leaf issuer does not match the explicit pilot root subject.' }
     $eku = @(Get-CertificateEkuOidValues -Certificate $certificate)
     if ($eku -notcontains '1.3.6.1.5.5.7.3.1') { throw 'The certificate lacks the Server Authentication EKU.' }
+    $keyUsageExtensions = @($certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.15' })
+    if ($keyUsageExtensions.Count -gt 1) { throw 'The certificate contains duplicate Key Usage extensions.' }
+    if ($keyUsageExtensions.Count -eq 1) {
+        try {
+            $keyUsage = New-Object Security.Cryptography.X509Certificates.X509KeyUsageExtension(
+                $keyUsageExtensions[0], $keyUsageExtensions[0].Critical)
+        }
+        catch { throw "Certificate Key Usage extension could not be parsed: $($_.Exception.Message)" }
+        if (($keyUsage.KeyUsages -band [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature) -eq 0) {
+            throw 'The certificate Key Usage extension does not allow Digital Signature.'
+        }
+    }
     if ($certificate.PSObject.Properties.Name -notcontains 'DnsNameList') {
         throw 'DnsNameList is unavailable, so SAN validation cannot be completed safely.'
     }
@@ -239,7 +245,6 @@ function Assert-Certificate {
     finally { $chain.Dispose() }
     return $certificate
 }
-
 function Convert-ToPilotAddress {
     param([Parameter(Mandatory = $true)][string[]]$Address)
     $result = @()
@@ -273,7 +278,6 @@ function Convert-ToPilotAddress {
     }
     return @($result | Sort-Object -Unique)
 }
-
 function Get-FirewallSnapshot {
     $rules = @(Get-NetFirewallRule -DisplayName $firewallRuleName -ErrorAction SilentlyContinue)
     if ($rules.Count -gt 1) { throw "Multiple firewall rules are named '$firewallRuleName'." }
@@ -292,7 +296,6 @@ function Get-FirewallSnapshot {
         RemoteAddress = @($address.RemoteAddress)
     }
 }
-
 function Assert-FirewallAvailable {
     param([Parameter(Mandatory = $true)]$Snapshot, [Parameter(Mandatory = $true)][string[]]$RemoteAddress)
     if (-not $Snapshot.Existed) { return }
@@ -308,7 +311,6 @@ function Assert-FirewallAvailable {
         (($actualRemotes -join ',') -eq ($expectedRemotes -join ','))
     if (-not $exact) { throw "Existing firewall rule '$firewallRuleName' is not the exact requested pilot rule; it was not modified." }
 }
-
 function Write-State {
     param([Parameter(Mandatory = $true)]$State)
     $directory = Split-Path -Parent $StatePath

@@ -32,6 +32,21 @@ function Get-NormalizedThumbprint {
     param([Parameter(Mandatory)][string]$Thumbprint)
     return ($Thumbprint -replace '\s', '').ToUpperInvariant()
 }
+function Assert-CertificateKeyUsage {
+    param(
+        [Parameter(Mandatory)]$Certificate,
+        [Parameter(Mandatory)][Security.Cryptography.X509Certificates.X509KeyUsageFlags]$Required,
+        [Parameter(Mandatory)][string]$Label
+    )
+    $extensions = @($Certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.15' })
+    if ($extensions.Count -ne 1) { throw "$Label must contain exactly one Key Usage extension; found $($extensions.Count)." }
+    try {
+        $usage = New-Object Security.Cryptography.X509Certificates.X509KeyUsageExtension(
+            $extensions[0], $extensions[0].Critical)
+    }
+    catch { throw "$Label Key Usage extension could not be parsed: $($_.Exception.Message)" }
+    if (($usage.KeyUsages -band $Required) -ne $Required) { throw "$Label is missing a required Key Usage flag." }
+}
 function Test-SecureStringEqual {
     param(
         [Parameter(Mandatory)][Security.SecureString]$First,
@@ -98,7 +113,6 @@ function Assert-PrivateOutputLocation {
         $disk.DriveFormat -notin @('NTFS', 'ReFS')) {
         throw 'Private PKI artifacts must be written to a local/removable NTFS or ReFS volume. Network and FAT/exFAT volumes are refused.'
     }
-
     $cursor = $fullPath
     while (-not [string]::IsNullOrWhiteSpace($cursor)) {
         if (Test-Path -LiteralPath (Join-Path $cursor '.git')) {
@@ -110,10 +124,8 @@ function Assert-PrivateOutputLocation {
     }
     return $fullPath.TrimEnd('\')
 }
-
 function Set-PrivateDirectoryAcl {
     param([Parameter(Mandatory)][string]$Path)
-
     $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
     $systemSid = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
     $administratorsSid = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
@@ -134,7 +146,6 @@ function Set-PrivateDirectoryAcl {
     }
     Set-Acl -LiteralPath $Path -AclObject $acl
 }
-
 function Get-PfxCertificates {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -143,13 +154,11 @@ function Get-PfxCertificates {
     $data = Get-PfxData -FilePath $Path -Password $Password
     return @($data.EndEntityCertificates) + @($data.OtherCertificates)
 }
-
 function Test-ExistingBundle {
     param(
         [Parameter(Mandatory)][string]$ManifestPath,
         [Parameter(Mandatory)][string]$BundleRoot
     )
-
     if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
         return $null
     }
@@ -176,7 +185,6 @@ function Test-ExistingBundle {
     }
     return $manifest
 }
-
 $currentComputer = [string]$env:COMPUTERNAME
 if ([string]::IsNullOrWhiteSpace($currentComputer) -or $currentComputer -ine $ExpectedAdminWorkstationName) {
     throw "This signing operation is restricted to $ExpectedAdminWorkstationName; the current computer is '$currentComputer'."
@@ -187,7 +195,6 @@ if ($forbiddenSigningHosts -icontains $currentComputer) {
 if ($PSVersionTable.PSVersion.Major -lt 5) {
     throw 'Windows PowerShell 5.1 or later is required.'
 }
-
 $fullOutput = Assert-PrivateOutputLocation -Path $OutputDirectory
 $offlineDirectory = Join-Path $fullOutput 'OFFLINE-ROOT-PRIVATE-DO-NOT-COPY'
 $serverDirectory = Join-Path $fullOutput 'SERVER-PILOT-HANDOFF'
@@ -201,7 +208,6 @@ $serverManifestPath = Join-Path $serverDirectory 'SonAero-Hub-Pilot-Server-Manif
 $trustRootCerPath = Join-Path $trustDirectory 'SonAero-Hub-Pilot-Root-PUBLIC.cer'
 $trustManifestPath = Join-Path $trustDirectory 'SonAero-Hub-Pilot-Trust-Manifest.json'
 $masterManifestPath = Join-Path $offlineDirectory 'SonAero-Hub-Pilot-Master-Manifest.json'
-
 if (Test-Path -LiteralPath $fullOutput -PathType Leaf) {
     throw 'OutputDirectory exists as a file.'
 }
@@ -222,14 +228,12 @@ if ($existingManifest) {
     }
     return
 }
-
 if (Test-Path -LiteralPath $fullOutput -PathType Container) {
     $existingItems = @(Get-ChildItem -LiteralPath $fullOutput -Force)
     if ($existingItems.Count -gt 0) {
         throw 'OutputDirectory is non-empty but has no valid master manifest. Refusing to overwrite or guess at a partial private-key bundle.'
     }
 }
-
 $action = "Create a PILOT-ONLY root CA and $requiredServerName leaf, export encrypted PFX files, and remove working keys from the CurrentUser store"
 if (-not $PSCmdlet.ShouldProcess($fullOutput, $action)) {
     [pscustomobject]@{
@@ -245,12 +249,10 @@ if (-not $PSCmdlet.ShouldProcess($fullOutput, $action)) {
     }
     return
 }
-
 Write-Warning 'PILOT ONLY: this lightweight root has no managed CA database, CDP, CRL, or OCSP service.'
 Write-Warning 'Never copy OFFLINE-ROOT-PRIVATE-DO-NOT-COPY or its parent bundle to SON-IIS2, another workstation, Git, chat, email, or a file share.'
 $rootPassword = Read-ConfirmedPfxPassword -Purpose 'Enter a unique password for the OFFLINE ROOT recovery PFX'
 $leafPassword = Read-ConfirmedPfxPassword -Purpose 'Enter a different password for the SON-IIS2 leaf transport PFX'
-
 $rootCertificate = $null
 $leafCertificate = $null
 $outputCreatedByScript = -not (Test-Path -LiteralPath $fullOutput)
@@ -262,11 +264,9 @@ try {
         }
     }
     Set-PrivateDirectoryAcl -Path $fullOutput
-
     $rootBasicConstraints = New-Object Security.Cryptography.X509Certificates.X509BasicConstraintsExtension($true, $true, 0, $true)
     $rootKeyUsageFlags = [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyCertSign -bor
         [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::CrlSign
-    $rootKeyUsage = New-Object Security.Cryptography.X509Certificates.X509KeyUsageExtension($rootKeyUsageFlags, $true)
     $rootParameters = @{
         Type = 'Custom'
         Subject = "CN=Son-Aero Hub Pilot Root CA $((Get-Date).Year)"
@@ -276,9 +276,9 @@ try {
         KeyLength = 4096
         HashAlgorithm = 'SHA256'
         KeyExportPolicy = 'ExportableEncrypted'
-        KeyUsage = 'None'
+        KeyUsage = @('CertSign', 'CRLSign')
         KeyUsageProperty = 'Sign'
-        Extension = @($rootBasicConstraints, $rootKeyUsage)
+        Extension = @($rootBasicConstraints)
         CertStoreLocation = 'Cert:\CurrentUser\My'
         NotAfter = (Get-Date).AddYears($RootValidityYears)
     }
@@ -289,7 +289,6 @@ try {
     $leafBasicConstraints = New-Object Security.Cryptography.X509Certificates.X509BasicConstraintsExtension($false, $false, 0, $true)
     $leafKeyUsageFlags = [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature -bor
         [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyEncipherment
-    $leafKeyUsage = New-Object Security.Cryptography.X509Certificates.X509KeyUsageExtension($leafKeyUsageFlags, $true)
     $leafEku = New-Object Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension($serverAuthenticationOids, $false)
     $leafParameters = @{
         Type = 'Custom'
@@ -302,9 +301,9 @@ try {
         KeyLength = 3072
         HashAlgorithm = 'SHA256'
         KeyExportPolicy = 'ExportableEncrypted'
-        KeyUsage = 'None'
+        KeyUsage = @('DigitalSignature', 'KeyEncipherment')
         KeyUsageProperty = 'All'
-        Extension = @($leafBasicConstraints, $leafKeyUsage, $leafEku)
+        Extension = @($leafBasicConstraints, $leafEku)
         CertStoreLocation = 'Cert:\CurrentUser\My'
         NotAfter = (Get-Date).AddDays($LeafValidityDays)
     }
@@ -316,6 +315,8 @@ try {
     if ($leafCertificate.Subject -eq $leafCertificate.Issuer -or $leafCertificate.Issuer -ne $rootCertificate.Subject) {
         throw 'The leaf was not issued by the new pilot root.'
     }
+    Assert-CertificateKeyUsage -Certificate $rootCertificate -Required $rootKeyUsageFlags -Label 'Generated root'
+    Assert-CertificateKeyUsage -Certificate $leafCertificate -Required $leafKeyUsageFlags -Label 'Generated leaf'
     $generatedEkuExtensions = @($leafCertificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' })
     if ($generatedEkuExtensions.Count -ne 1) { throw 'Generated leaf must contain exactly one Enhanced Key Usage extension.' }
     $generatedEku = New-Object Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension(

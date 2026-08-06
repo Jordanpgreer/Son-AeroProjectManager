@@ -118,16 +118,18 @@ function Assert-LeafCertificate {
     if ($eku -notcontains $serverAuthenticationOid) {
         throw 'The pilot leaf does not include the Server Authentication EKU.'
     }
-    $keyUsageExtension = $Certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.15' } | Select-Object -First 1
-    if (-not $keyUsageExtension) {
-        throw 'The pilot leaf has no Key Usage extension.'
-    }
-    $keyUsage = New-Object Security.Cryptography.X509Certificates.X509KeyUsageExtension($keyUsageExtension, $keyUsageExtension.Critical)
-    $digitalSignature = [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature
-    $keyEncipherment = [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyEncipherment
-    if (($keyUsage.KeyUsages -band $digitalSignature) -eq 0 -or
-        ($keyUsage.KeyUsages -band $keyEncipherment) -eq 0) {
-        throw 'The RSA pilot leaf must allow Digital Signature and Key Encipherment.'
+    $keyUsageExtensions = @($Certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.15' })
+    if ($keyUsageExtensions.Count -gt 1) { throw 'The pilot leaf contains duplicate Key Usage extensions.' }
+    if ($keyUsageExtensions.Count -eq 1) {
+        try {
+            $keyUsage = New-Object Security.Cryptography.X509Certificates.X509KeyUsageExtension(
+                $keyUsageExtensions[0], $keyUsageExtensions[0].Critical)
+        }
+        catch { throw "The pilot leaf Key Usage extension could not be parsed: $($_.Exception.Message)" }
+        $digitalSignature = [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature
+        if (($keyUsage.KeyUsages -band $digitalSignature) -eq 0) {
+            throw 'The pilot leaf Key Usage extension does not allow Digital Signature.'
+        }
     }
     if ($Certificate.PSObject.Properties.Name -notcontains 'DnsNameList') {
         throw 'DnsNameList is unavailable; refusing to guess at localized SAN extension text.'
