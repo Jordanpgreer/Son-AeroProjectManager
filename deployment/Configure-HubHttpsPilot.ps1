@@ -79,6 +79,14 @@ function Convert-HexToBytes {
     })
     return $bytes
 }
+function Get-CertificateRawSha256 {
+    param([Parameter(Mandatory)]$Certificate)
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($sha256.ComputeHash($Certificate.RawData))).Replace('-', '')
+    }
+    finally { $sha256.Dispose() }
+}
 function Get-CertificateEkuOidValues {
     param([Parameter(Mandatory)]$Certificate)
     $extensions = @($Certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' })
@@ -231,15 +239,32 @@ function Assert-Certificate {
         # terminating at the explicit LocalMachine root thumbprint supplied by the operator.
         $chain.ChainPolicy.RevocationMode = [Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
         $chain.ChainPolicy.RevocationFlag = [Security.Cryptography.X509Certificates.X509RevocationFlag]::ExcludeRoot
-        if (-not $chain.Build($certificate)) {
-            $details = @($chain.ChainStatus | ForEach-Object { "$($_.Status): $($_.StatusInformation.Trim())" }) -join '; '
+        $chain.ChainPolicy.VerificationFlags = [Security.Cryptography.X509Certificates.X509VerificationFlags]::NoFlag
+        $chain.ChainPolicy.VerificationTime = $now
+        $chainBuilt = $chain.Build($certificate)
+        $allChainStatuses = @($chain.ChainStatus)
+        foreach ($element in @($chain.ChainElements)) {
+            $allChainStatuses += @($element.ChainElementStatus)
+        }
+        $nonZeroChainStatuses = @($allChainStatuses | Where-Object {
+            $_.Status -ne [Security.Cryptography.X509Certificates.X509ChainStatusFlags]::NoError
+        })
+        if (-not $chainBuilt -or $nonZeroChainStatuses.Count -gt 0) {
+            $details = @($nonZeroChainStatuses | ForEach-Object {
+                "$($_.Status): $($_.StatusInformation.Trim())"
+            } | Select-Object -Unique) -join '; '
             throw "Certificate chain validation failed: $details"
         }
         $elements = @($chain.ChainElements)
-        if ($elements.Count -lt 2 -or
+        if ($elements.Count -ne 2 -or
             (Convert-HashToHex $elements[0].Certificate.Thumbprint) -ne $Thumbprint -or
             (Convert-HashToHex $elements[$elements.Count - 1].Certificate.Thumbprint) -ne $RootThumbprint) {
-            throw 'The trusted chain does not terminate at the explicit pilot root thumbprint.'
+            throw 'The pilot chain must contain exactly the selected leaf and explicit pilot root.'
+        }
+        $builtRootSha256 = Get-CertificateRawSha256 -Certificate $elements[1].Certificate
+        $selectedRootSha256 = Get-CertificateRawSha256 -Certificate $rootCertificate
+        if ($builtRootSha256 -ne $selectedRootSha256) {
+            throw 'The built pilot root certificate bytes do not match the explicitly loaded pilot root certificate.'
         }
     }
     finally { $chain.Dispose() }

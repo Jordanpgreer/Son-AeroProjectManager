@@ -83,8 +83,25 @@ receives the root private key.
 
 ## 3. Add pilot HTTPS bindings and the restricted firewall rule
 
-Copy `Configure-HubHttpsPilot.ps1` to `C:\SonAero` on SON-IIS2. Substitute the recorded
-thumbprints and the two pilot IPv4 addresses. Keep SON-IIS2's own address in the list so its local
+First run the read-only HTTPS readiness audit with the explicit pilot root pin. Private pilot mode
+intentionally performs no online revocation lookup because this isolated CA publishes no
+CDP/CRL/OCSP endpoint. The audit still requires a successful Windows chain build containing
+exactly the selected leaf and installed pilot root, plus every hostname, validity, EKU, key, and
+algorithm check. Omitting `-PilotRootThumbprint` keeps production mode's online revocation check.
+
+```powershell
+$repo = 'C:\SonAero\src\SonAeroInternalHub'
+$leafThumbprint = 'PASTE_LEAF_SHA1_THUMBPRINT'
+$rootThumbprint = 'PASTE_ROOT_SHA1_THUMBPRINT'
+
+& "$repo\deployment\Test-HubHttpsReadiness.ps1" `
+  -CertificateThumbprint $leafThumbprint `
+  -PilotRootThumbprint $rootThumbprint
+```
+
+Require `HTTPS_SERVER_PREREQUISITES_READY_WORKSTATION_TRUST_PENDING` before continuing.
+
+Then substitute the two pilot IPv4 addresses. Keep SON-IIS2's own address in the list so its local
 health verification is not blocked.
 
 ```powershell
@@ -95,7 +112,7 @@ $pilotAddresses = @(
   'PASTE_JOSH_IPV4',
   '10.50.10.244'
 )
-$httpsScript = 'C:\SonAero\Configure-HubHttpsPilot.ps1'
+$httpsScript = "$repo\deployment\Configure-HubHttpsPilot.ps1"
 
 & $httpsScript `
   -CertificateThumbprint $leafThumbprint `
