@@ -265,6 +265,32 @@ Run rollback in this order from elevated PowerShell:
 The existing HTTP bindings remain the safety path throughout. A rollback must end with all four
 HTTP health endpoints returning 200.
 
+### Recover an interrupted or failed HTTPS binding transaction
+
+Do not rerun apply when `Configure-HubHttpsPilot.ps1` reports an automatic rollback failure or
+when its state is `Prepared`, `ApplyFailedRollbackPending`, `ManualRollbackPending`, or
+`RollbackFailed`. Pull the corrected deployment script, then run recovery on SON-IIS2 from
+elevated Windows PowerShell:
+
+```powershell
+$repo = 'C:\SonAero\src\SonAeroInternalHub'
+git -C $repo pull --ff-only origin main
+
+& "$repo\deployment\Configure-HubHttpsPilot.ps1" -Rollback -WhatIf
+```
+
+Require `WHATIF_READY_RECOVERY`. Then run:
+
+```powershell
+& "$repo\deployment\Configure-HubHttpsPilot.ps1" -Rollback -Confirm:$false
+```
+
+Require `HTTPS_PILOT_RECOVERED_ROLLED_BACK_AND_HTTP_HEALTHY`. Recovery permits an empty original
+HTTPS binding set, but it refuses to remove bindings or a firewall rule unless they exactly match
+this saved transaction. It restores the recorded baseline and verifies all four HTTP health
+endpoints before allowing another apply attempt. If recovery reports drift or a health error, stop
+and preserve `C:\ProgramData\SonAero\deployment-state\https-pilot.json` for diagnosis.
+
 ## Pilot completion gate
 
 - Both locked installers finish successfully on only their named computer/account.

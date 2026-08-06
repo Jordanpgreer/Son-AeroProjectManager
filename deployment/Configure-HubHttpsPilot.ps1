@@ -345,8 +345,99 @@ function Write-State {
     Move-Item -LiteralPath $temporary -Destination $StatePath -Force
 }
 
+function Get-ComparableTargetBindings {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [object[]]$Bindings
+    )
+    return (@($Bindings | ForEach-Object {
+        '{0}|{1}|{2}|{3}|{4}|{5}' -f
+            ([string]$_.Site),
+            ([string]$_.Protocol),
+            ([string]$_.BindingInformation),
+            (Convert-HashToHex $_.CertificateHash),
+            ([string]$_.CertificateStoreName),
+            ([int]$_.SslFlags)
+    } | Sort-Object) -join "`n")
+}
+
+function Assert-PriorTargetBindings {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [object[]]$Bindings,
+        [Parameter(Mandatory = $true)][string]$Thumbprint
+    )
+    $seen = @{}
+    foreach ($binding in @($Bindings)) {
+        foreach ($property in @('Site', 'Protocol', 'BindingInformation', 'CertificateHash', 'CertificateStoreName', 'SslFlags')) {
+            if ($binding.PSObject.Properties.Name -notcontains $property) {
+                throw "Rollback state binding is missing '$property'."
+            }
+        }
+        $application = @($applications | Where-Object Site -EQ ([string]$binding.Site))
+        if ($application.Count -ne 1) { throw "Rollback state contains an unknown IIS site '$($binding.Site)'." }
+        $expectedInformation = "*:$($application[0].HttpsPort):"
+        $key = "$($binding.Site)|$($binding.Protocol)|$($binding.BindingInformation)"
+        if ($seen.ContainsKey($key)) { throw "Rollback state contains duplicate binding '$key'." }
+        $seen[$key] = $true
+        if ([string]$binding.Protocol -ne 'https' -or
+            [string]$binding.BindingInformation -ne $expectedInformation -or
+            (Convert-HashToHex $binding.CertificateHash) -ne $Thumbprint -or
+            [string]$binding.CertificateStoreName -ne $certificateStoreName -or
+            [int]$binding.SslFlags -ne 0) {
+            throw "Rollback state contains an out-of-scope or conflicting target binding '$key'."
+        }
+    }
+}
+
+function Assert-StateProperties {
+    param(
+        [Parameter(Mandatory = $true)]$State,
+        [Parameter(Mandatory = $true)][string[]]$Names
+    )
+    foreach ($name in $Names) {
+        if ($State.PSObject.Properties.Name -notcontains $name) {
+            throw "Rollback state is missing required property '$name'."
+        }
+        if ($null -eq $State.$name) {
+            throw "Rollback state property '$name' is null."
+        }
+    }
+}
+
+function Try-WriteState {
+    param([Parameter(Mandatory = $true)]$State)
+    try {
+        Write-State $State
+        return $null
+    }
+    catch {
+        return $_.Exception.Message
+    }
+}
+
+function Set-StateProperty {
+    param(
+        [Parameter(Mandatory = $true)]$State,
+        [Parameter(Mandatory = $true)][string]$Name,
+        $Value
+    )
+    if ($State.PSObject.Properties.Name -contains $Name) {
+        $State.$Name = $Value
+    }
+    else {
+        $State | Add-Member -MemberType NoteProperty -Name $Name -Value $Value
+    }
+}
+
 function Set-TargetBindingsFromSnapshot {
-    param([Parameter(Mandatory = $true)][object[]]$TargetBindings)
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [object[]]$TargetBindings
+    )
     $targetPorts = @($applications.HttpsPort)
     $manager = New-Object Microsoft.Web.Administration.ServerManager
     try {
@@ -410,18 +501,54 @@ function Wait-Health {
 }
 
 function Invoke-AutomaticRollback {
-    param([Parameter(Mandatory = $true)]$State)
+    param(
+        [Parameter(Mandatory = $true)]$State,
+        [Parameter(Mandatory = $true)][string]$OriginalFailure
+    )
+    $State.Status = 'ApplyFailedRollbackPending'
+    Set-StateProperty -State $State -Name 'ApplyFailure' -Value $OriginalFailure
+    Set-StateProperty -State $State -Name 'ApplyFailedAtUtc' -Value ([DateTime]::UtcNow.ToString('o'))
+    $pendingStateFailure = Try-WriteState $State
     try {
-        Set-TargetBindingsFromSnapshot -TargetBindings @($State.PriorTargetBindings)
+        Assert-PriorTargetBindings -Bindings @($State.PriorTargetBindings) -Thumbprint ([string]$State.CertificateThumbprint)
+        $currentIis = @(Get-IisBindingSnapshot)
+        Assert-TargetBindingsAvailable -Snapshot $currentIis -Thumbprint ([string]$State.CertificateThumbprint)
+        $currentFirewall = $null
         if ($State.FirewallRuleAdded) {
-            Remove-NetFirewallRule -DisplayName $firewallRuleName -ErrorAction SilentlyContinue
+            $currentFirewall = Get-FirewallSnapshot
+            if ($currentFirewall.Existed) {
+                Assert-FirewallAvailable -Snapshot $currentFirewall -RemoteAddress @($State.PilotRemoteAddress)
+            }
+        }
+        Set-TargetBindingsFromSnapshot -TargetBindings @($State.PriorTargetBindings)
+        if ($State.FirewallRuleAdded -and $currentFirewall.Existed) {
+            Remove-NetFirewallRule -DisplayName $firewallRuleName -ErrorAction Stop
+        }
+        $restoredIis = @(Get-IisBindingSnapshot)
+        Assert-RequiredHttpBindings $restoredIis
+        $restoredTarget = Get-ComparableTargetBindings -Bindings @(Get-TargetBindingSnapshot $restoredIis)
+        $expectedTarget = Get-ComparableTargetBindings -Bindings @($State.PriorTargetBindings)
+        if ($restoredTarget -ne $expectedTarget) {
+            throw 'Restored pilot HTTPS bindings do not exactly match the recorded pre-transaction state.'
         }
         Wait-Health -Scheme http -Ports @($applications.HttpPort)
         $State.Status = 'AutomaticallyRolledBack'
-        $State.RolledBackAtUtc = [DateTime]::UtcNow.ToString('o')
+        Set-StateProperty -State $State -Name 'RolledBackAtUtc' -Value ([DateTime]::UtcNow.ToString('o'))
+        Set-StateProperty -State $State -Name 'RollbackFailure' -Value $null
         Write-State $State
     }
-    catch { throw "Automatic rollback failed: $($_.Exception.Message)" }
+    catch {
+        $rollbackFailure = $_.Exception.Message
+        $State.Status = 'RollbackFailed'
+        Set-StateProperty -State $State -Name 'RollbackFailure' -Value $rollbackFailure
+        Set-StateProperty -State $State -Name 'RollbackFailedAtUtc' -Value ([DateTime]::UtcNow.ToString('o'))
+        $rollbackStateFailure = Try-WriteState $State
+        $stateDetails = @()
+        if ($pendingStateFailure) { $stateDetails += "Could not persist the original apply failure before rollback: $pendingStateFailure" }
+        if ($rollbackStateFailure) { $stateDetails += "Could not persist the rollback failure: $rollbackStateFailure" }
+        $suffix = if ($stateDetails.Count -gt 0) { " State persistence errors: $($stateDetails -join ' ')" } else { '' }
+        throw "HTTPS pilot transaction failed. Original apply failure: $OriginalFailure Automatic rollback failure: $rollbackFailure$suffix Run -Rollback -WhatIf with the updated script before retrying apply."
+    }
 }
 
 if (-not [IO.Path]::IsPathRooted($StatePath)) { throw 'StatePath must be an absolute local path.' }
@@ -432,30 +559,142 @@ Import-IisAdministration
 
 if ($Rollback) {
     if (-not (Test-Path -LiteralPath $StatePath -PathType Leaf)) { throw "Rollback state was not found at '$StatePath'." }
-    $state = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
+    try { $state = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json }
+    catch { throw "Rollback state at '$StatePath' is not valid JSON: $($_.Exception.Message)" }
+    Assert-StateProperties -State $state -Names @(
+        'Version', 'ComputerName', 'Status', 'CertificateThumbprint', 'PilotRemoteAddress',
+        'PriorTargetBindings', 'FirewallRuleAdded'
+    )
     if ($state.ComputerName -ine $expectedComputerName -or $state.Version -ne 1) { throw 'Rollback state does not match this transaction.' }
-    if ($state.Status -ne 'Applied') { throw "Rollback state is '$($state.Status)', not Applied." }
-    $currentTarget = @(Get-TargetBindingSnapshot (Get-IisBindingSnapshot)) | ConvertTo-Json -Depth 8 -Compress
-    $appliedTarget = @($state.AppliedTargetBindings) | ConvertTo-Json -Depth 8 -Compress
-    if ($currentTarget -ne $appliedTarget) { throw 'Current pilot HTTPS bindings have drifted since apply; rollback refused.' }
+    $terminalStatuses = @('RolledBack', 'AutomaticallyRolledBack', 'RecoveredRolledBack')
+    $recoverableStatuses = @('Applied', 'Prepared', 'ApplyFailedRollbackPending', 'ManualRollbackPending', 'RollbackFailed')
+    if ([string]$state.Status -notin @($terminalStatuses + $recoverableStatuses)) {
+        throw "Rollback state has unknown status '$($state.Status)'; no changes were made."
+    }
+    $stateThumbprint = (Convert-HashToHex ([string]$state.CertificateThumbprint))
+    if ($stateThumbprint -notmatch '^[A-F0-9]{40}$') { throw 'Rollback state certificate thumbprint is invalid.' }
+    $stateRemoteAddresses = Convert-ToPilotAddress @($state.PilotRemoteAddress)
+    if ($stateRemoteAddresses.Count -eq 0) { throw 'Rollback state contains no pilot remote addresses.' }
+    Assert-PriorTargetBindings -Bindings @($state.PriorTargetBindings) -Thumbprint $stateThumbprint
+    $currentIis = @(Get-IisBindingSnapshot)
+    $currentTargetBindings = @(Get-TargetBindingSnapshot $currentIis)
+    if ([string]$state.Status -in $terminalStatuses) {
+        $currentTarget = Get-ComparableTargetBindings -Bindings $currentTargetBindings
+        $priorTarget = Get-ComparableTargetBindings -Bindings @($state.PriorTargetBindings)
+        if ($currentTarget -ne $priorTarget) {
+            throw "Rollback state is '$($state.Status)', but current pilot HTTPS bindings do not match the recorded pre-transaction state."
+        }
+        if ($state.FirewallRuleAdded -and (Get-FirewallSnapshot).Existed) {
+            throw "Rollback state is '$($state.Status)', but the transaction-added firewall rule still exists."
+        }
+        Assert-RequiredHttpBindings $currentIis
+        Wait-Health -Scheme http -Ports @($applications.HttpPort)
+        Write-Output 'HTTPS_PILOT_ALREADY_ROLLED_BACK_AND_HTTP_HEALTHY'
+        exit 0
+    }
+    $rollbackWasApplied = [string]$state.Status -eq 'Applied' -or
+        ($state.PSObject.Properties.Name -contains 'RollbackStartedFromStatus' -and
+            [string]$state.RollbackStartedFromStatus -eq 'Applied')
+    if ([string]$state.Status -eq 'Applied') {
+        Assert-StateProperties -State $state -Names @('AppliedTargetBindings')
+        Assert-PriorTargetBindings -Bindings @($state.AppliedTargetBindings) -Thumbprint $stateThumbprint
+        if (@($state.AppliedTargetBindings).Count -ne $applications.Count) {
+            throw 'Applied rollback state does not contain exactly one HTTPS binding for every pilot IIS site.'
+        }
+        $currentTarget = Get-ComparableTargetBindings -Bindings $currentTargetBindings
+        $appliedTarget = Get-ComparableTargetBindings -Bindings @($state.AppliedTargetBindings)
+        if ($currentTarget -ne $appliedTarget) { throw 'Current pilot HTTPS bindings have drifted since apply; rollback refused.' }
+    }
+    else {
+        # A failed first-time apply may contain zero through four transaction-owned HTTPS bindings.
+        # This assertion refuses recovery if any target port is owned by another binding/certificate.
+        Assert-TargetBindingsAvailable -Snapshot $currentIis -Thumbprint $stateThumbprint
+    }
+    $currentFirewall = $null
     if ($state.FirewallRuleAdded) {
         $currentFirewall = Get-FirewallSnapshot
-        if (-not $currentFirewall.Existed) { throw 'The pilot firewall rule was removed after apply; rollback refused due to drift.' }
-        Assert-FirewallAvailable -Snapshot $currentFirewall -RemoteAddress @($state.PilotRemoteAddress)
+        if ($currentFirewall.Existed) {
+            Assert-FirewallAvailable -Snapshot $currentFirewall -RemoteAddress $stateRemoteAddresses
+        }
+        elseif ([string]$state.Status -eq 'Applied') {
+            throw 'The pilot firewall rule was removed after apply; rollback refused due to drift.'
+        }
     }
     if ($PSCmdlet.ShouldProcess($expectedComputerName, 'Restore the prior pilot HTTPS bindings and firewall state')) {
-        Set-TargetBindingsFromSnapshot -TargetBindings @($state.PriorTargetBindings)
-        if ($state.FirewallRuleAdded) { Remove-NetFirewallRule -DisplayName $firewallRuleName -ErrorAction Stop }
-        Assert-RequiredHttpBindings (Get-IisBindingSnapshot)
-        Wait-Health -Scheme http -Ports @($applications.HttpPort)
-        $state.Status = 'RolledBack'
-        $state.RolledBackAtUtc = [DateTime]::UtcNow.ToString('o')
+        $rollbackStartStatus = if ($state.PSObject.Properties.Name -contains 'RollbackStartedFromStatus' -and
+            -not [string]::IsNullOrWhiteSpace([string]$state.RollbackStartedFromStatus)) {
+            [string]$state.RollbackStartedFromStatus
+        }
+        else { [string]$state.Status }
+        Set-StateProperty -State $state -Name 'RollbackStartedFromStatus' -Value $rollbackStartStatus
+        Set-StateProperty -State $state -Name 'RollbackStartedAtUtc' -Value ([DateTime]::UtcNow.ToString('o'))
+        Set-StateProperty -State $state -Name 'RollbackFailure' -Value $null
+        $state.Status = 'ManualRollbackPending'
         Write-State $state
-        Write-Output 'HTTPS_PILOT_ROLLED_BACK_AND_HTTP_HEALTHY'
+        try {
+            Set-TargetBindingsFromSnapshot -TargetBindings @($state.PriorTargetBindings)
+            if ($state.FirewallRuleAdded -and $currentFirewall.Existed) {
+                Remove-NetFirewallRule -DisplayName $firewallRuleName -ErrorAction Stop
+            }
+            $restoredIis = @(Get-IisBindingSnapshot)
+            Assert-RequiredHttpBindings $restoredIis
+            $restoredTarget = Get-ComparableTargetBindings -Bindings @(Get-TargetBindingSnapshot $restoredIis)
+            $expectedTarget = Get-ComparableTargetBindings -Bindings @($state.PriorTargetBindings)
+            if ($restoredTarget -ne $expectedTarget) {
+                throw 'Restored pilot HTTPS bindings do not exactly match the recorded pre-transaction state.'
+            }
+            Wait-Health -Scheme http -Ports @($applications.HttpPort)
+            $state.Status = if ($rollbackWasApplied) { 'RolledBack' } else { 'RecoveredRolledBack' }
+            Set-StateProperty -State $state -Name 'RolledBackAtUtc' -Value ([DateTime]::UtcNow.ToString('o'))
+            Write-State $state
+            if ($rollbackWasApplied) { Write-Output 'HTTPS_PILOT_ROLLED_BACK_AND_HTTP_HEALTHY' }
+            else { Write-Output 'HTTPS_PILOT_RECOVERED_ROLLED_BACK_AND_HTTP_HEALTHY' }
+        }
+        catch {
+            $manualRollbackFailure = $_.Exception.Message
+            $state.Status = 'RollbackFailed'
+            Set-StateProperty -State $state -Name 'RollbackFailure' -Value $manualRollbackFailure
+            Set-StateProperty -State $state -Name 'RollbackFailedAtUtc' -Value ([DateTime]::UtcNow.ToString('o'))
+            $stateWriteFailure = Try-WriteState $state
+            $stateSuffix = if ($stateWriteFailure) { " The rollback failure also could not be persisted: $stateWriteFailure" } else { '' }
+            throw "HTTPS pilot rollback failed after entering resumable rollback state: $manualRollbackFailure$stateSuffix Rerun -Rollback -WhatIf before any apply attempt."
+        }
     }
-    elseif ($WhatIfPreference) { Write-Output 'WHATIF_READY_ROLLBACK: rollback state and drift checks passed; nothing was changed.' }
+    elseif ($WhatIfPreference) { Write-Output 'WHATIF_READY_RECOVERY: rollback state, ownership, and drift checks passed; nothing was changed.' }
     else { Write-Output 'HTTPS_PILOT_ROLLBACK_CANCELLED' }
     exit 0
+}
+
+if (Test-Path -LiteralPath $StatePath -PathType Leaf) {
+    try { $oldState = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json }
+    catch { throw "Existing transaction state at '$StatePath' is not valid JSON: $($_.Exception.Message)" }
+    Assert-StateProperties -State $oldState -Names @(
+        'Version', 'ComputerName', 'Status', 'CertificateThumbprint', 'PilotRemoteAddress',
+        'PriorTargetBindings', 'FirewallRuleAdded'
+    )
+    if ($oldState.ComputerName -ine $expectedComputerName -or $oldState.Version -ne 1) {
+        throw "Existing transaction state at '$StatePath' does not belong to this host/script version."
+    }
+    $completedStatuses = @('RolledBack', 'AutomaticallyRolledBack', 'RecoveredRolledBack')
+    if ([string]$oldState.Status -notin $completedStatuses) {
+        throw "An incomplete HTTPS pilot transaction with status '$($oldState.Status)' exists at '$StatePath'. Run this script with -Rollback -WhatIf, then -Rollback -Confirm:`$false, before retrying apply."
+    }
+    $oldThumbprint = Convert-HashToHex ([string]$oldState.CertificateThumbprint)
+    if ($oldThumbprint -notmatch '^[A-F0-9]{40}$') { throw 'Completed transaction state has an invalid certificate thumbprint.' }
+    $oldRemoteAddresses = Convert-ToPilotAddress @($oldState.PilotRemoteAddress)
+    if ($oldRemoteAddresses.Count -eq 0) { throw 'Completed transaction state contains no pilot remote addresses.' }
+    Assert-PriorTargetBindings -Bindings @($oldState.PriorTargetBindings) -Thumbprint $oldThumbprint
+    $completedIis = @(Get-IisBindingSnapshot)
+    Assert-RequiredHttpBindings $completedIis
+    $completedCurrentTarget = Get-ComparableTargetBindings -Bindings @(Get-TargetBindingSnapshot $completedIis)
+    $completedPriorTarget = Get-ComparableTargetBindings -Bindings @($oldState.PriorTargetBindings)
+    if ($completedCurrentTarget -ne $completedPriorTarget) {
+        throw "Completed transaction state is '$($oldState.Status)', but current pilot HTTPS bindings have drifted from its recorded baseline. The state file was not overwritten."
+    }
+    if ($oldState.FirewallRuleAdded -and (Get-FirewallSnapshot).Existed) {
+        throw "Completed transaction state is '$($oldState.Status)', but its transaction-added firewall rule still exists. The state file was not overwritten."
+    }
+    Wait-Health -Scheme http -Ports @($applications.HttpPort)
 }
 
 $thumbprint = ($CertificateThumbprint -replace '\s', '').ToUpperInvariant()
@@ -468,11 +707,6 @@ Assert-RequiredHttpBindings $iisBefore
 Assert-TargetBindingsAvailable -Snapshot $iisBefore -Thumbprint $thumbprint
 $firewallBefore = Get-FirewallSnapshot
 Assert-FirewallAvailable -Snapshot $firewallBefore -RemoteAddress $remoteAddresses
-
-if (Test-Path -LiteralPath $StatePath -PathType Leaf) {
-    $oldState = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
-    if ($oldState.Status -eq 'Applied') { throw "An applied transaction already exists at '$StatePath'; roll it back before applying another." }
-}
 
 $state = [pscustomobject]@{
     Version = 1
@@ -487,6 +721,12 @@ $state = [pscustomobject]@{
     FirewallBefore = $firewallBefore
     FirewallRuleAdded = $false
     AppliedTargetBindings = @()
+    AppliedAtUtc = $null
+    RolledBackAtUtc = $null
+    ApplyFailure = $null
+    ApplyFailedAtUtc = $null
+    RollbackFailure = $null
+    RollbackFailedAtUtc = $null
 }
 
 if (-not $PSCmdlet.ShouldProcess($expectedComputerName, "Add pilot HTTPS bindings and firewall rule for $($remoteAddresses -join ', ')")) {
@@ -512,13 +752,13 @@ try {
     Wait-Health -Scheme https -Ports @($applications.HttpsPort)
     Wait-Health -Scheme http -Ports @($applications.HttpPort)
     $state.Status = 'Applied'
-    $state.AppliedAtUtc = [DateTime]::UtcNow.ToString('o')
+    Set-StateProperty -State $state -Name 'AppliedAtUtc' -Value ([DateTime]::UtcNow.ToString('o'))
     $state.AppliedTargetBindings = @(Get-TargetBindingSnapshot $iisAfter)
     Write-State $state
     Write-Output 'HTTPS_PILOT_CONFIGURED_AND_DUAL_SCHEME_HEALTHY'
 }
 catch {
     $failure = $_.Exception.Message
-    Invoke-AutomaticRollback $state
-    throw "HTTPS pilot transaction failed and was rolled back: $failure"
+    Invoke-AutomaticRollback -State $state -OriginalFailure $failure
+    throw "HTTPS pilot transaction failed and was automatically rolled back. Original apply failure: $failure"
 }
