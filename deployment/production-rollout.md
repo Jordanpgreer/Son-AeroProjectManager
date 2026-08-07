@@ -317,6 +317,11 @@ After the CA certificate is present, run the read-only audit with its real thumb
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\SonAero\Test-HubHttpsReadiness.ps1" -CertificateThumbprint "PASTE_REAL_THUMBPRINT_HERE"
 ```
 
+Production must omit `-PilotRootThumbprint`. That parameter is reserved for the isolated
+two-workstation private-CA pilot, whose root is pinned explicitly because it has no revocation
+service. Production readiness must continue to use the default online revocation check and a
+company-managed certificate chain.
+
 Required server status: `HTTPS_SERVER_PREREQUISITES_READY_WORKSTATION_TRUST_PENDING`. The script
 never changes bindings. After that result, verify the certificate chain on a representative domain
 workstation.

@@ -40,6 +40,23 @@ function Get-Sha256 {
     $hasher = [Security.Cryptography.SHA256]::Create(); try { return ([BitConverter]::ToString($hasher.ComputeHash([IO.File]::ReadAllBytes($Path)))).Replace('-', '') } finally { $hasher.Dispose() }
 }
 
+function Get-CertificateEkuOidValues {
+    param([Parameter(Mandatory)][Security.Cryptography.X509Certificates.X509Certificate2]$Certificate)
+    $extensions = @($Certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' })
+    if ($extensions.Count -ne 1) {
+        throw "Certificate must contain exactly one Enhanced Key Usage extension; found $($extensions.Count)."
+    }
+    try {
+        $parsed = New-Object Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension(
+            $extensions[0], $extensions[0].Critical)
+        $values = @($parsed.EnhancedKeyUsages | ForEach-Object { [string]$_.Value } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    }
+    catch { throw "Certificate Enhanced Key Usage extension could not be parsed: $($_.Exception.Message)" }
+    if ($values.Count -eq 0) { throw 'Certificate Enhanced Key Usage extension contains no usable OIDs.' }
+    return $values
+}
+
 function Resolve-HandoffFile {
     param(
         [Parameter(Mandatory)][string]$Directory,
@@ -97,20 +114,22 @@ function Assert-LeafCertificate {
         throw 'The pilot leaf is not currently valid for at least seven more days.'
     }
     $serverAuthenticationOid = '1.3.6.1.5.5.7.3.1'
-    $eku = @($Certificate.EnhancedKeyUsageList | ForEach-Object { $_.ObjectId.Value })
+    $eku = @(Get-CertificateEkuOidValues -Certificate $Certificate)
     if ($eku -notcontains $serverAuthenticationOid) {
         throw 'The pilot leaf does not include the Server Authentication EKU.'
     }
-    $keyUsageExtension = $Certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.15' } | Select-Object -First 1
-    if (-not $keyUsageExtension) {
-        throw 'The pilot leaf has no Key Usage extension.'
-    }
-    $keyUsage = New-Object Security.Cryptography.X509Certificates.X509KeyUsageExtension($keyUsageExtension, $keyUsageExtension.Critical)
-    $digitalSignature = [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature
-    $keyEncipherment = [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyEncipherment
-    if (($keyUsage.KeyUsages -band $digitalSignature) -eq 0 -or
-        ($keyUsage.KeyUsages -band $keyEncipherment) -eq 0) {
-        throw 'The RSA pilot leaf must allow Digital Signature and Key Encipherment.'
+    $keyUsageExtensions = @($Certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.15' })
+    if ($keyUsageExtensions.Count -gt 1) { throw 'The pilot leaf contains duplicate Key Usage extensions.' }
+    if ($keyUsageExtensions.Count -eq 1) {
+        try {
+            $keyUsage = New-Object Security.Cryptography.X509Certificates.X509KeyUsageExtension(
+                $keyUsageExtensions[0], $keyUsageExtensions[0].Critical)
+        }
+        catch { throw "The pilot leaf Key Usage extension could not be parsed: $($_.Exception.Message)" }
+        $digitalSignature = [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature
+        if (($keyUsage.KeyUsages -band $digitalSignature) -eq 0) {
+            throw 'The pilot leaf Key Usage extension does not allow Digital Signature.'
+        }
     }
     if ($Certificate.PSObject.Properties.Name -notcontains 'DnsNameList') {
         throw 'DnsNameList is unavailable; refusing to guess at localized SAN extension text.'

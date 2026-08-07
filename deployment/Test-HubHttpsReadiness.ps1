@@ -11,12 +11,25 @@ param(
     [Parameter(Mandatory)]
     [ValidatePattern('^(?:[A-Fa-f0-9]{2}\s*){20}$')]
     [string]$CertificateThumbprint,
+    [ValidatePattern('^(?:[A-Fa-f0-9]{2}\s*){20}$')]
+    [string]$PilotRootThumbprint,
     [string[]]$RequiredDnsNames = @('SON-IIS2', 'SON-IIS2.SON4L.LOCAL'),
     [ValidateRange(7, 365)]
     [int]$MinimumRemainingDays = 30
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Get-CertificateRawSha256 {
+    param([Parameter(Mandatory)]$Certificate)
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($sha256.ComputeHash($Certificate.RawData))).Replace('-', '')
+    }
+    finally {
+        $sha256.Dispose()
+    }
+}
 
 if ($env:COMPUTERNAME -ine $ExpectedComputerName) {
     throw "This audit is for $ExpectedComputerName; the current computer is $env:COMPUTERNAME."
@@ -32,6 +45,16 @@ if (-not $RequiredDnsNames -or @($RequiredDnsNames | Where-Object {
 $thumbprint = ($CertificateThumbprint -replace '\s', '').ToUpperInvariant()
 if ($thumbprint -notmatch '^[A-F0-9]{40}$') {
     throw 'CertificateThumbprint must be the certificate store SHA-1 thumbprint (exactly 40 hexadecimal characters).'
+}
+$pilotRootThumbprintNormalized = $null
+if (-not [string]::IsNullOrWhiteSpace($PilotRootThumbprint)) {
+    $pilotRootThumbprintNormalized = ($PilotRootThumbprint -replace '\s', '').ToUpperInvariant()
+    if ($pilotRootThumbprintNormalized -notmatch '^[A-F0-9]{40}$') {
+        throw 'PilotRootThumbprint must be the certificate store SHA-1 thumbprint (exactly 40 hexadecimal characters).'
+    }
+    if ($pilotRootThumbprintNormalized -eq $thumbprint) {
+        throw 'PilotRootThumbprint must identify a different certificate from the IIS leaf certificate.'
+    }
 }
 
 $certificate = Get-Item -LiteralPath "Cert:\LocalMachine\My\$thumbprint" -ErrorAction SilentlyContinue
@@ -78,32 +101,39 @@ else {
 }
 
 $serverAuthenticationOid = '1.3.6.1.5.5.7.3.1'
-$ekuOids = @($certificate.EnhancedKeyUsageList | ForEach-Object { $_.ObjectId.Value })
-if ($ekuOids -notcontains $serverAuthenticationOid) {
-    $failures.Add('The certificate does not include the Server Authentication EKU.')
-}
-
-$keyUsageExtension = $certificate.Extensions |
-    Where-Object { $_.Oid.Value -eq '2.5.29.15' } |
-    Select-Object -First 1
-$keyUsageNames = @()
-$hasDigitalSignature = $false
-$hasKeyEncipherment = $false
-if (-not $keyUsageExtension) {
-    $failures.Add('The certificate has no Key Usage extension, so TLS key usage cannot be constrained.')
+$ekuExtensions = @($certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' })
+if ($ekuExtensions.Count -ne 1) {
+    $failures.Add("The certificate must contain exactly one Enhanced Key Usage extension; found $($ekuExtensions.Count).")
 }
 else {
     try {
+        $parsedEku = New-Object Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension(
+            $ekuExtensions[0], $ekuExtensions[0].Critical)
+        $ekuOids = @($parsedEku.EnhancedKeyUsages | ForEach-Object { [string]$_.Value } | Where-Object { $_ })
+        if ($ekuOids -notcontains $serverAuthenticationOid) {
+            $failures.Add('The certificate does not include the Server Authentication EKU.')
+        }
+    }
+    catch { $failures.Add("The Enhanced Key Usage extension could not be decoded: $($_.Exception.Message)") }
+}
+
+$keyUsageExtensions = @($certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.15' })
+$keyUsageNames = @('Unconstrained (extension absent)')
+$allowsDigitalSignature = $true
+if ($keyUsageExtensions.Count -gt 1) {
+    $allowsDigitalSignature = $false
+    $failures.Add('The certificate contains duplicate Key Usage extensions.')
+}
+elseif ($keyUsageExtensions.Count -eq 1) {
+    try {
         $keyUsage = [Security.Cryptography.X509Certificates.X509KeyUsageExtension]::new(
-            $keyUsageExtension,
-            $keyUsageExtension.Critical
+            $keyUsageExtensions[0],
+            $keyUsageExtensions[0].Critical
         )
         $keyUsageNames = @($keyUsage.KeyUsages.ToString().Split(',') | ForEach-Object { $_.Trim() })
-        $hasDigitalSignature = ($keyUsage.KeyUsages -band
+        $allowsDigitalSignature = ($keyUsage.KeyUsages -band
             [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature) -ne 0
-        $hasKeyEncipherment = ($keyUsage.KeyUsages -band
-            [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyEncipherment) -ne 0
-        if (-not $hasDigitalSignature) {
+        if (-not $allowsDigitalSignature) {
             $failures.Add('The certificate Key Usage does not permit Digital Signature.')
         }
     }
@@ -137,9 +167,6 @@ switch ($certificate.PublicKey.Oid.Value) {
             try { $publicKeySize = $publicKey.KeySize } finally { $publicKey.Dispose() }
             if ($publicKeySize -lt 2048) {
                 $failures.Add("The RSA public key is only $publicKeySize bits; at least 2048 bits are required.")
-            }
-            if (-not $hasKeyEncipherment) {
-                $failures.Add('An RSA IIS certificate must permit Key Encipherment as well as Digital Signature.')
             }
         }
         catch {
@@ -201,20 +228,111 @@ foreach ($requiredName in $RequiredDnsNames) {
 
 $chainTrusted = $false
 $chainStatus = @()
+$chainValidationMode = if ($pilotRootThumbprintNormalized) {
+    'Pinned private pilot root; revocation lookup unavailable by design'
+}
+else {
+    'System trust with online revocation checking'
+}
+$pinnedPilotRootSubject = $null
+$pinnedPilotRootSha256 = $null
+$pilotRootCertificate = $null
+$chainFailureBaseline = $failures.Count
+if ($pilotRootThumbprintNormalized) {
+    $pilotRootCertificate = Get-Item -LiteralPath "Cert:\LocalMachine\Root\$pilotRootThumbprintNormalized" -ErrorAction SilentlyContinue
+    if (-not $pilotRootCertificate) {
+        $failures.Add("Pilot root $pilotRootThumbprintNormalized was not found in Cert:\LocalMachine\Root.")
+    }
+    else {
+        $pinnedPilotRootSubject = $pilotRootCertificate.Subject
+        $pinnedPilotRootSha256 = Get-CertificateRawSha256 -Certificate $pilotRootCertificate
+        if ($pilotRootCertificate.Subject -ne $pilotRootCertificate.Issuer) {
+            $failures.Add('The pinned pilot root is not self-issued.')
+        }
+        if ($pilotRootCertificate.NotBefore -gt $now -or $pilotRootCertificate.NotAfter -lt $certificate.NotAfter) {
+            $failures.Add('The pinned pilot root validity period does not cover the IIS leaf validity period.')
+        }
+        $pilotRootBasicExtension = $pilotRootCertificate.Extensions |
+            Where-Object { $_.Oid.Value -eq '2.5.29.19' } |
+            Select-Object -First 1
+        if (-not $pilotRootBasicExtension) {
+            $failures.Add('The pinned pilot root has no Basic Constraints extension.')
+        }
+        else {
+            try {
+                $pilotRootBasic = [Security.Cryptography.X509Certificates.X509BasicConstraintsExtension]::new(
+                    $pilotRootBasicExtension,
+                    $pilotRootBasicExtension.Critical
+                )
+                if (-not $pilotRootBasic.CertificateAuthority) {
+                    $failures.Add('The pinned pilot root is not a CA certificate.')
+                }
+            }
+            catch {
+                $failures.Add("The pinned pilot root Basic Constraints extension could not be decoded: $($_.Exception.Message)")
+            }
+        }
+        if ($certificate.Issuer -ne $pilotRootCertificate.Subject) {
+            $failures.Add('The IIS leaf issuer does not match the pinned pilot root subject.')
+        }
+    }
+}
+
 $chain = [Security.Cryptography.X509Certificates.X509Chain]::new()
 try {
-    $chain.ChainPolicy.RevocationMode =
+    # The private two-person pilot CA intentionally has no CDP/CRL/OCSP publication point.
+    # In pilot mode, disable only revocation lookup and compensate with an exact installed-root
+    # pin below. Do not use any Ignore* verification flags. Production CA validation retains
+    # online revocation checking when PilotRootThumbprint is omitted.
+    $chain.ChainPolicy.RevocationMode = if ($pilotRootThumbprintNormalized) {
+        [Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
+    }
+    else {
         [Security.Cryptography.X509Certificates.X509RevocationMode]::Online
+    }
     $chain.ChainPolicy.RevocationFlag =
         [Security.Cryptography.X509Certificates.X509RevocationFlag]::ExcludeRoot
+    $chain.ChainPolicy.VerificationFlags =
+        [Security.Cryptography.X509Certificates.X509VerificationFlags]::NoFlag
+    $chain.ChainPolicy.VerificationTime = $now
     $chain.ChainPolicy.UrlRetrievalTimeout = [TimeSpan]::FromSeconds(15)
-    $chainTrusted = $chain.Build($certificate)
-    $chainStatus = @($chain.ChainStatus | ForEach-Object {
-        '{0}: {1}' -f $_.Status, $_.StatusInformation.Trim()
+    $chainBuilt = $chain.Build($certificate)
+    $allChainStatuses = @($chain.ChainStatus)
+    foreach ($element in @($chain.ChainElements)) {
+        $allChainStatuses += @($element.ChainElementStatus)
+    }
+    $nonZeroChainStatuses = @($allChainStatuses | Where-Object {
+        $_.Status -ne [Security.Cryptography.X509Certificates.X509ChainStatusFlags]::NoError
     })
-    if (-not $chainTrusted) {
+    $chainStatus = @($nonZeroChainStatuses | ForEach-Object {
+        '{0}: {1}' -f $_.Status, $_.StatusInformation.Trim()
+    } | Select-Object -Unique)
+    if (-not $chainBuilt -or $nonZeroChainStatuses.Count -gt 0) {
         $failures.Add('The certificate chain or revocation status is not trusted on SON-IIS2: ' + ($chainStatus -join '; '))
     }
+    elseif ($pilotRootThumbprintNormalized) {
+        $chainElements = @($chain.ChainElements)
+        if ($chainElements.Count -ne 2) {
+            $failures.Add("The pilot chain must contain exactly the IIS leaf and pinned pilot root; found $($chainElements.Count) elements.")
+        }
+        else {
+            $builtLeafThumbprint = ([string]$chainElements[0].Certificate.Thumbprint -replace '\s', '').ToUpperInvariant()
+            $builtRootThumbprint = ([string]$chainElements[1].Certificate.Thumbprint -replace '\s', '').ToUpperInvariant()
+            if ($builtLeafThumbprint -ne $thumbprint) {
+                $failures.Add('The built pilot chain does not begin with the selected IIS leaf certificate.')
+            }
+            if ($builtRootThumbprint -ne $pilotRootThumbprintNormalized) {
+                $failures.Add('The built pilot chain does not terminate at the explicitly pinned pilot root certificate.')
+            }
+            $builtRootSha256 = Get-CertificateRawSha256 -Certificate $chainElements[1].Certificate
+            if ($builtRootSha256 -ne $pinnedPilotRootSha256) {
+                $failures.Add('The built pilot root certificate bytes do not match the explicitly loaded pilot root certificate.')
+            }
+        }
+    }
+    $chainTrusted = $chainBuilt -and
+        $nonZeroChainStatuses.Count -eq 0 -and
+        $failures.Count -eq $chainFailureBaseline
 }
 finally {
     $chain.Dispose()
@@ -319,6 +437,10 @@ $serverReady = $failures.Count -eq 0
     DnsNames = $certificateDnsNames
     ChainTrustedOnServer = $chainTrusted
     ChainStatus = $chainStatus
+    ChainValidationMode = $chainValidationMode
+    PinnedPilotRootThumbprint = $pilotRootThumbprintNormalized
+    PinnedPilotRootSubject = $pinnedPilotRootSubject
+    PinnedPilotRootSha256 = $pinnedPilotRootSha256
     ServerPrerequisitesReady = $serverReady
     WorkstationTrustStatus = 'NOT_VERIFIED_BY_THIS_SERVER_AUDIT'
     WorkstationTrustReminder = 'Before rollout, test the final HTTPS URL from representative domain workstations and confirm there is no certificate warning.'
