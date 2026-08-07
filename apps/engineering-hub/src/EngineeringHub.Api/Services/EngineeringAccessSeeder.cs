@@ -29,6 +29,7 @@ public sealed class EngineeringAccessSeeder(
         {
             var group = groups.FirstOrDefault(candidate =>
                 string.Equals(candidate.Name, definition.Name, StringComparison.OrdinalIgnoreCase));
+            var created = group is null;
             if (group is null)
             {
                 group = new EngineeringAccessGroupRecord
@@ -41,21 +42,19 @@ public sealed class EngineeringAccessSeeder(
                 groups.Add(group);
             }
 
+            if (!created) continue;
+
             var expectedPermissions = EngineeringPermissions.DefaultsForGroup(group.Name);
-            if (group.Permissions.Count == 0 ||
-                string.Equals(group.Name, "Administrators", StringComparison.OrdinalIgnoreCase))
+            foreach (var permission in expectedPermissions.Where(permission =>
+                         group.Permissions.All(existing => !string.Equals(
+                             existing.PermissionKey,
+                             permission,
+                             StringComparison.OrdinalIgnoreCase))))
             {
-                foreach (var permission in expectedPermissions.Where(permission =>
-                             group.Permissions.All(existing => !string.Equals(
-                                 existing.PermissionKey,
-                                 permission,
-                                 StringComparison.OrdinalIgnoreCase))))
+                group.Permissions.Add(new EngineeringGroupPermissionRecord
                 {
-                    group.Permissions.Add(new EngineeringGroupPermissionRecord
-                    {
-                        PermissionKey = permission
-                    });
-                }
+                    PermissionKey = permission
+                });
             }
         }
 

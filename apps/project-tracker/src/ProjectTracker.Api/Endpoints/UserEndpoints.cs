@@ -75,6 +75,10 @@ public static class UserEndpoints
 
         api.MapGet("/admin/access", async (ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
         {
+            var permissions = UnifiedPermissionDefinitions();
+            var validPermissionKeys = permissions
+                .Select(permission => permission.Key)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
             var users = await db.Users
                 .AsNoTracking()
                 .Include(user => user.GroupMemberships)
@@ -104,15 +108,12 @@ public static class UserEndpoints
                     group.Description,
                     group.IsSystemGroup,
                     group.Permissions
+                        .Where(permission => validPermissionKeys.Contains(permission.PermissionKey))
                         .Select(permission => permission.PermissionKey)
                         .OrderBy(key => key)
                         .ToList(),
                     group.UserMemberships.Count))
                 .ToListAsync(cancellationToken);
-
-            var permissions = ProjectTrackerPermissions.All
-                .Select(permission => new PermissionDefinitionDto(permission.Key, permission.Label, permission.Description, permission.Category))
-                .ToList();
 
             return Results.Ok(new AccessOverviewDto(users, groups, permissions));
         }).RequireAuthorization(AccessOverviewAuthorization.PolicyName);
@@ -224,6 +225,10 @@ public static class UserEndpoints
             }
 
             var permissions = NormalizePermissions(dto.Permissions);
+            if (!CanHoldAdministratorOnlyPermissions(name, permissions))
+            {
+                return Results.BadRequest("Workbook imports can only be assigned to the Administrators group.");
+            }
             var group = new AppGroup
             {
                 Name = name,
@@ -256,11 +261,18 @@ public static class UserEndpoints
                 return Results.Conflict("Another group already uses that name.");
             }
 
-            group.Name = dto.Name.Trim();
+            var name = dto.Name.Trim();
+            var permissions = NormalizePermissions(dto.Permissions);
+            if (!CanHoldAdministratorOnlyPermissions(name, permissions))
+            {
+                return Results.BadRequest("Workbook imports can only be assigned to the Administrators group.");
+            }
+
+            group.Name = name;
             group.Description = Clean(dto.Description);
             group.IsSystemGroup = dto.IsSystemGroup;
             group.UpdatedAt = DateTimeOffset.UtcNow;
-            ReplacePermissions(group, NormalizePermissions(dto.Permissions));
+            ReplacePermissions(group, permissions);
             if (!await HasActiveAccessManagerAsync(db, cancellationToken))
             {
                 return Results.BadRequest("At least one active user must retain both user-management and group-management access.");
@@ -397,6 +409,9 @@ public static class UserEndpoints
 
     private static async Task<AccessGroupDto> ToAccessGroupDtoAsync(ProjectTrackerDbContext db, int groupId, CancellationToken cancellationToken)
     {
+        var validPermissionKeys = UnifiedPermissionDefinitions()
+            .Select(permission => permission.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         return await db.Groups
             .AsNoTracking()
             .Include(group => group.UserMemberships)
@@ -407,24 +422,89 @@ public static class UserEndpoints
                 group.Name,
                 group.Description,
                 group.IsSystemGroup,
-                group.Permissions.Select(permission => permission.PermissionKey).OrderBy(key => key).ToList(),
+                group.Permissions
+                    .Where(permission => validPermissionKeys.Contains(permission.PermissionKey))
+                    .Select(permission => permission.PermissionKey)
+                    .OrderBy(key => key)
+                    .ToList(),
                 group.UserMemberships.Count))
             .SingleAsync(cancellationToken);
     }
 
     private static List<int> NormalizeGroupIds(IReadOnlyList<int> groupIds) => groupIds.Distinct().OrderBy(id => id).ToList();
 
+    private static bool CanHoldAdministratorOnlyPermissions(
+        string groupName,
+        IReadOnlyCollection<string> permissions) =>
+        !permissions.Contains(ApplicationPermissions.ImportManage, StringComparer.OrdinalIgnoreCase)
+        || string.Equals(groupName, ApplicationGroups.Administrators, StringComparison.OrdinalIgnoreCase);
+
     private static List<string> NormalizePermissions(IReadOnlyList<string> permissions)
     {
-        var invalid = permissions.Where(permission => !ProjectTrackerPermissions.AllKeys.Contains(permission)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var validKeys = UnifiedPermissionDefinitions()
+            .Select(permission => permission.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var invalid = permissions
+            .Where(permission => !validKeys.Contains(permission))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
         if (invalid.Count > 0)
         {
             throw new BadHttpRequestException($"Unknown permission key(s): {string.Join(", ", invalid)}");
         }
 
-        return permissions
+        var normalized = permissions
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(permission => permission, StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        normalized.UnionWith(EngineeringPermissions.Expand(
+            normalized.Where(permission => permission.StartsWith("engineering.", StringComparison.OrdinalIgnoreCase))));
+
+        var estimating = normalized
+            .Where(permission => permission.StartsWith("estimating.", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (estimating.Count > 0)
+        {
+            normalized.Add("estimating.view");
+            if (estimating.Any(permission => !string.Equals(permission, "estimating.view", StringComparison.OrdinalIgnoreCase)))
+                normalized.Add("estimating.calculate");
+        }
+
+        return normalized.OrderBy(permission => permission, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static IReadOnlyList<PermissionDefinitionDto> UnifiedPermissionDefinitions()
+    {
+        var definitions = new List<PermissionDefinitionDto>();
+        definitions.AddRange(ProjectTrackerPermissions.All.Select(permission => new PermissionDefinitionDto(
+            permission.Key,
+            permission.Label,
+            permission.Description,
+            permission.Category,
+            "project-tracker",
+            "Project Tracker")));
+        definitions.AddRange(EngineeringPermissions.All.Select(permission => new PermissionDefinitionDto(
+            permission.Key,
+            permission.Label,
+            permission.Description,
+            permission.Category,
+            ApplicationModules.Engineering,
+            "Engineering")));
+
+        foreach (var moduleKey in new[] { ApplicationModules.Estimating, ApplicationModules.QualityAssurance })
+        {
+            var module = ApplicationModuleCatalog.Find(moduleKey)!;
+            definitions.AddRange(ApplicationModuleCatalog.PermissionsForModule(moduleKey).Select(permission =>
+                new PermissionDefinitionDto(
+                    permission.Key,
+                    permission.Label,
+                    permission.Description,
+                    permission.Category,
+                    module.Key,
+                    module.Name)));
+        }
+
+        return definitions
+            .DistinctBy(permission => permission.Key, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 

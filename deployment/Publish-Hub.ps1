@@ -6,6 +6,7 @@ param(
     [string]$HubUrl,
     [string]$EngineeringHubUrl,
     [string]$EstimatingDashboardUrl,
+    [string]$QualityAssuranceUrl,
     [ValidateSet('Release', 'Debug')]
     [string]$Configuration = 'Release'
 )
@@ -51,6 +52,8 @@ $engineeringHubUrlValue = ConvertTo-OptionalAbsoluteHttpUrl `
     -Value $EngineeringHubUrl -ParameterName 'EngineeringHubUrl'
 $estimatingDashboardUrlValue = ConvertTo-OptionalAbsoluteHttpUrl `
     -Value $EstimatingDashboardUrl -ParameterName 'EstimatingDashboardUrl'
+$qualityAssuranceUrlValue = ConvertTo-OptionalAbsoluteHttpUrl `
+    -Value $QualityAssuranceUrl -ParameterName 'QualityAssuranceUrl'
 
 function Find-DotNetSdk {
     $candidates = @(
@@ -89,6 +92,7 @@ $applications = @(
     [pscustomobject]@{ Name = 'ProjectTracker'; Project = 'apps\project-tracker\src\ProjectTracker.Api\ProjectTracker.Api.csproj' },
     [pscustomobject]@{ Name = 'EngineeringHub'; Project = 'apps\engineering-hub\src\EngineeringHub.Api\EngineeringHub.Api.csproj' },
     [pscustomobject]@{ Name = 'EstimatingDashboard'; Project = 'apps\estimating-dashboard\src\EstimatingDashboard.Api\EstimatingDashboard.Api.csproj' },
+    [pscustomobject]@{ Name = 'QualityAssurance'; Project = 'apps\quality-assurance\src\QualityAssurance.Api\QualityAssurance.Api.csproj' },
     [pscustomobject]@{ Name = 'Portal'; Project = 'apps\portal\src\Portal.Api\Portal.Api.csproj' }
 )
 
@@ -107,12 +111,16 @@ $priorTrackerUrl = $env:VITE_PROJECT_TRACKER_URL
 $priorHubUrl = $env:VITE_HUB_URL
 $priorEngineeringHubUrl = $env:VITE_ENGINEERING_HUB_URL
 $priorEstimatingDashboardUrl = $env:VITE_ESTIMATING_DASHBOARD_URL
+$priorQualityAssuranceUrl = $env:VITE_QUALITY_ASSURANCE_URL
 try {
     $env:VITE_PROJECT_TRACKER_URL = $trackerUrlValue.TrimEnd('/')
     if ($hubUrlValue) { $env:VITE_HUB_URL = $hubUrlValue }
     if ($engineeringHubUrlValue) { $env:VITE_ENGINEERING_HUB_URL = $engineeringHubUrlValue }
     if ($estimatingDashboardUrlValue) {
         $env:VITE_ESTIMATING_DASHBOARD_URL = $estimatingDashboardUrlValue
+    }
+    if ($qualityAssuranceUrlValue) {
+        $env:VITE_QUALITY_ASSURANCE_URL = $qualityAssuranceUrlValue
     }
     foreach ($application in $applications) {
         $projectPath = Join-Path $resolvedRepoRoot $application.Project
@@ -138,6 +146,7 @@ finally {
     $env:VITE_HUB_URL = $priorHubUrl
     $env:VITE_ENGINEERING_HUB_URL = $priorEngineeringHubUrl
     $env:VITE_ESTIMATING_DASHBOARD_URL = $priorEstimatingDashboardUrl
+    $env:VITE_QUALITY_ASSURANCE_URL = $priorQualityAssuranceUrl
 }
 
 Write-Host ''

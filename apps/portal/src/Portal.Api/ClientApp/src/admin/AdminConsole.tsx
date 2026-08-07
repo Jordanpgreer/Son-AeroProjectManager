@@ -5,6 +5,7 @@ import {
   Boxes,
   CalendarDays,
   Calculator,
+  ClipboardCheck,
   Database,
   ExternalLink,
   Factory,
@@ -18,9 +19,7 @@ import {
 } from 'lucide-react'
 import AccessPanel from './AccessPanel'
 import AccessPreviewPanel from './AccessPreviewPanel'
-import EngineeringAccessPanel from './EngineeringAccessPanel'
 import EngineeringStoragePanel from './EngineeringStoragePanel'
-import ModuleAccessPanel from './ModuleAccessPanel'
 import { projectTrackerUrl, toErrorMessage, trackerApi } from './api'
 import { resolveModuleApplicationUrl } from './moduleUrls'
 import { ImportsPanel } from './ProjectTrackerDataPanels'
@@ -62,18 +61,25 @@ const MODULES: {
   openUrl?: string
 }[] = [
   {
+    key: 'access',
+    label: 'Access',
+    description: 'Shared users, groups, and module permissions',
+    icon: Users,
+    href: '#/admin/access',
+  },
+  {
     key: 'hub',
     label: 'Hub',
     description: 'Administration directory and module ownership',
     icon: Boxes,
-    href: '#/admin/hub/access',
+    href: '#/admin/hub/overview',
   },
   {
     key: 'project-tracker',
     label: 'Project Tracker',
-    description: 'Access, scheduling references, recovery, and imports',
+    description: 'Scheduling references, recovery, and imports',
     icon: GanttChart,
-    href: '#/admin/project-tracker/access',
+    href: '#/admin/project-tracker/calendar',
     openUrl: projectTrackerUrl,
   },
   {
@@ -81,7 +87,7 @@ const MODULES: {
     label: 'Engineering',
     description: 'Engineering module administration',
     icon: Database,
-    href: '#/admin/engineering/access',
+    href: '#/admin/engineering/file-storage',
     openUrl: resolveModuleApplicationUrl(
       import.meta.env.VITE_ENGINEERING_HUB_URL,
       window.location,
@@ -93,11 +99,23 @@ const MODULES: {
     label: 'Estimating',
     description: 'Estimating module administration',
     icon: Calculator,
-    href: '#/admin/estimating/access',
+    href: '#/admin/estimating/overview',
     openUrl: resolveModuleApplicationUrl(
       import.meta.env.VITE_ESTIMATING_DASHBOARD_URL,
       window.location,
       5160,
+    ),
+  },
+  {
+    key: 'quality-assurance',
+    label: 'Quality Assurance',
+    description: 'Quality module administration',
+    icon: ClipboardCheck,
+    href: '#/admin/quality-assurance/overview',
+    openUrl: resolveModuleApplicationUrl(
+      import.meta.env.VITE_QUALITY_ASSURANCE_URL,
+      window.location,
+      5170,
     ),
   },
 ]
@@ -107,7 +125,6 @@ const PROJECT_TRACKER_SECTIONS: {
   label: string
   icon: typeof Settings2
 }[] = [
-  { key: 'access', label: 'Access', icon: Users },
   { key: 'calendar', label: 'Work Calendar', icon: CalendarDays },
   { key: 'work-centers', label: 'Work Centers', icon: Factory },
   { key: 'holidays', label: 'Holidays', icon: CalendarDays },
@@ -119,7 +136,6 @@ const ENGINEERING_SECTIONS: {
   label: string
   icon: typeof Settings2
 }[] = [
-  { key: 'access', label: 'Access', icon: Users },
   { key: 'file-storage', label: 'File Storage', icon: FolderTree },
 ]
 
@@ -128,7 +144,7 @@ function parseRoute(hash = window.location.hash): AdminRoute {
   const [, rawModule, rawSection] = path.split('/')
   const module = MODULES.some((candidate) => candidate.key === rawModule)
     ? rawModule as AdminModuleKey
-    : 'project-tracker'
+    : 'access'
   const validTrackerSection = PROJECT_TRACKER_SECTIONS.some(
     (candidate) => candidate.key === rawSection,
   )
@@ -137,11 +153,17 @@ function parseRoute(hash = window.location.hash): AdminRoute {
   )
   return {
     module,
-    section: module === 'project-tracker' && validTrackerSection
-      ? rawSection
-      : module === 'engineering' && validEngineeringSection
+    section: module === 'access' || module === 'hub'
+      ? 'overview'
+      : module === 'project-tracker' && validTrackerSection
         ? rawSection
-        : 'access',
+        : module === 'engineering' && validEngineeringSection
+          ? rawSection
+          : module === 'project-tracker'
+            ? 'calendar'
+            : module === 'engineering'
+              ? 'file-storage'
+              : 'overview',
   }
 }
 
@@ -196,7 +218,7 @@ export default function AdminConsole({
   onPreviewAccess: (target: AdminAccessPreviewTarget) => void
 }) {
   const route = parseRoute()
-  const activeModule = MODULES.find((module) => module.key === route.module) ?? MODULES[1]
+  const activeModule = MODULES.find((module) => module.key === route.module) ?? MODULES[0]
   const panelHeadingRef = useRef<HTMLHeadingElement>(null)
   const [trackerUser, setTrackerUser] = useState<ProjectTrackerUser | null>(null)
   const [permissionsLoading, setPermissionsLoading] = useState(true)
@@ -220,9 +242,9 @@ export default function AdminConsole({
   }, [])
 
   useEffect(() => {
-    const canonical = route.module === 'project-tracker' || route.module === 'engineering'
-      ? `#/admin/${route.module}/${route.section}`
-      : `#/admin/${route.module}/access`
+    const canonical = route.module === 'access'
+      ? '#/admin/access'
+      : `#/admin/${route.module}/${route.section}`
     if (window.location.hash.split('?')[0] !== canonical) {
       window.history.replaceState(null, '', canonical)
     }
@@ -237,12 +259,14 @@ export default function AdminConsole({
   const canManageUsers = granted.has(PERMISSIONS.manageUsers)
   const canManageGroups = granted.has(PERMISSIONS.manageGroups)
   const canOpenAccess = canManageUsers || canManageGroups
+  const isAdministrator = trackerUser?.groups.some(
+    (group) => group.toLowerCase() === 'administrators',
+  ) ?? false
   const canOpenSection = (section: ProjectTrackerAdminSection) => {
-    if (section === 'access') return canOpenAccess
     if (section === 'calendar') return granted.has(PERMISSIONS.calendar)
     if (section === 'work-centers') return granted.has(PERMISSIONS.workCenters)
     if (section === 'holidays') return granted.has(PERMISSIONS.holidays)
-    return granted.has(PERMISSIONS.imports)
+    return isAdministrator && granted.has(PERMISSIONS.imports)
   }
   const selectedTrackerSection = route.section as ProjectTrackerAdminSection
   const selectedSectionAllowed = canOpenSection(selectedTrackerSection)
@@ -344,30 +368,36 @@ export default function AdminConsole({
               ? `admin-engineering-section-tab-${route.section}`
               : undefined}
         >
+          {route.module === 'access' && permissionsLoading && <div className="admin-loading" role="status">Checking Access permissions...</div>}
+          {route.module === 'access' && !permissionsLoading && permissionsError && <NoAccess detail={permissionsError} />}
+          {route.module === 'access' && !permissionsLoading && !permissionsError && !canOpenAccess && <NoAccess detail="Your groups do not grant permission to manage users or groups." />}
+          {route.module === 'access' && !permissionsLoading && !permissionsError && canOpenAccess && (
+            <AccessPanel
+              currentAccountName={trackerUser?.accountName ?? currentAccountName}
+              canManageUsers={canManageUsers}
+              canManageGroups={canManageGroups}
+            />
+          )}
           {route.module === 'hub' && <HubOverview canPreviewAccess={currentPortalRole === 'Admin'} onPreviewAccess={onPreviewAccess} />}
           {route.module === 'project-tracker' && permissionsLoading && <div className="admin-loading" role="status">Checking Project Tracker permissions...</div>}
           {route.module === 'project-tracker' && !permissionsLoading && permissionsError && <NoAccess detail={permissionsError} />}
           {route.module === 'project-tracker' && !permissionsLoading && !permissionsError && !selectedSectionAllowed && <NoAccess detail="Your Project Tracker groups do not grant the permission required for this administration section." />}
           {route.module === 'project-tracker' && !permissionsLoading && !permissionsError && selectedSectionAllowed && (
             <>
-              {route.section === 'access' && <AccessPanel currentAccountName={trackerUser?.accountName ?? currentAccountName} canManageUsers={canManageUsers} canManageGroups={canManageGroups} />}
               {route.section === 'calendar' && <WorkCalendarPanel />}
               {route.section === 'work-centers' && <WorkCentersPanel />}
               {route.section === 'holidays' && <HolidaysPanel />}
               {route.section === 'imports' && <ImportsPanel />}
             </>
           )}
-          {route.module === 'engineering' && (
-            route.section === 'file-storage'
-              ? <EngineeringStoragePanel/>
-              : <EngineeringAccessPanel currentAccountName={trackerUser?.accountName ?? currentAccountName}/>
-          )}
-          {route.module === 'estimating' && (
-            <ModuleAccessPanel
-              moduleKey="estimating"
-              moduleName="Estimating"
-              currentAccountName={trackerUser?.accountName ?? currentAccountName}
-            />
+          {route.module === 'engineering' && <EngineeringStoragePanel/>}
+          {(route.module === 'estimating' || route.module === 'quality-assurance') && (
+            <section className="admin-surface admin-placeholder">
+              <span className="admin-placeholder-icon"><ShieldCheck size={25}/></span>
+              <h2>No module-specific settings yet</h2>
+              <p>Users, shared groups, and {activeModule.label} permissions are managed from the centralized Access screen.</p>
+              <a className="ghost-button" href="#/admin/access">Open Access</a>
+            </section>
           )}
         </div>
       </section>

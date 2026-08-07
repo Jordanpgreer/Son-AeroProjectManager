@@ -39,9 +39,6 @@ public static class AdminAccessPreviewEndpoints
             .Include(user => user.ProjectTrackerGroupMemberships)
                 .ThenInclude(membership => membership.Group)
                     .ThenInclude(group => group.Permissions)
-            .Include(user => user.EngineeringGroupMemberships)
-                .ThenInclude(membership => membership.Group)
-                    .ThenInclude(group => group.Permissions)
             .OrderBy(user => user.DisplayName)
             .ThenBy(user => user.AccountName)
             .ToListAsync(cancellationToken);
@@ -56,15 +53,8 @@ public static class AdminAccessPreviewEndpoints
             .Include(group => group.Permissions)
             .OrderBy(group => group.Name)
             .ToListAsync(cancellationToken);
-        var engineeringGroups = await db.EngineeringGroups
-            .AsNoTracking()
-            .Include(group => group.Permissions)
-            .OrderBy(group => group.Name)
-            .ToListAsync(cancellationToken);
-
         var groupTargets = projectGroups
-            .Select(group => ToProjectTrackerGroupTarget(group, registry))
-            .Concat(engineeringGroups.Select(group => ToEngineeringGroupTarget(group, registry)))
+            .Select(group => ToSharedGroupTarget(group, registry))
             .OrderBy(group => group.Title, StringComparer.OrdinalIgnoreCase)
             .ThenBy(group => group.Role, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -161,9 +151,6 @@ public static class AdminAccessPreviewEndpoints
                 .Include(candidate => candidate.ProjectTrackerGroupMemberships)
                     .ThenInclude(membership => membership.Group)
                         .ThenInclude(group => group.Permissions)
-                .Include(candidate => candidate.EngineeringGroupMemberships)
-                    .ThenInclude(membership => membership.Group)
-                        .ThenInclude(group => group.Permissions)
                 .SingleOrDefaultAsync(cancellationToken);
             return user is null ? null : ToUserTarget(user, registry);
         }
@@ -174,7 +161,7 @@ public static class AdminAccessPreviewEndpoints
                 .AsNoTracking()
                 .Include(candidate => candidate.Permissions)
                 .SingleOrDefaultAsync(candidate => candidate.Id == target.Id, cancellationToken);
-            return group is null ? null : ToProjectTrackerGroupTarget(group, registry);
+            return group is null ? null : ToSharedGroupTarget(group, registry);
         }
 
         if (target.Kind == AccessPreviewTargetKinds.EngineeringGroup)
@@ -193,34 +180,16 @@ public static class AdminAccessPreviewEndpoints
         PortalRoleRecord user,
         ApplicationRegistry registry)
     {
-        var visibleIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var projectPermissions = user.ProjectTrackerGroupMemberships
+        var permissions = user.ProjectTrackerGroupMemberships
             .SelectMany(membership => membership.Group.Permissions)
             .Select(permission => permission.PermissionKey)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (projectPermissions.Contains(ApplicationPermissions.ModuleView))
-            visibleIds.Add(AccessPreviewApplications.ProjectTracker);
-
-        var enabledModules = user.ModuleAccessAssignments
-            .Where(access => ApplicationModules.Normalize(access.ModuleKey) is not null)
-            .Select(access => ApplicationModules.Normalize(access.ModuleKey)!)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var engineeringPermissions = user.EngineeringGroupMemberships
-            .SelectMany(membership => membership.Group.Permissions)
-            .Select(permission => permission.PermissionKey)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (enabledModules.Contains(ApplicationModules.Engineering)
-            && engineeringPermissions.Contains(EngineeringPermissions.ModuleView))
-            visibleIds.Add(AccessPreviewApplications.Engineering);
-        if (enabledModules.Contains(ApplicationModules.Estimating))
-            visibleIds.Add(AccessPreviewApplications.Estimating);
 
         var role = ApplicationRoles.Normalize(user.Role) ?? ApplicationRoles.Viewer;
-        var applications = registry.All
-            .Where(application => visibleIds.Contains(application.Id)
-                && ApplicationRegistry.IsVisibleTo(application, role))
-            .OrderBy(application => application.Order)
-            .Select(ToApplicationDto)
+        var applications = ApplicationsForPermissions(registry, permissions)
+            .Where(application => ApplicationRegistry.IsVisibleTo(
+                registry.All.Single(entry => entry.Id == application.Id),
+                role))
             .ToList();
         return new AdminAccessPreviewTargetDto(
             $"user:{user.Id}",
@@ -231,19 +200,18 @@ public static class AdminAccessPreviewEndpoints
             applications);
     }
 
-    private static AdminAccessPreviewTargetDto ToProjectTrackerGroupTarget(
+    private static AdminAccessPreviewTargetDto ToSharedGroupTarget(
         PortalProjectTrackerGroupRecord group,
         ApplicationRegistry registry)
     {
-        var canView = group.Permissions.Any(permission =>
-            string.Equals(permission.PermissionKey, ApplicationPermissions.ModuleView, StringComparison.OrdinalIgnoreCase));
+        var permissions = group.Permissions.Select(permission => permission.PermissionKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
         return new AdminAccessPreviewTargetDto(
             $"{AccessPreviewTargetKinds.ProjectTrackerGroup}:{group.Id}",
             "group",
             group.Name,
-            group.Description ?? "Project Tracker permission group",
-            "Project Tracker group",
-            canView ? SingleApplication(registry, AccessPreviewApplications.ProjectTracker) : []);
+            group.Description ?? "Shared permission group",
+            "Shared group",
+            ApplicationsForPermissions(registry, permissions));
     }
 
     private static AdminAccessPreviewTargetDto ToEngineeringGroupTarget(
@@ -267,6 +235,25 @@ public static class AdminAccessPreviewEndpoints
             string.Equals(candidate.Id, id, StringComparison.OrdinalIgnoreCase)
             && candidate.Status == ApplicationStatus.Active);
         return application is null ? [] : [ToApplicationDto(application)];
+    }
+
+    private static IReadOnlyList<ApplicationDto> ApplicationsForPermissions(
+        ApplicationRegistry registry,
+        IReadOnlySet<string> permissions)
+    {
+        var visibleIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (permissions.Contains(ApplicationPermissions.ModuleView))
+            visibleIds.Add(AccessPreviewApplications.ProjectTracker);
+        if (EngineeringPermissions.RoleFor(permissions) is not null)
+            visibleIds.Add(AccessPreviewApplications.Engineering);
+        if (ApplicationModuleCatalog.RoleForPermissions(ApplicationModules.Estimating, permissions) is not null)
+            visibleIds.Add(AccessPreviewApplications.Estimating);
+
+        return registry.All
+            .Where(application => visibleIds.Contains(application.Id))
+            .OrderBy(application => application.Order)
+            .Select(ToApplicationDto)
+            .ToList();
     }
 
     private static bool IsAdmin(string role) =>

@@ -61,7 +61,7 @@ The source checkout is a build input. Never point IIS directly at it.
 
 ## 3. Cross-server application identity
 
-The four IIS pools use `ApplicationPoolIdentity`. In a domain, those identities present the IIS
+The five application IIS pools use `ApplicationPoolIdentity`. In a domain, those identities present the IIS
 server's computer account when accessing network resources. SON-SQL2 therefore grants database and
 share access to `SON4L\SON-IIS2$`. This is passwordless and avoids creating a shared service-account
 credential while each IIS application remains locally isolated in its own pool.
@@ -92,11 +92,12 @@ If the instance uses a different fixed port, update every Production connection 
 
 The first deployment uses the domain server name and dedicated ports: Portal
 `http://SON-IIS2:5140`, Project Tracker `http://SON-IIS2:5135`, Engineering
-`http://SON-IIS2:5150`, and Estimating `http://SON-IIS2:5160`. Using the actual server name supports
+`http://SON-IIS2:5150`, Estimating `http://SON-IIS2:5160`, and Quality Assurance
+`http://SON-IIS2:5170`. Using the actual server name supports
 Integrated Windows Authentication without custom alias SPNs. Internal aliases and HTTPS can be
 added after the functional rollout.
 
-## 6. Publish all four apps
+## 6. Publish all five apps
 
 From the repository root on SON-IIS2:
 
@@ -109,7 +110,7 @@ powershell -ExecutionPolicy Bypass -File .\deployment\Publish-Hub.ps1 `
 The root-relative Project Tracker URL is compiled into the Portal Admin Console. It keeps Admin API
 requests on the Portal origin so Windows-authenticated saves do not cross ports or require browser
 CORS preflight. The output contains `Portal`, `ProjectTracker`, `EngineeringHub`, and
-`EstimatingDashboard`.
+`EstimatingDashboard`, and `QualityAssurance`.
 
 Copy them into timestamped release folders, then deploy them to these stable IIS paths:
 
@@ -118,6 +119,7 @@ C:\SonAero\sites\Portal
 C:\SonAero\sites\ProjectTracker
 C:\SonAero\sites\EngineeringHub
 C:\SonAero\sites\EstimatingDashboard
+C:\SonAero\sites\QualityAssurance
 ```
 
 Do not store databases, uploaded drawings, or live Production settings inside the repository.
@@ -133,6 +135,7 @@ Copy the matching file from `deployment\templates` into each stable site folder 
 | Portal | `portal...json` | Confirm SON-IIS2 module URLs and the Engineering drawings UNC share |
 | EngineeringHub | `engineering-hub...json` | Confirm the `\\SON-SQL2\EngineeringDrawings$` share |
 | EstimatingDashboard | `estimating-dashboard...json` | Confirm SQL port/instance |
+| QualityAssurance | `quality-assurance...json` | Confirm SQL port/instance |
 
 All templates already target SON-SQL2. The Project Tracker template bootstraps
 `SON4L\jordan.greer` as the first administrator. Change it only if a different account should
@@ -142,19 +145,19 @@ account; `Portal.Admins` alone is insufficient.
 ## 8. Configure IIS on SON-IIS2
 
 Install the official ASP.NET Core 8 Hosting Bundle after IIS. Then run the guarded setup script
-after all four stable folders and Production settings exist:
+after all five stable folders and Production settings exist:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\deployment\Configure-IisServer.ps1 -Confirm
 ```
 
-The script installs Windows Authentication and Application Initialization, creates four isolated
+The script installs Windows Authentication and Application Initialization, creates five isolated
 sites plus the dedicated `/project-tracker-api` application and pool, applies folder permissions, disables
 Anonymous Authentication, enables Windows Authentication, reconciles the scoped firewall rule,
 and does not report success until every root and gateway `/api/health` endpoint returns HTTP 200.
 
 Start ProjectTracker first so it applies database migrations and seeds the initial administrator.
-Then start EngineeringHub, EstimatingDashboard, and Portal.
+Then start EngineeringHub, EstimatingDashboard, QualityAssurance, and Portal.
 
 Grant the EngineeringHub and Portal application-pool identities Modify access at both the SMB share
 and NTFS levels for the Engineering drawings root. In Hub Admin, open **Engineering > File Storage**,

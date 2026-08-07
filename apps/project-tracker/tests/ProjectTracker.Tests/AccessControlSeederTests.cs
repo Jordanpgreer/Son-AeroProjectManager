@@ -90,6 +90,33 @@ public sealed class AccessControlSeederTests
         Assert.Single(await fixture.Db.Users.ToListAsync());
     }
 
+    [Fact]
+    public async Task Seed_RemovesImportPermissionFromNonAdministratorGroups()
+    {
+        await using var fixture = await AccessFixture.CreateAsync();
+        fixture.Db.Groups.Add(new AppGroup
+        {
+            Name = "Legacy Importers",
+            Permissions =
+            [
+                new AppGroupPermission { PermissionKey = ApplicationPermissions.ImportManage },
+                new AppGroupPermission { PermissionKey = ApplicationPermissions.ModuleView }
+            ]
+        });
+        await fixture.Db.SaveChangesAsync();
+
+        await new AccessControlSeeder().SeedAsync(fixture.Db, Configuration());
+
+        var legacyGroup = await fixture.Db.Groups
+            .AsNoTracking()
+            .Include(group => group.Permissions)
+            .SingleAsync(group => group.Name == "Legacy Importers");
+        Assert.DoesNotContain(legacyGroup.Permissions, permission =>
+            permission.PermissionKey == ApplicationPermissions.ImportManage);
+        Assert.Contains(legacyGroup.Permissions, permission =>
+            permission.PermissionKey == ApplicationPermissions.ModuleView);
+    }
+
     private static IConfiguration Configuration(params (string Key, string Value)[] values) =>
         new ConfigurationBuilder()
             .AddInMemoryCollection(values.ToDictionary(pair => pair.Key, pair => (string?)pair.Value))

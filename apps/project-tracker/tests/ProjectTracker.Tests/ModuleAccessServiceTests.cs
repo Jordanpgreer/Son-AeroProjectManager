@@ -10,24 +10,19 @@ namespace ProjectTracker.Tests;
 public sealed class ModuleAccessServiceTests
 {
     [Fact]
-    public void Catalog_DerivesInheritedPermissionsForEveryRole()
+    public void Catalog_DefinesPermissionsForEverySupportedRole()
     {
         foreach (var module in ApplicationModuleCatalog.All)
         {
-            var viewer = ApplicationModuleCatalog.PermissionsFor(module.Key, ApplicationRoles.Viewer);
-            var editor = ApplicationModuleCatalog.PermissionsFor(module.Key, ApplicationRoles.Editor);
-            var admin = ApplicationModuleCatalog.PermissionsFor(module.Key, ApplicationRoles.Admin);
-
-            Assert.NotEmpty(viewer);
-            Assert.True(editor.Count > viewer.Count);
-            Assert.True(admin.Count > editor.Count);
-            Assert.Subset(
-                editor.Select(permission => permission.Key).ToHashSet(),
-                viewer.Select(permission => permission.Key).ToHashSet());
-            Assert.Subset(
-                admin.Select(permission => permission.Key).ToHashSet(),
-                editor.Select(permission => permission.Key).ToHashSet());
-            Assert.All(admin, permission => Assert.StartsWith($"{module.Key}.", permission.Key));
+            Assert.NotEmpty(module.Roles);
+            foreach (var role in module.Roles)
+            {
+                var permissions = ApplicationModuleCatalog.PermissionsFor(module.Key, role.Role);
+                Assert.NotEmpty(permissions);
+                Assert.All(
+                    permissions,
+                    permission => Assert.StartsWith($"{module.Key}.", permission.Key));
+            }
         }
     }
 
@@ -49,10 +44,11 @@ public sealed class ModuleAccessServiceTests
 
         AssertAssignment(fixture.Db, administrator.Id, ApplicationModules.Engineering, ApplicationRoles.Admin);
         AssertAssignment(fixture.Db, administrator.Id, ApplicationModules.Estimating, ApplicationRoles.Admin);
+        AssertAssignment(fixture.Db, administrator.Id, ApplicationModules.QualityAssurance, ApplicationRoles.Admin);
         Assert.DoesNotContain(
             fixture.Db.UserModuleAccess.Local,
             access => access.AppUserId == editor.Id || access.AppUserId == viewer.Id);
-        Assert.Equal(2, await fixture.Db.UserModuleAccess.CountAsync());
+        Assert.Equal(3, await fixture.Db.UserModuleAccess.CountAsync());
     }
 
     [Fact]
@@ -82,7 +78,8 @@ public sealed class ModuleAccessServiceTests
 
         AssertAssignment(fixture.Db, administrator.Id, ApplicationModules.Engineering, null);
         AssertAssignment(fixture.Db, administrator.Id, ApplicationModules.Estimating, ApplicationRoles.Viewer);
-        Assert.Equal(2, await fixture.Db.UserModuleAccess.CountAsync());
+        AssertAssignment(fixture.Db, administrator.Id, ApplicationModules.QualityAssurance, ApplicationRoles.Admin);
+        Assert.Equal(3, await fixture.Db.UserModuleAccess.CountAsync());
     }
 
     [Fact]
@@ -100,7 +97,7 @@ public sealed class ModuleAccessServiceTests
             fixture.Db,
             ["DOMAIN\\configured"]);
 
-        Assert.Equal(2, await fixture.Db.UserModuleAccess.CountAsync());
+        Assert.Equal(3, await fixture.Db.UserModuleAccess.CountAsync());
         Assert.DoesNotContain(
             fixture.Db.UserModuleAccess.Local,
             access => access.AppUserId == laterAdministrator.Id);
@@ -117,6 +114,13 @@ public sealed class ModuleAccessServiceTests
             fixture.Service.SetAsync(fixture.Db, user.Id, "unknown", true, ApplicationRoles.Viewer));
         await Assert.ThrowsAsync<ModuleAccessValidationException>(() =>
             fixture.Service.SetAsync(fixture.Db, user.Id, ApplicationModules.Engineering, true, "Owner"));
+        await Assert.ThrowsAsync<ModuleAccessValidationException>(() =>
+            fixture.Service.SetAsync(
+                fixture.Db,
+                user.Id,
+                ApplicationModules.QualityAssurance,
+                true,
+                ApplicationRoles.Viewer));
     }
 
     [Fact]

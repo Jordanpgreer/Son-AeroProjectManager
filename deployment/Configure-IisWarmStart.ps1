@@ -22,6 +22,9 @@ param(
     [ValidateRange(1, 65535)]
     [int]$EstimatingHttpsPort = 6160,
 
+    [ValidateRange(1, 65535)]
+    [int]$QualityAssuranceHttpsPort = 6170,
+
     [ValidateRange(5, 600)]
     [int]$HealthTimeoutSeconds = 120,
 
@@ -78,7 +81,8 @@ $sites = @(
     [pscustomobject]@{ Name = 'ProjectTracker'; HttpPort = 5135; HttpsPort = $ProjectTrackerHttpsPort },
     [pscustomobject]@{ Name = 'SonAeroPortal'; HttpPort = 5140; HttpsPort = $PortalHttpsPort },
     [pscustomobject]@{ Name = 'EngineeringHub'; HttpPort = 5150; HttpsPort = $EngineeringHttpsPort },
-    [pscustomobject]@{ Name = 'EstimatingDashboard'; HttpPort = 5160; HttpsPort = $EstimatingHttpsPort }
+    [pscustomobject]@{ Name = 'EstimatingDashboard'; HttpPort = 5160; HttpsPort = $EstimatingHttpsPort },
+    [pscustomobject]@{ Name = 'QualityAssurance'; HttpPort = 5170; HttpsPort = $QualityAssuranceHttpsPort }
 )
 $gateway = [pscustomobject]@{
     Pool = 'ProjectTrackerAdminGateway'
@@ -178,9 +182,9 @@ if (-not $StartupRecoveryOnly) {
         }
 
         $powerShellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-        $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -ExpectedComputerName "{1}" -Scheme {2} -ProjectTrackerHttpsPort {3} -PortalHttpsPort {4} -EngineeringHttpsPort {5} -EstimatingHttpsPort {6} -HealthTimeoutSeconds 300 -StartupRecoveryOnly' -f `
+        $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -ExpectedComputerName "{1}" -Scheme {2} -ProjectTrackerHttpsPort {3} -PortalHttpsPort {4} -EngineeringHttpsPort {5} -EstimatingHttpsPort {6} -QualityAssuranceHttpsPort {7} -HealthTimeoutSeconds 300 -StartupRecoveryOnly' -f `
             $installedScriptPath, $ExpectedComputerName, $Scheme, $ProjectTrackerHttpsPort, `
-            $PortalHttpsPort, $EngineeringHttpsPort, $EstimatingHttpsPort
+            $PortalHttpsPort, $EngineeringHttpsPort, $EstimatingHttpsPort, $QualityAssuranceHttpsPort
         $action = New-ScheduledTaskAction -Execute $powerShellPath -Argument $arguments
         $trigger = New-ScheduledTaskTrigger -AtStartup
         $trigger.Delay = 'PT45S'

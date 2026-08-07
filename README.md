@@ -1,7 +1,7 @@
 # SON-AERO Internal Hub
 
 A monorepo hosting SON-AERO's internal business applications behind a single application
-**portal**. Project Tracker, Engineering Hub, and Estimating Dashboard run as isolated
+**portal**. Project Tracker, Engineering Hub, Estimating Dashboard, and Quality Assurance run as isolated
 applications registered with the Portal launcher.
 
 Local development uses the desktop launcher. Production deployment is prepared for SON-IIS2 and
@@ -15,10 +15,12 @@ SonAeroInternalHub/
 │   ├── project-tracker/        # existing aerospace program tracker (ASP.NET Core + React)
 │   │   ├── src/ tests/ docs/ deployment/
 │   │   └── ProjectTrackerApp.sln
-│   ├── engineering-hub/        # admin-only engineering workspace under test
-│   │   ├── src/
+│   ├── engineering-hub/        # engineering drawing and document control
+│   │   ├── src/ tests/
 │   │   └── README.md
-│   └── portal/                 # new internal application launcher
+│   ├── estimating-dashboard/   # estimating workspace
+│   ├── quality-assurance/      # admin-only quality workspace
+│   └── portal/                 # internal application launcher
 │       ├── src/ tests/
 │       └── PortalApp.sln
 ├── shared/
@@ -42,6 +44,7 @@ SonAeroInternalHub/
 | Project Tracker | http://localhost:5135 | First registered application |
 | Engineering Hub | http://localhost:5150 | Admin-only engineering module under test |
 | Estimating Dashboard | http://localhost:5160 | Quote calculations and estimating-rate reference |
+| Quality Assurance | http://localhost:5170 | Admin-only quality Dashboard |
 
 ## Prerequisites
 
@@ -68,7 +71,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Start-Hub.ps1
 2. Refreshes the per-user `sonaero-folder` handler used by Engineering **Open folder** actions.
 3. Locates the .NET 8 SDK and Node.js/npm.
 4. Rebuilds each frontend only when its source changed.
-5. Starts Project Tracker on **5135**, Engineering Hub on **5150**, Estimating Dashboard on **5160**, and the Portal on **5140** (skips any already running).
+5. Starts Project Tracker on **5135**, Engineering Hub on **5150**, Estimating Dashboard on **5160**, Quality Assurance on **5170**, and the Portal on **5140** (skips any already running).
 6. Waits for each to report healthy, then opens the portal homepage.
 7. On failure it shows an error dialog and writes `logs\<app>.err.log` (never a blank window).
 
@@ -119,6 +122,16 @@ cd ..
 dotnet run --launch-profile http        # http://localhost:5160
 ```
 
+**Quality Assurance only:**
+
+```powershell
+$env:DOTNET_ROOT="$env:USERPROFILE\.dotnet"
+cd apps\quality-assurance\src\QualityAssurance.Api\ClientApp
+npm install; npm run build
+cd ..
+dotnet run --launch-profile http        # http://localhost:5170
+```
+
 During frontend development you can also run the Vite dev server (`npm run dev`) in any
 `ClientApp`; it proxies `/api` to the app's backend port.
 
@@ -152,7 +165,7 @@ deployment or a temporarily unavailable role store.
 
 Production is designed for **SON-IIS2** as the IIS application server and **SON-SQL2** as the SQL
 Server/data server. Do not use the Development desktop launcher as the server host; publish the
-four applications and run them under IIS with Windows Authentication.
+five applications and run them under IIS with Windows Authentication.
 
 Follow [deployment/server-deployment.md](deployment/server-deployment.md) for the exact first
 installation, `SON4L\firstname.lastname` role setup, validation, update, backup, and rollback steps.

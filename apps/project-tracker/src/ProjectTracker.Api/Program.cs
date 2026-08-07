@@ -37,6 +37,8 @@ builder.Services.AddSingleton<ScheduleCalculator>();
 builder.Services.AddScoped<ProjectMetricsService>();
 builder.Services.AddScoped<ProjectReadService>();
 builder.Services.AddScoped<WorkbookImportService>();
+builder.Services.AddScoped<ControlledWorkbookImportService>();
+builder.Services.AddSingleton<ControlledImportReviewStore>();
 builder.Services.AddScoped<ReportService>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -72,7 +74,9 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("ManageCalendar", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.SettingsWorkCalendarManage));
     options.AddPolicy("ManageHolidays", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.SettingsHolidaysManage));
     options.AddPolicy("ManageWorkCenters", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.SettingsWorkCentersManage));
-    options.AddPolicy("ManageImports", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ImportManage));
+    options.AddPolicy("ManageImports", policy => policy
+        .RequireClaim(ApplicationClaimTypes.Group, ApplicationGroups.Administrators)
+        .RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ImportManage));
     options.AddPolicy(
         AccessOverviewAuthorization.PolicyName,
         policy => policy.RequireAssertion(context => AccessOverviewAuthorization.IsAllowed(context.User)));
@@ -1124,10 +1128,6 @@ static async Task InitializeDatabaseAsync(WebApplication app)
 
     var accessSeeder = scope.ServiceProvider.GetRequiredService<AccessControlSeeder>();
     await accessSeeder.SeedAsync(db, configuration);
-    var moduleAccess = scope.ServiceProvider.GetRequiredService<ModuleAccessService>();
-    await moduleAccess.BootstrapInitialAdministratorAssignmentsAsync(
-        db,
-        configuration.GetSection("Security:Admins").Get<string[]>() ?? []);
     await ProjectNoteService.BackfillUpdatedAtAsync(db, cancellationToken: default);
     await BackfillCompletedDatesAsync(db, cancellationToken: default);
     NormalizeProjectPriorities(await db.Projects.ToListAsync());

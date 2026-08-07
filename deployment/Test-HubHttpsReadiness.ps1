@@ -1,5 +1,5 @@
 <#
-    Read-only HTTPS prerequisite audit for the four SON-AERO Hub IIS sites.
+    Read-only HTTPS prerequisite audit for the five SON-AERO Hub IIS sites.
     Run from an elevated Windows PowerShell 5.1 session on SON-IIS2.
 
     The audit validates server-side prerequisites only. It never creates or changes an IIS binding
@@ -225,7 +225,8 @@ $expectedSites = @(
     [pscustomobject]@{ Name = 'ProjectTracker'; Port = 5135 },
     [pscustomobject]@{ Name = 'SonAeroPortal'; Port = 5140 },
     [pscustomobject]@{ Name = 'EngineeringHub'; Port = 5150 },
-    [pscustomobject]@{ Name = 'EstimatingDashboard'; Port = 5160 }
+    [pscustomobject]@{ Name = 'EstimatingDashboard'; Port = 5160 },
+    [pscustomobject]@{ Name = 'QualityAssurance'; Port = 5170 }
 )
 
 $allBindings = [System.Collections.Generic.List[object]]::new()

@@ -25,14 +25,15 @@ The launcher starts:
 - **Project Tracker** at `http://localhost:5135`
 - **Engineering Hub** at `http://localhost:5150`
 - **Estimating Dashboard** at `http://localhost:5160`
+- **Quality Assurance** at `http://localhost:5170`
 
 It rebuilds a frontend only when its source has changed, skips any app that is already running,
 waits for all applications to become healthy, and then opens the portal. If startup fails it
 shows an error dialog and writes details to `logs\<app>.err.log`.
 
 Administrative settings are centralized at
-`http://localhost:5140/#/admin/project-tracker/access`. Engineering and Estimating already
-have reserved module sections there for settings added later.
+`http://localhost:5140/#/admin/access`. Engineering, Estimating, and Quality
+Assurance have module-specific administration sections there.
 
 ## Requirements for a fresh machine
 

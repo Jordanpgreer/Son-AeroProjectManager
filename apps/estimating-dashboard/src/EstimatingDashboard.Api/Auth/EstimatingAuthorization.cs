@@ -110,7 +110,8 @@ public sealed record EstimatingAccessProfile(
     bool IsEnabled,
     bool IsPreview = false,
     string? PreviewActorAccountName = null,
-    string? PreviewTargetKey = null)
+    string? PreviewTargetKey = null,
+    IReadOnlyList<string>? GrantedPermissions = null)
 {
-    public IReadOnlyList<string> Permissions => EstimatingPermissions.ForRole(Role);
+    public IReadOnlyList<string> Permissions => GrantedPermissions ?? EstimatingPermissions.ForRole(Role);
 }

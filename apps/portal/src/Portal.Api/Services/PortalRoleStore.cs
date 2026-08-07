@@ -40,15 +40,31 @@ public sealed class PortalRoleStore(PortalRoleDbContext db, ILogger<PortalRoleSt
         try
         {
             var lookupKeys = WindowsAccountNames.LookupKeys(accountName);
-            var assignments = await db.UserModuleAccess
+            var user = await db.Users
                 .AsNoTracking()
-                .Where(access =>
-                    access.User.IsActive
-                    && lookupKeys.Contains(access.User.AccountName.ToUpper())
-                    && access.Role != null)
+                .Where(candidate =>
+                    candidate.IsActive
+                    && lookupKeys.Contains(candidate.AccountName.ToUpper()))
+                .Select(candidate => new { candidate.Id })
+                .SingleOrDefaultAsync(cancellationToken);
+            if (user is null)
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            var assignments = await db.UserModuleAccess.AsNoTracking()
+                .Where(access => access.AppUserId == user.Id && access.Role != null)
                 .Select(access => new { access.ModuleKey, access.Role })
                 .ToListAsync(cancellationToken);
-            return assignments
+            var groupIds = await db.ProjectTrackerUserGroupMemberships.AsNoTracking()
+                .Where(membership => membership.AppUserId == user.Id)
+                .Select(membership => membership.AppGroupId)
+                .ToListAsync(cancellationToken);
+            var permissions = await db.ProjectTrackerGroupPermissions.AsNoTracking()
+                .Where(permission => groupIds.Contains(permission.AppGroupId))
+                .Select(permission => permission.PermissionKey)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            var roles = assignments
                 .Where(access =>
                     SonAero.Platform.Security.ApplicationModules.Normalize(access.ModuleKey) is not null
                     && SonAero.Platform.Security.ApplicationModuleRoles.Normalize(access.Role) is not null)
@@ -56,6 +72,16 @@ public sealed class PortalRoleStore(PortalRoleDbContext db, ILogger<PortalRoleSt
                     access => SonAero.Platform.Security.ApplicationModules.Normalize(access.ModuleKey)!,
                     access => SonAero.Platform.Security.ApplicationModuleRoles.Normalize(access.Role)!,
                     StringComparer.OrdinalIgnoreCase);
+
+            var engineeringRole = EngineeringPermissions.RoleFor(permissions);
+            if (engineeringRole is not null) roles[ApplicationModules.Engineering] = engineeringRole;
+            foreach (var moduleKey in new[] { ApplicationModules.Estimating, ApplicationModules.QualityAssurance })
+            {
+                var role = ApplicationModuleCatalog.RoleForPermissions(moduleKey, permissions);
+                if (role is not null) roles[moduleKey] = role;
+            }
+
+            return roles;
         }
         catch (Exception exception) when (exception is DbException or InvalidOperationException)
         {

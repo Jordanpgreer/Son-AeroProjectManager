@@ -134,7 +134,8 @@ if (Test-Path -LiteralPath $packageRoot) { throw "Staging path already exists: $
   -ProjectTrackerUrl '/project-tracker-api' `
   -HubUrl 'https://SON-IIS2:6140' `
   -EngineeringHubUrl 'https://SON-IIS2:6150' `
-  -EstimatingDashboardUrl 'https://SON-IIS2:6160'
+  -EstimatingDashboardUrl 'https://SON-IIS2:6160' `
+  -QualityAssuranceUrl 'https://SON-IIS2:6170'
 if ($LASTEXITCODE -ne 0) { throw 'HTTPS-aware publish failed; IIS was not changed.' }
 
 & "$repo\deployment\Deploy-HubRelease.ps1" `
@@ -214,7 +215,7 @@ created. Require `SONAERO_HUB_PILOT_INSTALL_COMPLETE`.
 
 On each employee computer, in the employee's normal PowerShell session, run the existing access
 test with `-Scheme https` and expectations matching the Admin Hub assignment. Require
-`HUB_USER_ACCESS_VERIFIED`. Then manually open all four HTTPS endpoints through the Hub and confirm
+`HUB_USER_ACCESS_VERIFIED`. Then manually open all five HTTPS endpoints through the Hub and confirm
 Jordan and Josh see only their assigned modules and data.
 
 ## 9. Enable and verify Web Push only after HTTPS trust succeeds
@@ -245,14 +246,14 @@ Run rollback in this order from elevated PowerShell:
 6. On SON-IIS2, run `Install-HubPilotServerCertificate.ps1 -Operation RemoveAll`, preview first,
    then apply. It refuses removal while the leaf is still bound.
 
-The existing HTTP bindings remain the safety path throughout. A rollback must end with all four
+The existing HTTP bindings remain the safety path throughout. A rollback must end with all five
 HTTP health endpoints returning 200.
 
 ## Pilot completion gate
 
 - Both locked installers finish successfully on only their named computer/account.
 - Both users pass exact role verification over HTTPS.
-- All four direct HTTPS applications and the Portal gateway return 200 from both computers.
+- All five direct HTTPS applications and the Portal gateway return 200 from both computers.
 - Cross-module links and return-to-Hub links stay on HTTPS 61xx ports.
 - Online and closed-browser mention notifications work in both directions.
 - HTTP remains healthy and the documented rollback previews pass.

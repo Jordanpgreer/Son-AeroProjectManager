@@ -22,6 +22,9 @@ param(
     [ValidateRange(1, 65535)]
     [int]$EstimatingHttpsPort = 6160,
 
+    [ValidateRange(1, 65535)]
+    [int]$QualityAssuranceHttpsPort = 6170,
+
     [Parameter(Mandatory = $true)]
     [string]$ExpectedAccountName,
 
@@ -53,6 +56,10 @@ param(
     [string]$ExpectedEstimatingRole,
 
     [string[]]$ExpectedEstimatingPermissions,
+
+    [Parameter(Mandatory = $true)]
+    [ValidateSet('Admin', 'NoAccess')]
+    [string]$ExpectedQualityAssuranceRole,
 
     [ValidateRange(2, 60)]
     [int]$TimeoutSeconds = 15
@@ -241,6 +248,9 @@ function Get-RolePermissions {
         }
         return $permissions
     }
+    if ($ModuleKey -eq 'quality-assurance') {
+        return @('quality-assurance.view')
+    }
     throw "Unknown module key '$ModuleKey'."
 }
 
@@ -292,7 +302,8 @@ $modules = @(
     [pscustomobject]@{ Key = 'portal'; Name = 'Portal'; HttpPort = 5140; HttpsPort = $PortalHttpsPort; DenialCode = '' },
     [pscustomobject]@{ Key = 'project-tracker'; Name = 'Project Tracker'; HttpPort = 5135; HttpsPort = $ProjectTrackerHttpsPort; DenialCode = '' },
     [pscustomobject]@{ Key = 'engineering'; Name = 'Engineering'; HttpPort = 5150; HttpsPort = $EngineeringHttpsPort; DenialCode = 'ModuleAccessDenied' },
-    [pscustomobject]@{ Key = 'estimating'; Name = 'Estimating'; HttpPort = 5160; HttpsPort = $EstimatingHttpsPort; DenialCode = 'EstimatingAccessDenied' }
+    [pscustomobject]@{ Key = 'estimating'; Name = 'Estimating'; HttpPort = 5160; HttpsPort = $EstimatingHttpsPort; DenialCode = 'EstimatingAccessDenied' },
+    [pscustomobject]@{ Key = 'quality-assurance'; Name = 'Quality Assurance'; HttpPort = 5170; HttpsPort = $QualityAssuranceHttpsPort; DenialCode = 'QualityAssuranceAccessDenied' }
 )
 
 $report = foreach ($module in $modules) {
@@ -335,12 +346,13 @@ $report = foreach ($module in $modules) {
             if ($hasAccess -and $PSBoundParameters.ContainsKey('ExpectedPortalModuleRoles')) {
                 $expectedKeys = @($ExpectedPortalModuleRoles.Keys | ForEach-Object { ([string]$_).Trim().ToLowerInvariant() })
                 foreach ($key in $expectedKeys) {
-                    if ($key -notin @('engineering', 'estimating')) {
-                        $failures.Add("Unknown portal module expectation '$key'. Use engineering or estimating.")
+                    if ($key -notin @('engineering', 'estimating', 'quality-assurance')) {
+                        $failures.Add("Unknown portal module expectation '$key'. Use engineering, estimating, or quality-assurance.")
                         continue
                     }
                     $expectedRole = [string]$ExpectedPortalModuleRoles[$key]
-                    if ($expectedRole -notin @('Viewer', 'Editor', 'Admin', 'NoAccess')) {
+                    $validRoles = if ($key -eq 'quality-assurance') { @('Admin', 'NoAccess') } else { @('Viewer', 'Editor', 'Admin', 'NoAccess') }
+                    if ($expectedRole -notin $validRoles) {
                         $failures.Add("Invalid expected portal role '$expectedRole' for $key.")
                         continue
                     }
@@ -435,6 +447,20 @@ $report = foreach ($module in $modules) {
             } elseif ($PSBoundParameters.ContainsKey('ExpectedEstimatingPermissions') -and
                 $ExpectedEstimatingRole -ne 'NoAccess') {
                 $failures.Add('Estimating denied access, so expected permissions could not be verified.')
+            }
+        }
+        'quality-assurance' {
+            if ($ExpectedQualityAssuranceRole -eq 'NoAccess') {
+                Test-ExpectedDenial -Response $me -Label 'Quality Assurance' -ExpectedCode $module.DenialCode
+            } elseif (-not $hasAccess) {
+                $failures.Add("Quality Assurance returned HTTP $($me.StatusCode); expected HTTP 200 for Admin access.")
+            } else {
+                if ($payload.role -ine 'Admin') {
+                    $failures.Add("Quality Assurance role '$($payload.role)' does not match 'Admin'.")
+                }
+                Test-ExactSet -Actual $payload.permissions `
+                    -Expected (Get-RolePermissions -ModuleKey quality-assurance -Role Admin) `
+                    -Label 'Quality Assurance permissions'
             }
         }
     }

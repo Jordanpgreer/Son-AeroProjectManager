@@ -7,6 +7,7 @@ import {
   Bell,
   Boxes,
   Calculator,
+  ClipboardCheck,
   Clock,
   Database,
   Eye,
@@ -65,12 +66,14 @@ const ICONS: Record<string, typeof AppWindow> = {
   'layout-grid': LayoutGrid,
   database: Database,
   calculator: Calculator,
+  'clipboard-check': ClipboardCheck,
 }
 
 const CAPABILITIES: Record<string, string[]> = {
   'project-tracker': ['Scheduling', 'Gantt timelines', 'Operations'],
   'engineering-hub': ['Drawing control', 'Tooling', 'Technical records'],
   'estimating-dashboard': ['Quoting', 'Cost roll-ups', 'Bid tracking'],
+  'quality-assurance': ['Quality controls', 'Compliance', 'Admin only'],
   'admin-console': ['Application catalog', 'Access control', 'Configuration'],
 }
 
@@ -269,7 +272,7 @@ export default function App() {
   function returnToAdmin() {
     setAccessPreview(null)
     setPreviewLaunchError(null)
-    window.location.hash = '#/admin/hub/access'
+    window.location.hash = '#/admin/access'
   }
 
   return (

@@ -14,23 +14,25 @@ namespace EstimatingDashboard.Tests;
 public sealed class EstimatingAccessStoreTests
 {
     [Fact]
-    public async Task FindsActiveUserWithExactEstimatingModuleRole()
+    public async Task FindsActiveUserWithEstimatingGroupPermissions()
     {
         await using var fixture = await AccessFixture.CreateAsync();
+        var group = new EstimatingAccessGroupRecord
+        {
+            Name = "Estimating Editors",
+            Permissions = EstimatingPermissions.ForRole(EstimatingRoles.Editor)
+                .Select(permission => new EstimatingGroupPermissionRecord { PermissionKey = permission })
+                .ToList()
+        };
         fixture.Db.Users.Add(new EstimatingUserRecord
         {
             Id = 7,
             AccountName = "SONAERO\\estimator",
             DisplayName = "Estimator",
             IsActive = true,
-            ModuleAccesses =
+            GroupMemberships =
             [
-                new EstimatingModuleAccessRecord
-                {
-                    AppUserId = 7,
-                    ModuleKey = EstimatingModule.Key,
-                    Role = EstimatingRoles.Editor
-                }
+                new EstimatingUserGroupMembershipRecord { AppUserId = 7, Group = group }
             ]
         });
         await fixture.Db.SaveChangesAsync();
@@ -43,30 +45,29 @@ public sealed class EstimatingAccessStoreTests
     }
 
     [Theory]
-    [InlineData(false, EstimatingModule.Key, EstimatingRoles.Admin)]
-    [InlineData(true, "engineering", EstimatingRoles.Admin)]
-    [InlineData(true, EstimatingModule.Key, null)]
-    [InlineData(true, EstimatingModule.Key, "Owner")]
-    public async Task DeniesInactiveMissingOrInvalidModuleAccess(
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task DeniesInactiveOrMissingGroupPermission(
         bool active,
-        string moduleKey,
-        string? role)
+        bool hasPermission)
     {
         await using var fixture = await AccessFixture.CreateAsync();
+        var group = new EstimatingAccessGroupRecord
+        {
+            Name = "No Estimating Access",
+            Permissions = hasPermission
+                ? [new EstimatingGroupPermissionRecord { PermissionKey = EstimatingPermissions.View }]
+                : []
+        };
         fixture.Db.Users.Add(new EstimatingUserRecord
         {
             Id = 8,
             AccountName = "SONAERO\\denied",
             DisplayName = "Denied",
             IsActive = active,
-            ModuleAccesses =
+            GroupMemberships =
             [
-                new EstimatingModuleAccessRecord
-                {
-                    AppUserId = 8,
-                    ModuleKey = moduleKey,
-                    Role = role
-                }
+                new EstimatingUserGroupMembershipRecord { AppUserId = 8, Group = group }
             ]
         });
         await fixture.Db.SaveChangesAsync();
@@ -95,13 +96,18 @@ public sealed class EstimatingAccessStoreTests
             DisplayName = "Estimating Viewer",
             PortalRole = ApplicationRoles.Viewer,
             IsActive = true,
-            ModuleAccesses =
+            GroupMemberships =
             [
-                new EstimatingModuleAccessRecord
+                new EstimatingUserGroupMembershipRecord
                 {
                     AppUserId = 21,
-                    ModuleKey = EstimatingModule.Key,
-                    Role = EstimatingRoles.Viewer
+                    Group = new EstimatingAccessGroupRecord
+                    {
+                        Name = "Estimating Viewers",
+                        Permissions = EstimatingPermissions.ForRole(EstimatingRoles.Viewer)
+                            .Select(permission => new EstimatingGroupPermissionRecord { PermissionKey = permission })
+                            .ToList()
+                    }
                 }
             ]
         };

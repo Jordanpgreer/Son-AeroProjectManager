@@ -29,13 +29,18 @@ public sealed class PortalUserService(
         var moduleRoles = await roleStore.FindModuleRolesAsync(accountName, cancellationToken);
         if (moduleRoles.Count == 0 && IsDevelopmentMode())
         {
-            moduleRoles = ApplicationModules.All.ToDictionary(
-                moduleKey => moduleKey,
-                _ => ApplicationModuleRoles.Normalize(role) ?? ApplicationRoles.Admin,
-                StringComparer.OrdinalIgnoreCase);
+            var developmentRole = ApplicationModuleRoles.Normalize(role) ?? ApplicationRoles.Admin;
+            moduleRoles = ApplicationModuleCatalog.All
+                .Where(module => module.Roles.Any(candidate => candidate.Role == developmentRole))
+                .ToDictionary(
+                    module => module.Key,
+                    _ => developmentRole,
+                    StringComparer.OrdinalIgnoreCase);
         }
 
         var modules = moduleRoles
+            .Where(access => ApplicationModuleCatalog.Find(access.Key)?.Roles.Any(
+                candidate => candidate.Role == access.Value) == true)
             .Select(access => new PortalModuleAccessDto(
                 access.Key,
                 access.Value,

@@ -89,6 +89,37 @@ export async function trackerApi<T>(
   return await response.json() as T
 }
 
+export async function trackerFile(path: string): Promise<{ blob: Blob; fileName: string }> {
+  let response: Response
+  try {
+    response = await fetch(resolveProjectTrackerApiUrl(projectTrackerUrl, path), {
+      credentials: 'include',
+    })
+  } catch {
+    throw new TrackerApiError(
+      `Could not reach Project Tracker at ${projectTrackerUrl}. Confirm it is running and permits the Hub origin.`,
+      0,
+    )
+  }
+
+  if (!response.ok) {
+    const contentType = response.headers.get('content-type') ?? ''
+    const payload = contentType.includes('json')
+      ? await response.json().catch(() => null)
+      : await response.text().catch(() => null)
+    throw new TrackerApiError(
+      errorMessage(response.status, response.statusText, payload, 'Project Tracker'),
+      response.status,
+    )
+  }
+
+  const disposition = response.headers.get('content-disposition') ?? ''
+  const utf8Name = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+  const plainName = disposition.match(/filename="?([^";]+)"?/i)?.[1]
+  const fileName = decodeURIComponent(utf8Name ?? plainName ?? 'Project-Tracker-Import.xlsx')
+  return { blob: await response.blob(), fileName }
+}
+
 export async function portalApi<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {

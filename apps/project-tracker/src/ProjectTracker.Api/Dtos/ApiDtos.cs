@@ -37,7 +37,13 @@ public sealed record AccessGroupDto(
     IReadOnlyList<string> Permissions,
     int UserCount);
 
-public sealed record PermissionDefinitionDto(string Key, string Label, string Description, string Category);
+public sealed record PermissionDefinitionDto(
+    string Key,
+    string Label,
+    string Description,
+    string Category,
+    string ModuleKey = "project-tracker",
+    string ModuleName = "Project Tracker");
 
 public sealed record AccessOverviewDto(
     IReadOnlyList<RegisteredUserDto> Users,
@@ -299,4 +305,42 @@ public sealed record ProjectAuditEntryDto(
 public sealed record ImportWorkbookRequest(string? Path, bool ReplaceExisting = true);
 
 public sealed record ImportWorkbookResult(int ProjectCount, int TaskCount, int HolidayCount);
+
+public sealed record ImportIssueDto(
+    string Sheet,
+    int Row,
+    string? Column,
+    string Message);
+
+public sealed record ImportChangeDto(
+    string Sheet,
+    int Row,
+    string RecordKey,
+    string ChangeType,
+    string Field,
+    string? CurrentValue,
+    string? UploadedValue);
+
+public sealed record ImportValidationResultDto(
+    string ReviewId,
+    DateTimeOffset ExpiresAt,
+    string FileName,
+    int ProjectRows,
+    int OperationRows,
+    int ProjectsAdded,
+    int ProjectsUpdated,
+    int OperationsAdded,
+    int OperationsUpdated,
+    int ChangeCount,
+    IReadOnlyList<ImportIssueDto> Errors,
+    IReadOnlyList<ImportChangeDto> Changes,
+    string ReviewWorkbookUrl,
+    bool CanConfirm);
+
+public sealed record ImportApplyResultDto(
+    int ProjectsAdded,
+    int ProjectsUpdated,
+    int OperationsAdded,
+    int OperationsUpdated,
+    int ChangeCount);
 

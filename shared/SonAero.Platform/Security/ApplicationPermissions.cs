@@ -72,7 +72,7 @@ public static class ApplicationPermissions
         new(SettingsWorkCalendarManage, "Manage Work Calendar", "Edit the standard work week.", "Administration"),
         new(SettingsHolidaysManage, "Manage Holidays", "Create, edit, or remove holidays.", "Administration"),
         new(SettingsWorkCentersManage, "Manage Work Centers", "Create, edit, or remove work centers.", "Administration"),
-        new(ImportManage, "Run Imports", "Upload and import workbook data.", "Administration"),
+        new(ImportManage, "Run Controlled Imports", "Administrators only: validate, review, and apply Project Tracker workbooks.", "Administration"),
         new(ArchivedRestore, "Restore Archived Projects", "Restore archived projects back into active or completed views.", "Administration"),
         new(AccessManageUsers, "Manage Registered Users", "Register users, activate/deactivate them, and assign groups.", "Access"),
         new(AccessManageGroups, "Manage Groups", "Create groups and assign group permissions.", "Access")

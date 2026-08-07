@@ -63,9 +63,7 @@ public static class EngineeringPermissions
         Permission(AuditView, "View drawing audit history", "View permanent drawing and revision audit events.", "Quality records"),
         Permission(ToolingView, "View tooling management", "Open tooling records and tooling search results.", "Other engineering areas"),
         Permission(CompoundDataView, "View compound and test data", "Open compound, certification, and test-data records.", "Other engineering areas"),
-        Permission(SettingsView, "View Engineering settings", "Open the Engineering access and permissions page.", "Administration"),
-        Permission(SettingsManageUsers, "Manage Engineering users", "Assign registered users to access groups.", "Administration"),
-        Permission(SettingsManageGroups, "Manage Engineering groups", "Create groups and change Engineering permissions.", "Administration"),
+        Permission(SettingsView, "View Engineering settings", "Open Engineering module settings.", "Administration"),
         Permission(SettingsManageStorage, "Manage Engineering file storage", "Set the controlled drawing root and create approved design-authority folders.", "Administration")
     ];
 

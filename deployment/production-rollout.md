@@ -4,11 +4,11 @@ This runbook is for the current two-server environment:
 
 | Server | Purpose |
 |---|---|
-| `SON-IIS2` | IIS and the four Hub applications |
+| `SON-IIS2` | IIS and the five Hub applications |
 | `SON-SQL2` | `ProjectTracker` and `EngineeringHub` SQL databases plus Engineering drawings |
 
-Current HTTP endpoints are Portal `:5140`, Project Tracker `:5135`, Engineering `:5150`, and
-Estimating `:5160`. Complete the sections in order. In particular, deploy the default-deny release
+Current HTTP endpoints are Portal `:5140`, Project Tracker `:5135`, Engineering `:5150`,
+Estimating `:5160`, and Quality Assurance `:5170`. Complete the sections in order. In particular, deploy the default-deny release
 and assign roles **before** giving employees the shortcut.
 
 ## Shell conventions
@@ -33,8 +33,8 @@ module assignment is saved.
 
 On `SON-IIS2`, update the existing source checkout and publish from the commit supplied for this
 rollout. Do not point IIS at the checkout or copy files over a running site. The deploy script
-builds a new immutable release folder, preserves the four current Production settings files,
-switches all four IIS paths together, checks health, and restores the previous paths if the new
+builds a new immutable release folder, preserves the five current Production settings files,
+switches all five IIS paths together, checks health, and restores the previous paths if the new
 release is not healthy.
 
 **Elevated PowerShell on SON-IIS2:**
@@ -101,16 +101,17 @@ The preview must end with `WHATIF_READY`. The apply run must end with
 backup. Do not use `xcopy`, `Copy-Item -Force`, or a manual DLL replacement against a running IIS
 application pool.
 
-After cutover, verify all four health endpoints from a domain workstation:
+After cutover, verify all five health endpoints from a domain workstation:
 
 ```text
 http://SON-IIS2:5135/api/health
 http://SON-IIS2:5140/api/health
 http://SON-IIS2:5150/api/health
 http://SON-IIS2:5160/api/health
+http://SON-IIS2:5170/api/health
 ```
 
-All four must return HTTP 200 before continuing.
+All five must return HTTP 200 before continuing.
 
 ## 2. Configure warm start on SON-IIS2
 
@@ -133,7 +134,7 @@ Expected final line:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\SonAero\Configure-IisWarmStart.ps1' -Scheme http -Confirm:$false"
 ```
 
-Expected final line: `WARM_START_CONFIGURED_AND_HEALTHY`, with HTTP 200 for all four sites and the
+Expected final line: `WARM_START_CONFIGURED_AND_HEALTHY`, with HTTP 200 for all five sites and the
 Project Tracker gateway. The
 apply run also installs an idempotent Local System startup-recovery task with bounded retries, so a
 simultaneous SON-IIS2/SON-SQL2 reboot can recover after SQL becomes available. Stop and investigate
@@ -151,16 +152,14 @@ manager/module administrator.
 
 Sign in as the existing Hub administrator and use these Portal pages:
 
-- Project Tracker groups: `http://SON-IIS2:5140/#/admin/project-tracker/access`
-- Engineering role: `http://SON-IIS2:5140/#/admin/engineering/access`
-- Estimating role: `http://SON-IIS2:5140/#/admin/estimating/access`
+- Shared users, groups, and permissions: `http://SON-IIS2:5140/#/admin/access`
 
 Enter every account in canonical form, for example `SON4L\jordan.greer`. For each employee:
 
-1. Add only the Project Tracker group(s) the employee needs.
-2. Set Engineering to `Viewer`, `Editor`, `Admin`, or no assignment.
-3. Set Estimating to `Viewer`, `Editor`, `Admin`, or no assignment.
-4. Save, then reopen the employee to confirm the stored assignments.
+1. Assign the employee to one or more shared groups.
+2. Expand each group and review its permissions under Project Tracker, Engineering, Estimating, and Quality Assurance.
+3. Add or remove granular module permissions as required for that group.
+4. Save, then reopen the group to confirm the stored permissions and user assignments.
 
 Also test at least one prior View Only/legacy user who should now have no access. Clean up that
 record first, then use the `NoAccess` verification example in the next section. Existing legacy
@@ -189,11 +188,12 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 & 'C:\Temp\Test-HubUserAccess.ps1' `
   -ExpectedAccountName "SON4L\jordan.greer" `
   -ExpectedPortalRole Admin `
-  -ExpectedPortalModuleRoles @{ engineering = 'Admin'; estimating = 'Admin' } `
+  -ExpectedPortalModuleRoles @{ engineering = 'Admin'; estimating = 'Admin'; 'quality-assurance' = 'Admin' } `
   -ExpectedProjectTrackerAccess Access `
   -ExpectedProjectTrackerGroups Administrators `
   -ExpectedEngineeringRole Admin `
-  -ExpectedEstimatingRole Admin
+  -ExpectedEstimatingRole Admin `
+  -ExpectedQualityAssuranceRole Admin
 ```
 
 Unassigned-user/default-deny example:
@@ -203,10 +203,11 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 & 'C:\Temp\Test-HubUserAccess.ps1' `
   -ExpectedAccountName "SON4L\firstname.lastname" `
   -ExpectedPortalRole Viewer `
-  -ExpectedPortalModuleRoles @{ engineering = 'NoAccess'; estimating = 'NoAccess' } `
+  -ExpectedPortalModuleRoles @{ engineering = 'NoAccess'; estimating = 'NoAccess'; 'quality-assurance' = 'NoAccess' } `
   -ExpectedProjectTrackerAccess NoAccess `
   -ExpectedEngineeringRole NoAccess `
-  -ExpectedEstimatingRole NoAccess
+  -ExpectedEstimatingRole NoAccess `
+  -ExpectedQualityAssuranceRole NoAccess
 ```
 
 Expected final line: `HUB_USER_ACCESS_VERIFIED`. A mismatch is a failed role check: correct the
@@ -333,30 +334,31 @@ bindings during an approved maintenance window:
 | Portal | `5140` | `6140` |
 | Engineering | `5150` | `6150` |
 | Estimating | `5160` | `6160` |
+| Quality Assurance | `5170` | `6170` |
 
 This repository deliberately does not automate certificate selection or binding creation. Those
 operations affect machine-level TLS state and require the approved certificate thumbprint, port
 ownership, workstation trust result, and a maintenance window. The binding change must be
-idempotent, must add rather than replace the HTTP bindings, and must open only the four approved
+idempotent, must add rather than replace the HTTP bindings, and must open only the five approved
 HTTPS firewall ports. Use `SON-IIS2` as the initial URL host because it is in the required SAN and
 does not introduce a new Windows-authentication SPN alias.
 
-After the four direct HTTPS `/api/health` and `/api/me` checks succeed from a domain workstation:
+After the five direct HTTPS `/api/health` and `/api/me` checks succeed from a domain workstation:
 
 1. Add `https://SON-IIS2:6140` to Project Tracker's production `Cors:HubOrigins` without removing
    the HTTP origin during the pilot.
-2. Change the three Portal application URLs to `https://SON-IIS2:6135`, `:6150`, and `:6160`,
+2. Change the four Portal application URLs to `https://SON-IIS2:6135`, `:6150`, `:6160`, and `:6170`,
    republish the Portal, and deploy through the immutable release script.
 3. Confirm the same-origin Project Tracker gateway at
    `https://SON-IIS2:6140/project-tracker-api/api/health`.
 4. Run warm start with `-Scheme https`. The script's HTTPS defaults are the proposed `61xx` ports;
-   override its four `*HttpsPort` parameters if the approved binding plan differs.
+   override its five `*HttpsPort` parameters if the approved binding plan differs.
 5. Run `Test-HubUserAccess.ps1 -Scheme https` as a real employee. It uses the same HTTPS defaults
    and accepts the same port overrides.
 6. Retarget the employee shortcut to `https://SON-IIS2:6140` only after all prior checks pass.
 
 Keep the HTTP bindings working until the HTTPS pilot is signed off. Do not repurpose ports
-`5135`-`5160` as HTTPS and do not remove a working binding merely to test TLS.
+`5135`-`5170` as HTTPS and do not remove a working binding merely to test TLS.
 
 ### Configure Project Tracker Web Push after HTTPS is trusted
 
@@ -447,7 +449,7 @@ jobs are built.
 
 The operational backup set must include:
 
-- the `ProjectTracker` database, which also contains centralized user/module role assignments;
+- the `ProjectTracker` database, which also contains centralized users, groups, and module permissions;
 - the `EngineeringHub` database;
 - `C:\SonAero\Data\EngineeringDrawings` as a matched/quiesced recovery set with EngineeringHub;
 - production configuration and the eventual TLS certificate/binding recovery information.
@@ -463,7 +465,7 @@ off-server restore points exist, and a restore drill succeeds on a non-productio
 
 ## Completion gates
 
-- Default-deny release is deployed and all four health checks return 200.
+- Default-deny release is deployed and all five health checks return 200.
 - Warm-start script ends with `WARM_START_CONFIGURED_AND_HEALTHY`.
 - Each intended user ends with `HUB_USER_ACCESS_VERIFIED`; an unassigned test user is denied.
 - Shortcut is piloted, then deployed only to approved workstations.

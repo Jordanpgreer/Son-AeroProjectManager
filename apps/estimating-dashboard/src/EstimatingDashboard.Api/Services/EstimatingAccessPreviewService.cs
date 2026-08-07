@@ -42,7 +42,7 @@ public sealed class EstimatingAccessPreviewService(
 
         var access = await ResolveTargetAsync(session, actor, cancellationToken);
         if (access is null)
-            return Failed("AccessPreviewTargetUnavailable", "The selected user no longer has active Estimating access.");
+            return Failed("AccessPreviewTargetUnavailable", "The selected user or shared group no longer has active Estimating access.");
 
         var redeemed = await db.AccessPreviewSessions
             .Where(candidate => candidate.Id == session.Id
@@ -127,9 +127,9 @@ public sealed class EstimatingAccessPreviewService(
         var configured = configuration["Portal:Url"];
         if (Uri.TryCreate(configured, UriKind.Absolute, out var portal)
             && portal.Scheme is "http" or "https")
-            return new Uri(portal, "/#/admin/hub/access").ToString();
+            return new Uri(portal, "/#/admin/access").ToString();
 
-        return $"{context.Request.Scheme}://{context.Request.Host.Host}:5140/#/admin/hub/access";
+        return $"{context.Request.Scheme}://{context.Request.Host.Host}:5140/#/admin/access";
     }
 
     private async Task<EstimatingAccessProfile?> ResolveTargetAsync(
@@ -137,34 +137,82 @@ public sealed class EstimatingAccessPreviewService(
         string actor,
         CancellationToken cancellationToken)
     {
-        if (!AccessPreviewTarget.TryParse(session.TargetKey, out var target)
-            || target.Kind != AccessPreviewTargetKinds.User)
-            return null;
+        if (!AccessPreviewTarget.TryParse(session.TargetKey, out var target)) return null;
 
-        var record = await db.UserModuleAccess.AsNoTracking()
-            .Where(access => access.AppUserId == target.Id
-                && access.ModuleKey == EstimatingModule.Key
-                && access.User.IsActive)
-            .Select(access => new
-            {
-                access.AppUserId,
-                access.User.AccountName,
-                access.User.DisplayName,
-                access.Role
-            })
-            .SingleOrDefaultAsync(cancellationToken);
-        var role = EstimatingRoles.Normalize(record?.Role);
-        if (record is null || role is null) return null;
+        if (target.Kind == AccessPreviewTargetKinds.User)
+        {
+            var user = await db.Users.AsNoTracking()
+                .Where(candidate => candidate.Id == target.Id && candidate.IsActive)
+                .Select(candidate => new
+                {
+                    candidate.Id,
+                    candidate.AccountName,
+                    candidate.DisplayName
+                })
+                .SingleOrDefaultAsync(cancellationToken);
+            if (user is null) return null;
+            var permissions = await db.UserGroupMemberships.AsNoTracking()
+                .Where(membership => membership.AppUserId == user.Id)
+                .SelectMany(membership => membership.Group.Permissions)
+                .Where(permission => permission.PermissionKey.StartsWith("estimating."))
+                .Select(permission => permission.PermissionKey)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+            return BuildAccess(
+                user.Id,
+                user.AccountName,
+                string.IsNullOrWhiteSpace(user.DisplayName) ? user.AccountName : user.DisplayName,
+                permissions,
+                actor,
+                session.TargetKey);
+        }
 
+        if (target.Kind is AccessPreviewTargetKinds.ProjectTrackerGroup
+            or AccessPreviewTargetKinds.EngineeringGroup)
+        {
+            var group = await db.Groups.AsNoTracking()
+                .Where(candidate => candidate.Id == target.Id)
+                .Select(candidate => new { candidate.Id, candidate.Name })
+                .SingleOrDefaultAsync(cancellationToken);
+            if (group is null) return null;
+            var permissions = await db.GroupPermissions.AsNoTracking()
+                .Where(permission => permission.AppGroupId == group.Id
+                    && permission.PermissionKey.StartsWith("estimating."))
+                .Select(permission => permission.PermissionKey)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+            return BuildAccess(
+                -target.Id,
+                group.Name,
+                group.Name,
+                permissions,
+                actor,
+                session.TargetKey);
+        }
+
+        return null;
+    }
+
+    private static EstimatingAccessProfile? BuildAccess(
+        int userId,
+        string accountName,
+        string displayName,
+        IReadOnlyList<string> permissions,
+        string actor,
+        string targetKey)
+    {
+        var role = ApplicationModuleCatalog.RoleForPermissions(ApplicationModules.Estimating, permissions);
+        if (role is null) return null;
         return new EstimatingAccessProfile(
-            record.AppUserId,
-            WindowsAccountNames.Normalize(record.AccountName) ?? record.AccountName,
-            string.IsNullOrWhiteSpace(record.DisplayName) ? record.AccountName : record.DisplayName,
+            userId,
+            WindowsAccountNames.Normalize(accountName) ?? accountName,
+            displayName,
             role,
             true,
             true,
             actor,
-            session.TargetKey);
+            targetKey,
+            permissions);
     }
 
     private async Task<bool> IsActivePortalAdministratorAsync(

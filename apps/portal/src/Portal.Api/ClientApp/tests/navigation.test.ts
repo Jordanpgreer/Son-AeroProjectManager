@@ -6,7 +6,7 @@ describe('applicationNavigationMode', () => {
 
   it('treats the Admin hash route as same-document navigation', () => {
     expect(applicationNavigationMode(
-      '/#/admin/project-tracker/access',
+      '/#/admin/access',
       catalogUrl,
     )).toBe('same-document')
   })
@@ -19,7 +19,7 @@ describe('applicationNavigationMode', () => {
   })
 
   it('keeps an already-open Admin hash off the full-page launch path', () => {
-    const adminUrl = 'http://SON-IIS2:5140/#/admin/project-tracker/access'
+    const adminUrl = 'http://SON-IIS2:5140/#/admin/access'
     expect(applicationNavigationMode(adminUrl, adminUrl)).toBe('same-document')
   })
 })

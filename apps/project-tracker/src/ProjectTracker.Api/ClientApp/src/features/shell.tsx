@@ -107,7 +107,7 @@ export function Sidebar({
           <nav className="foot-nav" aria-label="Secondary">
             <a
               className="nav-button"
-              href={`${hubUrl.replace(/\/+$/, '')}/#/admin/project-tracker/access`}
+              href={`${hubUrl.replace(/\/+$/, '')}/#/admin/access`}
               target="_top"
               aria-label="Hub Admin / Admin settings"
             >

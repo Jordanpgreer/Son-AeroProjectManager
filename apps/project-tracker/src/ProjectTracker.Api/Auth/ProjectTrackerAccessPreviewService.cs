@@ -191,11 +191,11 @@ public sealed class ProjectTrackerAccessPreviewService(
             .FirstOrDefault(origin => Uri.TryCreate(origin, UriKind.Absolute, out _));
         if (configuredOrigin is not null)
         {
-            return $"{configuredOrigin.TrimEnd('/')}/#/admin/hub/access";
+            return $"{configuredOrigin.TrimEnd('/')}/#/admin/access";
         }
 
         var host = request.Host.Host;
-        return $"{request.Scheme}://{host}:5140/#/admin/hub/access";
+        return $"{request.Scheme}://{host}:5140/#/admin/access";
     }
 
     private async Task<ProjectTrackerAccessPreview?> ResolveTargetAsync(

@@ -43,7 +43,7 @@ public sealed class EngineeringRoleDbContext(DbContextOptions<EngineeringRoleDbC
 
         modelBuilder.Entity<EngineeringAccessGroupRecord>(entity =>
         {
-            entity.ToTable("EngineeringGroups");
+            entity.ToTable("Groups");
             entity.HasKey(group => group.Id);
             entity.HasIndex(group => group.Name).IsUnique();
             entity.Property(group => group.Name).HasMaxLength(80);
@@ -60,14 +60,14 @@ public sealed class EngineeringRoleDbContext(DbContextOptions<EngineeringRoleDbC
 
         modelBuilder.Entity<EngineeringUserGroupMembershipRecord>(entity =>
         {
-            entity.ToTable("EngineeringUserGroupMemberships");
+            entity.ToTable("UserGroupMemberships");
             entity.HasKey(membership => new { membership.AppUserId, membership.AppGroupId });
             entity.HasIndex(membership => membership.AppGroupId);
         });
 
         modelBuilder.Entity<EngineeringGroupPermissionRecord>(entity =>
         {
-            entity.ToTable("EngineeringGroupPermissions");
+            entity.ToTable("GroupPermissions");
             entity.HasKey(permission => new { permission.AppGroupId, permission.PermissionKey });
             entity.Property(permission => permission.PermissionKey).HasMaxLength(120);
         });

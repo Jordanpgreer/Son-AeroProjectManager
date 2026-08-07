@@ -28,7 +28,7 @@ import type { EngineeringSearchResult } from './EngineeringDashboard'
 import { engineeringPermissionKeys, hasEngineeringPermission } from './permissions'
 
 const hubUrl = import.meta.env.VITE_HUB_URL ?? `${window.location.protocol}//${window.location.hostname}:5140`
-const engineeringAdminUrl = new URL('/#/admin/engineering/access', hubUrl).toString()
+const engineeringAdminUrl = new URL('/#/admin/engineering/file-storage', hubUrl).toString()
 
 interface Me {
   accountName: string

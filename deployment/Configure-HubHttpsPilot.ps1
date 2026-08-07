@@ -1,5 +1,5 @@
 <#
-    Additive pilot HTTPS transaction for the four SON-AERO Hub IIS sites on SON-IIS2.
+    Additive pilot HTTPS transaction for the five SON-AERO Hub IIS sites on SON-IIS2.
 
     Preview:
       .\Configure-HubHttpsPilot.ps1 -CertificateThumbprint <LEAF> -PilotRootThumbprint <ROOT> -PilotRemoteAddress 10.50.10.25 -WhatIf
@@ -8,7 +8,7 @@
     Roll back the last successful apply:
       .\Configure-HubHttpsPilot.ps1 -Rollback -Confirm:$false
 
-    HTTP bindings on ports 5135-5160 are never removed. The pilot firewall rule is separate
+    HTTP bindings on ports 5135-5170 are never removed. The pilot firewall rule is separate
     from the existing HTTP rule and never permits Any or LocalSubnet.
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High', DefaultParameterSetName = 'Apply')]
@@ -46,7 +46,8 @@ $applications = @(
     [pscustomobject]@{ Site = 'ProjectTracker'; HttpPort = 5135; HttpsPort = 6135 },
     [pscustomobject]@{ Site = 'SonAeroPortal'; HttpPort = 5140; HttpsPort = 6140 },
     [pscustomobject]@{ Site = 'EngineeringHub'; HttpPort = 5150; HttpsPort = 6150 },
-    [pscustomobject]@{ Site = 'EstimatingDashboard'; HttpPort = 5160; HttpsPort = 6160 }
+    [pscustomobject]@{ Site = 'EstimatingDashboard'; HttpPort = 5160; HttpsPort = 6160 },
+    [pscustomobject]@{ Site = 'QualityAssurance'; HttpPort = 5170; HttpsPort = 6170 }
 )
 
 function Assert-Host {

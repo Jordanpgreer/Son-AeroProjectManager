@@ -1,5 +1,5 @@
 <#
-    One-time IIS setup after all four published folders and Production settings are in place.
+    One-time IIS setup after all five published folders and Production settings are in place.
     Run from an elevated PowerShell session on SON-IIS2 only.
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
@@ -26,7 +26,8 @@ $sites = @(
     [pscustomobject]@{ Name = 'ProjectTracker'; Port = 5135; Folder = 'ProjectTracker' },
     [pscustomobject]@{ Name = 'SonAeroPortal'; Port = 5140; Folder = 'Portal' },
     [pscustomobject]@{ Name = 'EngineeringHub'; Port = 5150; Folder = 'EngineeringHub' },
-    [pscustomobject]@{ Name = 'EstimatingDashboard'; Port = 5160; Folder = 'EstimatingDashboard' }
+    [pscustomobject]@{ Name = 'EstimatingDashboard'; Port = 5160; Folder = 'EstimatingDashboard' },
+    [pscustomobject]@{ Name = 'QualityAssurance'; Port = 5170; Folder = 'QualityAssurance' }
 )
 
 foreach ($site in $sites) {
@@ -46,7 +47,7 @@ if (-not $hostingModule) {
 
 if (-not $PSCmdlet.ShouldProcess(
         "$ExpectedComputerName IIS",
-        'Install Windows Authentication/Application Initialization and create four SON-AERO Hub sites')) {
+        'Install Windows Authentication/Application Initialization and create five SON-AERO Hub sites')) {
     return
 }
 
@@ -167,14 +168,14 @@ if ($firewallRules.Count -gt 1) {
 if ($firewallRules.Count -eq 0) {
     New-NetFirewallRule -DisplayName $firewallName -Direction Inbound -Action Allow `
         -Enabled True -Profile Domain,Private -Protocol TCP `
-        -LocalPort 5135,5140,5150,5160 -RemoteAddress LocalSubnet | Out-Null
+        -LocalPort 5135,5140,5150,5160,5170 -RemoteAddress LocalSubnet | Out-Null
 }
 else {
     $firewallRule = $firewallRules[0]
     $firewallRule | Set-NetFirewallRule -Direction Inbound -Action Allow -Enabled True `
         -Profile Domain,Private | Out-Null
     $firewallRule | Get-NetFirewallPortFilter | Set-NetFirewallPortFilter `
-        -Protocol TCP -LocalPort 5135,5140,5150,5160 | Out-Null
+        -Protocol TCP -LocalPort 5135,5140,5150,5160,5170 | Out-Null
     $firewallRule | Get-NetFirewallAddressFilter | Set-NetFirewallAddressFilter `
         -RemoteAddress LocalSubnet | Out-Null
 }

@@ -1,18 +1,18 @@
 export type AdminModuleKey =
+  | 'access'
   | 'hub'
   | 'project-tracker'
   | 'engineering'
   | 'estimating'
+  | 'quality-assurance'
 
 export type ProjectTrackerAdminSection =
-  | 'access'
   | 'calendar'
   | 'work-centers'
   | 'holidays'
   | 'imports'
 
 export type EngineeringAdminSection =
-  | 'access'
   | 'file-storage'
 
 export type DayOfWeekName =
@@ -47,17 +47,14 @@ export interface PermissionDefinition {
   label: string
   description: string
   category: string
+  moduleKey: string
+  moduleName: string
 }
 
 export interface AccessOverview {
   users: RegisteredUser[]
   groups: AccessGroup[]
   permissions: PermissionDefinition[]
-}
-
-export interface EngineeringAccessOverview extends AccessOverview {
-  canManageUsers: boolean
-  canManageGroups: boolean
 }
 
 export interface AdminPreviewApplication {
@@ -117,33 +114,6 @@ export interface ProjectTrackerUser {
   isAdmin: boolean
 }
 
-export interface ModuleAccessRole {
-  role: 'Viewer' | 'Editor' | 'Admin'
-  permissions: PermissionDefinition[]
-}
-
-export interface ModuleAccessCatalogEntry {
-  key: string
-  name: string
-  roles: ModuleAccessRole[]
-}
-
-export interface UserModuleAccess {
-  moduleKey: string
-  enabled: boolean
-  role: 'Viewer' | 'Editor' | 'Admin' | null
-  permissions: string[]
-  updatedAt: string | null
-}
-
-export interface ModuleAccessUser {
-  userId: number
-  accountName: string
-  displayName: string
-  isActive: boolean
-  modules: UserModuleAccess[]
-}
-
 export interface WorkCenter {
   id: number
   name: string
@@ -160,8 +130,44 @@ export interface ScheduleSettings {
   updatedAt: string
 }
 
-export interface ImportResult {
-  projectCount: number
-  taskCount: number
-  holidayCount: number
+export interface ImportIssue {
+  sheet: string
+  row: number
+  column: string | null
+  message: string
+}
+
+export interface ImportChange {
+  sheet: string
+  row: number
+  recordKey: string
+  changeType: 'Added' | 'Modified'
+  field: string
+  currentValue: string | null
+  uploadedValue: string | null
+}
+
+export interface ImportValidationResult {
+  reviewId: string
+  expiresAt: string
+  fileName: string
+  projectRows: number
+  operationRows: number
+  projectsAdded: number
+  projectsUpdated: number
+  operationsAdded: number
+  operationsUpdated: number
+  changeCount: number
+  errors: ImportIssue[]
+  changes: ImportChange[]
+  reviewWorkbookUrl: string
+  canConfirm: boolean
+}
+
+export interface ImportApplyResult {
+  projectsAdded: number
+  projectsUpdated: number
+  operationsAdded: number
+  operationsUpdated: number
+  changeCount: number
 }

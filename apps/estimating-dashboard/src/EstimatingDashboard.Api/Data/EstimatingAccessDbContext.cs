@@ -9,6 +9,9 @@ public sealed class EstimatingAccessDbContext(
     public DbSet<EstimatingUserRecord> Users => Set<EstimatingUserRecord>();
     public DbSet<EstimatingModuleAccessRecord> UserModuleAccess =>
         Set<EstimatingModuleAccessRecord>();
+    public DbSet<EstimatingAccessGroupRecord> Groups => Set<EstimatingAccessGroupRecord>();
+    public DbSet<EstimatingUserGroupMembershipRecord> UserGroupMemberships => Set<EstimatingUserGroupMembershipRecord>();
+    public DbSet<EstimatingGroupPermissionRecord> GroupPermissions => Set<EstimatingGroupPermissionRecord>();
     public DbSet<AccessPreviewSessionRecord> AccessPreviewSessions =>
         Set<AccessPreviewSessionRecord>();
 
@@ -21,6 +24,35 @@ public sealed class EstimatingAccessDbContext(
             entity.Property(user => user.AccountName).HasMaxLength(160);
             entity.Property(user => user.DisplayName).HasMaxLength(160);
             entity.Property(user => user.PortalRole).HasColumnName("Role").HasMaxLength(32);
+            entity.HasMany(user => user.GroupMemberships)
+                .WithOne(membership => membership.User)
+                .HasForeignKey(membership => membership.AppUserId);
+        });
+
+        modelBuilder.Entity<EstimatingAccessGroupRecord>(entity =>
+        {
+            entity.ToTable("Groups");
+            entity.HasKey(group => group.Id);
+            entity.Property(group => group.Name).HasMaxLength(80);
+            entity.HasMany(group => group.UserMemberships)
+                .WithOne(membership => membership.Group)
+                .HasForeignKey(membership => membership.AppGroupId);
+            entity.HasMany(group => group.Permissions)
+                .WithOne(permission => permission.Group)
+                .HasForeignKey(permission => permission.AppGroupId);
+        });
+
+        modelBuilder.Entity<EstimatingUserGroupMembershipRecord>(entity =>
+        {
+            entity.ToTable("UserGroupMemberships");
+            entity.HasKey(membership => new { membership.AppUserId, membership.AppGroupId });
+        });
+
+        modelBuilder.Entity<EstimatingGroupPermissionRecord>(entity =>
+        {
+            entity.ToTable("GroupPermissions");
+            entity.HasKey(permission => new { permission.AppGroupId, permission.PermissionKey });
+            entity.Property(permission => permission.PermissionKey).HasMaxLength(120);
         });
 
         modelBuilder.Entity<EstimatingModuleAccessRecord>(entity =>
@@ -55,6 +87,7 @@ public sealed class EstimatingUserRecord
     public string PortalRole { get; set; } = string.Empty;
     public bool IsActive { get; set; }
     public ICollection<EstimatingModuleAccessRecord> ModuleAccesses { get; set; } = [];
+    public ICollection<EstimatingUserGroupMembershipRecord> GroupMemberships { get; set; } = [];
 }
 
 public sealed class EstimatingModuleAccessRecord
@@ -63,4 +96,27 @@ public sealed class EstimatingModuleAccessRecord
     public string ModuleKey { get; set; } = string.Empty;
     public string? Role { get; set; }
     public EstimatingUserRecord User { get; set; } = null!;
+}
+
+public sealed class EstimatingAccessGroupRecord
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public ICollection<EstimatingUserGroupMembershipRecord> UserMemberships { get; set; } = [];
+    public ICollection<EstimatingGroupPermissionRecord> Permissions { get; set; } = [];
+}
+
+public sealed class EstimatingUserGroupMembershipRecord
+{
+    public int AppUserId { get; set; }
+    public EstimatingUserRecord User { get; set; } = null!;
+    public int AppGroupId { get; set; }
+    public EstimatingAccessGroupRecord Group { get; set; } = null!;
+}
+
+public sealed class EstimatingGroupPermissionRecord
+{
+    public int AppGroupId { get; set; }
+    public EstimatingAccessGroupRecord Group { get; set; } = null!;
+    public string PermissionKey { get; set; } = string.Empty;
 }

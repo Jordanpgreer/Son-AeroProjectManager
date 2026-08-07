@@ -56,6 +56,12 @@ public sealed class ModuleAccessService
                 user.Id,
                 ApplicationModules.Estimating,
                 ApplicationRoles.Admin);
+            AddIfMissing(
+                db,
+                existingKeys,
+                user.Id,
+                ApplicationModules.QualityAssurance,
+                ApplicationRoles.Admin);
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -76,6 +82,14 @@ public sealed class ModuleAccessService
                 ?? throw new ModuleAccessValidationException(
                     "Role must be Viewer, Editor, or Admin when module access is enabled.")
             : null;
+        var module = ApplicationModuleCatalog.Find(normalizedModule)!;
+        if (normalizedRole is not null
+            && module.Roles.All(candidate => candidate.Role != normalizedRole))
+        {
+            var supportedRoles = string.Join(", ", module.Roles.Select(candidate => candidate.Role));
+            throw new ModuleAccessValidationException(
+                $"The {module.Name} module only supports these roles: {supportedRoles}.");
+        }
 
         var user = await db.Users
             .Include(candidate => candidate.ModuleAccessAssignments)

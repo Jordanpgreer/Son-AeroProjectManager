@@ -31,7 +31,7 @@ dotnet run --launch-profile http
 Open `http://localhost:5135`.
 
 To run the full hub (Project Tracker + Portal) together, use `scripts\Start-Hub.ps1` at the repository root instead. See the [root README](../../README.md).
-Project Tracker administration is available at `http://localhost:5140/#/admin/project-tracker/access`.
+Shared users, groups, and module permissions are available at `http://localhost:5140/#/admin/access`.
 
 Development mode uses `project-tracker-dev.db` and auto-imports the existing workbook when the database is empty.
 

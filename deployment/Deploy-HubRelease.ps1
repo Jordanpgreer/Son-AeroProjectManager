@@ -1,7 +1,7 @@
 <#
     Deploys one immutable SON-AERO Hub release on SON-IIS2.
 
-    The package must contain four published application folders. Development settings are
+    The package must contain five published application folders. Development settings are
     deliberately not copied. Each application's current appsettings.Production.json is
     carried forward before IIS is stopped or changed.
 #>
@@ -47,6 +47,12 @@ $applications = @(
         Folder = 'EstimatingDashboard'
         Port = 5160
         MainDll = 'EstimatingDashboard.Api.dll'
+    },
+    [pscustomobject]@{
+        Name = 'QualityAssurance'
+        Folder = 'QualityAssurance'
+        Port = 5170
+        MainDll = 'QualityAssurance.Api.dll'
     }
 )
 

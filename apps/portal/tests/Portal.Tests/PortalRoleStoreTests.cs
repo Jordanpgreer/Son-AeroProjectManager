@@ -31,7 +31,7 @@ public sealed class PortalRoleStoreTests
     }
 
     [Fact]
-    public async Task FindModuleRolesAsync_ReturnsEnabledAssignmentsForActiveUserOnly()
+    public async Task FindModuleRolesAsync_DerivesRolesFromSharedGroupPermissions()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -44,10 +44,19 @@ public sealed class PortalRoleStoreTests
             DisplayName = "Estimator One",
             Role = "Viewer",
             IsActive = true,
-            ModuleAccessAssignments =
+            ProjectTrackerGroupMemberships =
             [
-                new PortalModuleAccessRecord { ModuleKey = "estimating", Role = "Editor" },
-                new PortalModuleAccessRecord { ModuleKey = "engineering", Role = null }
+                new PortalProjectTrackerMembershipRecord
+                {
+                    Group = new PortalProjectTrackerGroupRecord
+                    {
+                        Name = "Estimating Editors",
+                        Permissions = ApplicationModuleCatalog
+                            .PermissionsFor(ApplicationModules.Estimating, ApplicationRoles.Editor)
+                            .Select(permission => new PortalProjectTrackerPermissionRecord { PermissionKey = permission.Key })
+                            .ToList()
+                    }
+                }
             ]
         };
         db.Users.Add(user);
@@ -82,20 +91,20 @@ public sealed class PortalRoleStoreTests
     }
 
     [Fact]
-    public async Task Engineering_groups_share_registered_users_and_permissions()
+    public async Task Shared_groups_hold_engineering_permissions()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
         var options = new DbContextOptionsBuilder<PortalRoleDbContext>().UseSqlite(connection).Options;
         await using var db = new PortalRoleDbContext(options);
         await db.Database.EnsureCreatedAsync();
-        var group = new PortalEngineeringGroupRecord
+        var group = new PortalProjectTrackerGroupRecord
         {
             Name = "Engineering",
             Permissions =
             [
-                new PortalEngineeringPermissionRecord { PermissionKey = EngineeringPermissions.ModuleView },
-                new PortalEngineeringPermissionRecord { PermissionKey = EngineeringPermissions.DrawingCreate }
+                new PortalProjectTrackerPermissionRecord { PermissionKey = EngineeringPermissions.ModuleView },
+                new PortalProjectTrackerPermissionRecord { PermissionKey = EngineeringPermissions.DrawingCreate }
             ]
         };
         var user = new PortalRoleRecord
@@ -104,21 +113,21 @@ public sealed class PortalRoleStoreTests
             DisplayName = "Engineering User",
             Role = ApplicationRoles.Viewer,
             IsActive = true,
-            EngineeringGroupMemberships =
+            ProjectTrackerGroupMemberships =
             [
-                new PortalEngineeringMembershipRecord { Group = group }
+                new PortalProjectTrackerMembershipRecord { Group = group }
             ]
         };
         db.Users.Add(user);
         await db.SaveChangesAsync();
 
-        var permissions = await db.EngineeringUserGroupMemberships
+        var permissions = await db.ProjectTrackerUserGroupMemberships
             .Where(membership => membership.AppUserId == user.Id)
             .SelectMany(membership => membership.Group.Permissions)
             .Select(permission => permission.PermissionKey)
             .ToListAsync();
 
         Assert.Equal(ApplicationRoles.Editor, EngineeringPermissions.RoleFor(permissions));
-        Assert.Equal("Engineering", Assert.Single(user.EngineeringGroupMemberships).Group.Name);
+        Assert.Equal("Engineering", Assert.Single(user.ProjectTrackerGroupMemberships).Group.Name);
     }
 }

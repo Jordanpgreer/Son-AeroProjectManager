@@ -106,4 +106,26 @@ public sealed class ApplicationRegistryTests
         Assert.Contains(visible, application => application.Id == "estimating-dashboard");
         Assert.DoesNotContain(visible, application => application.Id == "engineering-hub");
     }
+
+    [Fact]
+    public void GetVisibleFor_QualityAssurance_RequiresPortalAdminAndModuleAssignment()
+    {
+        const string json = """
+        {
+          "Portal": {
+            "Applications": [
+              { "Id": "quality-assurance", "Name": "Quality Assurance", "Order": 1, "Status": "Active", "AllowedRoles": ["Admin"] }
+            ]
+          }
+        }
+        """;
+        var registry = new ApplicationRegistry(BuildConfiguration(json));
+        var qualityAccess = new HashSet<string>(
+            ["quality-assurance"],
+            StringComparer.OrdinalIgnoreCase);
+
+        Assert.Empty(registry.GetVisibleFor("Viewer", qualityAccess));
+        Assert.Empty(registry.GetVisibleFor("Admin", new HashSet<string>()));
+        Assert.Single(registry.GetVisibleFor("Admin", qualityAccess));
+    }
 }

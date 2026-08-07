@@ -64,7 +64,10 @@ function GroupEditor({
   disabled: boolean
   onChange: (permissions: string[]) => void
 }) {
-  const categories = [...new Set(permissions.map((permission) => permission.category))]
+  const modules = [...new Map(permissions.map((permission) => [permission.moduleKey, {
+    key: permission.moduleKey,
+    name: permission.moduleName,
+  }])).values()]
   return (
     <details className="admin-group-card">
       <summary>
@@ -78,31 +81,45 @@ function GroupEditor({
         </span>
         <ChevronDown size={17} aria-hidden="true" />
       </summary>
-      <div className="admin-permission-groups">
-        {categories.map((category) => (
-          <fieldset key={category}>
-            <legend>{category}</legend>
-            {permissions.filter((permission) => permission.category === category).map((permission) => (
-              <label className="admin-check-row" key={permission.key}>
-                <input
-                  type="checkbox"
-                  checked={draft.includes(permission.key)}
-                  disabled={disabled}
-                  onChange={() => {
-                    const next = draft.includes(permission.key)
-                      ? draft.filter((key) => key !== permission.key)
-                      : [...draft, permission.key]
-                    onChange(next.sort((a, b) => a.localeCompare(b)))
-                  }}
-                />
-                <span>
-                  <strong>{permission.label}</strong>
-                  <small>{permission.description}</small>
-                </span>
-              </label>
-            ))}
-          </fieldset>
-        ))}
+      <div className="admin-module-permission-list">
+        {modules.map((module) => {
+          const modulePermissions = permissions.filter((permission) => permission.moduleKey === module.key)
+          const categories = [...new Set(modulePermissions.map((permission) => permission.category))]
+          const isAdministratorsGroup = group.name.toLowerCase() === 'administrators'
+          const isAvailable = (permission: PermissionDefinition) => permission.key !== 'import.manage' || isAdministratorsGroup
+          const selectedCount = modulePermissions.filter((permission) => isAvailable(permission) && draft.includes(permission.key)).length
+          return (
+            <section className="admin-module-permission-card" key={module.key}>
+              <header>
+                <span>{module.name.slice(0, 2).toUpperCase()}</span>
+                <div><strong>{module.name}</strong><small>{selectedCount} of {modulePermissions.length} permissions selected</small></div>
+              </header>
+              <div className="admin-permission-groups">
+                {categories.map((category) => (
+                  <fieldset key={category}>
+                    <legend>{category}</legend>
+                    {modulePermissions.filter((permission) => permission.category === category).map((permission) => (
+                      <label className={`admin-check-row ${isAvailable(permission) ? '' : 'permission-restricted'}`.trim()} key={permission.key}>
+                        <input
+                          type="checkbox"
+                          checked={isAvailable(permission) && draft.includes(permission.key)}
+                          disabled={disabled || !isAvailable(permission)}
+                          onChange={() => {
+                            const next = draft.includes(permission.key)
+                              ? draft.filter((key) => key !== permission.key)
+                              : [...draft, permission.key]
+                            onChange(next.sort((a, b) => a.localeCompare(b)))
+                          }}
+                        />
+                        <span><strong>{permission.label}</strong><small>{permission.description}</small></span>
+                      </label>
+                    ))}
+                  </fieldset>
+                ))}
+              </div>
+            </section>
+          )
+        })}
       </div>
     </details>
   )
@@ -112,7 +129,7 @@ export default function AccessPanel({
   currentAccountName,
   canManageUsers,
   canManageGroups,
-  context = 'Project Tracker',
+  context = 'SON-AERO',
 }: {
   currentAccountName: string | null
   canManageUsers: boolean
@@ -202,7 +219,7 @@ export default function AccessPanel({
         }),
       })
       setNewUser({ accountName: '', displayName: '' })
-      setMessage('User registered. Assign access groups below.')
+      setMessage('User registered. Assign shared access groups below.')
       await load()
     } catch (cause) {
       setError(toErrorMessage(cause))
@@ -273,18 +290,8 @@ export default function AccessPanel({
         <div>
           <span className="kicker">Access control</span>
           <h2 id="access-heading">{context} users and groups</h2>
-          <p>Register Windows accounts, assign groups, and control detailed permissions.</p>
+          <p>Register Windows accounts, assign shared groups, and control each group&apos;s permissions by module.</p>
         </div>
-        <label className="admin-search">
-          <Search size={16} aria-hidden="true" />
-          <span className="sr-only">Search registered users</span>
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search users"
-          />
-        </label>
       </header>
 
       {error && <p className="admin-notice error" role="alert"><AlertTriangle size={16} /> {error}</p>}
@@ -294,14 +301,28 @@ export default function AccessPanel({
         <div className="admin-loading" role="status">Loading access controls…</div>
       ) : (
         <div className="admin-access-grid">
-          <section aria-labelledby="registered-users-heading">
-            <div className="admin-section-title">
+          <details className="admin-user-directory">
+            <summary>
+              <span className="admin-directory-icon"><UserRound size={18} aria-hidden="true" /></span>
               <div>
                 <h3 id="registered-users-heading">Registered users</h3>
-                <p>{filteredUsers.length} of {overview.users.length} shown</p>
+                <p>Search accounts and expand one user to edit assignments.</p>
               </div>
-              <UserRound size={19} aria-hidden="true" />
-            </div>
+              <span className="admin-directory-count">{overview.users.length} {overview.users.length === 1 ? 'user' : 'users'}</span>
+              <ChevronDown size={18} aria-hidden="true" />
+            </summary>
+            <div className="admin-user-directory-body" aria-labelledby="registered-users-heading">
+              <label className="admin-search admin-user-search">
+                <Search size={16} aria-hidden="true" />
+                <span className="sr-only">Search registered users</span>
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search by name or Windows account"
+                />
+              </label>
+              <p className="admin-directory-results">{filteredUsers.length} of {overview.users.length} users shown · assignments apply across modules</p>
             {canManageUsers ? (
               <form className="admin-create-form" onSubmit={createUser}>
                 <label>
@@ -320,55 +341,62 @@ export default function AccessPanel({
                 const draft = userDrafts[user.id] ?? { groupIds: user.groupIds, isActive: user.isActive }
                 const isCurrent = accountKey(currentAccountName) === accountKey(user.accountName)
                 return (
-                  <article className="admin-user-card" key={user.id}>
-                    <span className="admin-user-avatar" aria-hidden="true">{initials(user.displayName)}</span>
-                    <div className="admin-user-identity">
-                      <strong>{user.displayName} {isCurrent && <small>You</small>}</strong>
-                      <span>{user.accountName}</span>
-                      <time dateTime={user.lastSeenAt}>{formatLastSeen(user.lastSeenAt)}</time>
+                  <details className="admin-user-card" key={user.id}>
+                    <summary>
+                      <span className="admin-user-avatar" aria-hidden="true">{initials(user.displayName)}</span>
+                      <div className="admin-user-identity">
+                        <strong>{user.displayName} {isCurrent && <small>You</small>}</strong>
+                        <span>{user.accountName}</span>
+                        <time dateTime={user.lastSeenAt}>{draft.groupIds.length} {draft.groupIds.length === 1 ? 'group' : 'groups'} · {draft.isActive ? formatLastSeen(user.lastSeenAt) : 'Inactive account'}</time>
+                      </div>
+                      <ChevronDown size={17} aria-hidden="true" />
+                    </summary>
+                    <div className="admin-user-card-body">
+                      <fieldset>
+                        <legend>Shared groups</legend>
+                        {overview.groups.map((group) => (
+                          <label className="admin-check-row compact" key={group.id}>
+                            <input
+                              type="checkbox"
+                              checked={draft.groupIds.includes(group.id)}
+                              disabled={saving || !canManageUsers}
+                              onChange={(event) => updateUser(user.id, (current) => ({
+                                ...current,
+                                groupIds: (event.target.checked
+                                  ? [...current.groupIds, group.id]
+                                  : current.groupIds.filter((id) => id !== group.id))
+                                  .filter((id, index, values) => values.indexOf(id) === index)
+                                  .sort((a, b) => a - b),
+                              }))}
+                            />
+                            <span><strong>{group.name}</strong><small>{group.description}</small></span>
+                          </label>
+                        ))}
+                      </fieldset>
+                      <label className="admin-active-toggle">
+                        <input
+                          type="checkbox"
+                          checked={draft.isActive}
+                          disabled={saving || !canManageUsers}
+                          onChange={(event) => updateUser(user.id, (current) => ({
+                            ...current,
+                            isActive: event.target.checked,
+                          }))}
+                        />
+                        <span>Account active</span>
+                      </label>
                     </div>
-                    <fieldset>
-                      <legend>Group access</legend>
-                      {overview.groups.map((group) => (
-                        <label className="admin-check-row compact" key={group.id}>
-                          <input
-                            type="checkbox"
-                            checked={draft.groupIds.includes(group.id)}
-                            disabled={saving || !canManageUsers}
-                            onChange={(event) => updateUser(user.id, (current) => ({
-                              ...current,
-                              groupIds: (event.target.checked
-                                ? [...current.groupIds, group.id]
-                                : current.groupIds.filter((id) => id !== group.id))
-                                .filter((id, index, values) => values.indexOf(id) === index)
-                                .sort((a, b) => a - b),
-                            }))}
-                          />
-                          <span><strong>{group.name}</strong><small>{group.description}</small></span>
-                        </label>
-                      ))}
-                    </fieldset>
-                    <label className="admin-active-toggle">
-                      <input
-                        type="checkbox"
-                        checked={draft.isActive}
-                        disabled={saving || !canManageUsers}
-                        onChange={(event) => updateUser(user.id, (current) => ({
-                          ...current,
-                          isActive: event.target.checked,
-                        }))}
-                      />
-                      <span>Account active</span>
-                    </label>
-                  </article>
+                  </details>
                 )
               })}
+              {!filteredUsers.length && <p className="admin-empty">No registered users match that search.</p>}
             </div>
-          </section>
+            </div>
+          </details>
 
           <section aria-labelledby="permission-groups-heading">
             <div className="admin-section-title">
-              <div><h3 id="permission-groups-heading">Permission groups</h3><p>Permissions stack across assigned groups.</p></div>
+              <div><h3 id="permission-groups-heading">Shared permission groups</h3><p>Permissions stack across assigned groups and are organized by module.</p></div>
               <ShieldCheck size={19} aria-hidden="true" />
             </div>
             {canManageGroups ? (

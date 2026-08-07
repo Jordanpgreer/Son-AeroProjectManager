@@ -1,4 +1,3 @@
-using EngineeringHub.Api.Auth;
 using EngineeringHub.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using SonAero.Platform.Security;
@@ -129,9 +128,9 @@ public sealed class EngineeringAccessPreviewService(
         var configured = configuration["Portal:Url"];
         if (Uri.TryCreate(configured, UriKind.Absolute, out var portal)
             && portal.Scheme is "http" or "https")
-            return new Uri(portal, "/#/admin/hub/access").ToString();
+            return new Uri(portal, "/#/admin/access").ToString();
 
-        return $"{context.Request.Scheme}://{context.Request.Host.Host}:5140/#/admin/hub/access";
+        return $"{context.Request.Scheme}://{context.Request.Host.Host}:5140/#/admin/access";
     }
 
     private async Task<EngineeringModuleAccess?> ResolveTargetAsync(
@@ -149,10 +148,6 @@ public sealed class EngineeringAccessPreviewService(
                 {
                     candidate.AccountName,
                     candidate.DisplayName,
-                    ModuleRole = candidate.ModuleAccessAssignments
-                        .Where(access => access.ModuleKey == EngineeringAuthorization.ModuleKey)
-                        .Select(access => access.Role)
-                        .SingleOrDefault(),
                     Groups = candidate.GroupMemberships.Select(membership => membership.Group.Name).ToList(),
                     Permissions = candidate.GroupMemberships
                         .SelectMany(membership => membership.Group.Permissions)
@@ -161,7 +156,7 @@ public sealed class EngineeringAccessPreviewService(
                         .ToList()
                 })
                 .SingleOrDefaultAsync(cancellationToken);
-            if (user is null || ApplicationRoles.Normalize(user.ModuleRole) is null) return null;
+            if (user is null) return null;
 
             return BuildAccess(
                 user.Permissions,
@@ -172,7 +167,8 @@ public sealed class EngineeringAccessPreviewService(
                 session.TargetKey);
         }
 
-        if (target.Kind == AccessPreviewTargetKinds.EngineeringGroup)
+        if (target.Kind is AccessPreviewTargetKinds.ProjectTrackerGroup
+            or AccessPreviewTargetKinds.EngineeringGroup)
         {
             var group = await db.Groups.AsNoTracking()
                 .Where(candidate => candidate.Id == target.Id)

@@ -32,12 +32,14 @@ $applications = @(
     [pscustomobject]@{ Id = 'project-tracker'; Site = 'ProjectTracker'; HttpPort = 5135; HttpsPort = 6135 },
     [pscustomobject]@{ Id = 'portal'; Site = 'SonAeroPortal'; HttpPort = 5140; HttpsPort = 6140 },
     [pscustomobject]@{ Id = 'engineering-hub'; Site = 'EngineeringHub'; HttpPort = 5150; HttpsPort = 6150 },
-    [pscustomobject]@{ Id = 'estimating-dashboard'; Site = 'EstimatingDashboard'; HttpPort = 5160; HttpsPort = 6160 }
+    [pscustomobject]@{ Id = 'estimating-dashboard'; Site = 'EstimatingDashboard'; HttpPort = 5160; HttpsPort = 6160 },
+    [pscustomobject]@{ Id = 'quality-assurance'; Site = 'QualityAssurance'; HttpPort = 5170; HttpsPort = 6170 }
 )
 $moduleUrls = @{
     'project-tracker' = 'https://SON-IIS2:6135'
     'engineering-hub' = 'https://SON-IIS2:6150'
     'estimating-dashboard' = 'https://SON-IIS2:6160'
+    'quality-assurance' = 'https://SON-IIS2:6170'
 }
 $hubOrigins = @('https://SON-IIS2:6140', 'http://SON-IIS2:5140')
 

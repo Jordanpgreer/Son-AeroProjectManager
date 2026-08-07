@@ -21,7 +21,8 @@ if (-not (Test-Path -LiteralPath $source)) {
 $clientApps = @(
     (Join-Path $repoRoot 'apps\project-tracker\src\ProjectTracker.Api\ClientApp'),
     (Join-Path $repoRoot 'apps\portal\src\Portal.Api\ClientApp'),
-    (Join-Path $repoRoot 'apps\estimating-dashboard\src\EstimatingDashboard.Api\ClientApp')
+    (Join-Path $repoRoot 'apps\estimating-dashboard\src\EstimatingDashboard.Api\ClientApp'),
+    (Join-Path $repoRoot 'apps\quality-assurance\src\QualityAssurance.Api\ClientApp')
 )
 
 foreach ($clientApp in $clientApps) {

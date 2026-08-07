@@ -47,6 +47,19 @@ public sealed class EngineeringAccessSchemaInitializer(EngineeringRoleDbContext 
             CONSTRAINT "PK_EngineeringGroupPermissions" PRIMARY KEY ("AppGroupId", "PermissionKey"),
             CONSTRAINT "FK_EngineeringGroupPermissions_EngineeringGroups_AppGroupId" FOREIGN KEY ("AppGroupId") REFERENCES "EngineeringGroups" ("Id") ON DELETE CASCADE
         );
+        INSERT OR IGNORE INTO "Groups" ("Name", "Description", "IsSystemGroup", "CreatedAt", "UpdatedAt")
+        SELECT "Name", "Description", "IsSystemGroup", "CreatedAt", "UpdatedAt"
+        FROM "EngineeringGroups";
+        INSERT OR IGNORE INTO "UserGroupMemberships" ("AppUserId", "AppGroupId", "CreatedAt")
+        SELECT membership."AppUserId", sharedGroup."Id", membership."CreatedAt"
+        FROM "EngineeringUserGroupMemberships" membership
+        INNER JOIN "EngineeringGroups" engineeringGroup ON engineeringGroup."Id" = membership."AppGroupId"
+        INNER JOIN "Groups" sharedGroup ON UPPER(sharedGroup."Name") = UPPER(engineeringGroup."Name");
+        INSERT OR IGNORE INTO "GroupPermissions" ("AppGroupId", "PermissionKey", "CreatedAt")
+        SELECT sharedGroup."Id", permission."PermissionKey", permission."CreatedAt"
+        FROM "EngineeringGroupPermissions" permission
+        INNER JOIN "EngineeringGroups" engineeringGroup ON engineeringGroup."Id" = permission."AppGroupId"
+        INNER JOIN "Groups" sharedGroup ON UPPER(sharedGroup."Name") = UPPER(engineeringGroup."Name");
         """ + EngineeringStorageSchema.Sqlite;
 
     private const string SqlServerSchema = """
@@ -85,5 +98,27 @@ public sealed class EngineeringAccessSchemaInitializer(EngineeringRoleDbContext 
                 CONSTRAINT [FK_EngineeringGroupPermissions_EngineeringGroups_AppGroupId] FOREIGN KEY ([AppGroupId]) REFERENCES [EngineeringGroups] ([Id]) ON DELETE CASCADE
             );
         END;
+        INSERT INTO [Groups] ([Name], [Description], [IsSystemGroup], [CreatedAt], [UpdatedAt])
+        SELECT source.[Name], source.[Description], source.[IsSystemGroup], source.[CreatedAt], source.[UpdatedAt]
+        FROM [EngineeringGroups] source
+        WHERE NOT EXISTS (SELECT 1 FROM [Groups] target WHERE UPPER(target.[Name]) = UPPER(source.[Name]));
+
+        INSERT INTO [UserGroupMemberships] ([AppUserId], [AppGroupId], [CreatedAt])
+        SELECT membership.[AppUserId], sharedGroup.[Id], membership.[CreatedAt]
+        FROM [EngineeringUserGroupMemberships] membership
+        INNER JOIN [EngineeringGroups] engineeringGroup ON engineeringGroup.[Id] = membership.[AppGroupId]
+        INNER JOIN [Groups] sharedGroup ON UPPER(sharedGroup.[Name]) = UPPER(engineeringGroup.[Name])
+        WHERE NOT EXISTS (
+            SELECT 1 FROM [UserGroupMemberships] existing
+            WHERE existing.[AppUserId] = membership.[AppUserId] AND existing.[AppGroupId] = sharedGroup.[Id]);
+
+        INSERT INTO [GroupPermissions] ([AppGroupId], [PermissionKey], [CreatedAt])
+        SELECT sharedGroup.[Id], permission.[PermissionKey], permission.[CreatedAt]
+        FROM [EngineeringGroupPermissions] permission
+        INNER JOIN [EngineeringGroups] engineeringGroup ON engineeringGroup.[Id] = permission.[AppGroupId]
+        INNER JOIN [Groups] sharedGroup ON UPPER(sharedGroup.[Name]) = UPPER(engineeringGroup.[Name])
+        WHERE NOT EXISTS (
+            SELECT 1 FROM [GroupPermissions] existing
+            WHERE existing.[AppGroupId] = sharedGroup.[Id] AND existing.[PermissionKey] = permission.[PermissionKey]);
         """ + EngineeringStorageSchema.SqlServer;
 }

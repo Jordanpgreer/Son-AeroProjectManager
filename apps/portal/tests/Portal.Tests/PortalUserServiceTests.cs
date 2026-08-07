@@ -45,6 +45,7 @@ public sealed class PortalUserServiceTests
         Assert.Equal("Jane Doe", me.DisplayName);
         Assert.Equal("Editor", me.Role);
         Assert.All(me.Modules, module => Assert.Equal("Editor", module.Role));
+        Assert.DoesNotContain(me.Modules, module => module.ModuleKey == "quality-assurance");
     }
 
     [Fact]
@@ -71,6 +72,27 @@ public sealed class PortalUserServiceTests
         Assert.Equal("estimating", module.ModuleKey);
         Assert.Equal("Editor", module.Role);
         Assert.Contains("estimating.quotes.manage", module.Permissions);
+    }
+
+    [Fact]
+    public async Task Current_IgnoresUnsupportedModuleRoleAssignments()
+    {
+        var configuration = BuildConfiguration("""
+        { "Authentication": { "Mode": "Windows" }, "Portal": {} }
+        """);
+        var httpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                new[] { new Claim(ClaimTypes.Name, "SONAERO\\qa.viewer") }, "TestAuth")),
+        };
+        var service = new PortalUserService(
+            new HttpContextAccessor { HttpContext = httpContext },
+            configuration,
+            new StubRoleStore(
+                "Viewer",
+                new Dictionary<string, string> { ["quality-assurance"] = "Viewer" }));
+
+        Assert.Empty((await service.CurrentAsync()).Modules);
     }
 
     [Fact]

@@ -4,13 +4,16 @@ public static class ApplicationModules
 {
     public const string Engineering = "engineering";
     public const string Estimating = "estimating";
+    public const string QualityAssurance = "quality-assurance";
 
-    public static readonly IReadOnlyList<string> All = [Engineering, Estimating];
+    public static readonly IReadOnlyList<string> All =
+        [Engineering, Estimating, QualityAssurance];
 
     public static string? Normalize(string? moduleKey) => moduleKey?.Trim().ToLowerInvariant() switch
     {
         Engineering => Engineering,
         Estimating => Estimating,
+        QualityAssurance => QualityAssurance,
         _ => null
     };
 }
@@ -47,7 +50,8 @@ public static class ApplicationModuleCatalog
     public static readonly IReadOnlyList<ApplicationModuleDefinition> All =
     [
         CreateEngineeringModule(),
-        CreateEstimatingModule()
+        CreateEstimatingModule(),
+        CreateQualityAssuranceModule()
     ];
 
     public static ApplicationModuleDefinition? Find(string? moduleKey)
@@ -65,6 +69,27 @@ public static class ApplicationModuleCatalog
         var normalizedRole = ApplicationModuleRoles.Normalize(role)
             ?? throw new ArgumentException($"Unknown module role '{role}'.", nameof(role));
         return module.Roles.Single(candidate => candidate.Role == normalizedRole).Permissions;
+    }
+
+    public static IReadOnlyList<PermissionDefinition> PermissionsForModule(string moduleKey)
+    {
+        var module = Find(moduleKey)
+            ?? throw new ArgumentException($"Unknown module key '{moduleKey}'.", nameof(moduleKey));
+        return module.Roles
+            .SelectMany(role => role.Permissions)
+            .DistinctBy(permission => permission.Key, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    public static string? RoleForPermissions(string moduleKey, IEnumerable<string> permissions)
+    {
+        var module = Find(moduleKey)
+            ?? throw new ArgumentException($"Unknown module key '{moduleKey}'.", nameof(moduleKey));
+        var granted = permissions.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return module.Roles
+            .Reverse()
+            .FirstOrDefault(role => role.Permissions.All(permission => granted.Contains(permission.Key)))
+            ?.Role;
     }
 
     private static ApplicationModuleDefinition CreateEngineeringModule()
@@ -144,6 +169,25 @@ public static class ApplicationModuleCatalog
                 new ApplicationModuleRoleDefinition(
                     ApplicationRoles.Admin,
                     [view, calculate, manageQuotes, manageInputs, administerRates, administerSettings])
+            ]);
+    }
+
+    private static ApplicationModuleDefinition CreateQualityAssuranceModule()
+    {
+        const string category = "Quality Assurance";
+        var view = new PermissionDefinition(
+            "quality-assurance.view",
+            "View Quality Assurance",
+            "Open and view the Quality Assurance module.",
+            category);
+
+        return new ApplicationModuleDefinition(
+            ApplicationModules.QualityAssurance,
+            category,
+            [
+                new ApplicationModuleRoleDefinition(
+                    ApplicationRoles.Admin,
+                    [view])
             ]);
     }
 }
