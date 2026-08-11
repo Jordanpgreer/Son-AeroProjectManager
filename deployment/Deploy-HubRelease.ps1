@@ -23,6 +23,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+$portalCatalogModule = Join-Path $PSScriptRoot 'PortalApplicationCatalog.psm1'
+if (-not (Test-Path -LiteralPath $portalCatalogModule -PathType Leaf)) {
+    throw "Portal catalog deployment module was not found: $portalCatalogModule"
+}
+Import-Module $portalCatalogModule -Force -ErrorAction Stop
+
 $applications = @(
     [pscustomobject]@{
         Name = 'ProjectTracker'
@@ -522,6 +528,19 @@ try {
         $candidateProductionSettings = Join-Path $candidatePath 'appsettings.Production.json'
         Copy-Item -LiteralPath $currentProductionSettings -Destination $candidateProductionSettings
 
+        $oldHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $currentProductionSettings).Hash
+        $copiedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $candidateProductionSettings).Hash
+        if ($oldHash -ne $copiedHash) {
+            throw "Copied production settings hash mismatch for '$($application.Name)'."
+        }
+        if ($application.Name -eq 'SonAeroPortal') {
+            $portalProductionTemplate = Join-Path $PSScriptRoot 'templates\portal.appsettings.Production.json'
+            $catalogResult = Sync-PortalProductionApplicationCatalog `
+                -CandidatePortalPath $candidatePath `
+                -ProductionTemplatePath $portalProductionTemplate
+            Write-Host ($catalogResult | Format-List | Out-String)
+        }
+
         $candidateWebConfig = Join-Path $candidatePath 'web.config'
         $candidateMainDll = Join-Path $candidatePath $application.MainDll
         if (-not (Test-Path -LiteralPath $candidateMainDll -PathType Leaf)) {
@@ -529,11 +548,6 @@ try {
         }
         Assert-ValidWebConfig -Path $candidateWebConfig -MainDll $application.MainDll
         Assert-JsonFile -Path $candidateProductionSettings
-        $oldHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $currentProductionSettings).Hash
-        $newHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $candidateProductionSettings).Hash
-        if ($oldHash -ne $newHash) {
-            throw "Production settings hash mismatch for '$($application.Name)'."
-        }
         $developmentSettings = @(Get-ChildItem -LiteralPath $candidatePath -Recurse -File -Force |
             Where-Object Name -Like 'appsettings.Development*.json')
         if ($developmentSettings.Count -gt 0) {
