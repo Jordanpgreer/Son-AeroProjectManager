@@ -15,6 +15,9 @@ public sealed class ControlledWorkbookImportService(
     public const string ProjectsSheet = "Projects";
     public const string OperationsSheet = "Operations";
     public const string TemplateFileName = "Project-Tracker-Controlled-Import.xlsx";
+    public const string PackagedTemplateFileName = "Project-Tracker-Controlled-Import-Template.xlsx";
+    public const string PackagedTemplateResourceName =
+        "ProjectTracker.Api.Assets.Templates.Project-Tracker-Controlled-Import-Template.xlsx";
 
     private static readonly string[] ProjectHeaders =
     [
@@ -67,11 +70,9 @@ public sealed class ControlledWorkbookImportService(
             .AsSplitQuery()
             .ToListAsync(cancellationToken);
 
-        using var workbook = new XLWorkbook();
-        var projectSheet = workbook.Worksheets.Add(ProjectsSheet);
-        var operationSheet = workbook.Worksheets.Add(OperationsSheet);
-        WriteHeaders(projectSheet, ProjectHeaders, 3);
-        WriteHeaders(operationSheet, OperationHeaders, 4);
+        using var workbook = OpenPackagedTemplate();
+        var projectSheet = workbook.Worksheet(ProjectsSheet);
+        var operationSheet = workbook.Worksheet(OperationsSheet);
 
         var projectRow = 2;
         foreach (var project in projects)
@@ -128,6 +129,25 @@ public sealed class ControlledWorkbookImportService(
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
         return stream.ToArray();
+    }
+
+    private static XLWorkbook OpenPackagedTemplate()
+    {
+        var templatePath = Path.Combine(
+            AppContext.BaseDirectory,
+            "Assets",
+            "Templates",
+            PackagedTemplateFileName);
+        if (File.Exists(templatePath))
+        {
+            return new XLWorkbook(templatePath);
+        }
+
+        using var templateStream = typeof(ControlledWorkbookImportService).Assembly
+            .GetManifestResourceStream(PackagedTemplateResourceName)
+            ?? throw new InvalidOperationException(
+                $"The packaged import template '{PackagedTemplateFileName}' is missing.");
+        return new XLWorkbook(templateStream);
     }
 
     public async Task<ImportValidationResultDto> ValidateAsync(
@@ -850,17 +870,6 @@ public sealed class ControlledWorkbookImportService(
             valid = false;
         }
         return valid;
-    }
-
-    private static void WriteHeaders(IXLWorksheet sheet, IReadOnlyList<string> headers, int requiredCount)
-    {
-        for (var column = 1; column <= headers.Count; column++)
-        {
-            var cell = sheet.Cell(1, column);
-            cell.Value = headers[column - 1];
-            StyleHeader(cell, column <= requiredCount);
-        }
-        sheet.Row(1).Height = 30;
     }
 
     private static void StyleHeader(IXLCell cell, bool required)

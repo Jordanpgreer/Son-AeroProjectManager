@@ -15,6 +15,20 @@ public sealed class ControlledWorkbookImportServiceTests
     private const string AccountName = @"TEST\administrator";
 
     [Fact]
+    public void PackagedTemplate_IsBlankAndContainsOnlyExpectedSheets()
+    {
+        using var stream = typeof(ControlledWorkbookImportService).Assembly
+            .GetManifestResourceStream(ControlledWorkbookImportService.PackagedTemplateResourceName);
+
+        Assert.NotNull(stream);
+        using var workbook = new XLWorkbook(stream);
+        Assert.Equal([ControlledWorkbookImportService.ProjectsSheet, ControlledWorkbookImportService.OperationsSheet],
+            workbook.Worksheets.Select(sheet => sheet.Name).ToArray());
+        Assert.Equal(1, workbook.Worksheet(ControlledWorkbookImportService.ProjectsSheet).LastRowUsed()!.RowNumber());
+        Assert.Equal(1, workbook.Worksheet(ControlledWorkbookImportService.OperationsSheet).LastRowUsed()!.RowNumber());
+    }
+
+    [Fact]
     public async Task ExportAndValidate_RoundTripsCurrentDataWithoutChanges()
     {
         await using var connection = await OpenConnectionAsync();

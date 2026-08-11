@@ -36,6 +36,8 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
+    <EmbeddedResource Include="Assets\Templates\Project-Tracker-Controlled-Import-Template.xlsx"
+                      LogicalName="ProjectTracker.Api.Assets.Templates.Project-Tracker-Controlled-Import-Template.xlsx" />
   </ItemGroup>
 
   <Target Name="BuildClient" BeforeTargets="ComputeFilesToPublish" Condition="'$(SkipClientBuild)' != 'true'">

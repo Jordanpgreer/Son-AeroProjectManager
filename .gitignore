@@ -50,6 +50,7 @@ logs/
 
 # Generated/exported reports
 *.xlsx
+!apps/project-tracker/src/ProjectTracker.Api/Assets/Templates/Project-Tracker-Controlled-Import-Template.xlsx
 *.pdf
 !Project Tracker.xlsm
 
