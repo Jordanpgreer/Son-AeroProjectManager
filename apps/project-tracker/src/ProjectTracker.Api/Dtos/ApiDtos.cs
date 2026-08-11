@@ -158,7 +158,11 @@ public sealed record ProjectDetailDto(
     DateOnly? ActualStart,
     DateOnly? ActualFinish,
     int? ScheduleVarianceDays,
-    string? SchedulePerformance);
+    string? SchedulePerformance,
+    bool RequiresImportCompletion,
+    IReadOnlyList<ProjectMissingFieldDto> MissingImportFields);
+
+public sealed record ProjectMissingFieldDto(string Key, string Label);
 
 public sealed record ProjectVersionDto(int Id, long Version, DateTimeOffset UpdatedAt);
 
@@ -335,7 +339,9 @@ public sealed record ImportValidationResultDto(
     IReadOnlyList<ImportIssueDto> Errors,
     IReadOnlyList<ImportChangeDto> Changes,
     string ReviewWorkbookUrl,
-    bool CanConfirm);
+    bool CanConfirm,
+    string WorkbookFormat,
+    int ProjectsRequiringCompletion);
 
 public sealed record ImportApplyResultDto(
     int ProjectsAdded,

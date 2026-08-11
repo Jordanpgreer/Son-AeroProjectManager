@@ -104,6 +104,13 @@ export type ProjectDetail = {
   actualFinish?: string | null
   scheduleVarianceDays?: number | null
   schedulePerformance?: string | null
+  requiresImportCompletion: boolean
+  missingImportFields: ProjectMissingField[]
+}
+
+export type ProjectMissingField = {
+  key: 'customerName' | 'programManager' | 'engineer' | 'salesOrderNumber' | 'jobNumber'
+  label: string
 }
 
 export type ProjectMetadataDraft = {

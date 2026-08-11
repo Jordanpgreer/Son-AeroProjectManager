@@ -51,6 +51,9 @@ public static class ProjectDtoMapper
     public static ProjectDetailDto ToDetailDto(Project project)
     {
         var schedule = ProjectScheduleContext.From(project);
+        var missingImportFields = ProjectImportCompletion.GetMissingFields(project)
+            .Select(field => new ProjectMissingFieldDto(field.Key, field.Label))
+            .ToList();
         return new ProjectDetailDto(
             project.Id,
             project.Version,
@@ -73,7 +76,9 @@ public static class ProjectDtoMapper
             schedule.ActualStart,
             schedule.ActualFinish,
             schedule.VarianceDays,
-            schedule.Performance);
+            schedule.Performance,
+            missingImportFields.Count > 0,
+            missingImportFields);
     }
 
     public static ProjectTaskDto ToTaskDto(ProjectTask task) => new(

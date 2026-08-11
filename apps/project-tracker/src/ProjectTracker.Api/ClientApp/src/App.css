@@ -1806,6 +1806,19 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .confirmation-copy p strong { color: var(--ink); font-family: var(--font-id); }
 .confirmation-actions { grid-column: 1 / -1; padding-top: 5px; border-top: 1px solid var(--line); }
 .unsaved-detail-actions { flex-wrap: wrap; }
+.import-completion-modal { width: min(610px, 100%); padding: 0; overflow: hidden; }
+.import-completion-head { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 14px; padding: 24px 24px 19px; border-bottom: 1px solid var(--line); background: linear-gradient(110deg, var(--warn-tint), transparent 55%); }
+.import-completion-head > div:last-child { display: grid; gap: 7px; }
+.import-completion-head h2 { font-size: 20px; }
+.import-completion-head p { max-width: 62ch; color: var(--ink-2); font-size: 12.5px; line-height: 1.55; }
+.import-completion-head p strong { color: var(--ink); font-family: var(--font-id); }
+.import-completion-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 20px 24px 8px; }
+.import-completion-fields .field:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.import-completion-fields .field > span { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.import-completion-fields .field em { padding: 2px 6px; border-radius: var(--r-pill); background: var(--warn-tint); color: var(--warn-700); font-style: normal; font-size: 8px; letter-spacing: 0.06em; }
+.import-completion-note { margin: 10px 24px 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.import-completion-modal > .inline-note { margin: 10px 24px 0; }
+.import-completion-actions { padding: 16px 24px 20px; border-top: 1px solid var(--line); }
 .button.danger-solid { color: #fff; background: var(--red); box-shadow: 0 6px 16px -8px rgba(226, 59, 44, 0.7); }
 .button.danger-solid:hover { background: var(--red-600); }
 .button.complete-solid { color: #fff; background: var(--ok-700); box-shadow: 0 6px 16px -8px rgba(31, 132, 83, 0.65); }
@@ -2248,6 +2261,11 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
   .project-detail-save-row { align-items: stretch; flex-direction: column; }
   .project-detail-save-button { width: 100%; min-width: 0; }
   .confirmation-modal { grid-template-columns: 1fr; }
+  .import-completion-head { grid-template-columns: 1fr; padding: 20px; }
+  .import-completion-fields { grid-template-columns: 1fr; padding: 18px 20px 6px; }
+  .import-completion-fields .field:last-child:nth-child(odd) { grid-column: auto; }
+  .import-completion-note { margin-inline: 20px; }
+  .import-completion-actions { padding: 14px 20px 18px; }
   .confirmation-actions { grid-column: 1; }
   .settings-tabs { width: 100%; overflow-x: auto; }
   .settings-tabs button { flex: 1 0 auto; }

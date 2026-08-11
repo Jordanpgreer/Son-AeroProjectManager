@@ -19,7 +19,7 @@ public sealed class ControlledWorkbookImportService(
     public const string PackagedTemplateResourceName =
         "ProjectTracker.Api.Assets.Templates.Project-Tracker-Controlled-Import-Template.xlsx";
 
-    private static readonly string[] ProjectHeaders =
+    internal static readonly string[] ProjectHeaders =
     [
         "Project ID (Required)",
         "Part Number (Required)",
@@ -37,7 +37,7 @@ public sealed class ControlledWorkbookImportService(
         "Current Operation (Read Only)"
     ];
 
-    private static readonly string[] OperationHeaders =
+    internal static readonly string[] OperationHeaders =
     [
         "Project ID (Required)",
         "Operation ID (Required)",
@@ -159,14 +159,17 @@ public sealed class ControlledWorkbookImportService(
     {
         var errors = new List<ImportIssueDto>();
         ControlledImportPayload payload;
+        var reviewWorkbookBytes = workbookBytes;
         try
         {
-            payload = ParseWorkbook(workbookBytes, errors);
+            var parsed = ParseWorkbook(workbookBytes, fileName, errors);
+            payload = parsed.Payload;
+            reviewWorkbookBytes = parsed.ReviewWorkbook;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             throw new ControlledImportValidationException(
-                $"The workbook could not be read. Download a fresh Project Tracker template and try again. {exception.Message}");
+                $"The workbook could not be read. Upload the controlled Project Tracker template or one of the supported schedule workbooks. {exception.Message}");
         }
 
         var currentProjects = await db.Projects
@@ -197,7 +200,7 @@ public sealed class ControlledWorkbookImportService(
         var review = ControlledImportReviewStore.Create(
             accountName,
             Path.GetFileName(fileName),
-            workbookBytes,
+            reviewWorkbookBytes,
             payload,
             errors,
             changes,
@@ -392,10 +395,32 @@ public sealed class ControlledWorkbookImportService(
             review.Changes.Count);
     }
 
-    private static ControlledImportPayload ParseWorkbook(byte[] workbookBytes, List<ImportIssueDto> errors)
+    private static ParsedWorkbook ParseWorkbook(
+        byte[] workbookBytes,
+        string fileName,
+        List<ImportIssueDto> errors)
     {
         using var stream = new MemoryStream(workbookBytes);
         using var workbook = new XLWorkbook(stream);
+        var hasControlledSheet = workbook.Worksheets.Any(sheet =>
+            sheet.Name is ProjectsSheet or OperationsSheet);
+        if (!hasControlledSheet
+            && LegacyProjectWorkbookParser.TryParse(workbook, fileName, errors, out var legacy))
+        {
+            return new ParsedWorkbook(legacy.Payload, legacy.NormalizedWorkbook);
+        }
+
+        if (!hasControlledSheet)
+        {
+            errors.Add(new ImportIssueDto(
+                "Workbook",
+                1,
+                null,
+                "The workbook format was not recognized. Use the controlled Projects/Operations template, the multi-project tracker workbook, or the single-project Gantt schedule."));
+            var empty = new ControlledImportPayload([], [], "Unrecognized workbook");
+            return new ParsedWorkbook(empty, LegacyProjectWorkbookParser.BuildNormalizedWorkbook(empty));
+        }
+
         var unexpectedSheets = workbook.Worksheets
             .Select(sheet => sheet.Name)
             .Where(name => name is not ProjectsSheet and not OperationsSheet)
@@ -416,7 +441,9 @@ public sealed class ControlledWorkbookImportService(
         var operations = operationSheet is not null && ValidateHeaders(operationSheet, OperationHeaders, errors)
             ? ParseOperations(operationSheet, errors)
             : [];
-        return new ControlledImportPayload(projects, operations);
+        return new ParsedWorkbook(
+            new ControlledImportPayload(projects, operations),
+            workbookBytes);
     }
 
     private static List<ControlledProjectRow> ParseProjects(IXLWorksheet sheet, List<ImportIssueDto> errors)
@@ -749,6 +776,10 @@ public sealed class ControlledWorkbookImportService(
         project.JobNumber = row.JobNumber;
         project.PriorityRank = row.PriorityRank;
         project.CompletedOn = row.CompletedOn;
+        if (row.ExistingId is null)
+            project.ImportNeedsCompletion = row.RequiresCompletion;
+        else if (project.ImportNeedsCompletion)
+            ProjectImportCompletion.Refresh(project);
     }
 
     private static void ApplyOperationRow(ProjectTask operation, ControlledOperationRow row)
@@ -785,7 +816,9 @@ public sealed class ControlledWorkbookImportService(
         review.Errors,
         review.Changes.Take(250).ToList(),
         $"/api/import/reviews/{review.Id}/workbook",
-        review.Errors.Count == 0 && review.Changes.Count > 0);
+        review.Errors.Count == 0 && review.Changes.Count > 0,
+        review.Payload.SourceFormat,
+        review.Payload.Projects.Count(project => project.RequiresCompletion));
 
     private static int CountRecords(IReadOnlyList<ImportChangeDto> changes, string sheet, string changeType) =>
         changes.Where(change => change.Sheet == sheet && change.ChangeType == changeType)
@@ -1099,4 +1132,8 @@ public sealed class ControlledWorkbookImportService(
         string Action,
         string Summary,
         IReadOnlyCollection<ProjectAuditChange> Changes);
+
+    private sealed record ParsedWorkbook(
+        ControlledImportPayload Payload,
+        byte[] ReviewWorkbook);
 }

@@ -51,6 +51,8 @@ public sealed class ControlledWorkbookImportServiceTests
         Assert.Empty(review.Changes);
         Assert.Equal(0, review.ChangeCount);
         Assert.False(review.CanConfirm);
+        Assert.Equal("Controlled Project Tracker template", review.WorkbookFormat);
+        Assert.Equal(0, review.ProjectsRequiringCompletion);
     }
 
     [Fact]

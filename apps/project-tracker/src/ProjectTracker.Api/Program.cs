@@ -881,6 +881,7 @@ static void ApplyProjectDto(Project project, ProjectUpsertDto dto)
     project.CustomerName = Clean(dto.CustomerName);
     project.SalesOrderNumber = Clean(dto.SalesOrderNumber);
     project.JobNumber = Clean(dto.JobNumber);
+    ProjectImportCompletion.Refresh(project);
     project.UpdatedAt = DateTimeOffset.UtcNow;
 }
 
@@ -1119,6 +1120,7 @@ static async Task InitializeDatabaseAsync(WebApplication app)
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "DeletedByAccountName", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "DeletedByDisplayName", cancellationToken: default);
             await SqliteCompatibility.EnsureNullableIntegerColumnAsync(db, "Projects", "PriorityRank", cancellationToken: default);
+            await SqliteCompatibility.EnsureBooleanColumnAsync(db, "Projects", "ImportNeedsCompletion", cancellationToken: default);
             await SqliteCompatibility.EnsureBooleanColumnAsync(db, "Users", "IsActive", cancellationToken: default);
             await SqliteCompatibility.EnsureLegacyTablesAsync(db, cancellationToken: default);
             await SqliteCompatibility.EnsureAccessControlTablesAsync(db, cancellationToken: default);

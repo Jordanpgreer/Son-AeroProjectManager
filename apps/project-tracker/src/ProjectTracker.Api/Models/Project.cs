@@ -24,6 +24,7 @@ public sealed class Project
     public DateTimeOffset? DeletedAt { get; set; }
     public string? DeletedByAccountName { get; set; }
     public string? DeletedByDisplayName { get; set; }
+    public bool ImportNeedsCompletion { get; set; }
 
     [NotMapped]
     public int? DaysBehind { get; set; }

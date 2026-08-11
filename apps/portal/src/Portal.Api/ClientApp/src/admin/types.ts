@@ -162,6 +162,8 @@ export interface ImportValidationResult {
   changes: ImportChange[]
   reviewWorkbookUrl: string
   canConfirm: boolean
+  workbookFormat: string
+  projectsRequiringCompletion: number
 }
 
 export interface ImportApplyResult {

@@ -117,7 +117,7 @@ export function ImportsPanel() {
         <div>
           <span className="kicker">Administrator-controlled data intake</span>
           <h2 id="imports-heading">Reviewable workbook import</h2>
-          <p>Download the controlled template, edit projects and operations, then validate every proposed change before anything is saved.</p>
+          <p>Use the controlled template for full project edits, or upload a supported legacy schedule to create new projects. Every proposed change is reviewed before anything is saved.</p>
         </div>
         <ShieldCheck size={23} />
       </header>
@@ -145,11 +145,11 @@ export function ImportsPanel() {
       <form className="admin-import-upload" onSubmit={validate}>
         <label className="admin-file-picker">
           <UploadCloud size={25} aria-hidden="true" />
-          <span><strong>{file?.name || 'Choose the completed template'}</strong><small>.xlsx only · maximum 15 MB · selecting a file does not change system data</small></span>
+          <span><strong>{file?.name || 'Choose a project workbook'}</strong><small>.xlsx or .xlsm · maximum 15 MB · selecting a file does not change system data</small></span>
           <input
             ref={inputRef}
             type="file"
-            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12"
             onChange={(event) => {
               setFile(event.target.files?.[0] ?? null)
               setReview(null)
@@ -172,6 +172,13 @@ export function ImportsPanel() {
             <div><span className="kicker">Staged review</span><h3 id="import-review-heading">No changes have been saved yet</h3></div>
             <small>Review expires {new Date(review.expiresAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</small>
           </header>
+
+          <p className="admin-import-safety">
+            <FileSpreadsheet size={15} /> Detected format: <strong>{review.workbookFormat}</strong>
+            {review.projectsRequiringCompletion > 0
+              ? ` · ${review.projectsRequiringCompletion} new project${review.projectsRequiringCompletion === 1 ? '' : 's'} will request missing details when opened.`
+              : ''}
+          </p>
 
           <div className="admin-import-stats">
             <span><strong>{review.projectRows}</strong><small>Project rows checked</small></span>

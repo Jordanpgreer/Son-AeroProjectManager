@@ -75,7 +75,8 @@ public sealed record ControlledImportReview(
 
 public sealed record ControlledImportPayload(
     IReadOnlyList<ControlledProjectRow> Projects,
-    IReadOnlyList<ControlledOperationRow> Operations);
+    IReadOnlyList<ControlledOperationRow> Operations,
+    string SourceFormat = "Controlled Project Tracker template");
 
 public sealed record ControlledProjectRow(
     int Row,
@@ -88,7 +89,8 @@ public sealed record ControlledProjectRow(
     string? SalesOrderNumber,
     string? JobNumber,
     int? PriorityRank,
-    DateOnly? CompletedOn);
+    DateOnly? CompletedOn,
+    bool RequiresCompletion = false);
 
 public sealed record ControlledOperationRow(
     int Row,

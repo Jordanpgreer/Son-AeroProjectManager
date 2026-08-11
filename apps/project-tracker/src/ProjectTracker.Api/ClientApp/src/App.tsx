@@ -57,6 +57,7 @@ import {
   ProjectChatDrawer,
   ProjectActivityDrawer,
   UnsavedProjectDetailsDialog,
+  ImportCompletionDialog,
 } from './features/dialogs'
 import {
   ProjectView,
@@ -162,6 +163,9 @@ function App() {
   const [projectMetadataSaving, setProjectMetadataSaving] = useState(false)
   const [projectMetadataError, setProjectMetadataError] = useState<string | null>(null)
   const [unsavedProjectDetailsOpen, setUnsavedProjectDetailsOpen] = useState(false)
+  const [importCompletionOpen, setImportCompletionOpen] = useState(false)
+  const [importCompletionSaving, setImportCompletionSaving] = useState(false)
+  const [importCompletionError, setImportCompletionError] = useState<string | null>(null)
   const [dashboardSearch, setDashboardSearch] = useState('')
   const [pastProjectsSearch, setPastProjectsSearch] = useState('')
   const [projectConfirmation, setProjectConfirmation] = useState<ProjectConfirmation | null>(null)
@@ -179,6 +183,7 @@ function App() {
   const selectedProjectRef = useRef<ProjectDetail | null>(null)
   const projectMutationTail = useRef<Promise<void>>(Promise.resolve())
   const pendingNavigationRef = useRef<(() => void | Promise<void>) | null>(null)
+  const promptedImportProjectId = useRef<number | null>(null)
 
   const projectPayload = (
     project: ProjectDetail,
@@ -212,6 +217,14 @@ function App() {
 
   useEffect(() => {
     selectedProjectRef.current = selectedProject
+  }, [selectedProject])
+
+  useEffect(() => {
+    if (!selectedProject?.requiresImportCompletion) return
+    if (promptedImportProjectId.current === selectedProject.id) return
+    promptedImportProjectId.current = selectedProject.id
+    setImportCompletionError(null)
+    setImportCompletionOpen(true)
   }, [selectedProject])
 
   useEffect(() => {
@@ -410,6 +423,9 @@ function App() {
   }
 
   async function openProject(projectId: number, switchScreen = true) {
+    // A legacy import can be completed later. Prompt again when the user deliberately
+    // reopens that project, while still avoiding duplicate prompts during refreshes.
+    promptedImportProjectId.current = null
     if (switchScreen) {
       setScreen('project')
     }
@@ -555,6 +571,27 @@ function App() {
     storeSelectedProjectId(project.id)
     await loadDashboard()
     return project
+  }
+
+  async function completeImportedProject(
+    patch: Partial<Pick<ProjectDetail, 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber' | 'jobNumber'>>,
+  ) {
+    if (!selectedProject || importCompletionSaving) return
+    setImportCompletionSaving(true)
+    setImportCompletionError(null)
+    try {
+      const project = await updateProject(patch)
+      if (!project) return
+      if (project.requiresImportCompletion) {
+        setImportCompletionError('Some required imported-project details are still missing.')
+        return
+      }
+      setImportCompletionOpen(false)
+    } catch (error) {
+      setImportCompletionError(error instanceof Error ? error.message : 'Project details could not be saved.')
+    } finally {
+      setImportCompletionSaving(false)
+    }
   }
 
   async function saveProjectMetadata() {
@@ -1111,6 +1148,20 @@ function App() {
           onContinueEditing={continueEditingProjectMetadata}
           onDiscard={discardProjectMetadataAndExit}
           onSave={() => void saveProjectMetadataAndExit()}
+        />
+      )}
+      {importCompletionOpen && selectedProject?.requiresImportCompletion && (
+        <ImportCompletionDialog
+          key={selectedProject.id}
+          project={selectedProject}
+          pending={importCompletionSaving}
+          error={importCompletionError}
+          onDismiss={() => {
+            if (importCompletionSaving) return
+            setImportCompletionOpen(false)
+            setImportCompletionError(null)
+          }}
+          onSave={completeImportedProject}
         />
       )}
       {concurrencyConflict && (

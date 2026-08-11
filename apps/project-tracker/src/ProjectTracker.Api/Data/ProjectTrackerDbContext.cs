@@ -41,6 +41,7 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
             entity.Property(project => project.CurrentTask).HasMaxLength(240);
             entity.Property(project => project.DeletedByAccountName).HasMaxLength(160);
             entity.Property(project => project.DeletedByDisplayName).HasMaxLength(160);
+            entity.Property(project => project.ImportNeedsCompletion).HasDefaultValue(false);
             entity.Property(project => project.Version).IsConcurrencyToken();
             entity.HasQueryFilter(project => project.DeletedAt == null);
         });

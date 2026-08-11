@@ -1,5 +1,6 @@
 import '../App.css'
 import { useState, useEffect, useRef } from 'react'
+import type { FormEvent } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -37,6 +38,105 @@ import type {
 import {
   SkeletonLine,
 } from '../components'
+
+type ImportCompletionPatch = Partial<Pick<
+  ProjectDetail,
+  'customerName' | 'programManager' | 'engineer' | 'salesOrderNumber' | 'jobNumber'
+>>
+
+const importFieldHints: Record<ProjectDetail['missingImportFields'][number]['key'], string> = {
+  customerName: 'Customer or organization name',
+  programManager: 'Project contact lead',
+  engineer: 'Assigned engineer',
+  salesOrderNumber: 'Sales order number',
+  jobNumber: 'Internal job number',
+}
+
+export function ImportCompletionDialog({
+  project,
+  pending,
+  error,
+  onDismiss,
+  onSave,
+}: {
+  project: ProjectDetail
+  pending: boolean
+  error: string | null
+  onDismiss: () => void
+  onSave: (patch: ImportCompletionPatch) => Promise<void>
+}) {
+  const [draft, setDraft] = useState(() => ({
+    customerName: project.customerName ?? '',
+    programManager: project.programManager ?? '',
+    engineer: project.engineer ?? '',
+    salesOrderNumber: project.salesOrderNumber ?? '',
+    jobNumber: project.jobNumber ?? '',
+  }))
+  const missingFields = project.missingImportFields
+  const incomplete = missingFields.some((field) => !draft[field.key].trim())
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !pending) onDismiss()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [onDismiss, pending])
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (pending || incomplete) return
+    await onSave({
+      customerName: draft.customerName.trim(),
+      programManager: draft.programManager.trim(),
+      engineer: draft.engineer.trim(),
+      salesOrderNumber: draft.salesOrderNumber.trim(),
+      jobNumber: draft.jobNumber.trim(),
+    })
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={() => !pending && onDismiss()}>
+      <form className="modal import-completion-modal" onSubmit={(event) => void submit(event)} onClick={(event) => event.stopPropagation()}>
+        <header className="import-completion-head">
+          <div className="confirmation-icon unsaved"><AlertTriangle size={22} /></div>
+          <div>
+            <span className="kicker">Imported Project Setup</span>
+            <h2>Complete the missing project information</h2>
+            <p>
+              <strong>{project.programName}</strong> was created from a schedule workbook that did not include every Project Tracker field.
+              Add the missing details below so the project record is complete.
+            </p>
+          </div>
+        </header>
+
+        <div className="import-completion-fields">
+          {missingFields.map((field) => (
+            <label className="field" key={field.key}>
+              <span>{field.label} <em>Required</em></span>
+              <input
+                value={draft[field.key]}
+                placeholder={importFieldHints[field.key]}
+                autoFocus={field === missingFields[0]}
+                onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}
+              />
+            </label>
+          ))}
+        </div>
+
+        {error && <p className="inline-note warning" role="alert"><AlertTriangle size={14} /> {error}</p>}
+        <p className="import-completion-note">You can finish later; this prompt will appear again the next time the project is opened.</p>
+
+        <div className="modal-actions import-completion-actions">
+          <button className="button ghost" type="button" onClick={onDismiss} disabled={pending}>Finish Later</button>
+          <button className="button primary" type="submit" disabled={pending || incomplete}>
+            <Save size={15} /> {pending ? 'Saving...' : 'Save Project Details'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
 
 export function ProjectConfirmationDialog({
   action,
