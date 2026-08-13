@@ -22,6 +22,12 @@ are pilot-only; they do not replace the managed PKI/trust design required for co
 For the permanent IT-issued `hub.son4l.local` / `*.hub.son4l.local` certificate and DNS rollout,
 use [production-hostname-https.md](production-hostname-https.md). Its transaction owns only the five
 hostname-based SNI bindings on TCP 443 and preserves the existing HTTP and pilot bindings.
+Section 2 contains the required four-site legacy-pilot compatibility gate: protect the authentic
+legacy state first, then run `Configure-HubHttpsPilotQualityExtension.ps1` to add only the missing
+Quality Assurance 6170 rollback surface before production readiness. That extension has its own
+protected state at
+`C:\ProgramData\SonAero\deployment-state\https-pilot-quality-extension.json`; permanent TCP 443
+rollback does not consume it or remove any 61xx binding.
 
 For an update that introduces the permanent hostnames, deploy the newly published release first,
 then apply the shared-port 443 binding transaction, enable the bounded direct-site CORS

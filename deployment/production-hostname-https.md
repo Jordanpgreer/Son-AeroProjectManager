@@ -89,10 +89,12 @@ The release apply must end with `HUB_RELEASE_DEPLOYED_AND_HEALTHY`. It must be h
 retained HTTP endpoints before binding or application configuration changes; do not point
 shortcuts at the new hostnames yet.
 
-## 2. Secure the deployed pilot binding state once
+## 2. Secure and complete the retained pilot rollback surface once
 
 Before any pilot rollback/retirement or permanent binding work, migrate the already-deployed legacy
-pilot state from its inherited ACL. Run both commands elevated on SON-IIS2 after pulling this release:
+pilot state from its inherited ACL. The authentic legacy transaction contains the original four
+pilot sites only; Quality Assurance was added later and is not recorded in that state. Run both
+commands elevated on SON-IIS2 after pulling this release:
 
 ```powershell
 & "$repo\deployment\Configure-HubHttpsPilot.ps1" -MigrateLegacyStateProtection -WhatIf
@@ -103,12 +105,30 @@ Require `WHATIF_READY_HTTPS_PILOT_STATE_PROTECTION_MIGRATION`, then
 `HTTPS_PILOT_STATE_PROTECTION_MIGRATED` (or the idempotent
 `HTTPS_PILOT_STATE_PROTECTION_ALREADY_CURRENT`). The mode accepts only the exact deployed
 `https-pilot.json` v1 Applied state with an empty prior 61xx baseline, corroborates it against the
-live certificate, five pilot bindings, restricted firewall/remotes, retained HTTP bindings, and
-health, and changes only SYSTEM/Administrators ACL protection. It never changes state content, IIS,
-or firewall configuration. Stop on any mismatch; do not manually copy or bless the JSON.
+live certificate, original four pilot bindings, restricted firewall/remotes, retained HTTP bindings,
+and health, and changes only SYSTEM/Administrators ACL protection. It never changes state content,
+IIS, or firewall configuration. Stop on any mismatch; do not manually copy or bless the JSON.
 
-The pilot and permanent binding scripts share one global transaction lock, so their state checks,
-apply, rollback, and this migration cannot overlap.
+After that migration succeeds, preview and apply the one-time Quality Assurance compatibility
+transaction using its defaults:
+
+```powershell
+& "$repo\deployment\Configure-HubHttpsPilotQualityExtension.ps1" -WhatIf
+& "$repo\deployment\Configure-HubHttpsPilotQualityExtension.ps1" -Confirm:$false
+```
+
+Require `WHATIF_READY_HTTPS_PILOT_QA_EXTENSION`, then
+`HTTPS_PILOT_QA_EXTENSION_APPLIED_AND_FIVE_SITE_HEALTHY`. This transaction adds only the missing
+Quality Assurance binding `*:6170:` and expands the exact restricted pilot firewall rule to include
+TCP 6170 with the same recorded remote-address scope. It preserves every HTTP binding, all four
+existing 61xx pilot bindings, and every permanent TCP 443 binding. Its distinct protected rollback
+state is `C:\ProgramData\SonAero\deployment-state\https-pilot-quality-extension.json`.
+
+Do not continue to production readiness until both the legacy protection migration and the Quality
+Assurance compatibility transaction have completed with their exact success markers.
+
+The pilot, compatibility, and permanent binding scripts share one global transaction lock, so their
+state checks, apply, rollback, and this migration cannot overlap.
 
 ## 3. Run the read-only readiness audit
 
@@ -397,3 +417,26 @@ return to the Hub on port 6140. The configuration and binding rollback above the
 functional pilot UI without rebuilding or redeploying the release. Redeploy a known-good previous
 package with the immutable `Deploy-HubRelease.ps1` procedure only when the application release
 itself is also suspected.
+
+### Later pilot retirement or full pilot rollback
+
+This is a separate operation from permanent TCP 443 rollback. Never run these commands merely to
+roll back the permanent hostname transaction: `Configure-HubProductionHttps.ps1 -Rollback`
+deliberately preserves every 61xx binding.
+
+When the pilot itself is eventually retired or fully rolled back, reverse the compatibility
+transaction first, then the original four-site pilot transaction:
+
+```powershell
+& "$repo\deployment\Configure-HubHttpsPilotQualityExtension.ps1" -Rollback -WhatIf
+& "$repo\deployment\Configure-HubHttpsPilotQualityExtension.ps1" -Rollback -Confirm:$false
+
+& "$repo\deployment\Configure-HubHttpsPilot.ps1" -Rollback -WhatIf
+& "$repo\deployment\Configure-HubHttpsPilot.ps1" -Rollback -Confirm:$false
+```
+
+Require `WHATIF_READY_HTTPS_PILOT_QA_EXTENSION_ROLLBACK`, then
+`HTTPS_PILOT_QA_EXTENSION_ROLLED_BACK_AND_FOUR_SITE_HEALTHY` before starting the original pilot
+rollback (the idempotent result is
+`HTTPS_PILOT_QA_EXTENSION_ALREADY_ROLLED_BACK_AND_FOUR_SITE_HEALTHY`). Reversing the order would
+leave the original transaction unable to restore its exact four-site firewall and binding baseline.

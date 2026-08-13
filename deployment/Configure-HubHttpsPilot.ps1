@@ -49,6 +49,7 @@ $applications = @(
     [pscustomobject]@{ Site = 'EstimatingDashboard'; HttpPort = 5160; HttpsPort = 6160 },
     [pscustomobject]@{ Site = 'QualityAssurance'; HttpPort = 5170; HttpsPort = 6170 }
 )
+$historicalPilotApplications = @($applications | Where-Object { $_.Site -ne 'QualityAssurance' })
 function Assert-Host {
     if ($env:COMPUTERNAME -ine $expectedComputerName) {
         throw "This transaction is restricted to $expectedComputerName; current computer is $env:COMPUTERNAME."
@@ -159,8 +160,11 @@ function Get-TargetBindingSnapshot {
     })
 }
 function Assert-RequiredHttpBindings {
-    param([Parameter(Mandatory = $true)][object[]]$Snapshot)
-    foreach ($application in $applications) {
+    param(
+        [Parameter(Mandatory = $true)][object[]]$Snapshot,
+        [object[]]$RequiredApplications = $applications
+    )
+    foreach ($application in $RequiredApplications) {
         $expected = "*:$($application.HttpPort):"
         $matches = @($Snapshot | Where-Object {
             $_.Site -eq $application.Site -and $_.Protocol -eq 'http' -and $_.BindingInformation -eq $expected
@@ -348,9 +352,13 @@ function Get-FirewallSnapshot {
     }
 }
 function Assert-FirewallAvailable {
-    param([Parameter(Mandatory = $true)]$Snapshot, [Parameter(Mandatory = $true)][string[]]$RemoteAddress)
+    param(
+        [Parameter(Mandatory = $true)]$Snapshot,
+        [Parameter(Mandatory = $true)][string[]]$RemoteAddress,
+        [int[]]$LocalPort = @($applications.HttpsPort)
+    )
     if (-not $Snapshot.Existed) { return }
-    $expectedPorts = @($applications.HttpsPort | ForEach-Object { [string]$_ } | Sort-Object)
+    $expectedPorts = @($LocalPort | ForEach-Object { [string]$_ } | Sort-Object)
     $actualPorts = @($Snapshot.LocalPort | ForEach-Object { ([string]$_) -split ',' } | ForEach-Object { $_.Trim() } | Sort-Object)
     $actualRemotes = @($Snapshot.RemoteAddress | ForEach-Object { ([string]$_) -split ',' } | ForEach-Object { $_.Trim() } | Sort-Object)
     $expectedRemotes = @($RemoteAddress | Sort-Object)
@@ -694,8 +702,11 @@ function Assert-BindingSnapshotShape {
 }
 
 function New-ExpectedPilotBindingSnapshot {
-    param([Parameter(Mandatory = $true)][string]$Thumbprint)
-    return @($applications | ForEach-Object {
+    param(
+        [Parameter(Mandatory = $true)][string]$Thumbprint,
+        [object[]]$ExpectedApplications = $applications
+    )
+    return @($ExpectedApplications | ForEach-Object {
         [pscustomobject]@{
             Site = $_.Site
             Protocol = 'https'
@@ -705,6 +716,111 @@ function New-ExpectedPilotBindingSnapshot {
             SslFlags = 0
         }
     })
+}
+
+function Get-RecordedPilotGeneration {
+    param(
+        [Parameter(Mandatory = $true)]$State,
+        [Parameter(Mandatory = $true)][string]$Thumbprint
+    )
+    Assert-StateProperties -State $State -Names @('AppliedTargetBindings')
+    $recorded = @($State.AppliedTargetBindings)
+    Assert-PriorTargetBindings -Bindings $recorded -Thumbprint $Thumbprint
+    $generation = if ($recorded.Count -eq $historicalPilotApplications.Count) {
+        @($historicalPilotApplications)
+    }
+    elseif ($recorded.Count -eq $applications.Count) { @($applications) }
+    else { throw 'Applied state is neither the exact historical four-site nor current five-site pilot generation.' }
+    $expected = @(New-ExpectedPilotBindingSnapshot -Thumbprint $Thumbprint -ExpectedApplications $generation)
+    if ((Get-ComparableTargetBindings $recorded) -cne (Get-ComparableTargetBindings $expected)) {
+        throw 'Applied state does not match its exact recorded pilot generation.'
+    }
+    return @($generation)
+}
+
+function Assert-QualityExtensionTerminalState {
+    param(
+        [Parameter(Mandatory = $true)]$ExtensionState,
+        [Parameter(Mandatory = $true)]$HistoricalState,
+        [Parameter(Mandatory = $true)][string]$HistoricalStateSha256
+    )
+    $extensionProperties = @(
+        'Version', 'Transaction', 'ComputerName', 'Status', 'HistoricalStateSha256',
+        'CertificateThumbprint', 'PilotRootThumbprint', 'PilotRemoteAddress',
+        'UnrelatedBindingsBefore', 'FirewallBefore', 'PriorQaBinding', 'PlannedQaBinding',
+        'PreparedAtUtc', 'AppliedQaBinding', 'AppliedAtUtc', 'ApplyFailure', 'ApplyFailedAtUtc',
+        'RollbackStartedAtUtc', 'RolledBackAtUtc', 'RollbackFailure', 'RollbackFailedAtUtc'
+    )
+    Assert-ExactPropertySet -Value $ExtensionState -Names $extensionProperties `
+        -Label 'Quality-extension rollback gate state'
+    Assert-StateProperties -State $HistoricalState -Names @(
+        'CertificateThumbprint', 'PilotRootThumbprint', 'PilotRemoteAddress'
+    )
+    if ($ExtensionState.Version -isnot [int] -or $ExtensionState.Version -ne 1 -or
+        $ExtensionState.Transaction -isnot [string] -or
+        [string]$ExtensionState.Transaction -cne 'HttpsPilotQualityExtension' -or
+        $ExtensionState.ComputerName -isnot [string] -or
+        [string]$ExtensionState.ComputerName -cne $expectedComputerName -or
+        $ExtensionState.Status -isnot [string] -or
+        [string]$ExtensionState.Status -notin @('RolledBack', 'AutomaticallyRolledBack')) {
+        throw 'Original pilot rollback requires an exact terminal Quality-extension transaction identity.'
+    }
+    if ($ExtensionState.HistoricalStateSha256 -isnot [string] -or
+        [string]$ExtensionState.HistoricalStateSha256 -cne $HistoricalStateSha256 -or
+        $ExtensionState.CertificateThumbprint -isnot [string] -or
+        [string]$ExtensionState.CertificateThumbprint -cne [string]$HistoricalState.CertificateThumbprint -or
+        $ExtensionState.PilotRootThumbprint -isnot [string] -or
+        [string]$ExtensionState.PilotRootThumbprint -cne [string]$HistoricalState.PilotRootThumbprint) {
+        throw 'Quality-extension terminal state does not belong to this protected historical pilot transaction.'
+    }
+    if ($ExtensionState.PilotRemoteAddress -isnot [object[]] -or
+        $HistoricalState.PilotRemoteAddress -isnot [object[]]) {
+        throw 'Quality-extension or historical pilot remote addresses are not JSON arrays.'
+    }
+    $extensionRemotes = @(Convert-ToPilotAddress @($ExtensionState.PilotRemoteAddress))
+    $historicalRemotes = @(Convert-ToPilotAddress @($HistoricalState.PilotRemoteAddress))
+    if (($extensionRemotes -join "`n") -cne ($historicalRemotes -join "`n")) {
+        throw 'Quality-extension terminal state remote addresses do not match historical pilot authority.'
+    }
+    if ($ExtensionState.PriorQaBinding -isnot [object[]] -or @($ExtensionState.PriorQaBinding).Count -ne 0) {
+        throw 'Quality-extension terminal state does not record the required empty pre-extension QA baseline.'
+    }
+    $expectedQa = @(New-ExpectedPilotBindingSnapshot `
+        -Thumbprint ([string]$HistoricalState.CertificateThumbprint) `
+        -ExpectedApplications @($applications | Where-Object { $_.Site -eq 'QualityAssurance' }))
+    if ($ExtensionState.PlannedQaBinding -isnot [object[]] -or
+        @($ExtensionState.PlannedQaBinding).Count -ne 1 -or
+        (Get-ComparableTargetBindings @($ExtensionState.PlannedQaBinding)) -cne
+            (Get-ComparableTargetBindings $expectedQa)) {
+        throw 'Quality-extension terminal state does not contain the exact QA 6170 plan.'
+    }
+    $rolledBackAt = [string]$ExtensionState.RolledBackAtUtc
+    if ([string]::IsNullOrWhiteSpace($rolledBackAt)) {
+        throw 'Quality-extension terminal state has no rollback completion timestamp.'
+    }
+    $null = ConvertFrom-StrictUtcTimestamp -Value $rolledBackAt -Name 'QualityExtension.RolledBackAtUtc'
+}
+
+function Assert-QualityExtensionRollbackComplete {
+    param([Parameter(Mandatory = $true)]$HistoricalState)
+    $extensionPath = Assert-SafeStatePath (Join-Path $stateRoot 'https-pilot-quality-extension.json')
+    Assert-NoReparsePointInStatePathChain -Path $extensionPath
+    try { $extensionItem = Get-Item -LiteralPath $extensionPath -Force -ErrorAction Stop }
+    catch [Management.Automation.ItemNotFoundException] { return }
+    catch { throw "Quality-extension state path '$extensionPath' could not be inspected safely: $($_.Exception.Message)" }
+    if ($extensionItem.PSIsContainer) { throw "Quality-extension state path '$extensionPath' is not a file." }
+    # Never parse extension JSON until both its directory and file pass the normal trust boundary.
+    Assert-PilotStateProtection -Path $extensionPath
+    Assert-NoReparsePointInStatePathChain -Path $extensionPath
+    Assert-PilotStateProtection -Path $extensionPath
+    try {
+        $extensionState = Get-Content -LiteralPath $extensionPath -Raw -ErrorAction Stop |
+            ConvertFrom-Json -ErrorAction Stop
+    }
+    catch { throw "Quality-extension state at '$extensionPath' is not valid JSON: $($_.Exception.Message)" }
+    $historicalHash = (Get-FileHash -LiteralPath $StatePath -Algorithm SHA256 -ErrorAction Stop).Hash
+    Assert-QualityExtensionTerminalState -ExtensionState $extensionState -HistoricalState $HistoricalState `
+        -HistoricalStateSha256 $historicalHash
 }
 
 function Assert-StrictLegacyPilotState {
@@ -750,17 +866,33 @@ function Assert-StrictLegacyPilotState {
     $applied = @($State.AppliedTargetBindings)
     Assert-BindingSnapshotShape -Bindings $before -Label 'Legacy AllBindingsBefore'
     Assert-BindingSnapshotShape -Bindings $applied -Label 'Legacy AppliedTargetBindings'
-    Assert-RequiredHttpBindings -Snapshot $before
     if (@(Get-TargetBindingSnapshot -Snapshot $before).Count -ne 0) {
         throw 'Legacy AllBindingsBefore must record no preexisting pilot-port bindings.'
     }
-    if ($applied.Count -ne $applications.Count) {
-        throw 'Legacy AppliedTargetBindings must contain exactly five pilot HTTPS bindings.'
+    $historicalApplicationSet = if ($applied.Count -eq $historicalPilotApplications.Count) {
+        @($historicalPilotApplications)
+    }
+    elseif ($applied.Count -eq $applications.Count) { @($applications) }
+    else {
+        throw 'Legacy AppliedTargetBindings must contain exactly the authentic four-site pilot or all five pilot sites.'
+    }
+    Assert-RequiredHttpBindings -Snapshot $before -RequiredApplications $historicalApplicationSet
+    if ($historicalApplicationSet.Count -eq $historicalPilotApplications.Count) {
+        $recordedQualityHttp = @($before | Where-Object {
+            $parts = ([string]$_.BindingInformation) -split ':', 3
+            $_.Site -eq 'QualityAssurance' -or $_.BindingInformation -eq '*:5170:' -or
+                $_.BindingInformation -eq '*:6170:' -or
+                ($parts.Count -ge 2 -and $parts[1] -in @('5170', '6170'))
+        })
+        if ($recordedQualityHttp.Count -ne 0) {
+            throw 'Authentic four-site pilot state must not claim the later Quality Assurance HTTP site.'
+        }
     }
     Assert-PriorTargetBindings -Bindings $applied -Thumbprint $thumbprint
-    $expectedBindings = @(New-ExpectedPilotBindingSnapshot -Thumbprint $thumbprint)
+    $expectedBindings = @(New-ExpectedPilotBindingSnapshot -Thumbprint $thumbprint `
+        -ExpectedApplications $historicalApplicationSet)
     if ((Get-ComparableTargetBindings $applied) -cne (Get-ComparableTargetBindings $expectedBindings)) {
-        throw 'Legacy AppliedTargetBindings do not equal the exact five expected pilot bindings.'
+        throw 'Legacy AppliedTargetBindings do not equal the exact expected pilot-generation bindings.'
     }
     Assert-ExactPropertySet -Value $State.FirewallBefore -Names @('Existed') -Label 'Legacy FirewallBefore'
     if ($State.FirewallBefore.Existed -isnot [bool] -or $State.FirewallBefore.Existed -ne $false -or
@@ -781,6 +913,8 @@ function Assert-StrictLegacyPilotState {
         RootThumbprint = $rootThumbprint
         RemoteAddresses = $remoteAddresses
         ExpectedBindings = $expectedBindings
+        HistoricalApplications = $historicalApplicationSet
+        IsFourSiteHistorical = ($historicalApplicationSet.Count -eq $historicalPilotApplications.Count)
     }
 }
 
@@ -898,14 +1032,15 @@ function Assert-LegacyPilotLiveState {
     Assert-RequiredHttpBindings -Snapshot $liveIis
     Assert-TargetBindingsAvailable -Snapshot $liveIis -Thumbprint $Validated.Thumbprint
     $liveTarget = @(Get-TargetBindingSnapshot -Snapshot $liveIis)
-    if ($liveTarget.Count -ne $applications.Count -or
+    if ($liveTarget.Count -ne $Validated.HistoricalApplications.Count -or
         (Get-ComparableTargetBindings $liveTarget) -cne (Get-ComparableTargetBindings $Validated.ExpectedBindings)) {
-        throw 'Live pilot bindings do not equal the exact five bindings recorded in validated legacy state.'
+        throw 'Live pilot bindings do not equal the exact historical bindings recorded in validated legacy state.'
     }
     $liveFirewall = Get-FirewallSnapshot
     if (-not $liveFirewall.Existed) { throw "Required live firewall rule '$firewallRuleName' was not found." }
-    Assert-FirewallAvailable -Snapshot $liveFirewall -RemoteAddress @($Validated.RemoteAddresses)
-    Wait-Health -Scheme https -Ports @($applications.HttpsPort)
+    Assert-FirewallAvailable -Snapshot $liveFirewall -RemoteAddress @($Validated.RemoteAddresses) `
+        -LocalPort @($Validated.HistoricalApplications.HttpsPort)
+    Wait-Health -Scheme https -Ports @($Validated.HistoricalApplications.HttpsPort)
     Wait-Health -Scheme http -Ports @($applications.HttpPort)
 }
 
@@ -1144,6 +1279,7 @@ if ($Rollback) {
         'PriorTargetBindings', 'FirewallRuleAdded'
     )
     if ($state.ComputerName -ine $expectedComputerName -or $state.Version -ne 1) { throw 'Rollback state does not match this transaction.' }
+    Assert-QualityExtensionRollbackComplete -HistoricalState $state
     $terminalStatuses = @('RolledBack', 'AutomaticallyRolledBack', 'RecoveredRolledBack')
     $recoverableStatuses = @('Applied', 'Prepared', 'ApplyFailedRollbackPending', 'ManualRollbackPending', 'RollbackFailed')
     if ([string]$state.Status -notin @($terminalStatuses + $recoverableStatuses)) {
@@ -1173,31 +1309,46 @@ if ($Rollback) {
     $rollbackWasApplied = [string]$state.Status -eq 'Applied' -or
         ($state.PSObject.Properties.Name -contains 'RollbackStartedFromStatus' -and
             [string]$state.RollbackStartedFromStatus -eq 'Applied')
+    $recordedGeneration = $null
+    if ($rollbackWasApplied) {
+        $recordedGeneration = @(Get-RecordedPilotGeneration -State $state -Thumbprint $stateThumbprint)
+    }
     if ([string]$state.Status -eq 'Applied') {
-        Assert-StateProperties -State $state -Names @('AppliedTargetBindings')
-        Assert-PriorTargetBindings -Bindings @($state.AppliedTargetBindings) -Thumbprint $stateThumbprint
-        if (@($state.AppliedTargetBindings).Count -ne $applications.Count) {
-            throw 'Applied rollback state does not contain exactly one HTTPS binding for every pilot IIS site.'
-        }
         $currentTarget = Get-ComparableTargetBindings -Bindings $currentTargetBindings
         $appliedTarget = Get-ComparableTargetBindings -Bindings @($state.AppliedTargetBindings)
-        if ($currentTarget -ne $appliedTarget) { throw 'Current pilot HTTPS bindings have drifted since apply; rollback refused.' }
+        if ($currentTarget -ne $appliedTarget) {
+            throw 'Current pilot HTTPS bindings differ from the recorded generation; roll back any later extension first.'
+        }
     }
     else {
         # A failed first-time apply may contain zero through four transaction-owned HTTPS bindings.
         # This assertion refuses recovery if any target port is owned by another binding/certificate.
         Assert-TargetBindingsAvailable -Snapshot $currentIis -Thumbprint $stateThumbprint
+        if ($rollbackWasApplied) {
+            $currentComparable = Get-ComparableTargetBindings -Bindings $currentTargetBindings
+            $appliedComparable = Get-ComparableTargetBindings -Bindings @($state.AppliedTargetBindings)
+            $priorComparable = Get-ComparableTargetBindings -Bindings @($state.PriorTargetBindings)
+            if ($currentComparable -notin @($appliedComparable, $priorComparable)) {
+                throw 'Resumable rollback found pilot bindings outside the exact applied/prior transaction states.'
+            }
+        }
     }
     $currentFirewall = $null
     if ($state.FirewallRuleAdded) {
         $currentFirewall = Get-FirewallSnapshot
         if ($currentFirewall.Existed) {
-            Assert-FirewallAvailable -Snapshot $currentFirewall -RemoteAddress $stateRemoteAddresses
+            $recordedFirewallPorts = if ($recordedGeneration) { @($recordedGeneration.HttpsPort) }
+                else { @($applications.HttpsPort) }
+            Assert-FirewallAvailable -Snapshot $currentFirewall -RemoteAddress $stateRemoteAddresses `
+                -LocalPort $recordedFirewallPorts
         }
         elseif ([string]$state.Status -eq 'Applied') {
             throw 'The pilot firewall rule was removed after apply; rollback refused due to drift.'
         }
     }
+    # Repeat the protected terminal-state gate immediately before confirmation/mutation. A live
+    # four-site topology never substitutes for durable completion of the separate QA extension.
+    Assert-QualityExtensionRollbackComplete -HistoricalState $state
     if ($PSCmdlet.ShouldProcess($expectedComputerName, 'Restore the prior pilot HTTPS bindings and firewall state')) {
         $rollbackStartStatus = if ($state.PSObject.Properties.Name -contains 'RollbackStartedFromStatus' -and
             -not [string]::IsNullOrWhiteSpace([string]$state.RollbackStartedFromStatus)) {

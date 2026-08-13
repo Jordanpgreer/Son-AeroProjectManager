@@ -151,11 +151,19 @@ The preview must end with `WHATIF_READY_HTTPS_PILOT_STATE_PROTECTION_MIGRATION`.
 with `HTTPS_PILOT_STATE_PROTECTION_MIGRATED`; an already-secured rerun ends with
 `HTTPS_PILOT_STATE_PROTECTION_ALREADY_CURRENT`. This deliberately narrow mode accepts only the
 exact `C:\ProgramData\SonAero\deployment-state\https-pilot.json` v1 `Applied` state for SON-IIS2
-with an empty pre-pilot 61xx baseline. It verifies the saved leaf/root, remote addresses, exact five
-live 61xx bindings, restricted firewall rule, retained HTTP bindings, and both health surfaces
-before changing only the state file/directory ACLs. It never changes JSON, IIS, or Windows Firewall.
+with an empty pre-pilot 61xx baseline. It recognizes either the authentic four-site pilot generation
+(Project Tracker, Portal, Engineering, and Estimating) or the later exact five-site generation. For
+the historical generation it requires the recorded four HTTP/four HTTPS topology, all five current
+HTTP bindings, absent QA 6170, and the exact four-port firewall. It verifies the saved leaf/root,
+remote addresses, generation bindings, and health before changing only state ACLs. It never changes
+JSON, IIS, or Windows Firewall.
 If it reports path, schema, certificate, binding, firewall, address, or health drift, stop and
 preserve the file for administrator review; never manually grant the JSON rollback authority.
+
+For authentic four-site state, next run the separate QA extension transaction from the permanent
+HTTPS runbook. It owns only QA 6170 and the firewall's fifth port in
+`https-pilot-quality-extension.json`. On retirement, roll back the QA extension first; the original
+pilot rollback refuses while that extension remains applied.
 
 ## 4. Publish and deploy an HTTPS-aware immutable release
 
@@ -310,12 +318,20 @@ Run rollback in this order from elevated PowerShell:
    `-Topology Pilot -Rollback -Confirm:$false`. Stop and escalate if the state predates this
    hardening; that legacy file is not trusted rollback authority.
 3. Retarget both shortcuts to `http://SON-IIS2:5140` with `Install-EmployeeHubShortcut.ps1`.
-4. On SON-IIS2: `Configure-HubHttpsPilot.ps1 -Rollback -WhatIf`, then repeat with
+4. If `https-pilot-quality-extension.json` exists, run
+   `Configure-HubHttpsPilotQualityExtension.ps1 -Rollback -WhatIf`, then repeat with
+   `-Rollback -Confirm:$false` and require its four-site healthy marker.
+5. On SON-IIS2: `Configure-HubHttpsPilot.ps1 -Rollback -WhatIf`, then repeat with
    `-Confirm:$false`.
-5. On each named pilot workstation, run `Set-HubPilotWorkstationTrust.ps1` locally with its trust
+6. On each named pilot workstation, run `Set-HubPilotWorkstationTrust.ps1` locally with its trust
    bundle, exact `-ExpectedComputerName`, `-Operation Remove`, preview first, then apply.
-6. On SON-IIS2, run `Install-HubPilotServerCertificate.ps1 -Operation RemoveAll`, preview first,
+7. On SON-IIS2, run `Install-HubPilotServerCertificate.ps1 -Operation RemoveAll`, preview first,
    then apply. It refuses removal while the leaf is still bound.
+
+If the QA-extension state file exists, the original pilot rollback securely validates its protected
+transaction identity and permits retirement only after status is exactly `RolledBack` or
+`AutomaticallyRolledBack`. An Applied, incomplete, malformed, or unprotected extension state is a
+hard stop even when the live bindings happen to look like the older four-site topology.
 
 The existing HTTP bindings remain the safety path throughout. A rollback must end with all five
 HTTP health endpoints returning 200.

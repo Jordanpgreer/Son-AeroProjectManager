@@ -78,6 +78,39 @@ Assert-True ($pilotSource -match 'Legacy migration is restricted to the exact de
     'The migration exact-path check must fail closed with an operator-facing error.'
 Assert-True ($pilotSource -match '\$MigrateLegacyStateProtection\s+-or\s+-not\s+\$WhatIfPreference\)\s*\{\s*Assert-Administrator') `
     'Migration, including -WhatIf, must require an elevated administrator.'
+Assert-True ($pilotSource -match 'Get-RecordedPilotGeneration' -and
+    $pilotSource -match 'RollbackStartedFromStatus' -and
+    $pilotSource -match 'roll back any later extension first') `
+    'Historical rollback must derive its durable generation and require extension rollback first.'
+Assert-True ($pilotSource -match '-LocalPort\s+\$recordedFirewallPorts') `
+    'Historical rollback must validate the firewall against its recorded four/five-site generation.'
+$extensionGateText = (Get-FunctionAst -Ast $pilotAst -Name 'Assert-QualityExtensionRollbackComplete' -Path $pilotPath).Extent.Text
+$extensionValidatorText = (Get-FunctionAst -Ast $pilotAst -Name 'Assert-QualityExtensionTerminalState' -Path $pilotPath).Extent.Text
+Assert-True ($extensionGateText -match "https-pilot-quality-extension\.json" -and
+    $extensionGateText -match 'Assert-PilotStateProtection' -and $extensionGateText -match 'Get-Content') `
+    'Original rollback must inspect only the default protected Quality-extension state.'
+Assert-True ($extensionGateText -match 'ItemNotFoundException' -and
+    $extensionGateText -notmatch 'Get-Item[^\r\n]+SilentlyContinue') `
+    'Only a definite missing extension file may bypass the gate; inspection errors must fail closed.'
+Assert-True ($extensionGateText.LastIndexOf('Assert-PilotStateProtection') -lt $extensionGateText.IndexOf('Get-Content')) `
+    'Quality-extension protection must be verified immediately before parsing JSON.'
+Assert-True ($extensionValidatorText -match "'RolledBack',\s*'AutomaticallyRolledBack'" -and
+    $extensionValidatorText -match 'HttpsPilotQualityExtension' -and
+    $extensionValidatorText -match 'HistoricalStateSha256') `
+    'The extension gate must require exact transaction identity/linkage and only terminal rollback statuses.'
+$rollbackBranch = @($pilotAst.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.IfStatementAst] -and
+        $node.Extent.Text -match '^if\s*\(\$Rollback\)\s*\{' -and
+        $node.Extent.Text -match 'Restore the prior pilot HTTPS bindings'
+}, $true))
+Assert-True ($rollbackBranch.Count -eq 1) 'Expected one original pilot rollback branch.'
+$rollbackText = $rollbackBranch[0].Extent.Text
+Assert-True (([regex]::Matches($rollbackText, 'Assert-QualityExtensionRollbackComplete')).Count -eq 2) `
+    'Original rollback must gate extension state initially and again immediately before mutation.'
+Assert-True ($rollbackText.LastIndexOf('Assert-QualityExtensionRollbackComplete') -lt
+    $rollbackText.IndexOf('$PSCmdlet.ShouldProcess')) `
+    'The repeated extension terminal-state gate must occur before rollback ShouldProcess.'
 
 $migrationIfs = @($pilotAst.FindAll({
     param($node)
@@ -151,10 +184,28 @@ foreach ($requiredCall in $requiredLiveCalls) {
 }
 Assert-True ($liveText -match 'Wait-Health\s+-Scheme\s+https' -and $liveText -match 'Wait-Health\s+-Scheme\s+http') `
     'Legacy live validation must health-check both HTTPS pilot and retained HTTP endpoints.'
-Assert-True ($liveText -match '\$liveTarget\.Count\s+-ne\s+\$applications\.Count') `
-    'Legacy live validation must require exactly five live pilot bindings.'
+Assert-True ($liveText -match '\$liveTarget\.Count\s+-ne\s+\$Validated\.HistoricalApplications\.Count') `
+    'Legacy live validation must require exactly the validated historical pilot-binding count.'
 Assert-True ($liveText -match 'Validated\.ExpectedBindings') `
     'Legacy live validation must compare current bindings with the strictly validated recorded binding set.'
+Assert-True ($liveText -match 'Assert-RequiredHttpBindings\s+-Snapshot\s+\$liveIis(?!\s+-RequiredApplications)') `
+    'Legacy live validation must require all five current HTTP bindings, including QA 5170.'
+Assert-True ($liveText -match 'Assert-FirewallAvailable[\s\S]*-LocalPort\s+@\(\$Validated\.HistoricalApplications\.HttpsPort\)') `
+    'Legacy live validation must require the firewall ports for only the validated historical pilot sites.'
+Assert-True ($liveText -match 'Wait-Health\s+-Scheme\s+https\s+-Ports\s+@\(\$Validated\.HistoricalApplications\.HttpsPort\)') `
+    'Legacy live validation must health-check exactly the historical pilot HTTPS ports.'
+Assert-True ($liveText -match 'Wait-Health\s+-Scheme\s+http\s+-Ports\s+@\(\$applications\.HttpPort\)') `
+    'Legacy live validation must health-check all five current HTTP ports.'
+$targetSnapshotText = (Get-FunctionAst -Ast $pilotAst -Name 'Get-TargetBindingSnapshot' -Path $pilotPath).Extent.Text
+Assert-True ($targetSnapshotText -match '\$ports\s*=\s*@\(\$applications\.HttpsPort\)') `
+    'Live target enumeration must include QA 6170 so the historical four-site count proves QA HTTPS is absent.'
+Assert-True ($strictText -match '\$historicalApplicationSet\s*=\s*if\s*\(\$applied\.Count\s+-eq\s+\$historicalPilotApplications\.Count\)') `
+    'Strict state validation must explicitly recognize the authentic four-site historical schema.'
+Assert-True ($strictText -match 'Assert-RequiredHttpBindings\s+-Snapshot\s+\$before\s+-RequiredApplications\s+\$historicalApplicationSet') `
+    'Strict state validation must require every HTTP binding for the selected historical application set.'
+Assert-True ($strictText -match "Site\s+-eq\s+'QualityAssurance'" -and $strictText -match "'\*:5170:'" -and
+    $strictText -match "'\*:6170:'") `
+    'Four-site historical snapshots must explicitly reject later QA HTTP or HTTPS records.'
 
 # The migration call graph is read-only except for the two explicit ACL changes.
 $migrationFunctions = @(
@@ -258,11 +309,13 @@ $script:applications = @(
     [pscustomobject]@{ Site = 'EstimatingDashboard'; HttpPort = 5160; HttpsPort = 6160 },
     [pscustomobject]@{ Site = 'QualityAssurance'; HttpPort = 5170; HttpsPort = 6170 }
 )
+$script:historicalPilotApplications = @($script:applications | Where-Object Site -ne 'QualityAssurance')
 $validatorFunctions = @(
     'Convert-HashToHex', 'Convert-ToPilotAddress', 'Get-TargetBindingSnapshot',
-    'Assert-RequiredHttpBindings', 'Get-ComparableTargetBindings', 'Assert-PriorTargetBindings',
-    'Assert-ExactPropertySet', 'ConvertFrom-StrictUtcTimestamp', 'Assert-BindingSnapshotShape',
-    'New-ExpectedPilotBindingSnapshot', 'Assert-StrictLegacyPilotState'
+    'Assert-RequiredHttpBindings', 'Assert-FirewallAvailable', 'Get-ComparableTargetBindings', 'Assert-PriorTargetBindings',
+    'Assert-StateProperties', 'Assert-ExactPropertySet', 'ConvertFrom-StrictUtcTimestamp',
+    'Assert-BindingSnapshotShape', 'New-ExpectedPilotBindingSnapshot',
+    'Assert-QualityExtensionTerminalState', 'Assert-StrictLegacyPilotState'
 )
 foreach ($functionName in $validatorFunctions) {
     $functionText = (Get-FunctionAst -Ast $pilotAst -Name $functionName -Path $pilotPath).Extent.Text
@@ -274,7 +327,7 @@ function New-ValidLegacyState {
     $root = 'FFEEDDCCBBAA99887766554433221100FFEEDDCC'
     $before = @()
     $applied = @()
-    foreach ($application in $script:applications) {
+    foreach ($application in $script:historicalPilotApplications) {
         $before += [pscustomobject]@{
             Site = [string]$application.Site
             Protocol = 'http'
@@ -314,12 +367,82 @@ function New-ValidLegacyState {
     }
 }
 
+function New-TerminalQualityExtensionState {
+    param([Parameter(Mandatory = $true)]$HistoricalState)
+    $quality = @($script:applications | Where-Object Site -eq 'QualityAssurance')[0]
+    $planned = [object[]]@([pscustomobject]@{
+        Site = $quality.Site; Protocol = 'https'; BindingInformation = "*:$($quality.HttpsPort):"
+        CertificateHash = $HistoricalState.CertificateThumbprint; CertificateStoreName = 'My'; SslFlags = [int]0
+    })
+    return [pscustomobject]@{
+        Version = [int]1; Transaction = 'HttpsPilotQualityExtension'; ComputerName = 'SON-IIS2'
+        Status = 'RolledBack'; HistoricalStateSha256 = ('A' * 64)
+        CertificateThumbprint = $HistoricalState.CertificateThumbprint
+        PilotRootThumbprint = $HistoricalState.PilotRootThumbprint
+        PilotRemoteAddress = [object[]]@($HistoricalState.PilotRemoteAddress)
+        UnrelatedBindingsBefore = [object[]]@(); FirewallBefore = [pscustomobject]@{ Existed = $true }
+        PriorQaBinding = [object[]]@(); PlannedQaBinding = $planned
+        PreparedAtUtc = [DateTimeOffset]::UtcNow.AddMinutes(-3).ToString('o')
+        AppliedQaBinding = $planned; AppliedAtUtc = [DateTimeOffset]::UtcNow.AddMinutes(-2).ToString('o')
+        ApplyFailure = $null; ApplyFailedAtUtc = $null
+        RollbackStartedAtUtc = [DateTimeOffset]::UtcNow.AddMinutes(-1).ToString('o')
+        RolledBackAtUtc = [DateTimeOffset]::UtcNow.ToString('o')
+        RollbackFailure = $null; RollbackFailedAtUtc = $null
+    }
+}
+
 try {
     $validated = Assert-StrictLegacyPilotState -State (New-ValidLegacyState)
     Assert-True ($validated.Thumbprint -ceq '00112233445566778899AABBCCDDEEFF00112233') `
         'The strict validator did not accept the exact valid leaf thumbprint.'
-    Assert-True (@($validated.ExpectedBindings).Count -eq 5) `
-        'The strict validator must produce exactly five expected live pilot bindings.'
+    Assert-True (@($validated.ExpectedBindings).Count -eq 4) `
+        'The strict validator must produce exactly four historical pilot bindings.'
+    Assert-True $validated.IsFourSiteHistorical `
+        'The strict validator must identify the authentic four-site historical state explicitly.'
+    Assert-True ((@($validated.HistoricalApplications.Site) -join '|') -ceq
+        'ProjectTracker|SonAeroPortal|EngineeringHub|EstimatingDashboard') `
+        'The historical migration set must contain exactly Project, Portal, Engineering, and Estimating.'
+
+    $historicalState = New-ValidLegacyState
+    $terminalExtension = New-TerminalQualityExtensionState -HistoricalState $historicalState
+    Assert-QualityExtensionTerminalState -ExtensionState $terminalExtension `
+        -HistoricalState $historicalState -HistoricalStateSha256 ('A' * 64)
+    $automaticTerminal = New-TerminalQualityExtensionState -HistoricalState $historicalState
+    $automaticTerminal.Status = 'AutomaticallyRolledBack'
+    Assert-QualityExtensionTerminalState -ExtensionState $automaticTerminal `
+        -HistoricalState $historicalState -HistoricalStateSha256 ('A' * 64)
+    foreach ($incompleteStatus in @('Prepared','Applied','ApplyFailedRollbackPending','RollbackPending','RollbackFailed')) {
+        Assert-Throws {
+            $extension = New-TerminalQualityExtensionState -HistoricalState $historicalState
+            $extension.Status = $incompleteStatus
+            Assert-QualityExtensionTerminalState -ExtensionState $extension `
+                -HistoricalState $historicalState -HistoricalStateSha256 ('A' * 64)
+        } "Original rollback accepted incomplete Quality-extension status '$incompleteStatus'."
+    }
+    Assert-Throws {
+        $extension = New-TerminalQualityExtensionState -HistoricalState $historicalState
+        $extension.Transaction = 'DifferentTransaction'
+        Assert-QualityExtensionTerminalState -ExtensionState $extension `
+            -HistoricalState $historicalState -HistoricalStateSha256 ('A' * 64)
+    } 'Original rollback accepted the wrong extension transaction identity.'
+    Assert-Throws {
+        $extension = New-TerminalQualityExtensionState -HistoricalState $historicalState
+        $extension.HistoricalStateSha256 = ('B' * 64)
+        Assert-QualityExtensionTerminalState -ExtensionState $extension `
+            -HistoricalState $historicalState -HistoricalStateSha256 ('A' * 64)
+    } 'Original rollback accepted extension state linked to a different historical file.'
+    Assert-Throws {
+        $extension = New-TerminalQualityExtensionState -HistoricalState $historicalState
+        $extension.PriorQaBinding = $extension.PlannedQaBinding
+        Assert-QualityExtensionTerminalState -ExtensionState $extension `
+            -HistoricalState $historicalState -HistoricalStateSha256 ('A' * 64)
+    } 'Original rollback accepted extension state with a nonempty prior QA binding.'
+    Assert-Throws {
+        $extension = New-TerminalQualityExtensionState -HistoricalState $historicalState
+        $extension.PSObject.Properties.Remove('Transaction')
+        Assert-QualityExtensionTerminalState -ExtensionState $extension `
+            -HistoricalState $historicalState -HistoricalStateSha256 ('A' * 64)
+    } 'Original rollback accepted malformed extension state.'
 
     Assert-Throws { $state = New-ValidLegacyState; $state.Version = [int]2; Assert-StrictLegacyPilotState $state } `
         'Strict legacy validation accepted a non-v1 state.'
@@ -334,9 +457,33 @@ try {
     } 'Strict legacy validation accepted a nonempty pre-pilot 61xx binding baseline.'
     Assert-Throws {
         $state = New-ValidLegacyState
-        $state.AppliedTargetBindings = [object[]]@($state.AppliedTargetBindings | Select-Object -First 4)
+        $state.AppliedTargetBindings = [object[]]@($state.AppliedTargetBindings | Select-Object -First 3)
         Assert-StrictLegacyPilotState $state
-    } 'Strict legacy validation accepted fewer than five AppliedTargetBindings.'
+    } 'Strict legacy validation accepted three historical AppliedTargetBindings.'
+    Assert-Throws {
+        $state = New-ValidLegacyState
+        $state.AppliedTargetBindings += [pscustomobject]@{
+            Site = 'ProjectTracker'; Protocol = 'https'; BindingInformation = '*:6135:'
+            CertificateHash = $state.CertificateThumbprint; CertificateStoreName = 'My'; SslFlags = [int]0
+        }
+        Assert-StrictLegacyPilotState $state
+    } 'Strict legacy validation accepted a malformed five-entry historical AppliedTargetBindings snapshot.'
+    Assert-Throws {
+        $state = New-ValidLegacyState
+        $state.AppliedTargetBindings[3] = [pscustomobject]@{
+            Site = 'QualityAssurance'; Protocol = 'https'; BindingInformation = '*:6170:'
+            CertificateHash = $state.CertificateThumbprint; CertificateStoreName = 'My'; SslFlags = [int]0
+        }
+        Assert-StrictLegacyPilotState $state
+    } 'Strict legacy validation accepted QA in a four-entry historical AppliedTargetBindings snapshot.'
+    Assert-Throws {
+        $state = New-ValidLegacyState
+        $state.AllBindingsBefore[3] = [pscustomobject]@{
+            Site = 'QualityAssurance'; Protocol = 'http'; BindingInformation = '*:5170:'
+            CertificateHash = ''; CertificateStoreName = ''; SslFlags = [int]0
+        }
+        Assert-StrictLegacyPilotState $state
+    } 'Strict legacy validation accepted QA in the historical AllBindingsBefore snapshot.'
     Assert-Throws {
         $state = New-ValidLegacyState
         $state.AppliedTargetBindings[0].BindingInformation = '*:6199:'
@@ -362,6 +509,32 @@ try {
         $state.PilotRemoteAddress = [object[]]@('Any')
         Assert-StrictLegacyPilotState $state
     } 'Strict legacy validation accepted an unconstrained firewall remote address.'
+
+    $historicalPorts = @($script:historicalPilotApplications.HttpsPort)
+    $historicalFirewall = [pscustomobject]@{
+        Existed = $true
+        Enabled = 'True'
+        Direction = 'Inbound'
+        Action = 'Allow'
+        Profile = 'Domain,Private'
+        Protocol = 'TCP'
+        LocalPort = [object[]]@('6135', '6140', '6150', '6160')
+        RemoteAddress = [object[]]@('10.50.10.25')
+    }
+    Assert-FirewallAvailable -Snapshot $historicalFirewall -RemoteAddress @('10.50.10.25') `
+        -LocalPort $historicalPorts
+    Assert-Throws {
+        $threePortFirewall = $historicalFirewall.PSObject.Copy()
+        $threePortFirewall.LocalPort = [object[]]@('6135', '6140', '6150')
+        Assert-FirewallAvailable -Snapshot $threePortFirewall -RemoteAddress @('10.50.10.25') `
+            -LocalPort $historicalPorts
+    } 'Historical live firewall validation accepted only three of the four pilot ports.'
+    Assert-Throws {
+        $fivePortFirewall = $historicalFirewall.PSObject.Copy()
+        $fivePortFirewall.LocalPort = [object[]]@('6135', '6140', '6150', '6160', '6170')
+        Assert-FirewallAvailable -Snapshot $fivePortFirewall -RemoteAddress @('10.50.10.25') `
+            -LocalPort $historicalPorts
+    } 'Historical live firewall validation accepted the later QA 6170 port.'
     Assert-Throws {
         $state = New-ValidLegacyState
         $state | Add-Member -MemberType NoteProperty -Name Unexpected -Value 'value'
