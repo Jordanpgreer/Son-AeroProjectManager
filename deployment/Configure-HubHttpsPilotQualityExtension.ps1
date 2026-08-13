@@ -126,6 +126,9 @@ function Write-ExtensionState($State) {
     Assert-ProtectedPath -Path $directory -Directory
     if (Test-Path -LiteralPath $StatePath) { Assert-ProtectedStateFile $StatePath }
     $temporary = Join-Path $directory ((Split-Path -Leaf $StatePath) + '.' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    $backup = Join-Path $directory ((Split-Path -Leaf $StatePath) + '.' + [Guid]::NewGuid().ToString('N') + '.bak')
+    $backupSafeToDelete = $false
+    $replaceCompleted = $false
     try {
         $json = $State | ConvertTo-Json -Depth 12
         $encoding = New-Object Text.UTF8Encoding($false)
@@ -136,15 +139,58 @@ function Write-ExtensionState($State) {
         finally { $stream.Dispose() }
         Set-Acl -LiteralPath $temporary -AclObject (New-ProtectedFileSystemSecurity)
         Assert-ProtectedPath $temporary
-        if (Test-Path -LiteralPath $StatePath) { [IO.File]::Replace($temporary, $StatePath, $null) }
+        $expectedStateHash = (Get-FileHash -LiteralPath $temporary -Algorithm SHA256 -ErrorAction Stop).Hash
+        if (Test-Path -LiteralPath $StatePath) {
+            Assert-NoReparsePathChain $backup
+            $backupExists = $false
+            try { $null = [IO.File]::GetAttributes($backup); $backupExists = $true }
+            catch [IO.FileNotFoundException] { }
+            catch [IO.DirectoryNotFoundException] { }
+            catch { throw "Could not prove unique state backup path '$backup' is absent: $($_.Exception.Message)" }
+            if ($backupExists) { throw "Unique state backup path already exists at '$backup'." }
+            $priorStateHash = (Get-FileHash -LiteralPath $StatePath -Algorithm SHA256 -ErrorAction Stop).Hash
+            # Windows PowerShell 5.1/.NET Framework rejects a null backup path.
+            [IO.File]::Replace($temporary, $StatePath, $backup)
+            $replaceCompleted = $true
+            $backupItem = Get-Item -LiteralPath $backup -Force -ErrorAction Stop
+            if ($backupItem.PSIsContainer -or
+                ($backupItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "State backup path '$backup' is not a regular file."
+            }
+            Assert-ProtectedPath $backup
+            if ((Get-FileHash -LiteralPath $backup -Algorithm SHA256 -ErrorAction Stop).Hash -cne $priorStateHash) {
+                throw "State backup at '$backup' does not match the prior durable state; the protected backup was preserved."
+            }
+        }
         else { Move-Item -LiteralPath $temporary -Destination $StatePath }
         Assert-ProtectedStateFile $StatePath
+        if ((Get-FileHash -LiteralPath $StatePath -Algorithm SHA256 -ErrorAction Stop).Hash -cne $expectedStateHash) {
+            throw "Committed state at '$StatePath' does not match the serialized transaction state; protected backup '$backup' was preserved."
+        }
+        if (Test-Path -LiteralPath $backup) { $backupSafeToDelete = $true }
+    }
+    catch {
+        if ($replaceCompleted) {
+            throw "Quality-extension state replacement committed but verification failed; prior protected state is preserved at '$backup'. $($_.Exception.Message)"
+        }
+        throw
     }
     finally {
         $item = Get-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
         if ($item -and -not $item.PSIsContainer -and
             ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) {
             Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+        }
+        if ($backupSafeToDelete) {
+            try {
+                Assert-NoReparsePathChain $backup
+                Assert-ProtectedPath $backup
+                Remove-Item -LiteralPath $backup -Force -ErrorAction Stop
+            }
+            catch {
+                Write-Warning "Committed state is valid, but protected backup cleanup failed at '$backup': $($_.Exception.Message)" `
+                    -WarningAction Continue
+            }
         }
     }
 }
@@ -440,7 +486,8 @@ function Assert-ExtensionState($State, $History) {
     $prepared = [DateTimeOffset]::MinValue
     if ($State.PreparedAtUtc -isnot [string] -or -not [DateTimeOffset]::TryParseExact(
         $State.PreparedAtUtc, 'o', [Globalization.CultureInfo]::InvariantCulture,
-        [Globalization.DateTimeStyles]::RoundtripKind, [ref]$prepared) -or $prepared.Offset -ne [TimeSpan]::Zero) {
+        [Globalization.DateTimeStyles]::RoundtripKind, [ref]$prepared) -or
+        $prepared.Offset -ne [TimeSpan]::Zero -or $prepared -gt [DateTimeOffset]::UtcNow.AddMinutes(5)) {
         throw 'Extension PreparedAtUtc is invalid.'
     }
     if ($State.Status -eq 'Applied') {
@@ -451,6 +498,23 @@ function Assert-ExtensionState($State, $History) {
     elseif ($null -ne $State.AppliedQaBinding -and @($State.AppliedQaBinding).Count -gt 0 -and
         (Get-ComparableBindings @($State.AppliedQaBinding)) -cne (Get-ComparableBindings @($expectedQa))) {
         throw 'Extension AppliedQaBinding is outside exact QA ownership.'
+    }
+    if ($State.Status -in @('RolledBack','AutomaticallyRolledBack')) {
+        $rollbackStarted = [DateTimeOffset]::MinValue
+        $rolledBack = [DateTimeOffset]::MinValue
+        if ($State.RollbackStartedAtUtc -isnot [string] -or $State.RolledBackAtUtc -isnot [string] -or
+            -not [DateTimeOffset]::TryParseExact($State.RollbackStartedAtUtc, 'o',
+                [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::RoundtripKind, [ref]$rollbackStarted) -or
+            -not [DateTimeOffset]::TryParseExact($State.RolledBackAtUtc, 'o',
+                [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::RoundtripKind, [ref]$rolledBack) -or
+            $rollbackStarted.Offset -ne [TimeSpan]::Zero -or $rolledBack.Offset -ne [TimeSpan]::Zero -or
+            $rollbackStarted -lt $prepared -or $rolledBack -lt $rollbackStarted -or
+            $rolledBack -gt [DateTimeOffset]::UtcNow.AddMinutes(5) -or
+            $null -ne $State.RollbackFailure -or $null -ne $State.RollbackFailedAtUtc) {
+            throw 'Terminal extension rollback timestamps or failure fields are invalid.'
+        }
     }
 }
 function Set-StateValue($State, [string]$Name, $Value) {
@@ -614,9 +678,10 @@ try {
         }
         if ($existing.Status -in @('RolledBack','AutomaticallyRolledBack')) {
             Assert-FourSiteLive $history @($existing.UnrelatedBindingsBefore)
-            throw 'The prior QA extension is rolled back. Remove or archive its protected state through change control before a new apply.'
+            # A completed rollback may be reused only from its exact protected four-site baseline.
+            # The normal preflight and ShouldProcess gate below then create a fresh durable Prepared state.
         }
-        throw "Incomplete quality-extension transaction '$($existing.Status)' exists. Run -Rollback first."
+        else { throw "Incomplete quality-extension transaction '$($existing.Status)' exists. Run -Rollback first." }
     }
 
     $before = @(Get-IisSnapshot); Assert-HttpBindings $before; Assert-HistoricalBindings $before $history.Thumbprint

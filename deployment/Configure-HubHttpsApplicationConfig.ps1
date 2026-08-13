@@ -371,11 +371,19 @@ function Write-SecureState {
     $directory = Split-Path -Parent $StatePath
     Assert-NoReparsePathChain -Path $StatePath
     New-SecureDirectory $directory
-    if (Test-Path -LiteralPath $StatePath) { Assert-StatePathProtection }
+    $previousStateSha256 = $null
+    if (Test-Path -LiteralPath $StatePath) {
+        Assert-StatePathProtection
+        $previousStateSha256 = Get-FileSha256 $StatePath
+    }
     $temporary = Join-Path $directory ((Split-Path -Leaf $StatePath) + '.' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    $replacementBackup = Join-Path $directory ((Split-Path -Leaf $StatePath) + '.' + [Guid]::NewGuid().ToString('N') + '.replace-backup')
+    $replacementVerified = $false
+    $temporarySha256 = $null
     try {
         $json = ($State | ConvertTo-Json -Depth 12) + [Environment]::NewLine
         $bytes = (New-Object Text.UTF8Encoding($false)).GetBytes($json)
+        $expectedStateSha256 = Get-BytesSha256 $bytes
         $stream = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew,
             [IO.FileAccess]::Write, [IO.FileShare]::None)
         try {
@@ -386,15 +394,89 @@ function Write-SecureState {
         Assert-NoReparsePathChain -Path $temporary
         Set-Acl -LiteralPath $temporary -AclObject (New-ProtectedFileSystemSecurity)
         Assert-ProtectedPath -Path $temporary
-        if (Test-Path -LiteralPath $StatePath) { [IO.File]::Replace($temporary, $StatePath, $null) }
-        else { Move-Item -LiteralPath $temporary -Destination $StatePath }
-        Assert-StatePathProtection
+        $temporarySha256 = Get-FileSha256 $temporary
+        if ($temporarySha256 -ine $expectedStateSha256) {
+            throw "Temporary transaction state hash verification failed at '$temporary'."
+        }
+        if ($null -ne $previousStateSha256) {
+            # .NET Framework requires a non-null backupFileName. Keeping the unique backup beside
+            # the protected destination also preserves File.Replace's atomic/crash-safe semantics.
+            if ((Get-FullPath (Split-Path -Parent $replacementBackup)) -ine (Get-FullPath $directory)) {
+                throw "Replacement backup must be a direct sibling of the transaction state: '$replacementBackup'."
+            }
+            Assert-NoReparsePathChain -Path $replacementBackup
+            if (Test-Path -LiteralPath $replacementBackup) {
+                throw "Replacement backup path already exists: '$replacementBackup'."
+            }
+            [IO.File]::Replace($temporary, $StatePath, $replacementBackup)
+            try {
+                Assert-NoReparsePathChain -Path $replacementBackup
+                Assert-ProtectedPath -Path $replacementBackup
+                if ((Get-FileSha256 $replacementBackup) -ine $previousStateSha256) {
+                    throw 'Replacement backup hash does not match the prior transaction state.'
+                }
+                Assert-StatePathProtection
+                if ((Get-FileSha256 $StatePath) -ine $temporarySha256) {
+                    throw 'Installed transaction state hash does not match the protected temporary state.'
+                }
+                $replacementVerified = $true
+            }
+            catch {
+                throw "Atomic state replacement completed but verification failed. The prior state backup is preserved at '$replacementBackup'. $($_.Exception.Message)"
+            }
+        }
+        else {
+            Move-Item -LiteralPath $temporary -Destination $StatePath
+            Assert-StatePathProtection
+            if ((Get-FileSha256 $StatePath) -ine $temporarySha256) {
+                throw 'Installed transaction state hash does not match the protected temporary state.'
+            }
+        }
     }
     finally {
-        $temporaryItem = Get-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
-        if ($temporaryItem -and -not $temporaryItem.PSIsContainer -and
-            ($temporaryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) {
-            Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+        if ((Get-FullPath (Split-Path -Parent $temporary)) -ieq (Get-FullPath $directory)) {
+            try {
+                Assert-NoReparsePathChain -Path $temporary
+                $temporaryItem = Get-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+                if ($temporaryItem -and -not $temporaryItem.PSIsContainer -and
+                    ($temporaryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) {
+                    Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+                }
+            }
+            catch { }
+        }
+        $replacementBackupExists = $false
+        try { $replacementBackupExists = Test-Path -LiteralPath $replacementBackup -PathType Leaf -ErrorAction Stop }
+        catch {
+            Write-Warning -WarningAction Continue `
+                "The replacement backup could not be safely inspected and may remain at '$replacementBackup': $($_.Exception.Message)"
+        }
+        if ($replacementBackupExists) {
+            if (-not $replacementVerified) {
+                Write-Warning -WarningAction Continue `
+                    "State replacement did not reach verified completion. The prior state backup is preserved at '$replacementBackup'."
+            }
+            else {
+                try {
+                    if ((Get-FullPath (Split-Path -Parent $replacementBackup)) -ine (Get-FullPath $directory)) {
+                        throw 'Replacement backup is no longer a direct sibling of the transaction state.'
+                    }
+                    Assert-NoReparsePathChain -Path $replacementBackup
+                    Assert-ProtectedPath -Path $replacementBackup
+                    if ((Get-FileSha256 $replacementBackup) -ine $previousStateSha256) {
+                        throw 'Replacement backup hash changed before cleanup.'
+                    }
+                    Assert-StatePathProtection
+                    if ((Get-FileSha256 $StatePath) -ine $temporarySha256) {
+                        throw 'Installed transaction state hash changed before backup cleanup.'
+                    }
+                    Remove-Item -LiteralPath $replacementBackup -Force -ErrorAction Stop
+                }
+                catch {
+                    Write-Warning -WarningAction Continue `
+                        "The transaction state commit is verified, but its protected replacement backup could not be safely removed and remains at '$replacementBackup': $($_.Exception.Message)"
+                }
+            }
         }
     }
 }

@@ -130,6 +130,24 @@ Assurance compatibility transaction have completed with their exact success mark
 The pilot, compatibility, and permanent binding scripts share one global transaction lock, so their
 state checks, apply, rollback, and this migration cannot overlap.
 
+### Recover an interrupted QA extension
+
+If an extension apply reports that state persistence and automatic rollback both failed, stop and
+pull the corrected release before doing anything else. Do not rerun apply, edit JSON, or change IIS
+bindings/firewall manually. A durable `Prepared` state with the exact five-site live topology is
+recovered by first returning to the recorded four-site baseline:
+
+```powershell
+git -C $repo pull --ff-only origin main
+& "$repo\deployment\Configure-HubHttpsPilotQualityExtension.ps1" -Rollback -WhatIf
+& "$repo\deployment\Configure-HubHttpsPilotQualityExtension.ps1" -Rollback -Confirm:$false
+```
+
+Require `WHATIF_READY_HTTPS_PILOT_QA_EXTENSION_ROLLBACK`, then
+`HTTPS_PILOT_QA_EXTENSION_ROLLED_BACK_AND_FOUR_SITE_HEALTHY`. Only after that exact recovery marker
+may the normal QA extension preview/apply pair above be run again. The rollback owns only QA 6170
+and the firewall's fifth port; it preserves all HTTP, original four 61xx, and permanent 443 bindings.
+
 ## 3. Run the read-only readiness audit
 
 ```powershell

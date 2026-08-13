@@ -542,6 +542,90 @@ function Initialize-ProtectedStateDirectory {
     Assert-ProtectedStatePath -Path $directory -Directory
 }
 
+function Replace-ProtectedPilotStateFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$TemporaryPath,
+        [Parameter(Mandatory = $true)][string]$DestinationPath
+    )
+    $directory = Split-Path -Parent $DestinationPath
+    if ((Split-Path -Parent $TemporaryPath) -ine $directory) {
+        throw 'Pilot state replacement source and destination must be siblings.'
+    }
+    $backupPath = Join-Path $directory (
+        (Split-Path -Leaf $DestinationPath) + '.' + [Guid]::NewGuid().ToString('N') + '.bak')
+    $backupSafeToDelete = $false
+    $replaceCompleted = $false
+    Assert-NoReparsePointInStatePathChain -Path $TemporaryPath
+    Assert-NoReparsePointInStatePathChain -Path $DestinationPath
+    Assert-NoReparsePointInStatePathChain -Path $backupPath
+    $backupExists = $false
+    try { $null = [IO.File]::GetAttributes($backupPath); $backupExists = $true }
+    catch [IO.FileNotFoundException] { }
+    catch [IO.DirectoryNotFoundException] { }
+    catch { throw "Could not prove replacement backup path '$backupPath' is absent: $($_.Exception.Message)" }
+    if ($backupExists) { throw "Unique replacement backup path already exists: '$backupPath'." }
+    Assert-ProtectedStatePath -Path $TemporaryPath
+    Assert-PilotStateProtection -Path $DestinationPath
+    $temporaryHash = (Get-FileHash -LiteralPath $TemporaryPath -Algorithm SHA256 -ErrorAction Stop).Hash
+    $priorDestinationHash = (Get-FileHash -LiteralPath $DestinationPath -Algorithm SHA256 -ErrorAction Stop).Hash
+    Assert-NoReparsePointInStatePathChain -Path $TemporaryPath
+    Assert-NoReparsePointInStatePathChain -Path $DestinationPath
+    Assert-ProtectedStatePath -Path $TemporaryPath
+    Assert-PilotStateProtection -Path $DestinationPath
+    try {
+        # Windows PowerShell 5.1/.NET Framework rejects a null File.Replace backup path.
+        [IO.File]::Replace($TemporaryPath, $DestinationPath, $backupPath)
+        $replaceCompleted = $true
+        Assert-NoReparsePointInStatePathChain -Path $backupPath
+        Assert-NoReparsePointInStatePathChain -Path $DestinationPath
+        $backupItem = Get-Item -LiteralPath $backupPath -Force -ErrorAction Stop
+        if ($backupItem.PSIsContainer -or
+            ($backupItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Pilot state replacement backup '$backupPath' is not a regular file."
+        }
+        Assert-ProtectedStatePath -Path $backupPath
+        Assert-PilotStateProtection -Path $DestinationPath
+        $committedHash = (Get-FileHash -LiteralPath $DestinationPath -Algorithm SHA256 -ErrorAction Stop).Hash
+        $preservedHash = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256 -ErrorAction Stop).Hash
+        if ($committedHash -cne $temporaryHash -or $preservedHash -cne $priorDestinationHash) {
+            throw 'Committed or preserved pilot state bytes do not match the pre-replacement hashes.'
+        }
+        $backupSafeToDelete = $true
+    }
+    catch {
+        if ($replaceCompleted) {
+            throw "Pilot state replacement committed but verification failed; prior protected state is preserved at '$backupPath'. $($_.Exception.Message)"
+        }
+        throw
+    }
+    finally {
+        # Preserve the old state if replacement or destination validation failed. Delete it only
+        # after both the named backup and committed destination were proved protected and regular.
+        if ($backupSafeToDelete) {
+            try {
+                Assert-NoReparsePointInStatePathChain -Path $DestinationPath
+                Assert-PilotStateProtection -Path $DestinationPath
+                Assert-NoReparsePointInStatePathChain -Path $backupPath
+                $backupItem = Get-Item -LiteralPath $backupPath -Force -ErrorAction Stop
+                if ($backupItem.PSIsContainer -or
+                    ($backupItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    throw "Pilot state replacement backup '$backupPath' became unsafe before cleanup."
+                }
+                Assert-ProtectedStatePath -Path $backupPath
+                Remove-Item -LiteralPath $backupPath -Force -ErrorAction Stop
+                if ([IO.File]::Exists($backupPath) -or [IO.Directory]::Exists($backupPath)) {
+                    throw "Pilot state replacement backup '$backupPath' still exists after cleanup."
+                }
+            }
+            catch {
+                Write-Warning `
+                    "Pilot state was committed and verified, but its protected prior-state backup remains at '$backupPath': $($_.Exception.Message)" `
+                    -WarningAction Continue
+            }
+        }
+    }
+}
+
 function Write-State {
     param([Parameter(Mandatory = $true)]$State)
     Initialize-ProtectedStateDirectory
@@ -577,7 +661,7 @@ function Write-State {
         if (Get-Item -LiteralPath $StatePath -Force -ErrorAction SilentlyContinue) {
             Assert-NoReparsePointInStatePathChain -Path $StatePath
             Assert-PilotStateProtection -Path $StatePath
-            [IO.File]::Replace($temporary, $StatePath, $null)
+            Replace-ProtectedPilotStateFile -TemporaryPath $temporary -DestinationPath $StatePath
         }
         else {
             Move-Item -LiteralPath $temporary -Destination $StatePath

@@ -66,6 +66,20 @@ foreach ($pattern in @("\[Guid\]::NewGuid\(\)\.ToString\('N'\)",'FileMode\]::Cre
     'FileShare\]::None','Flush\(\$true\)','\[IO\.File\]::Replace','Assert-ProtectedStateFile')) {
     Assert-True ($writeText -match $pattern) "Atomic protected state writer lacks '$pattern'."
 }
+Assert-True ($writeText -notmatch '\[IO\.File\]::Replace\([^\r\n]+,\s*\$null\s*\)') `
+    'Windows PowerShell 5.1 rejects File.Replace with a null backup path.'
+Assert-True ($writeText -match '\[IO\.File\]::Replace\(\$temporary,\s*\$StatePath,\s*\$backup\)') `
+    'Atomic replacement must use the unique same-directory backup path.'
+Assert-True ($writeText -match 'Assert-ProtectedPath\s+\$backup') `
+    'The prior durable state backup must retain protected ACLs before cleanup.'
+Assert-True ($writeText -match 'expectedStateHash' -and $writeText -match 'priorStateHash') `
+    'Atomic replacement must verify both committed and prior-state backup hashes.'
+Assert-True ($writeText -match 'backupSafeToDelete' -and
+    $writeText -match 'Assert-NoReparsePathChain\s+\$backup' -and
+    $writeText -match 'Write-Warning') `
+    'Backup cleanup must revalidate protection and warn rather than fail a verified commit.'
+Assert-True ($writeText -match 'replaceCompleted' -and $writeText -match 'prior protected state is preserved') `
+    'Post-replacement verification failures must report the preserved recovery backup.'
 
 # The shared lock is acquired before either historical or extension state can be read.
 Assert-True ($source.Contains("`$mutexName = 'Global\SonAero-HubHttpsBindingTransactions'")) `
@@ -149,6 +163,12 @@ foreach ($status in @('Prepared','Applied','ApplyFailedRollbackPending','Rollbac
     'RolledBack','AutomaticallyRolledBack')) {
     Assert-True $source.Contains("'$status'") "State machine lacks status '$status'."
 }
+Assert-True ($source -match "existing\.Status\s+-in\s+@\('RolledBack','AutomaticallyRolledBack'\)[\s\S]+Assert-FourSiteLive") `
+    'A completed extension may be reapplied only after exact four-site live validation.'
+Assert-True ($source -match 'else\s*\{\s*throw\s+"Incomplete quality-extension transaction') `
+    'Every nonterminal incomplete extension state must still refuse reapply.'
+Assert-True ($source -match 'Terminal extension rollback timestamps or failure fields are invalid') `
+    'Terminal reuse must require ordered exact UTC rollback completion timestamps.'
 Assert-True ($source -match 'Restore-FourSite\s+\$state\s+\$history') `
     'Apply failure must invoke the same deterministic four-site restoration primitive.'
 $fourText = (Get-FunctionAst $ast 'Assert-FourSiteLive').Extent.Text
@@ -238,6 +258,23 @@ try {
     Assert-Throws {$firewall.LocalPort=@('Any');Assert-Firewall $firewall $history.RemoteAddress @($script:historicalApplications.HttpsPort)} `
         'Firewall guard accepted a broad port token.'
 
+    $firewall.LocalPort=@('6135','6140','6150','6160')
+    $now = [DateTimeOffset]::UtcNow
+    $terminal = [pscustomobject]@{
+        Version=[int]1;Transaction='HttpsPilotQualityExtension';ComputerName='SON-IIS2';Status='RolledBack'
+        HistoricalStateSha256=('A' * 64);CertificateThumbprint=$history.Thumbprint
+        PilotRootThumbprint=$history.RootThumbprint;PilotRemoteAddress=[object[]]@($history.RemoteAddress)
+        UnrelatedBindingsBefore=[object[]]@($snapshot);FirewallBefore=$firewall;PriorQaBinding=[object[]]@()
+        PlannedQaBinding=[object[]]@(New-ExpectedBinding $script:qualityApplication $history.Thumbprint)
+        PreparedAtUtc=$now.AddMinutes(-3).ToString('o');AppliedQaBinding=$null;AppliedAtUtc=$null
+        ApplyFailure=$null;ApplyFailedAtUtc=$null;RollbackStartedAtUtc=$now.AddMinutes(-2).ToString('o')
+        RolledBackAtUtc=$now.AddMinutes(-1).ToString('o');RollbackFailure=$null;RollbackFailedAtUtc=$null
+    }
+    Assert-ExtensionState $terminal $history
+    $terminal.RolledBackAtUtc=$null
+    Assert-Throws { Assert-ExtensionState $terminal $history } `
+        'Terminal extension reuse accepted a missing rollback completion timestamp.'
+
     # Windows PowerShell 5.1 must preserve each expected port set as one [int[]].
     $setFirewallText = (Get-FunctionAst $ast 'Set-FirewallPorts').Extent.Text
     . ([scriptblock]::Create($setFirewallText))
@@ -269,6 +306,79 @@ finally {
     foreach ($name in @($pureFunctions + @('Set-FirewallPorts','Get-FirewallSnapshot','Get-NetFirewallRule',
         'Get-NetFirewallPortFilter','Set-NetFirewallPortFilter'))) {
         Remove-Item -LiteralPath "Function:\$name" -ErrorAction SilentlyContinue
+    }
+}
+
+# Reproduce the live .NET Framework failure and prove the named-backup repair.
+$replaceRoot = Join-Path ([IO.Path]::GetTempPath()) ('sonaero-qa-replace-' + [Guid]::NewGuid().ToString('N'))
+try {
+    [void][IO.Directory]::CreateDirectory($replaceRoot)
+    $sourcePath = Join-Path $replaceRoot 'state.tmp'
+    $destinationPath = Join-Path $replaceRoot 'state.json'
+    $backupPath = Join-Path $replaceRoot 'state.bak'
+    [IO.File]::WriteAllText($sourcePath, 'new')
+    [IO.File]::WriteAllText($destinationPath, 'old')
+    Assert-Throws { [IO.File]::Replace($sourcePath, $destinationPath, $null) } `
+        'Windows PowerShell 5.1 unexpectedly accepted a null File.Replace backup path.'
+    [IO.File]::Replace($sourcePath, $destinationPath, $backupPath)
+    Assert-True ([IO.File]::ReadAllText($destinationPath) -ceq 'new') `
+        'Named-backup atomic replacement did not commit the new state.'
+    Assert-True ([IO.File]::ReadAllText($backupPath) -ceq 'old') `
+        'Named-backup atomic replacement did not preserve the prior state.'
+}
+finally {
+    if (Test-Path -LiteralPath $replaceRoot) { Remove-Item -LiteralPath $replaceRoot -Recurse -Force }
+}
+
+# Execute the actual writer twice so its first-create and named-replacement control flow is covered.
+$writerRoot = Join-Path ([IO.Path]::GetTempPath()) ('sonaero-qa-writer-' + [Guid]::NewGuid().ToString('N'))
+$writerMocks = @('Assert-NoReparsePathChain','Assert-ProtectedPath','Assert-ProtectedStateFile',
+    'New-ProtectedFileSystemSecurity','Set-Acl','Write-ExtensionState')
+try {
+    [void][IO.Directory]::CreateDirectory($writerRoot)
+    $script:StatePath = Join-Path $writerRoot 'state.json'
+    function Assert-NoReparsePathChain { param([string]$Path) }
+    function Assert-ProtectedPath { param([string]$Path, [switch]$Directory) }
+    function Assert-ProtectedStateFile { param([string]$Path) }
+    function New-ProtectedFileSystemSecurity { return [pscustomobject]@{} }
+    function Set-Acl { param([string]$LiteralPath, $AclObject) }
+    . ([scriptblock]::Create((Get-FunctionAst $ast 'Write-ExtensionState').Extent.Text))
+
+    Write-ExtensionState ([pscustomobject]@{ Version = 1; Status = 'Prepared' })
+    Write-ExtensionState ([pscustomobject]@{ Version = 1; Status = 'Applied' })
+    $written = Get-Content -LiteralPath $script:StatePath -Raw | ConvertFrom-Json
+    Assert-True ($written.Status -ceq 'Applied') `
+        'The actual writer did not atomically replace its first durable state under PowerShell 5.1.'
+    Assert-True (@(Get-ChildItem -LiteralPath $writerRoot -Filter '*.bak').Count -eq 0) `
+        'The actual writer left a verified prior-state backup after successful cleanup.'
+
+    $priorWarningPreference = $WarningPreference
+    try {
+        function Remove-Item {
+            param([string]$LiteralPath, [switch]$Force, $ErrorAction, [switch]$Recurse)
+            if ($LiteralPath -like '*.bak') { throw 'simulated backup cleanup contention' }
+            Microsoft.PowerShell.Management\Remove-Item -LiteralPath $LiteralPath -Force:$Force `
+                -Recurse:$Recurse -ErrorAction $ErrorAction
+        }
+        $WarningPreference = 'Stop'
+        Write-ExtensionState ([pscustomobject]@{ Version = 1; Status = 'CompletedWithBackup' })
+        $written = Get-Content -LiteralPath $script:StatePath -Raw | ConvertFrom-Json
+        Assert-True ($written.Status -ceq 'CompletedWithBackup') `
+            'A cleanup-only warning falsely failed a verified commit when WarningPreference was Stop.'
+        Assert-True (@(Get-ChildItem -LiteralPath $writerRoot -Filter '*.bak').Count -eq 1) `
+            'Cleanup contention did not preserve the protected prior-state backup.'
+    }
+    finally {
+        $WarningPreference = $priorWarningPreference
+        Microsoft.PowerShell.Management\Remove-Item -LiteralPath 'Function:\Remove-Item' -ErrorAction SilentlyContinue
+    }
+}
+finally {
+    foreach ($name in $writerMocks) {
+        Microsoft.PowerShell.Management\Remove-Item -LiteralPath "Function:\$name" -ErrorAction SilentlyContinue
+    }
+    if (Test-Path -LiteralPath $writerRoot) {
+        Microsoft.PowerShell.Management\Remove-Item -LiteralPath $writerRoot -Recurse -Force
     }
 }
 

@@ -37,7 +37,9 @@ function Get-TestableFunctions {
 }
 
 $functions = @(
-    'Get-FullPath', 'Read-JsonFile', 'Get-FileSha256', 'Get-BytesSha256', 'Set-StateProperty',
+    'Get-FullPath', 'Assert-NoReparsePathChain', 'Read-JsonFile', 'Get-FileSha256', 'Get-BytesSha256', 'Set-StateProperty',
+    'New-ProtectedFileSystemSecurity', 'Assert-ProtectedPath', 'New-SecureDirectory',
+    'Assert-StatePathProtection', 'Write-SecureState',
     'Resolve-TransactionStatePath', 'Set-TopologyConfiguration', 'Convert-ToUtf8JsonBytes',
     'Assert-PortalShape', 'Assert-TrackerShape', 'New-TransformedConfig',
     'Assert-RequiredStateProperties', 'Assert-SafeStatePath', 'Assert-PathUnderRoot',
@@ -53,6 +55,154 @@ $functions = @(
 $scriptSource = Get-Content -LiteralPath $ScriptPath -Raw
 Assert-True ([regex]::IsMatch($scriptSource, '\[string\]\$Topology\s*=\s*''Production''')) `
     'The permanent DNS/SNI topology is not the default transaction mode.'
+Assert-True ($scriptSource -match '\[IO\.File\]::Replace\(\$temporary,\s*\$StatePath,\s*\$replacementBackup\)' -and
+    $scriptSource -notmatch '\[IO\.File\]::Replace\(\$temporary,\s*\$StatePath,\s*\$null\)') `
+    'The secure state writer must use a named File.Replace backup under Windows PowerShell 5.1.'
+$replaceWriterMatch = [regex]::Match(
+    $scriptSource,
+    '(?s)function Write-SecureState\s*\{(?<Body>.*?)\r?\n\}'
+)
+Assert-True $replaceWriterMatch.Success 'The secure state writer could not be inspected.'
+$replaceWriter = $replaceWriterMatch.Groups['Body'].Value
+$replaceCallIndex = $replaceWriter.IndexOf('[IO.File]::Replace($temporary, $StatePath, $replacementBackup)')
+$backupReparseIndex = $replaceWriter.IndexOf('Assert-NoReparsePathChain -Path $replacementBackup', $replaceCallIndex + 1)
+$backupProtectionIndex = $replaceWriter.IndexOf('Assert-ProtectedPath -Path $replacementBackup', $replaceCallIndex + 1)
+$destinationProtectionIndex = $replaceWriter.IndexOf('Assert-StatePathProtection', $replaceCallIndex + 1)
+$cleanupRemoveIndex = $replaceWriter.LastIndexOf('Remove-Item -LiteralPath $replacementBackup')
+$cleanupReparseIndex = $replaceWriter.LastIndexOf('Assert-NoReparsePathChain -Path $replacementBackup', $cleanupRemoveIndex)
+$cleanupProtectionIndex = $replaceWriter.LastIndexOf('Assert-ProtectedPath -Path $replacementBackup', $cleanupRemoveIndex)
+Assert-True ($replaceCallIndex -ge 0 -and $backupReparseIndex -gt $replaceCallIndex -and
+    $backupProtectionIndex -gt $backupReparseIndex -and
+    $destinationProtectionIndex -gt $backupProtectionIndex -and
+    $replaceWriter -match 'Get-FileSha256\s+\$replacementBackup\)\s+-ine\s+\$previousStateSha256' -and
+    $replaceWriter -match 'Get-FileSha256\s+\$StatePath\)\s+-ine\s+\$temporarySha256' -and
+    $replaceWriter -match 'prior state backup is preserved at ''\$replacementBackup''' -and
+    $cleanupRemoveIndex -gt 0 -and $cleanupReparseIndex -gt $destinationProtectionIndex -and
+    $cleanupProtectionIndex -gt $cleanupReparseIndex -and $cleanupProtectionIndex -lt $cleanupRemoveIndex) `
+    'The secure state writer does not hash/ACL-verify both replacement artifacts and safely clean its named backup.'
+
+# Exercise the exact .NET Framework API contract used by Windows PowerShell 5.1. A same-directory,
+# non-null backup must preserve the old destination while atomically installing the new content.
+$fileReplaceRoot = Join-Path ([IO.Path]::GetTempPath()) ('sonaero-file-replace-' + [Guid]::NewGuid().ToString('N'))
+[IO.Directory]::CreateDirectory($fileReplaceRoot) | Out-Null
+try {
+    $fileReplaceSource = Join-Path $fileReplaceRoot 'state.new'
+    $fileReplaceDestination = Join-Path $fileReplaceRoot 'state.json'
+    $fileReplaceBackup = Join-Path $fileReplaceRoot 'state.previous'
+    [IO.File]::WriteAllText($fileReplaceSource, 'new-state')
+    [IO.File]::WriteAllText($fileReplaceDestination, 'old-state')
+    [IO.File]::Replace($fileReplaceSource, $fileReplaceDestination, $fileReplaceBackup)
+    Assert-True (([IO.File]::ReadAllText($fileReplaceDestination)) -ceq 'new-state') `
+        'Windows PowerShell 5.1 File.Replace did not atomically install the source state.'
+    Assert-True (([IO.File]::ReadAllText($fileReplaceBackup)) -ceq 'old-state') `
+        'Windows PowerShell 5.1 File.Replace did not create the named rollback backup.'
+    Assert-True (-not (Test-Path -LiteralPath $fileReplaceSource)) `
+        'Windows PowerShell 5.1 File.Replace unexpectedly retained the source file.'
+}
+finally { Remove-Item -LiteralPath $fileReplaceRoot -Recurse -Force }
+
+# Exercise the real writer twice under Windows PowerShell 5.1. Only ACL/path primitives are mocked;
+# the second call must traverse the named File.Replace path, verify both hashes, and remove its backup.
+$writerRoot = Join-Path ([IO.Path]::GetTempPath()) ('sonaero-state-writer-' + [Guid]::NewGuid().ToString('N'))
+$stateRoot = $writerRoot
+$StatePath = Join-Path $writerRoot 'state.json'
+$script:writerProtectedPaths = @()
+function Assert-NoReparsePathChain {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $null = [IO.Path]::GetFullPath($Path)
+}
+function New-SecureDirectory {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    [IO.Directory]::CreateDirectory($Path) | Out-Null
+}
+function New-ProtectedFileSystemSecurity { return [pscustomobject]@{ MockAcl = $true } }
+function Set-Acl {
+    param([Parameter(Mandatory = $true)][string]$LiteralPath, $AclObject)
+    if (-not (Test-Path -LiteralPath $LiteralPath)) { throw "Mock ACL target is missing: '$LiteralPath'." }
+}
+function Assert-ProtectedPath {
+    param([Parameter(Mandatory = $true)][string]$Path, [switch]$Directory)
+    if (-not (Test-Path -LiteralPath $Path)) { throw "Mock protected path is missing: '$Path'." }
+    $script:writerProtectedPaths += $Path
+}
+function Assert-StatePathProtection {
+    Assert-NoReparsePathChain -Path $StatePath
+    Assert-ProtectedPath -Path $stateRoot -Directory
+    Assert-ProtectedPath -Path $StatePath
+}
+try {
+    Write-SecureState ([pscustomobject]@{ Version = 1; Status = 'Prepared' })
+    Write-SecureState ([pscustomobject]@{ Version = 2; Status = 'Applied' })
+    $writtenState = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
+    Assert-True ($writtenState.Version -eq 2 -and $writtenState.Status -ceq 'Applied') `
+        'The real secure state writer did not atomically install its second state.'
+    Assert-True (@($script:writerProtectedPaths | Where-Object { $_ -like '*.replace-backup' }).Count -ge 2) `
+        'The real secure state writer did not ACL-validate its named backup after replacement and before cleanup.'
+    Assert-True (@(Get-ChildItem -LiteralPath $writerRoot -Filter '*.replace-backup' -Force).Count -eq 0) `
+        'The real secure state writer left a verified named backup behind.'
+    Assert-True (@(Get-ChildItem -LiteralPath $writerRoot -Filter '*.tmp' -Force).Count -eq 0) `
+        'The real secure state writer left a temporary state file behind.'
+
+    # Once File.Replace succeeds, a failed destination validation must retain the verified prior-state
+    # backup and report its exact path rather than silently deleting the only recovery artifact.
+    $script:writerProtectionCallCount = 0
+    function Assert-StatePathProtection {
+        $script:writerProtectionCallCount++
+        Assert-NoReparsePathChain -Path $StatePath
+        Assert-ProtectedPath -Path $stateRoot -Directory
+        Assert-ProtectedPath -Path $StatePath
+        if ($script:writerProtectionCallCount -eq 2) { throw 'Simulated post-replacement validation failure.' }
+    }
+    $writerFailure = $null
+    try { Write-SecureState ([pscustomobject]@{ Version = 3; Status = 'ValidationFailure' }) }
+    catch { $writerFailure = $_.Exception.Message }
+    $preservedBackups = @(Get-ChildItem -LiteralPath $writerRoot -Filter '*.replace-backup' -Force)
+    Assert-True ($preservedBackups.Count -eq 1 -and
+        $writerFailure -like "*prior state backup is preserved at '$($preservedBackups[0].FullName)'*") `
+        'Post-replacement validation failure did not retain and identify the exact prior-state backup.'
+    $preservedState = Get-Content -LiteralPath $preservedBackups[0].FullName -Raw | ConvertFrom-Json
+    Assert-True ($preservedState.Version -eq 2 -and $preservedState.Status -ceq 'Applied') `
+        'The preserved replacement backup is not the exact prior transaction state.'
+    Microsoft.PowerShell.Management\Remove-Item -LiteralPath $preservedBackups[0].FullName -Force
+
+    # A verified commit remains successful if removal is momentarily blocked. This must remain true
+    # even when the caller promotes ordinary warnings to terminating errors.
+    function Assert-StatePathProtection {
+        Assert-NoReparsePathChain -Path $StatePath
+        Assert-ProtectedPath -Path $stateRoot -Directory
+        Assert-ProtectedPath -Path $StatePath
+    }
+    function Remove-Item {
+        [CmdletBinding()]
+        param(
+            [Parameter(Mandatory = $true)][string]$LiteralPath,
+            [switch]$Force,
+            [switch]$Recurse
+        )
+        if ($LiteralPath -like '*.replace-backup') { throw 'Simulated cleanup contention.' }
+        Microsoft.PowerShell.Management\Remove-Item @PSBoundParameters
+    }
+    $savedWarningPreference = $WarningPreference
+    try {
+        $WarningPreference = 'Stop'
+        Write-SecureState ([pscustomobject]@{ Version = 4; Status = 'CleanupContended' })
+    }
+    finally { $WarningPreference = $savedWarningPreference }
+    $contendedBackups = @(Get-ChildItem -LiteralPath $writerRoot -Filter '*.replace-backup' -Force)
+    $contendedState = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
+    Assert-True ($contendedState.Version -eq 4 -and $contendedBackups.Count -eq 1) `
+        'Backup cleanup contention incorrectly failed or reverted the verified transaction-state commit.'
+    Microsoft.PowerShell.Management\Remove-Item -LiteralPath Function:\Remove-Item -Force
+    Microsoft.PowerShell.Management\Remove-Item -LiteralPath $contendedBackups[0].FullName -Force
+}
+finally {
+    Microsoft.PowerShell.Management\Remove-Item -LiteralPath Function:\Remove-Item -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $writerRoot) {
+        Microsoft.PowerShell.Management\Remove-Item -LiteralPath $writerRoot -Recurse -Force
+    }
+    Microsoft.PowerShell.Management\Remove-Item -LiteralPath Function:\Set-Acl -Force -ErrorAction SilentlyContinue
+    . (Get-TestableFunctions $functions)
+}
 Assert-True ($scriptSource -match "Global\\SonAero-HubHttpsApplicationConfig" -and
     $scriptSource -match '\.WaitOne\(0\)' -and
     $scriptSource -match '\$transactionMutex\.ReleaseMutex\(\)') `
