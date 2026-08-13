@@ -130,22 +130,92 @@ $null = Get-ScriptAst $PackageScriptPath
 $null = Get-ScriptAst $BootstrapScriptPath
 $null = Get-ScriptAst $WebPushScriptPath
 $null = Get-ScriptAst $PublishScriptPath
-$null = Get-ScriptAst $CorsAuthenticationScriptPath
+$corsAuthenticationAst = Get-ScriptAst $CorsAuthenticationScriptPath
 
 $corsAuthenticationSource = Get-Content -LiteralPath $CorsAuthenticationScriptPath -Raw
 Assert-True ($corsAuthenticationSource -match '-Method Options' -and
     $corsAuthenticationSource -match "'Access-Control-Request-Method'\s*=\s*'POST'" -and
     $corsAuthenticationSource -match 'Anonymous Project Tracker /api/me must return HTTP 401' -and
     $corsAuthenticationSource -match '-UseDefaultCredentials' -and
-    $corsAuthenticationSource -match '\[Security\.Principal\.WindowsIdentity\]::GetCurrent\(\)\.Name' -and
+    $corsAuthenticationSource -match '\$identity\s*=\s*\[Security\.Principal\.WindowsIdentity\]::GetCurrent\(\)' -and
     $corsAuthenticationSource -match '\$payload\.accountName -ine \$ExpectedAccountName' -and
     $corsAuthenticationSource -match 'Wait-DirectSiteBoundary' -and
     $corsAuthenticationSource -match 'Start-Sleep -Milliseconds 750' -and
-    $corsAuthenticationSource -match '-AnonymousEnabled \$false -WindowsEnabled \$true') `
+    $corsAuthenticationSource -match '-AnonymousEnabled \$false -WindowsEnabled \$true' -and
+    $corsAuthenticationSource -match 'foreach \(\$probe in \$CorsProbes\)[\s\S]*Assert-CorsPreflight -Uri \$probe\.Uri -Origin \$probe\.Origin') `
     'The direct Project Tracker CORS authentication script does not prove preflight, API denial, identity, and gateway isolation.'
-Assert-True ($corsAuthenticationSource -match 'Set-AuthenticationState[\s\S]*-AnonymousEnabled \$prior\.AnonymousEnabled' -and
-    $corsAuthenticationSource -match 'prior IIS authentication state was restored') `
-    'The direct Project Tracker CORS authentication script does not restore prior IIS state after failed verification.'
+$setAuthenticationCalls = @($corsAuthenticationAst.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.CommandAst] -and
+        $node.GetCommandName() -eq 'Set-AuthenticationState'
+}, $true))
+Assert-True ($setAuthenticationCalls.Count -eq 2 -and @($setAuthenticationCalls | Where-Object {
+    $_.Extent.Text -notmatch '-Location\s+\$ProjectTrackerSiteName'
+}).Count -eq 0) 'IIS authentication mutation is not limited to the direct ProjectTracker site.'
+Assert-True ($corsAuthenticationSource -match '-AnonymousEnabled \$prior\.AnonymousEnabled -WindowsEnabled \$prior\.WindowsEnabled' -and
+    $corsAuthenticationSource -match '\$rollbackVerifyManager' -and
+    $corsAuthenticationSource -match 'prior IIS authentication state was restored and verified') `
+    'The direct Project Tracker CORS authentication script does not restore and independently verify prior IIS state.'
+Assert-True ($corsAuthenticationSource.Contains('$identity.IsSystem') -and
+    $corsAuthenticationSource.Contains("'NT AUTHORITY\SYSTEM'")) `
+    'The direct Project Tracker repair does not explicitly reject Local System identity verification.'
+# The authentication bootstrap runs before the production application-config transaction. It must
+# verify exactly the approved origins already active in Project Tracker instead of requiring the
+# permanent origin before the transaction that installs it.
+. (Get-TestableFunctions -Path $CorsAuthenticationScriptPath -Names @(
+    'ConvertTo-ApprovedTrackerCorsProbe',
+    'Get-ConfiguredTrackerCorsProbes'
+))
+$script:ExpectedComputerName = 'SON-IIS2'
+$corsConfigurationRoot = Join-Path $env:TEMP ('sonaero-cors-auth-' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $corsConfigurationRoot | Out-Null
+try {
+    $httpOnlyPath = Join-Path $corsConfigurationRoot 'http-only.json'
+    Set-Content -LiteralPath $httpOnlyPath -Encoding UTF8 -Value `
+        '{"Cors":{"HubOrigins":["http://SON-IIS2:5140"]}}'
+    $httpOnly = @(Get-ConfiguredTrackerCorsProbes -ConfigurationPath $httpOnlyPath)
+    Assert-True ($httpOnly.Count -eq 1 -and
+        $httpOnly[0].Origin -ceq 'http://son-iis2:5140' -and
+        $httpOnly[0].Uri -ceq 'http://SON-IIS2:5135/api/me') `
+        'The CORS authentication bootstrap cannot validate the retained HTTP-only configuration.'
+    $productionPath = Join-Path $corsConfigurationRoot 'production.json'
+    Set-Content -LiteralPath $productionPath -Encoding UTF8 -Value `
+        '{"Cors":{"HubOrigins":["https://hub.son4l.local","https://SON-IIS2:6140/","http://SON-IIS2:5140"]}}'
+    $production = @(Get-ConfiguredTrackerCorsProbes -ConfigurationPath $productionPath)
+    $productionMappings = @($production | ForEach-Object { "$($_.Origin)=>$($_.Uri)" }) -join '|'
+    Assert-Equal $productionMappings 'https://hub.son4l.local=>https://projects.hub.son4l.local/api/me|https://son-iis2:6140=>https://SON-IIS2:6135/api/me|http://son-iis2:5140=>http://SON-IIS2:5135/api/me' `
+        'The CORS authentication bootstrap returned incorrect approved production mappings.'
+    $invalidConfigurations = [ordered]@{
+        '{}' = 'must contain one Cors object'
+        '{"Cors":{}}' = 'must be a JSON array'
+        '{"Cors":{"HubOrigins":null}}' = 'must be a JSON array'
+        '{"Cors":{"HubOrigins":[]}}' = 'must contain at least one approved origin'
+        '{"Cors":{"HubOrigins":"http://SON-IIS2:5140"}}' = 'must be a JSON array'
+        '{"Cors":{"HubOrigins":[""]}}' = 'must be a non-empty string'
+        '{"Cors":{"HubOrigins":["   "]}}' = 'must be a non-empty string'
+        '{"Cors":{"HubOrigins":[42]}}' = 'must be a non-empty string'
+        '{"Cors":{"HubOrigins":["*"]}}' = 'contains unapproved origin'
+        '{"Cors":{"HubOrigins":["https://*.hub.son4l.local"]}}' = 'contains unapproved origin'
+        '{"Cors":{"HubOrigins":["https://unapproved.example.com"]}}' = 'contains unapproved origin'
+        '{"Cors":{"HubOrigins":["http://SON-IIS2:5140","http://son-iis2:5140/"]}}' = 'contains duplicate origin'
+    }
+    $index = 0
+    foreach ($invalid in $invalidConfigurations.GetEnumerator()) {
+        $invalidPath = Join-Path $corsConfigurationRoot ("invalid-$index.json")
+        Set-Content -LiteralPath $invalidPath -Encoding UTF8 -Value $invalid.Key
+        $rejection = ''
+        try { @(Get-ConfiguredTrackerCorsProbes -ConfigurationPath $invalidPath) | Out-Null }
+        catch { $rejection = $_.Exception.Message }
+        Assert-True ($rejection -like "*$($invalid.Value)*") `
+            "Unsafe CORS bootstrap configuration $index was accepted or failed unexpectedly: $rejection"
+        $index++
+    }
+}
+finally {
+    if (Test-Path -LiteralPath $corsConfigurationRoot) {
+        Remove-Item -LiteralPath $corsConfigurationRoot -Recurse -Force
+    }
+}
 $iisSetupSource = Get-Content -LiteralPath (
     Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'deployment\Configure-IisServer.ps1'
 ) -Raw

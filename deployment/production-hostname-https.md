@@ -215,7 +215,8 @@ allows this controlled old-to-new certificate reconciliation.
 Only after the shared-port bindings are healthy, run the following elevated as a domain identity
 already authorized to view Project Tracker. Configure the direct site so an anonymous browser
 `OPTIONS` preflight can reach ASP.NET Core while protected APIs still challenge with Windows
-Authentication. The same-origin Portal gateway remains Windows-only:
+Authentication. The repair rejects `NT AUTHORITY\SYSTEM`; do not run it from N-Central System
+Shell. The same-origin Portal gateway remains Windows-only:
 
 ```powershell
 & "$repo\deployment\Configure-ProjectTrackerCorsAuthentication.ps1" -WhatIf
@@ -225,10 +226,15 @@ Authentication. The same-origin Portal gateway remains Windows-only:
 The preview must end with `WHATIF_READY_PROJECT_TRACKER_CORS_AUTHENTICATION`. The apply must end
 with `PROJECT_TRACKER_CORS_AUTHENTICATION_CONFIGURED_AND_VERIFIED` (or
 `PROJECT_TRACKER_CORS_AUTHENTICATION_ALREADY_CONFIGURED_AND_VERIFIED`). The script proves that
-anonymous preflight succeeds on the HTTP and 61xx direct endpoints, anonymous `/api/me` is denied
-with 401, and credentialed `/api/me` returns an `accountName` exactly matching the current
-`WindowsIdentity`. It also proves the gateway still has Anonymous disabled and Windows enabled. If
-verification fails, it restores the prior direct-site IIS state.
+anonymous preflight succeeds for every approved Portal origin already present in the active
+Project Tracker `Cors.HubOrigins` array. It rejects missing, empty, wildcard, duplicate, or unknown
+origin configuration rather than weakening CORS. Independently, it proves that anonymous `/api/me` is
+denied with 401 on both retained direct bindings and that credentialed `/api/me` returns an
+`accountName` exactly matching the current `WindowsIdentity`. It also proves the gateway still has
+Anonymous disabled and Windows enabled. If configuration or verification fails after mutation, it
+restores and independently verifies the prior direct-site IIS state. The following application-config
+transaction adds the permanent origin and then verifies that newly installed origin inside its own
+rollback boundary.
 
 This authentication boundary is topology-neutral and must remain in place during production
 rollback because both retained Portal origins also use browser preflight. Do not reverse it when
@@ -251,6 +257,12 @@ $applicationConfigState = 'C:\ProgramData\SonAero\deployment-state\https-product
   -Topology Production `
   -StatePath $applicationConfigState `
   -Confirm:$false
+
+# Required post-check; this is read-only because the transaction is already applied.
+& "$repo\deployment\Configure-HubHttpsApplicationConfig.ps1" `
+  -Topology Production `
+  -StatePath $applicationConfigState `
+  -WhatIf
 ```
 
 The preview must end with `WHATIF_READY`. The apply must end with
@@ -267,6 +279,10 @@ It validates permanent HTTPS, retained 61xx HTTPS, retained HTTP, and the Portal
 gateway on both permanent and pilot paths. It also repeats the anonymous-preflight, anonymous-401,
 and credentialed identity boundary checks. If it fails, it restores the prior application config;
 the healthy 443 bindings remain in place until you deliberately run the binding rollback.
+After a successful apply, the required post-check ends with
+`HTTPS_APPLICATION_CONFIG_ALREADY_APPLIED_AND_RETAINED_ENDPOINTS_HEALTHY`. Any apply result that
+reports restored configuration or an automatic rollback failure is a stop condition: capture the
+exact output and state path, and do not rerun the apply blindly.
 
 ## 7. Validate from Jordan and Josh's domain workstations
 

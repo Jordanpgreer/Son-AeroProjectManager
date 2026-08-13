@@ -51,7 +51,9 @@ until stabilization ends.
 Project Tracker keeps Anonymous and Windows Authentication enabled together only on its direct IIS
 site so anonymous CORS preflight reaches ASP.NET Core; every protected API still requires Windows
 identity. The same-origin gateway remains Windows-only, and production rollback preserves this
-topology-neutral boundary.
+topology-neutral boundary. The authentication bootstrap validates the approved Portal origins
+already present in the active Project Tracker configuration; the following application-config
+transaction installs and transactionally verifies the permanent origin.
 
 After a trusted HTTPS endpoint is operational, use
 `Configure-ProjectTrackerWebPush.ps1` to generate or install the VAPID pair in Project Tracker's
