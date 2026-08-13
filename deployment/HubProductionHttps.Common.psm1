@@ -124,6 +124,52 @@ function Assert-HubProductionCertificateDnsCoverage {
         if ($covered.Count -eq 0) { throw "Certificate SAN does not cover '$($application.HostName)'." }
     }
 }
+
+function Assert-HubProductionCertificateLeafProfile {
+    param([Parameter(Mandatory = $true)][object]$Certificate)
+
+    if ([int]$Certificate.Version -ne 3) {
+        throw "The selected certificate must be X.509 version 3; found version $($Certificate.Version)."
+    }
+
+    $basicExtensions = @($Certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.19' })
+    if ($basicExtensions.Count -gt 1) { throw 'The certificate contains duplicate Basic Constraints extensions.' }
+    if ($basicExtensions.Count -eq 1) {
+        $basicRaw = [byte[]]$basicExtensions[0].RawData
+        if ($basicRaw.Length -ne 2 -or $basicRaw[0] -ne 0x30 -or $basicRaw[1] -ne 0x00) {
+            throw 'An IIS leaf certificate has malformed or non-leaf Basic Constraints.'
+        }
+        $basic = New-Object Security.Cryptography.X509Certificates.X509BasicConstraintsExtension(
+            $basicExtensions[0], $basicExtensions[0].Critical)
+        if ($basic.CertificateAuthority) { throw 'The selected certificate is a CA certificate, not an IIS leaf certificate.' }
+        if ($basic.HasPathLengthConstraint) {
+            throw 'An IIS leaf certificate must not contain a Basic Constraints path-length constraint.'
+        }
+    }
+
+    $ekuExtensions = @($Certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' })
+    if ($ekuExtensions.Count -gt 1) { throw 'The certificate contains duplicate Enhanced Key Usage extensions.' }
+    if ($ekuExtensions.Count -eq 1) {
+        $eku = New-Object Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension(
+            $ekuExtensions[0], $ekuExtensions[0].Critical)
+        $ekuValues = @($eku.EnhancedKeyUsages | ForEach-Object { [string]$_.Value })
+        if ($ekuValues -notcontains '1.3.6.1.5.5.7.3.1') { throw 'The certificate lacks the Server Authentication EKU.' }
+    }
+
+    $keyUsageExtensions = @($Certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.15' })
+    if ($keyUsageExtensions.Count -gt 1) { throw 'The certificate contains duplicate Key Usage extensions.' }
+    if ($keyUsageExtensions.Count -eq 1) {
+        $usage = New-Object Security.Cryptography.X509Certificates.X509KeyUsageExtension(
+            $keyUsageExtensions[0], $keyUsageExtensions[0].Critical)
+        if (($usage.KeyUsages -band [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyCertSign) -ne 0) {
+            throw 'An IIS leaf certificate must not allow certificate signing.'
+        }
+        if (($usage.KeyUsages -band [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature) -eq 0) {
+            throw 'The certificate Key Usage does not allow Digital Signature.'
+        }
+    }
+}
+
 function Assert-HubProductionCertificate {
     param(
         [Parameter(Mandatory = $true)][string]$Thumbprint,
@@ -134,6 +180,7 @@ function Assert-HubProductionCertificate {
     $certificate = Get-Item -LiteralPath "Cert:\LocalMachine\My\$normalized" -ErrorAction SilentlyContinue
     if (-not $certificate) { throw "Certificate $normalized was not found in Cert:\LocalMachine\My." }
     $now = Get-Date
+    Assert-HubProductionCertificateLeafProfile -Certificate $certificate
     if (-not $certificate.HasPrivateKey) { throw 'The selected certificate has no private key on SON-IIS2.' }
     if ($certificate.NotBefore -gt $now -or $certificate.NotAfter -lt $now.AddDays($MinimumRemainingDays)) {
         throw "The certificate is not valid for the required $MinimumRemainingDays-day safety window."
@@ -173,29 +220,6 @@ function Assert-HubProductionCertificate {
         default { throw "Unsupported certificate public-key algorithm '$($certificate.PublicKey.Oid.Value)'." }
     }
 
-    $basicExtensions = @($certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.19' })
-    if ($basicExtensions.Count -ne 1) { throw "Certificate must contain exactly one Basic Constraints extension; found $($basicExtensions.Count)." }
-    $basic = New-Object Security.Cryptography.X509Certificates.X509BasicConstraintsExtension(
-        $basicExtensions[0], $basicExtensions[0].Critical)
-    if ($basic.CertificateAuthority) { throw 'The selected certificate is a CA certificate, not an IIS leaf certificate.' }
-
-    $ekuExtensions = @($certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' })
-    if ($ekuExtensions.Count -ne 1) { throw "Certificate must contain exactly one Enhanced Key Usage extension; found $($ekuExtensions.Count)." }
-    $eku = New-Object Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension(
-        $ekuExtensions[0], $ekuExtensions[0].Critical)
-    $ekuValues = @($eku.EnhancedKeyUsages | ForEach-Object { [string]$_.Value })
-    if ($ekuValues -notcontains '1.3.6.1.5.5.7.3.1') { throw 'The certificate lacks the Server Authentication EKU.' }
-
-    $keyUsageExtensions = @($certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.15' })
-    if ($keyUsageExtensions.Count -gt 1) { throw 'The certificate contains duplicate Key Usage extensions.' }
-    if ($keyUsageExtensions.Count -eq 1) {
-        $usage = New-Object Security.Cryptography.X509Certificates.X509KeyUsageExtension(
-            $keyUsageExtensions[0], $keyUsageExtensions[0].Critical)
-        if (($usage.KeyUsages -band [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature) -eq 0) {
-            throw 'The certificate Key Usage does not allow Digital Signature.'
-        }
-    }
-
     $dnsNames = @(Get-HubCertificateDnsNames $certificate)
     Assert-HubProductionCertificateDnsCoverage -DnsNames $dnsNames -Applications $Applications
 
@@ -206,6 +230,8 @@ function Assert-HubProductionCertificate {
         $chain.ChainPolicy.VerificationFlags = [Security.Cryptography.X509Certificates.X509VerificationFlags]::NoFlag
         $chain.ChainPolicy.VerificationTime = $now
         $chain.ChainPolicy.UrlRetrievalTimeout = [TimeSpan]::FromSeconds(15)
+        [void]$chain.ChainPolicy.ApplicationPolicy.Add(
+            (New-Object Security.Cryptography.Oid('1.3.6.1.5.5.7.3.1')))
         if (-not $chain.Build($certificate)) {
             $details = @($chain.ChainStatus | ForEach-Object {
                 "$($_.Status): $($_.StatusInformation.Trim())"
@@ -490,7 +516,7 @@ Export-ModuleMember -Function @(
     'Get-HubProductionApplicationMap', 'ConvertTo-HubThumbprint', 'ConvertFrom-HubCertificateHash',
     'ConvertTo-HubCertificateHashBytes', 'Test-HubDnsNameMatch', 'Split-HubBindingInformation',
     'Assert-HubAdministrator', 'Assert-HubComputerName', 'Import-HubIisAdministration',
-    'Assert-HubProductionCertificateDnsCoverage', 'Assert-HubProductionCertificate',
+    'Assert-HubProductionCertificateDnsCoverage', 'Assert-HubProductionCertificateLeafProfile', 'Assert-HubProductionCertificate',
     'Assert-HubProductionDns', 'Get-HubIisBindingSnapshot',
     'Get-HubTargetBindingSnapshot', 'Get-HubComparableBindings', 'Assert-HubBaseBindings',
     'Assert-HubProductionBindingAvailability', 'New-HubDesiredBindingSnapshot',

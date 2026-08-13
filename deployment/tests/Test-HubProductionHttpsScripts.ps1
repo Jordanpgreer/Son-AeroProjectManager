@@ -14,6 +14,15 @@ function Assert-True {
     param([bool]$Condition, [string]$Message)
     if (-not $Condition) { throw $Message }
 }
+function Assert-Throws {
+    param([scriptblock]$Action, [string]$ExpectedMessage, [string]$Message)
+    $failure = $null
+    try { & $Action }
+    catch { $failure = $_ }
+    Assert-True ($null -ne $failure) $Message
+    Assert-True ($failure.Exception.Message -match $ExpectedMessage) `
+        "$Message Expected '$ExpectedMessage'; received '$($failure.Exception.Message)'."
+}
 
 foreach ($path in @($modulePath, $readinessPath, $configurePath)) {
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Missing script '$path'."
@@ -46,6 +55,96 @@ try {
 }
 catch { $missingWildcardRejected = $true }
 Assert-True $missingWildcardRejected 'Individually covered names must not substitute for the required managed wildcard SAN.'
+
+# Exercise the production leaf-profile validator without requiring a machine-certificate fixture.
+$moduleAst = [Management.Automation.Language.Parser]::ParseFile($modulePath, [ref]$null, [ref]$null)
+$certificateFunction = @($moduleAst.FindAll({
+    param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Assert-HubProductionCertificate'
+}, $true))[0]
+Assert-True ($null -ne $certificateFunction) 'Production certificate validator function was not found.'
+$certificateStatements = @($certificateFunction.Body.EndBlock.Statements)
+
+function New-TestCertificate {
+    param([int]$Version = 3, [object[]]$Extensions = @())
+    return [pscustomobject]@{ Version = $Version; Extensions = [object[]]@($Extensions) }
+}
+function New-TestEkuExtension {
+    param([Parameter(Mandatory = $true)][string[]]$Oids)
+    $collection = New-Object Security.Cryptography.OidCollection
+    foreach ($oid in $Oids) { [void]$collection.Add((New-Object Security.Cryptography.Oid($oid))) }
+    return New-Object Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension($collection, $false)
+}
+function Assert-CertificatePolicyPasses {
+    param([Parameter(Mandatory = $true)]$Certificate, [Parameter(Mandatory = $true)][string]$Message)
+    try { Assert-HubProductionCertificateLeafProfile -Certificate $Certificate }
+    catch { throw "$Message $($_.Exception.Message)" }
+}
+
+$leafBasic = New-Object Security.Cryptography.X509Certificates.X509BasicConstraintsExtension(
+    $false, $false, 0, $true)
+$caBasic = New-Object Security.Cryptography.X509Certificates.X509BasicConstraintsExtension(
+    $true, $false, 0, $true)
+$pathBasic = New-Object Security.Cryptography.X509Certificates.X509BasicConstraintsExtension(
+    $false, $true, 0, $true)
+$digitalSignature = [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::DigitalSignature
+$keyCertSign = [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyCertSign
+$keyEncipherment = [Security.Cryptography.X509Certificates.X509KeyUsageFlags]::KeyEncipherment
+$digitalSignatureUsage = New-Object Security.Cryptography.X509Certificates.X509KeyUsageExtension(
+    $digitalSignature, $true)
+$keyCertSignUsage = New-Object Security.Cryptography.X509Certificates.X509KeyUsageExtension(
+    ($digitalSignature -bor $keyCertSign), $true)
+$noDigitalSignatureUsage = New-Object Security.Cryptography.X509Certificates.X509KeyUsageExtension(
+    $keyEncipherment, $true)
+$serverAuthEku = New-TestEkuExtension @('1.3.6.1.5.5.7.3.1')
+$clientAuthEku = New-TestEkuExtension @('1.3.6.1.5.5.7.3.2')
+
+Assert-Throws { Assert-HubProductionCertificateLeafProfile -Certificate (New-TestCertificate -Version 2) } 'must be X\.509 version 3' `
+    'A non-v3 certificate must be rejected.'
+Assert-CertificatePolicyPasses (New-TestCertificate) 'An end-entity certificate may omit Basic Constraints, EKU, and Key Usage.'
+Assert-CertificatePolicyPasses (New-TestCertificate -Extensions @($leafBasic)) 'A CA=false Basic Constraints extension must pass.'
+Assert-Throws { Assert-HubProductionCertificateLeafProfile -Certificate (New-TestCertificate -Extensions @($caBasic)) } 'Basic Constraints|CA certificate' `
+    'A CA=true certificate must be rejected.'
+Assert-Throws { Assert-HubProductionCertificateLeafProfile -Certificate (New-TestCertificate -Extensions @($pathBasic)) } 'Basic Constraints|path-length constraint' `
+    'A leaf Basic Constraints path length must be rejected.'
+Assert-Throws { Assert-HubProductionCertificateLeafProfile -Certificate (New-TestCertificate -Extensions @($leafBasic, $leafBasic)) } 'duplicate Basic Constraints' `
+    'Duplicate Basic Constraints extensions must be rejected.'
+$malformedBasic = New-Object Security.Cryptography.X509Certificates.X509Extension(
+    (New-Object Security.Cryptography.Oid('2.5.29.19')), ([byte[]]@(0x30, 0x01, 0x00)), $true)
+Assert-Throws { Assert-HubProductionCertificateLeafProfile -Certificate (New-TestCertificate -Extensions @($malformedBasic)) } 'malformed or non-leaf Basic Constraints' `
+    'Malformed Basic Constraints DER must be rejected even when the framework copy constructor accepts it.'
+
+Assert-CertificatePolicyPasses (New-TestCertificate -Extensions @($digitalSignatureUsage)) `
+    'Digital Signature Key Usage must pass.'
+Assert-Throws { Assert-HubProductionCertificateLeafProfile -Certificate (New-TestCertificate -Extensions @($keyCertSignUsage)) } 'certificate signing' `
+    'KeyCertSign usage must be rejected even when Digital Signature is also present.'
+Assert-Throws { Assert-HubProductionCertificateLeafProfile -Certificate (New-TestCertificate -Extensions @($noDigitalSignatureUsage)) } 'Digital Signature' `
+    'Key Usage without Digital Signature must be rejected.'
+
+Assert-CertificatePolicyPasses (New-TestCertificate -Extensions @($serverAuthEku)) `
+    'A Server Authentication EKU must pass.'
+Assert-Throws { Assert-HubProductionCertificateLeafProfile -Certificate (New-TestCertificate -Extensions @($clientAuthEku)) } 'Server Authentication EKU' `
+    'A clientAuth-only EKU must be rejected.'
+Assert-Throws { Assert-HubProductionCertificateLeafProfile -Certificate (New-TestCertificate -Extensions @($serverAuthEku, $serverAuthEku)) } 'duplicate Enhanced Key Usage' `
+    'Duplicate EKU extensions must be rejected.'
+
+$chainTry = @($certificateStatements | Where-Object {
+    $_ -is [Management.Automation.Language.TryStatementAst] -and
+        $_.Extent.Text -match 'ApplicationPolicy\.Add'
+})[0]
+$applicationPolicyStatement = @($chainTry.Body.Statements | Where-Object {
+    $_.Extent.Text -match 'ApplicationPolicy\.Add'
+})[0]
+Assert-True ($null -ne $applicationPolicyStatement) 'Chain ApplicationPolicy statement was not found.'
+$chain = New-Object Security.Cryptography.X509Certificates.X509Chain
+try {
+    & ([scriptblock]::Create($applicationPolicyStatement.Extent.Text))
+    Assert-True ($chain.ChainPolicy.ApplicationPolicy.Count -eq 1) `
+        'Certificate chain validation must set exactly one application policy.'
+    Assert-True ($chain.ChainPolicy.ApplicationPolicy[0].Value -eq '1.3.6.1.5.5.7.3.1') `
+        'Certificate chain validation must require Server Authentication.'
+}
+finally { $chain.Dispose() }
 
 $thumbprint = '00112233445566778899AABBCCDDEEFF00112233'
 $hashBytes = ConvertTo-HubCertificateHashBytes $thumbprint
