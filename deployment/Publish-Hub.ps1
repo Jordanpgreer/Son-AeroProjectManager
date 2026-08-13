@@ -3,10 +3,6 @@
 param(
     [string]$OutputRoot = (Join-Path $PSScriptRoot 'artifacts\hub'),
     [string]$ProjectTrackerUrl = '/project-tracker-api',
-    [string]$HubUrl,
-    [string]$EngineeringHubUrl,
-    [string]$EstimatingDashboardUrl,
-    [string]$QualityAssuranceUrl,
     [ValidateSet('Release', 'Debug')]
     [string]$Configuration = 'Release'
 )
@@ -15,45 +11,34 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $resolvedRepoRoot = [System.IO.Path]::GetFullPath($repoRoot)
 $resolvedOutputRoot = [System.IO.Path]::GetFullPath($OutputRoot)
-$trackerUrlValue = $ProjectTrackerUrl.Trim()
-$trackerUri = $null
-$absoluteTrackerUrl = [Uri]::TryCreate($trackerUrlValue, [UriKind]::Absolute, [ref]$trackerUri)
-$validRelativeTrackerUrl = $trackerUrlValue.StartsWith('/') `
-    -and -not $trackerUrlValue.StartsWith('//') `
-    -and -not $trackerUrlValue.Contains('?') `
-    -and -not $trackerUrlValue.Contains('#')
-if (($absoluteTrackerUrl -and $trackerUri.Scheme -notin @('http', 'https')) -or
-    (-not $absoluteTrackerUrl -and -not $validRelativeTrackerUrl)) {
-    throw 'ProjectTrackerUrl must be an absolute HTTP(S) URL or a root-relative application path.'
-}
 
-function ConvertTo-OptionalAbsoluteHttpUrl {
-    param(
-        [string]$Value,
-        [Parameter(Mandatory = $true)][string]$ParameterName
-    )
+function ConvertTo-ApprovedProjectTrackerUrl {
+    param([Parameter(Mandatory = $true)][string]$Value)
+    $candidate = $Value.Trim()
+    if ($candidate.TrimEnd('/') -ceq '/project-tracker-api') { return '/project-tracker-api' }
 
-    if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
-    $parsed = $null
-    if (-not [Uri]::TryCreate($Value.Trim(), [UriKind]::Absolute, [ref]$parsed) -or
-        $parsed.Scheme -notin @('http', 'https') -or
-        [string]::IsNullOrWhiteSpace($parsed.Host) -or
-        -not [string]::IsNullOrWhiteSpace($parsed.UserInfo) -or
-        -not [string]::IsNullOrWhiteSpace($parsed.Query) -or
-        -not [string]::IsNullOrWhiteSpace($parsed.Fragment) -or
-        $parsed.AbsolutePath -ne '/') {
-        throw "$ParameterName must be an absolute HTTP(S) origin without credentials, a path, query, or fragment."
+    $uri = $null
+    if (-not [Uri]::TryCreate($candidate, [UriKind]::Absolute, [ref]$uri) -or
+        $uri.Scheme -notin @('http', 'https') -or
+        [string]::IsNullOrWhiteSpace($uri.Host) -or
+        -not [string]::IsNullOrWhiteSpace($uri.UserInfo) -or
+        -not [string]::IsNullOrWhiteSpace($uri.Query) -or
+        -not [string]::IsNullOrWhiteSpace($uri.Fragment) -or
+        $uri.AbsolutePath -ne '/') {
+        throw 'ProjectTrackerUrl must be /project-tracker-api or an approved Project Tracker server origin.'
     }
-    return $parsed.GetLeftPart([UriPartial]::Authority)
+    $normalized = $uri.GetLeftPart([UriPartial]::Authority)
+    if (@(
+        'https://projects.hub.son4l.local',
+        'http://SON-IIS2:5135',
+        'https://SON-IIS2:6135'
+    ) -inotcontains $normalized) {
+        throw 'ProjectTrackerUrl is not an approved production or retained pilot Project Tracker origin.'
+    }
+    return $normalized
 }
 
-$hubUrlValue = ConvertTo-OptionalAbsoluteHttpUrl -Value $HubUrl -ParameterName 'HubUrl'
-$engineeringHubUrlValue = ConvertTo-OptionalAbsoluteHttpUrl `
-    -Value $EngineeringHubUrl -ParameterName 'EngineeringHubUrl'
-$estimatingDashboardUrlValue = ConvertTo-OptionalAbsoluteHttpUrl `
-    -Value $EstimatingDashboardUrl -ParameterName 'EstimatingDashboardUrl'
-$qualityAssuranceUrlValue = ConvertTo-OptionalAbsoluteHttpUrl `
-    -Value $QualityAssuranceUrl -ParameterName 'QualityAssuranceUrl'
+$trackerUrlValue = ConvertTo-ApprovedProjectTrackerUrl $ProjectTrackerUrl
 
 function Find-DotNetSdk {
     $candidates = @(
@@ -108,20 +93,8 @@ else {
     New-Item -ItemType Directory -Path $resolvedOutputRoot | Out-Null
 }
 $priorTrackerUrl = $env:VITE_PROJECT_TRACKER_URL
-$priorHubUrl = $env:VITE_HUB_URL
-$priorEngineeringHubUrl = $env:VITE_ENGINEERING_HUB_URL
-$priorEstimatingDashboardUrl = $env:VITE_ESTIMATING_DASHBOARD_URL
-$priorQualityAssuranceUrl = $env:VITE_QUALITY_ASSURANCE_URL
 try {
     $env:VITE_PROJECT_TRACKER_URL = $trackerUrlValue.TrimEnd('/')
-    if ($hubUrlValue) { $env:VITE_HUB_URL = $hubUrlValue }
-    if ($engineeringHubUrlValue) { $env:VITE_ENGINEERING_HUB_URL = $engineeringHubUrlValue }
-    if ($estimatingDashboardUrlValue) {
-        $env:VITE_ESTIMATING_DASHBOARD_URL = $estimatingDashboardUrlValue
-    }
-    if ($qualityAssuranceUrlValue) {
-        $env:VITE_QUALITY_ASSURANCE_URL = $qualityAssuranceUrlValue
-    }
     foreach ($application in $applications) {
         $projectPath = Join-Path $resolvedRepoRoot $application.Project
         if (-not (Test-Path -LiteralPath $projectPath)) {
@@ -143,10 +116,6 @@ try {
 }
 finally {
     $env:VITE_PROJECT_TRACKER_URL = $priorTrackerUrl
-    $env:VITE_HUB_URL = $priorHubUrl
-    $env:VITE_ENGINEERING_HUB_URL = $priorEngineeringHubUrl
-    $env:VITE_ESTIMATING_DASHBOARD_URL = $priorEstimatingDashboardUrl
-    $env:VITE_QUALITY_ASSURANCE_URL = $priorQualityAssuranceUrl
 }
 
 Write-Host ''

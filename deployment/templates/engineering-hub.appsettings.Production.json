@@ -10,5 +10,6 @@
     "RootPath": "\\\\SON-SQL2\\EngineeringDrawings$",
     "RequireUncPath": true
   },
+  "Portal": { "Url": "https://hub.son4l.local" },
   "Engineering": { "SeedDemoData": false }
 }

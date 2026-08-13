@@ -125,12 +125,53 @@ public sealed class EngineeringAccessPreviewService(
 
     public string GetReturnToAdminUrl(HttpContext context)
     {
+        var runtimePortalOrigin = RuntimePortalOrigin(context.Request);
+        if (runtimePortalOrigin is not null)
+            return $"{runtimePortalOrigin}/#/admin/access";
+
         var configured = configuration["Portal:Url"];
-        if (Uri.TryCreate(configured, UriKind.Absolute, out var portal)
-            && portal.Scheme is "http" or "https")
+        if (IsValidPortalOrigin(configured, out var portal))
             return new Uri(portal, "/#/admin/access").ToString();
 
-        return $"{context.Request.Scheme}://{context.Request.Host.Host}:5140/#/admin/access";
+        throw new InvalidOperationException(
+            "Portal:Url must be a valid HTTP(S) origin when the request host is not an approved Engineering Hub host.");
+    }
+
+    private static string? RuntimePortalOrigin(HttpRequest request)
+    {
+        var host = request.Host.Host;
+        if (string.IsNullOrWhiteSpace(host)) return null;
+        if (host.Equals("engineering.hub.son4l.local", StringComparison.OrdinalIgnoreCase))
+            return "https://hub.son4l.local";
+        if (host.Equals("SON-IIS2", StringComparison.OrdinalIgnoreCase))
+            return request.IsHttps ? "https://SON-IIS2:6140" : "http://SON-IIS2:5140";
+        var loopbackHost = CanonicalLoopbackHost(host);
+        return loopbackHost is null ? null : $"http://{loopbackHost}:5140";
+    }
+
+    private static string? CanonicalLoopbackHost(string host) => host.ToLowerInvariant() switch
+    {
+        "localhost" => "localhost",
+        "127.0.0.1" => "127.0.0.1",
+        "::1" or "[::1]" => "[::1]",
+        _ => null
+    };
+
+    private static bool IsValidPortalOrigin(string? value, out Uri portal)
+    {
+        if (Uri.TryCreate(value, UriKind.Absolute, out var candidate)
+            && candidate.Scheme is "http" or "https"
+            && string.IsNullOrEmpty(candidate.UserInfo)
+            && candidate.AbsolutePath == "/"
+            && string.IsNullOrEmpty(candidate.Query)
+            && string.IsNullOrEmpty(candidate.Fragment))
+        {
+            portal = candidate;
+            return true;
+        }
+
+        portal = null!;
+        return false;
     }
 
     private async Task<EngineeringModuleAccess?> ResolveTargetAsync(

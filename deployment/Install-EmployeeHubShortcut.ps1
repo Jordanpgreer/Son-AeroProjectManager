@@ -4,7 +4,7 @@
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 param(
-    [string]$HubUri = 'http://SON-IIS2:5140',
+    [string]$HubUri = 'https://hub.son4l.local',
     [string]$ShortcutName = 'Son-Aero Hub',
     [string]$IconSource
 )
@@ -21,8 +21,19 @@ $parsedUri = $null
 if (-not [Uri]::TryCreate($HubUri, [UriKind]::Absolute, [ref]$parsedUri) -or
     $parsedUri.Scheme -notin @('http', 'https') -or
     [string]::IsNullOrWhiteSpace($parsedUri.Host) -or
-    -not [string]::IsNullOrWhiteSpace($parsedUri.UserInfo)) {
-    throw 'HubUri must be an absolute http or https URI without embedded credentials.'
+    -not [string]::IsNullOrWhiteSpace($parsedUri.UserInfo) -or
+    $parsedUri.AbsolutePath -ne '/' -or
+    -not [string]::IsNullOrWhiteSpace($parsedUri.Query) -or
+    -not [string]::IsNullOrWhiteSpace($parsedUri.Fragment)) {
+    throw 'HubUri must be an absolute HTTP or HTTPS server origin without credentials, a path, a query, or a fragment.'
+}
+$approvedHubUris = @(
+    'https://hub.son4l.local/',
+    'http://son-iis2:5140/',
+    'https://son-iis2:6140/'
+)
+if ($parsedUri.AbsoluteUri.ToLowerInvariant() -notin $approvedHubUris) {
+    throw 'HubUri must be the permanent Portal origin or one of the retained SON-IIS2 Portal origins.'
 }
 
 $shortcutLeaf = $ShortcutName.Trim()

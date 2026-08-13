@@ -226,8 +226,12 @@ Build the ZIP from a trusted repository checkout:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
-  .\deployment\New-EmployeeHubInstallerPackage.ps1
+  .\deployment\New-EmployeeHubInstallerPackage.ps1 `
+  -HubUri 'http://SON-IIS2:5140'
 ```
+
+The explicit HTTP origin is required for this retained baseline runbook because the package
+builder's default is now the permanent production HTTPS hostname.
 
 Distribute `deployment\artifacts\SonAero-Hub-Employee-Installer.zip` only to approved pilot
 computers. On each employee computer:

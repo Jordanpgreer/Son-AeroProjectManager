@@ -38,10 +38,12 @@ function Get-TestableFunctions {
 
 $functions = @(
     'Get-FullPath', 'Read-JsonFile', 'Get-FileSha256', 'Get-BytesSha256', 'Set-StateProperty',
-    'Convert-ToUtf8JsonBytes', 'Assert-PortalShape', 'Assert-TrackerShape', 'New-TransformedConfig',
+    'Resolve-TransactionStatePath', 'Set-TopologyConfiguration', 'Convert-ToUtf8JsonBytes',
+    'Assert-PortalShape', 'Assert-TrackerShape', 'New-TransformedConfig',
     'Assert-RequiredStateProperties', 'Assert-SafeStatePath', 'Assert-PathUnderRoot',
-    'Assert-TransactionState', 'Assert-TransactionBackups', 'New-VerifiedTransactionSnapshot',
-    'Assert-RecoverableActiveConfiguration',
+    'Assert-TransactionState', 'Assert-RequestedStateTopology', 'Assert-TransactionBackups',
+    'New-VerifiedTransactionSnapshot', 'Assert-RecoverableActiveConfiguration',
+    'Assert-AppliedConfiguration', 'Get-DualSchemeHealthUris', 'Get-RetainedHealthUris', 'Assert-CorsResponse', 'Assert-DualCors',
     'Assert-OriginalConfiguration', 'Invoke-WithPoolsStopped', 'Restore-FilesWhilePoolsStopped',
     'Restore-Configuration'
 )
@@ -49,6 +51,68 @@ $functions = @(
 
 # Guard the original PS5.1 defect: every directly assigned state property must exist in the literal.
 $scriptSource = Get-Content -LiteralPath $ScriptPath -Raw
+Assert-True ([regex]::IsMatch($scriptSource, '\[string\]\$Topology\s*=\s*''Production''')) `
+    'The permanent DNS/SNI topology is not the default transaction mode.'
+Assert-True ($scriptSource -match "Global\\SonAero-HubHttpsApplicationConfig" -and
+    $scriptSource -match '\.WaitOne\(0\)' -and
+    $scriptSource -match '\$transactionMutex\.ReleaseMutex\(\)') `
+    'Production and Pilot application-config transactions are not serialized by one global mutex.'
+Assert-True ($scriptSource -match 'Assert-TrackerAuthenticationState -AnonymousEnabled \$true -WindowsEnabled \$true' -and
+    $scriptSource -match 'Assert-AnonymousTrackerApiDenied' -and
+    $scriptSource -match 'Assert-CredentialedTrackerIdentity' -and
+    $scriptSource -match '\$payload\.accountName -ine \$ExpectedAccountName' -and
+    $scriptSource -match 'Assert-TrackerCorsAuthenticationBoundary -RetainedOnly') `
+    'Application config does not guard browser preflight, anonymous API denial, and retained rollback CORS.'
+Assert-True ([regex]::Matches(
+        $scriptSource,
+        'Restore-Configuration\s+-State\s+\$state\s+-VerifyDualScheme'
+    ).Count -ge 2) `
+    'Manual and automatic rollback must both verify the retained HTTP/61xx baseline.'
+
+$script:preflightCall = $null
+function Invoke-WebRequest {
+    param(
+        [switch]$UseBasicParsing,
+        [string]$Method,
+        [string]$Uri,
+        [int]$TimeoutSec,
+        [hashtable]$Headers
+    )
+    $script:preflightCall = [pscustomobject]@{
+        Method = $Method
+        Uri = $Uri
+        Headers = $Headers
+    }
+    return [pscustomobject]@{
+        StatusCode = 204
+        Headers = @{
+            'Access-Control-Allow-Origin' = $Headers.Origin
+            'Access-Control-Allow-Credentials' = 'true'
+            'Access-Control-Allow-Methods' = 'POST'
+            'Access-Control-Allow-Headers' = 'content-type'
+        }
+    }
+}
+Assert-CorsResponse -Origin 'https://hub.son4l.local' -Uri 'https://projects.hub.son4l.local/api/me'
+Assert-True ($script:preflightCall.Method -ceq 'Options') `
+    'CORS verification did not send an actual OPTIONS preflight.'
+Assert-True ($script:preflightCall.Headers['Access-Control-Request-Method'] -ceq 'POST' -and
+    $script:preflightCall.Headers['Access-Control-Request-Headers'] -ceq 'content-type') `
+    'CORS verification omitted the requested method or header.'
+Remove-Item Function:\Invoke-WebRequest
+$pilotRunbookPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) `
+    'deployment\two-person-https-pilot.md'
+$pilotRunbookSource = Get-Content -LiteralPath $pilotRunbookPath -Raw
+$pilotApplicationConfigCommands = @(
+    [regex]::Matches(
+        $pilotRunbookSource,
+        '(?m)^\s*&\s+(?:\$configScript|[^\r\n]*Configure-HubHttpsApplicationConfig\.ps1[^\r\n]*)[^\r\n]*'
+    ) | ForEach-Object { $_.Value }
+)
+Assert-True ($pilotApplicationConfigCommands.Count -gt 0) `
+    'The retained pilot runbook no longer documents its application-config transaction.'
+Assert-True (@($pilotApplicationConfigCommands | Where-Object { $_ -notmatch '-Topology Pilot' }).Count -eq 0) `
+    'Every retained pilot application-config command must explicitly select -Topology Pilot.'
 $stateLiteralMatch = [regex]::Match(
     $scriptSource,
     '(?s)\$state\s*=\s*\[pscustomobject\]@\{(?<Body>.*?)\r?\n\}'
@@ -70,12 +134,171 @@ Assert-True ($uninitializedAssignments.Count -eq 0) `
 $stateRoot = 'C:\ProgramData\SonAero\deployment-state'
 $backupBaseRoot = Join-Path $stateRoot 'https-config-backups'
 $expectedComputerName = 'SON-IIS2'
-$moduleUrls = @{
+$pilotModuleUrls = @{
     'project-tracker' = 'https://SON-IIS2:6135'
     'engineering-hub' = 'https://SON-IIS2:6150'
     'estimating-dashboard' = 'https://SON-IIS2:6160'
+    'quality-assurance' = 'https://SON-IIS2:6170'
 }
-$hubOrigins = @('https://SON-IIS2:6140', 'http://SON-IIS2:5140')
+$productionModuleUrls = @{
+    'project-tracker' = 'https://projects.hub.son4l.local'
+    'engineering-hub' = 'https://engineering.hub.son4l.local'
+    'estimating-dashboard' = 'https://estimating.hub.son4l.local'
+    'quality-assurance' = 'https://quality.hub.son4l.local'
+}
+$pilotHubOrigins = @('https://SON-IIS2:6140', 'http://SON-IIS2:5140')
+$productionHubOrigins = @(
+    'https://hub.son4l.local',
+    'https://SON-IIS2:6140',
+    'http://SON-IIS2:5140'
+)
+$gatewayPath = '/project-tracker-api'
+$applications = @(
+    [pscustomobject]@{ Id = 'project-tracker'; HttpPort = 5135; HttpsPort = 6135; ProductionHost = 'projects.hub.son4l.local' },
+    [pscustomobject]@{ Id = 'portal'; HttpPort = 5140; HttpsPort = 6140; ProductionHost = 'hub.son4l.local' },
+    [pscustomobject]@{ Id = 'engineering-hub'; HttpPort = 5150; HttpsPort = 6150; ProductionHost = 'engineering.hub.son4l.local' },
+    [pscustomobject]@{ Id = 'estimating-dashboard'; HttpPort = 5160; HttpsPort = 6160; ProductionHost = 'estimating.hub.son4l.local' },
+    [pscustomobject]@{ Id = 'quality-assurance'; HttpPort = 5170; HttpsPort = 6170; ProductionHost = 'quality.hub.son4l.local' }
+)
+Set-TopologyConfiguration -Name Production
+
+$pilotStatePath = Join-Path $stateRoot 'https-application-config.json'
+$productionStatePath = Join-Path $stateRoot 'https-production-application-config.json'
+Assert-True ((Resolve-TransactionStatePath -SelectedTopology Production -SuppliedPath '' -WasExplicit $false) -ceq $productionStatePath) `
+    'Production did not default to its isolated transaction-state file.'
+Assert-True ((Resolve-TransactionStatePath -SelectedTopology Pilot -SuppliedPath '' -WasExplicit $false) -ceq $pilotStatePath) `
+    'Pilot did not retain its legacy transaction-state file.'
+$customStatePath = Join-Path $stateRoot 'custom-production-config.json'
+Assert-True ((Resolve-TransactionStatePath -SelectedTopology Production -SuppliedPath $customStatePath -WasExplicit $true) -ceq $customStatePath) `
+    'An explicit transaction state path was not retained for subsequent strict validation.'
+$emptyExplicitStateRejected = $false
+try { Resolve-TransactionStatePath -SelectedTopology Production -SuppliedPath '' -WasExplicit $true | Out-Null }
+catch { $emptyExplicitStateRejected = $true }
+Assert-True $emptyExplicitStateRejected 'An explicitly empty StatePath was accepted.'
+
+$productionPortal = [pscustomobject]@{
+    Portal = [pscustomobject]@{
+        Applications = @(
+            [pscustomobject]@{ Id = 'project-tracker'; Url = 'http://SON-IIS2:5135' },
+            [pscustomobject]@{ Id = 'engineering-hub'; Url = 'https://SON-IIS2:6150' },
+            [pscustomobject]@{ Id = 'estimating-dashboard'; Url = 'http://SON-IIS2:5160' },
+            [pscustomobject]@{ Id = 'quality-assurance'; Url = 'https://SON-IIS2:6170' }
+        )
+    }
+}
+$productionTracker = [pscustomobject]@{
+    Cors = [pscustomobject]@{ HubOrigins = @('https://SON-IIS2:6140', 'http://SON-IIS2:5140') }
+}
+$productionTransform = New-TransformedConfig -PortalConfig $productionPortal -TrackerConfig $productionTracker
+foreach ($id in $productionModuleUrls.Keys) {
+    $application = @($productionTransform.Portal.Portal.Applications | Where-Object Id -eq $id)[0]
+    Assert-True ($application.Url -ceq $productionModuleUrls[$id]) "Permanent URL was not applied for '$id'."
+}
+Assert-True ((@($productionTransform.Tracker.Cors.HubOrigins) -join '|') -ceq ($productionHubOrigins -join '|')) `
+    'Permanent Hub CORS origins were not applied HTTPS-first with transitional HTTP retained.'
+
+$testAppliedPortal = Join-Path ([IO.Path]::GetTempPath()) ('sonaero-applied-portal-' + [Guid]::NewGuid().ToString('N') + '.json')
+$testAppliedTracker = Join-Path ([IO.Path]::GetTempPath()) ('sonaero-applied-tracker-' + [Guid]::NewGuid().ToString('N') + '.json')
+try {
+    [IO.File]::WriteAllText($testAppliedPortal, '{"status":"planned"}')
+    [IO.File]::WriteAllText($testAppliedTracker, '{"status":"planned"}')
+    $appliedState = [pscustomobject]@{
+        Status = 'Applied'
+        Topology = 'production'
+        PortalConfigPath = $testAppliedPortal
+        TrackerConfigPath = $testAppliedTracker
+        PortalPlannedSha256 = Get-FileSha256 $testAppliedPortal
+        TrackerPlannedSha256 = Get-FileSha256 $testAppliedTracker
+    }
+    Assert-RequestedStateTopology -State $appliedState -RequestedTopology Production
+    Assert-AppliedConfiguration $appliedState
+    $appliedState.Topology = 'production'
+    Assert-RequestedStateTopology -State $appliedState -RequestedTopology Production
+    Assert-True ($appliedState.Topology -ceq 'production') `
+        'Requested-topology comparison unexpectedly mutated an already loaded state object.'
+    $appliedState.Topology = 'Production'
+    $wrongTopologyRejected = $false
+    try { Assert-RequestedStateTopology -State $appliedState -RequestedTopology Pilot }
+    catch { $wrongTopologyRejected = $true }
+    Assert-True $wrongTopologyRejected 'An applied Production state was accepted for a Pilot request.'
+    [IO.File]::AppendAllText($testAppliedTracker, ' ')
+    $appliedDriftRejected = $false
+    try { Assert-AppliedConfiguration $appliedState }
+    catch { $appliedDriftRejected = $true }
+    Assert-True $appliedDriftRejected 'Applied-state idempotency accepted active configuration drift.'
+}
+finally {
+    Remove-Item -LiteralPath $testAppliedPortal, $testAppliedTracker -Force -ErrorAction SilentlyContinue
+}
+$productionHealthUris = @(Get-DualSchemeHealthUris)
+foreach ($uri in @(
+    'https://projects.hub.son4l.local/api/health',
+    'https://hub.son4l.local/api/health',
+    'https://engineering.hub.son4l.local/api/health',
+    'https://estimating.hub.son4l.local/api/health',
+    'https://quality.hub.son4l.local/api/health',
+    'https://hub.son4l.local/project-tracker-api/api/health',
+    'http://SON-IIS2:5140/project-tracker-api/api/health'
+)) {
+    Assert-True ($uri -cin $productionHealthUris) "Permanent topology health plan omitted '$uri'."
+}
+$retainedRollbackUris = @(Get-RetainedHealthUris)
+foreach ($uri in @(
+    'http://SON-IIS2:5135/api/health',
+    'http://SON-IIS2:5140/api/health',
+    'https://SON-IIS2:6135/api/health',
+    'https://SON-IIS2:6140/api/health',
+    'http://SON-IIS2:5140/project-tracker-api/api/health',
+    'https://SON-IIS2:6140/project-tracker-api/api/health'
+)) {
+    Assert-True ($uri -cin $retainedRollbackUris) "Rollback health plan omitted retained endpoint '$uri'."
+}
+Assert-True (@($retainedRollbackUris | Where-Object { $_ -match '\.hub\.son4l\.local' }).Count -eq 0) `
+    'Rollback health verification still depends on production port-443 hostnames.'
+foreach ($uri in @(
+    'https://SON-IIS2:6135/api/health',
+    'https://SON-IIS2:6140/api/health',
+    'https://SON-IIS2:6150/api/health',
+    'https://SON-IIS2:6160/api/health',
+    'https://SON-IIS2:6170/api/health',
+    'https://SON-IIS2:6140/project-tracker-api/api/health'
+)) {
+    Assert-True ($uri -cin $productionHealthUris) "Permanent topology health plan omitted retained pilot endpoint '$uri'."
+}
+
+$script:corsCalls = @()
+function Assert-CorsResponse {
+    param([Parameter(Mandatory = $true)][string]$Uri, [Parameter(Mandatory = $true)][string]$Origin)
+    $script:corsCalls += [pscustomobject]@{ Uri = $Uri; Origin = $Origin }
+}
+Assert-DualCors
+Assert-True ($script:corsCalls.Count -eq 3) 'Permanent topology did not validate permanent HTTPS, pilot HTTPS, and transitional HTTP CORS.'
+Assert-True ($script:corsCalls[0].Uri -ceq 'https://projects.hub.son4l.local/api/me' -and
+    $script:corsCalls[0].Origin -ceq 'https://hub.son4l.local') `
+    'Permanent topology CORS validation did not target the exact permanent HTTPS origin and Project Tracker host.'
+Assert-True ($script:corsCalls[1].Uri -ceq 'https://SON-IIS2:6135/api/me' -and
+    $script:corsCalls[1].Origin -ceq 'https://son-iis2:6140') `
+    'Permanent topology CORS validation did not retain the pilot HTTPS Hub origin.'
+Assert-True ($script:corsCalls[2].Uri -ceq 'http://SON-IIS2:5135/api/me' -and
+    $script:corsCalls[2].Origin -ceq 'http://son-iis2:5140') `
+    'Permanent topology CORS validation did not retain the transitional HTTP Hub origin.'
+
+Set-TopologyConfiguration -Name Pilot
+$pilotPortal = $productionPortal | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+$pilotTracker = $productionTracker | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+$pilotTransform = New-TransformedConfig -PortalConfig $pilotPortal -TrackerConfig $pilotTracker
+Assert-True ((@($pilotTransform.Tracker.Cors.HubOrigins) -join '|') -ceq ($pilotHubOrigins -join '|')) `
+    'Backward-compatible pilot CORS transform was not retained.'
+$pilotHealthUris = @(Get-DualSchemeHealthUris)
+Assert-True ('https://SON-IIS2:6135/api/health' -cin $pilotHealthUris -and
+    'https://SON-IIS2:6140/project-tracker-api/api/health' -cin $pilotHealthUris) `
+    'Backward-compatible pilot health plan was not retained.'
+$script:corsCalls = @()
+Assert-DualCors
+Assert-True ($script:corsCalls[0].Uri -ceq 'https://SON-IIS2:6135/api/me' -and
+    $script:corsCalls[0].Origin -ceq 'https://son-iis2:6140') `
+    'Backward-compatible pilot CORS validation was not retained.'
+Set-TopologyConfiguration -Name Production
 
 # Windows PowerShell 5.1 must be able to normalize legacy deserialized state objects.
 $legacy = [pscustomobject]@{ Status = 'Prepared' }
@@ -127,9 +350,12 @@ Assert-True ($consistencyFailure -match 'consistency-fault') 'The consistency fa
 # Backups must be validated before either active production file is replaced.
 function Stop-TargetPools { }
 function Start-TargetPools { }
-function Wait-UriHealth { param([string[]]$Uris) }
+$script:lastHealthUris = @()
+function Wait-UriHealth { param([string[]]$Uris) $script:lastHealthUris = @($Uris) }
 function Get-HttpHealthUris { @('http://test') }
 function Get-DualSchemeHealthUris { @('https://test') }
+function Get-RetainedHealthUris { @('http://retained-test', 'https://retained-test') }
+function Assert-TrackerCorsAuthenticationBoundary { param([switch]$RetainedOnly) }
 
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('sonaero-config-test-' + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($testRoot) | Out-Null
@@ -147,6 +373,7 @@ try {
         Version = 2
         ComputerName = 'SON-IIS2'
         Status = 'Prepared'
+        Topology = 'Production'
         PortalConfigPath = $portal
         TrackerConfigPath = $tracker
         PortalBackupPath = $portalBackup
@@ -159,6 +386,30 @@ try {
         TrackerAppliedSha256 = ''
     }
     Assert-TransactionState -State $state -ExpectedPortalConfigPath $portal -ExpectedTrackerConfigPath $tracker
+    Assert-True ($state.Topology -ceq 'Production') `
+        'A mixed-case transaction topology was not normalized to its canonical persisted value.'
+    $legacyVersionTwoState = $state | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+    $legacyVersionTwoState.Version = 2
+    $legacyVersionTwoState.PSObject.Properties.Remove('Topology')
+    Assert-TransactionState `
+        -State $legacyVersionTwoState `
+        -ExpectedPortalConfigPath $portal `
+        -ExpectedTrackerConfigPath $tracker
+    Assert-True ($legacyVersionTwoState.Version -eq 3 -and $legacyVersionTwoState.Topology -ceq 'Pilot') `
+        'A legacy version 2 pilot state was not normalized backward-compatibly.'
+    $missingVersionThreeTopology = $state | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+    $missingVersionThreeTopology.Version = 3
+    $missingVersionThreeTopology.PSObject.Properties.Remove('Topology')
+    $missingVersionThreeTopologyRejected = $false
+    try {
+        Assert-TransactionState `
+            -State $missingVersionThreeTopology `
+            -ExpectedPortalConfigPath $portal `
+            -ExpectedTrackerConfigPath $tracker
+    }
+    catch { $missingVersionThreeTopologyRejected = $true }
+    Assert-True $missingVersionThreeTopologyRejected `
+        'A version 3 transaction state without its required rollback topology was accepted.'
     $safePortalBackup = $state.PortalBackupPath
     $state.PortalBackupPath = 'C:\inetpub\wwwroot\Portal.json'
     $tamperRejected = $false
@@ -195,6 +446,15 @@ try {
     Assert-RecoverableActiveConfiguration $state
     Restore-Configuration $state
     Assert-OriginalConfiguration $state
+    Assert-True (($script:lastHealthUris -join '|') -ceq 'http://test') `
+        'Automatic rollback did not limit verification to its HTTP safety baseline.'
+
+    [IO.File]::WriteAllText($portal, '{"mode":"https"}')
+    [IO.File]::WriteAllText($tracker, '{"mode":"https"}')
+    Restore-Configuration $state -VerifyDualScheme
+    Assert-OriginalConfiguration $state
+    Assert-True (($script:lastHealthUris -join '|') -ceq 'http://retained-test|https://retained-test') `
+        'Manual rollback still depends on production 443 instead of the retained HTTP/61xx baseline.'
 
     # A fault on the second move is recovered while pools are stopped; no mixed pair is served.
     [IO.File]::WriteAllText($portal, '{"mode":"https"}')
@@ -233,7 +493,8 @@ try {
             Applications = @(
                 [pscustomobject]@{ Id = 'project-tracker'; Url = 'http://SON-IIS2:5135' },
                 [pscustomobject]@{ Id = 'engineering-hub'; Url = 'http://SON-IIS2:5150' },
-                [pscustomobject]@{ Id = 'estimating-dashboard'; Url = 'http://SON-IIS2:5160' }
+                [pscustomobject]@{ Id = 'estimating-dashboard'; Url = 'http://SON-IIS2:5160' },
+                [pscustomobject]@{ Id = 'quality-assurance'; Url = 'http://SON-IIS2:5170' }
             )
         }
     }
@@ -291,6 +552,7 @@ try {
         Version = 1
         ComputerName = 'SON-IIS2'
         Status = 'Prepared'
+        Topology = 'Pilot'
         PortalConfigPath = $portal
         TrackerConfigPath = $tracker
         PortalBackupPath = $portalBackup
@@ -301,16 +563,17 @@ try {
         TrackerAppliedSha256 = ''
     }
     Assert-TransactionState -State $legacyPrepared -ExpectedPortalConfigPath $portal -ExpectedTrackerConfigPath $tracker
-    Assert-True ($legacyPrepared.Version -eq 2) 'Legacy state was not normalized to version 2 in memory.'
+    Assert-True ($legacyPrepared.Version -eq 3) 'Legacy state was not normalized to version 3 in memory.'
     Assert-RecoverableActiveConfiguration $legacyPrepared
 
-    [IO.File]::WriteAllBytes($portal, (Convert-ToUtf8JsonBytes (New-TransformedConfig `
+    $legacyPilotTransform = New-TransformedConfig `
         -PortalConfig (Read-JsonFile $portalBackup) `
-        -TrackerConfig (Read-JsonFile $trackerBackup)).Portal))
+        -TrackerConfig (Read-JsonFile $trackerBackup) `
+        -TargetModuleUrls $pilotModuleUrls `
+        -TargetHubOrigins $pilotHubOrigins
+    [IO.File]::WriteAllBytes($portal, (Convert-ToUtf8JsonBytes $legacyPilotTransform.Portal))
     Assert-RecoverableActiveConfiguration $legacyPrepared
-    [IO.File]::WriteAllBytes($tracker, (Convert-ToUtf8JsonBytes (New-TransformedConfig `
-        -PortalConfig (Read-JsonFile $portalBackup) `
-        -TrackerConfig (Read-JsonFile $trackerBackup)).Tracker))
+    [IO.File]::WriteAllBytes($tracker, (Convert-ToUtf8JsonBytes $legacyPilotTransform.Tracker))
     Assert-RecoverableActiveConfiguration $legacyPrepared
 
     $legacyApplied = $legacyPrepared | ConvertTo-Json -Depth 20 | ConvertFrom-Json

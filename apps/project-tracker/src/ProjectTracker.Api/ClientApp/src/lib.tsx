@@ -17,8 +17,29 @@ const initialUrlParameters = new URLSearchParams(window.location.search)
 export const isPortalDashboardPreview = initialUrlParameters.get('preview') === 'dashboard'
 export const isPortalDashboardLaunch = initialUrlParameters.get('launch') === 'dashboard'
 export const isPortalEmbedded = initialUrlParameters.get('embed') === 'portal'
-export const hubUrl = import.meta.env.VITE_HUB_URL?.trim()
-  || `${window.location.protocol}//${window.location.hostname}:5140`
+function defaultHubUrl() {
+  const hostname = window.location.hostname.toLowerCase()
+  const permanentHosts = new Set([
+    'hub.son4l.local',
+    'projects.hub.son4l.local',
+    'engineering.hub.son4l.local',
+    'estimating.hub.son4l.local',
+    'quality.hub.son4l.local',
+  ])
+  if (permanentHosts.has(hostname)) {
+    return 'https://hub.son4l.local'
+  }
+  const localHosts = new Set(['localhost', '127.0.0.1', '[::1]'])
+  if (localHosts.has(hostname)) return `http://${window.location.hostname}:5140`
+  if (hostname === 'son-iis2') {
+    return window.location.protocol === 'https:'
+      ? 'https://SON-IIS2:6140'
+      : 'http://SON-IIS2:5140'
+  }
+  return 'https://hub.son4l.local'
+}
+
+export const hubUrl = defaultHubUrl()
 
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {

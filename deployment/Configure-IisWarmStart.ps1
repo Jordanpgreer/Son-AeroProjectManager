@@ -1,6 +1,11 @@
 <#
     Keeps the SON-AERO Hub applications and same-origin admin gateway warm after reboot and IIS recycle.
     Run from an elevated Windows PowerShell 5.1 session on SON-IIS2.
+
+    Permanent production hostnames:
+      .\Configure-IisWarmStart.ps1 -Scheme https -PermanentHttps -WhatIf
+
+    The existing -Scheme https invocation remains the SON-IIS2:61xx pilot profile.
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 param(
@@ -9,6 +14,10 @@ param(
 
     [ValidateSet('http', 'https')]
     [string]$Scheme = 'http',
+
+    # Keeps the existing SON-IIS2:61xx HTTPS pilot as the default. Select this switch only after
+    # the permanent SNI bindings and DNS records have passed their workstation checks.
+    [switch]$PermanentHttps,
 
     [ValidateRange(1, 65535)]
     [int]$ProjectTrackerHttpsPort = 6135,
@@ -37,6 +46,229 @@ function Test-IsAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Resolve-WarmStartEndpoint {
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet(
+            'ProjectTracker', 'SonAeroPortal', 'EngineeringHub',
+            'EstimatingDashboard', 'QualityAssurance')][string]$Site,
+        [Parameter(Mandatory = $true)][ValidateSet('http', 'https')][string]$SelectedScheme,
+        [Parameter(Mandatory = $true)][string]$DefaultHostName,
+        [Parameter(Mandatory = $true)][int]$HttpPort,
+        [Parameter(Mandatory = $true)][int]$HttpsPort,
+        [switch]$UsePermanentHttps
+    )
+
+    if ($SelectedScheme -eq 'http') {
+        return [pscustomobject]@{ Scheme = 'http'; HostName = $DefaultHostName; Port = $HttpPort }
+    }
+
+    if ($UsePermanentHttps) {
+        $permanentHostNames = @{
+            ProjectTracker = 'projects.hub.son4l.local'
+            SonAeroPortal = 'hub.son4l.local'
+            EngineeringHub = 'engineering.hub.son4l.local'
+            EstimatingDashboard = 'estimating.hub.son4l.local'
+            QualityAssurance = 'quality.hub.son4l.local'
+        }
+        return [pscustomobject]@{
+            Scheme = 'https'
+            HostName = [string]$permanentHostNames[$Site]
+            Port = 443
+        }
+    }
+
+    return [pscustomobject]@{ Scheme = 'https'; HostName = $DefaultHostName; Port = $HttpsPort }
+}
+
+function New-HubEndpointUri {
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet('http', 'https')][string]$SelectedScheme,
+        [Parameter(Mandatory = $true)][string]$HostName,
+        [Parameter(Mandatory = $true)][int]$Port,
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+
+    $builder = New-Object UriBuilder($SelectedScheme, $HostName, $Port)
+    $builder.Path = $Path.TrimStart('/')
+    return $builder.Uri.AbsoluteUri
+}
+
+function New-StartupRecoveryArguments {
+    param(
+        [Parameter(Mandatory = $true)][string]$InstalledScriptPath,
+        [Parameter(Mandatory = $true)][string]$ComputerName,
+        [Parameter(Mandatory = $true)][ValidateSet('http', 'https')][string]$SelectedScheme,
+        [switch]$UsePermanentHttps,
+        [Parameter(Mandatory = $true)][int]$ProjectTrackerPort,
+        [Parameter(Mandatory = $true)][int]$PortalPort,
+        [Parameter(Mandatory = $true)][int]$EngineeringPort,
+        [Parameter(Mandatory = $true)][int]$EstimatingPort,
+        [Parameter(Mandatory = $true)][int]$QualityAssurancePort
+    )
+
+    $argumentParts = @(
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+        ('-File "{0}"' -f $InstalledScriptPath),
+        ('-ExpectedComputerName "{0}"' -f $ComputerName),
+        ('-Scheme {0}' -f $SelectedScheme),
+        '-HealthTimeoutSeconds 300', '-StartupRecoveryOnly'
+    )
+    if ($UsePermanentHttps) {
+        $argumentParts += '-PermanentHttps'
+    } else {
+        $argumentParts += @(
+            ('-ProjectTrackerHttpsPort {0}' -f $ProjectTrackerPort),
+            ('-PortalHttpsPort {0}' -f $PortalPort),
+            ('-EngineeringHttpsPort {0}' -f $EngineeringPort),
+            ('-EstimatingHttpsPort {0}' -f $EstimatingPort),
+            ('-QualityAssuranceHttpsPort {0}' -f $QualityAssurancePort)
+        )
+    }
+    return $argumentParts -join ' '
+}
+
+function New-WarmStartFileSystemSecurity {
+    param([switch]$Directory, [switch]$BrandingRoot)
+    if ($BrandingRoot -and -not $Directory) {
+        throw 'BrandingRoot is valid only for a directory ACL.'
+    }
+    $security = if ($Directory) { New-Object Security.AccessControl.DirectorySecurity }
+        else { New-Object Security.AccessControl.FileSecurity }
+    $security.SetAccessRuleProtection($true, $false)
+    $administrators = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
+    $system = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
+    $security.SetOwner($administrators)
+    $inheritance = if ($Directory) {
+        [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+    } else { [Security.AccessControl.InheritanceFlags]::None }
+    foreach ($identity in @($system, $administrators)) {
+        $rule = New-Object Security.AccessControl.FileSystemAccessRule(
+            $identity, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance,
+            [Security.AccessControl.PropagationFlags]::None,
+            [Security.AccessControl.AccessControlType]::Allow)
+        $security.AddAccessRule($rule)
+    }
+    if ($BrandingRoot) {
+        # Employees read the shared icon here; Operations has a separate privileged-only ACL.
+        $users = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-545')
+        $readRule = New-Object Security.AccessControl.FileSystemAccessRule(
+            $users, [Security.AccessControl.FileSystemRights]::ReadAndExecute, $inheritance,
+            [Security.AccessControl.PropagationFlags]::None,
+            [Security.AccessControl.AccessControlType]::Allow)
+        $security.AddAccessRule($readRule)
+    }
+    return $security
+}
+
+function Assert-ProtectedWarmStartPath {
+    param([Parameter(Mandatory = $true)][string]$Path, [switch]$Directory, [switch]$BrandingRoot)
+    if ($BrandingRoot -and -not $Directory) {
+        throw 'BrandingRoot is valid only for a directory ACL.'
+    }
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Warm-start path '$Path' must not be a reparse point."
+    }
+    if ($Directory -and -not $item.PSIsContainer) { throw "Warm-start directory '$Path' is not a directory." }
+    if (-not $Directory -and $item.PSIsContainer) { throw "Warm-start file '$Path' is not a file." }
+    $acl = Get-Acl -LiteralPath $Path
+    if (-not $acl.AreAccessRulesProtected) { throw "Warm-start path '$Path' still inherits access rules." }
+    $privilegedSids = @('S-1-5-18', 'S-1-5-32-544')
+    $usersSid = 'S-1-5-32-545'
+    $allowedSids = if ($BrandingRoot) { @($privilegedSids + $usersSid) } else { $privilegedSids }
+    $owner = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+    if ($owner -notin $allowedSids) { throw "Warm-start path '$Path' has unexpected owner '$owner'." }
+    $fullControlSids = @()
+    foreach ($rule in @($acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))) {
+        $sid = $rule.IdentityReference.Value
+        if ($sid -notin $allowedSids -or
+            $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) {
+            throw "Warm-start path '$Path' grants access to unexpected identity '$sid'."
+        }
+        if (($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::FullControl) -eq
+            [Security.AccessControl.FileSystemRights]::FullControl) { $fullControlSids += $sid }
+    }
+    foreach ($sid in $privilegedSids) {
+        if ($fullControlSids -notcontains $sid) {
+            throw "Warm-start path '$Path' does not grant full control to '$sid'."
+        }
+    }
+    if ($BrandingRoot) {
+        $userRules = @($acl.GetAccessRules(
+            $true, $true, [Security.Principal.SecurityIdentifier]) | Where-Object {
+                $_.IdentityReference.Value -eq $usersSid
+            })
+        $readMask = [Security.AccessControl.FileSystemRights]::ReadAndExecute
+        $writeMask = [Security.AccessControl.FileSystemRights]::Write -bor [Security.AccessControl.FileSystemRights]::Delete -bor
+            [Security.AccessControl.FileSystemRights]::ChangePermissions -bor [Security.AccessControl.FileSystemRights]::TakeOwnership
+        if ($userRules.Count -ne 1 -or
+            ($userRules[0].FileSystemRights -band $readMask) -ne $readMask -or
+            ($userRules[0].FileSystemRights -band $writeMask) -ne 0) {
+            throw "Warm-start branding directory '$Path' must grant Users inherited read/execute access without write or ACL-control rights."
+        }
+    }
+}
+
+function Initialize-ProtectedWarmStartDirectory {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProgramDataRoot,
+        [Parameter(Mandatory = $true)][string]$OperationsDirectory
+    )
+    $root = [IO.Path]::GetFullPath($ProgramDataRoot).TrimEnd('\')
+    $expectedOperations = [IO.Path]::GetFullPath((Join-Path $root 'SonAero\Operations')).TrimEnd('\')
+    $requestedOperations = [IO.Path]::GetFullPath($OperationsDirectory).TrimEnd('\')
+    if ($requestedOperations -ine $expectedOperations) {
+        throw "Warm-start operations directory must be exactly '$expectedOperations'."
+    }
+    $rootItem = Get-Item -LiteralPath $root -Force -ErrorAction Stop
+    if (-not $rootItem.PSIsContainer -or
+        ($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "ProgramData root '$root' must be a non-reparse directory."
+    }
+    $sonAeroDirectory = Join-Path $root 'SonAero'
+    foreach ($directory in @($sonAeroDirectory, $expectedOperations)) {
+        if (-not (Test-Path -LiteralPath $directory)) {
+            New-Item -ItemType Directory -Path $directory | Out-Null
+        }
+        $item = Get-Item -LiteralPath $directory -Force -ErrorAction Stop
+        if (-not $item.PSIsContainer -or
+            ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Warm-start directory '$directory' must be a non-reparse directory."
+        }
+    }
+    Set-Acl -LiteralPath $sonAeroDirectory -AclObject (New-WarmStartFileSystemSecurity -Directory -BrandingRoot)
+    Assert-ProtectedWarmStartPath -Path $sonAeroDirectory -Directory -BrandingRoot
+    Set-Acl -LiteralPath $expectedOperations -AclObject (New-WarmStartFileSystemSecurity -Directory)
+    Assert-ProtectedWarmStartPath -Path $expectedOperations -Directory
+    return $expectedOperations
+}
+
+function Install-ProtectedWarmStartScript {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][string]$DestinationPath
+    )
+    if (-not (Test-Path -LiteralPath $SourcePath -PathType Leaf)) {
+        throw "Warm-start source script was not found at '$SourcePath'."
+    }
+    if (Test-Path -LiteralPath $DestinationPath) {
+        $destination = Get-Item -LiteralPath $DestinationPath -Force -ErrorAction Stop
+        if ($destination.PSIsContainer -or
+            ($destination.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Installed warm-start script '$DestinationPath' must be a non-reparse file."
+        }
+    }
+    if ([IO.Path]::GetFullPath($SourcePath) -ine [IO.Path]::GetFullPath($DestinationPath)) {
+        Copy-Item -LiteralPath $SourcePath -Destination $DestinationPath -Force
+    }
+    Set-Acl -LiteralPath $DestinationPath -AclObject (New-WarmStartFileSystemSecurity)
+    Assert-ProtectedWarmStartPath -Path $DestinationPath
+    if ((Get-FileHash -Algorithm SHA256 -LiteralPath $SourcePath).Hash -ne
+        (Get-FileHash -Algorithm SHA256 -LiteralPath $DestinationPath).Hash) {
+        throw 'Installed warm-start script hash does not match the reviewed source.'
+    }
 }
 
 function Wait-ForHealth {
@@ -75,6 +307,19 @@ if ([string]::IsNullOrWhiteSpace($currentComputer) -or $currentComputer -ine $Ex
 }
 if (-not $WhatIfPreference -and -not (Test-IsAdministrator)) {
     throw 'Run this script from an elevated Windows PowerShell session.'
+}
+
+if ($PermanentHttps) {
+    if ($Scheme -ne 'https') {
+        throw 'PermanentHttps requires -Scheme https.'
+    }
+    $conflictingParameters = @(
+        'ProjectTrackerHttpsPort', 'PortalHttpsPort', 'EngineeringHttpsPort',
+        'EstimatingHttpsPort', 'QualityAssuranceHttpsPort'
+    ) | Where-Object { $PSBoundParameters.ContainsKey($_) }
+    if ($conflictingParameters.Count -gt 0) {
+        throw "PermanentHttps uses port 443; do not also supply: $($conflictingParameters -join ', ')."
+    }
 }
 
 $sites = @(
@@ -176,15 +421,18 @@ if (-not $StartupRecoveryOnly) {
     $installedScriptPath = Join-Path $operationsDirectory 'Configure-IisWarmStart.ps1'
     $taskName = 'SonAero Hub Startup Recovery'
     if ($PSCmdlet.ShouldProcess($taskName, 'Install bounded startup health-recovery task')) {
-        New-Item -ItemType Directory -Path $operationsDirectory -Force | Out-Null
-        if ([IO.Path]::GetFullPath($PSCommandPath) -ine [IO.Path]::GetFullPath($installedScriptPath)) {
-            Copy-Item -LiteralPath $PSCommandPath -Destination $installedScriptPath -Force
-        }
+        $operationsDirectory = Initialize-ProtectedWarmStartDirectory `
+            -ProgramDataRoot $env:ProgramData -OperationsDirectory $operationsDirectory
+        $installedScriptPath = Join-Path $operationsDirectory 'Configure-IisWarmStart.ps1'
+        Install-ProtectedWarmStartScript -SourcePath $PSCommandPath -DestinationPath $installedScriptPath
 
         $powerShellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-        $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -ExpectedComputerName "{1}" -Scheme {2} -ProjectTrackerHttpsPort {3} -PortalHttpsPort {4} -EngineeringHttpsPort {5} -EstimatingHttpsPort {6} -QualityAssuranceHttpsPort {7} -HealthTimeoutSeconds 300 -StartupRecoveryOnly' -f `
-            $installedScriptPath, $ExpectedComputerName, $Scheme, $ProjectTrackerHttpsPort, `
-            $PortalHttpsPort, $EngineeringHttpsPort, $EstimatingHttpsPort, $QualityAssuranceHttpsPort
+        $arguments = New-StartupRecoveryArguments -InstalledScriptPath $installedScriptPath `
+            -ComputerName $ExpectedComputerName -SelectedScheme $Scheme `
+            -UsePermanentHttps:$PermanentHttps `
+            -ProjectTrackerPort $ProjectTrackerHttpsPort -PortalPort $PortalHttpsPort `
+            -EngineeringPort $EngineeringHttpsPort -EstimatingPort $EstimatingHttpsPort `
+            -QualityAssurancePort $QualityAssuranceHttpsPort
         $action = New-ScheduledTaskAction -Execute $powerShellPath -Argument $arguments
         $trigger = New-ScheduledTaskTrigger -AtStartup
         $trigger.Delay = 'PT45S'
@@ -214,8 +462,11 @@ if ((Get-WebAppPoolState -Name $gateway.Pool).Value -ne 'Started') {
 }
 
 $results = foreach ($site in $sites) {
-    $selectedPort = if ($Scheme -eq 'https') { $site.HttpsPort } else { $site.HttpPort }
-    $healthUri = '{0}://{1}:{2}/api/health' -f $Scheme, $ExpectedComputerName, $selectedPort
+    $endpoint = Resolve-WarmStartEndpoint -Site $site.Name -SelectedScheme $Scheme `
+        -DefaultHostName $ExpectedComputerName -HttpPort $site.HttpPort `
+        -HttpsPort $site.HttpsPort -UsePermanentHttps:$PermanentHttps
+    $healthUri = New-HubEndpointUri -SelectedScheme $endpoint.Scheme `
+        -HostName $endpoint.HostName -Port $endpoint.Port -Path '/api/health'
     $response = Wait-ForHealth -Uri $healthUri -TimeoutSeconds $HealthTimeoutSeconds
     [pscustomobject]@{
         Site = $site.Name
@@ -226,8 +477,11 @@ $results = foreach ($site in $sites) {
     }
 }
 
-$gatewayPort = if ($Scheme -eq 'https') { $gateway.HttpsPort } else { $gateway.HttpPort }
-$gatewayHealthUri = '{0}://{1}:{2}{3}' -f $Scheme, $ExpectedComputerName, $gatewayPort, $gateway.HealthPath
+$gatewayEndpoint = Resolve-WarmStartEndpoint -Site $gateway.Site -SelectedScheme $Scheme `
+    -DefaultHostName $ExpectedComputerName -HttpPort $gateway.HttpPort `
+    -HttpsPort $gateway.HttpsPort -UsePermanentHttps:$PermanentHttps
+$gatewayHealthUri = New-HubEndpointUri -SelectedScheme $gatewayEndpoint.Scheme `
+    -HostName $gatewayEndpoint.HostName -Port $gatewayEndpoint.Port -Path $gateway.HealthPath
 $gatewayResponse = Wait-ForHealth -Uri $gatewayHealthUri -TimeoutSeconds $HealthTimeoutSeconds
 $results += [pscustomobject]@{
     Site = $gateway.Pool

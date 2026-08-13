@@ -5,8 +5,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidatePattern('^https?://[A-Za-z0-9.-]+(?::[0-9]{1,5})?/?$')]
-    [string]$HubUri = 'http://SON-IIS2:5140',
+    [string]$HubUri = '',
 
     [switch]$ElevatedInstall,
 
@@ -83,11 +82,41 @@ try {
     Assert-PackageFile -Path $shortcutInstaller -Label 'The shortcut installer'
     Assert-PackageFile -Path $iconPath -Label 'The Son-Aero icon'
 
-    $parsedHubUri = [Uri]$HubUri
-    if ($parsedHubUri.Scheme -notin @('http', 'https') -or
+    if ([string]::IsNullOrWhiteSpace($HubUri)) {
+        $configurationPath = Join-Path $packageRoot 'SonAeroHubInstaller.json'
+        if (Test-Path -LiteralPath $configurationPath -PathType Leaf) {
+            try { $configuration = Get-Content -LiteralPath $configurationPath -Raw | ConvertFrom-Json }
+            catch { throw "The packaged Hub configuration is unreadable: $($_.Exception.Message)" }
+            if ([int]$configuration.SchemaVersion -ne 1) {
+                throw 'The packaged Hub configuration has an unsupported schema version.'
+            }
+            $HubUri = [string]$configuration.HubUri
+            if ([string]::IsNullOrWhiteSpace($HubUri)) {
+                throw 'The packaged Hub configuration does not contain HubUri.'
+            }
+        } else {
+            # Compatibility fallback for an unpackaged/manual copy of this script.
+            $HubUri = 'https://hub.son4l.local'
+        }
+    }
+
+    $parsedHubUri = $null
+    if (-not [Uri]::TryCreate($HubUri, [UriKind]::Absolute, [ref]$parsedHubUri) -or
+        $parsedHubUri.Scheme -notin @('http', 'https') -or
         [string]::IsNullOrWhiteSpace($parsedHubUri.Host) -or
-        -not [string]::IsNullOrWhiteSpace($parsedHubUri.UserInfo)) {
-        throw 'The packaged Hub address is invalid.'
+        -not [string]::IsNullOrWhiteSpace($parsedHubUri.UserInfo) -or
+        $parsedHubUri.AbsolutePath -ne '/' -or
+        -not [string]::IsNullOrWhiteSpace($parsedHubUri.Query) -or
+        -not [string]::IsNullOrWhiteSpace($parsedHubUri.Fragment)) {
+        throw 'The packaged Hub address must be an absolute HTTP or HTTPS server origin without credentials, a path, a query, or a fragment.'
+    }
+    $approvedHubUris = @(
+        'https://hub.son4l.local/',
+        'http://son-iis2:5140/',
+        'https://son-iis2:6140/'
+    )
+    if ($parsedHubUri.AbsoluteUri.ToLowerInvariant() -notin $approvedHubUris) {
+        throw 'The packaged Hub address is not an approved production or pilot Portal origin.'
     }
 
     if ($ElevatedInstall) {
@@ -146,7 +175,7 @@ try {
     if ($moduleSummary.Count -gt 0) {
         Write-Host "Assigned module roles: $($moduleSummary -join ', ')"
     } else {
-        Write-Warning 'No Engineering or Estimating role is currently assigned. Project Tracker access may still be assigned separately.'
+        Write-Warning 'No Portal-managed module role is currently assigned. Project Tracker access may still be assigned separately.'
     }
 
     if (Test-IsAdministrator) {

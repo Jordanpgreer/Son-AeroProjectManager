@@ -3,5 +3,6 @@
   "Database": { "Provider": "SqlServer" },
   "ConnectionStrings": {
     "ModuleAccessStore": "Server=tcp:SON-SQL2,1433;Database=ProjectTracker;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
-  }
+  },
+  "Portal": { "Url": "https://hub.son4l.local" }
 }

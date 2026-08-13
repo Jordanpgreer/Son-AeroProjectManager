@@ -24,11 +24,27 @@ describe('resolveProjectTrackerApiUrl', () => {
     })).toBe('http://localhost:5135')
   })
 
+  it('uses the HTTP Project Tracker development binding from an HTTPS localhost Hub', () => {
+    expect(defaultProjectTrackerApiUrl({
+      hostname: 'localhost',
+      origin: 'https://localhost:7140',
+      protocol: 'https:',
+    })).toBe('http://localhost:5135')
+  })
+
   it('keeps non-local deployments on the same-origin IIS gateway', () => {
     expect(defaultProjectTrackerApiUrl({
       hostname: 'SON-IIS2',
       origin: 'https://SON-IIS2',
       protocol: 'https:',
     })).toBe('https://son-iis2/project-tracker-api')
+  })
+
+  it('keeps the permanent Hub on its same-origin Project Tracker gateway', () => {
+    expect(defaultProjectTrackerApiUrl({
+      hostname: 'hub.son4l.local',
+      origin: 'https://hub.son4l.local',
+      protocol: 'https:',
+    })).toBe('https://hub.son4l.local/project-tracker-api')
   })
 })

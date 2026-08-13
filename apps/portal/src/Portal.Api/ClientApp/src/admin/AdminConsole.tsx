@@ -20,7 +20,7 @@ import {
 import AccessPanel from './AccessPanel'
 import AccessPreviewPanel from './AccessPreviewPanel'
 import EngineeringStoragePanel from './EngineeringStoragePanel'
-import { projectTrackerUrl, toErrorMessage, trackerApi } from './api'
+import { toErrorMessage, trackerApi } from './api'
 import { resolveModuleApplicationUrl } from './moduleUrls'
 import { ImportsPanel } from './ProjectTrackerDataPanels'
 import {
@@ -80,7 +80,7 @@ const MODULES: {
     description: 'Scheduling references, recovery, and imports',
     icon: GanttChart,
     href: '#/admin/project-tracker/calendar',
-    openUrl: projectTrackerUrl,
+    openUrl: resolveModuleApplicationUrl(window.location, 5135),
   },
   {
     key: 'engineering',
@@ -88,11 +88,7 @@ const MODULES: {
     description: 'Engineering module administration',
     icon: Database,
     href: '#/admin/engineering/file-storage',
-    openUrl: resolveModuleApplicationUrl(
-      import.meta.env.VITE_ENGINEERING_HUB_URL,
-      window.location,
-      5150,
-    ),
+    openUrl: resolveModuleApplicationUrl(window.location, 5150),
   },
   {
     key: 'estimating',
@@ -100,11 +96,7 @@ const MODULES: {
     description: 'Estimating module administration',
     icon: Calculator,
     href: '#/admin/estimating/overview',
-    openUrl: resolveModuleApplicationUrl(
-      import.meta.env.VITE_ESTIMATING_DASHBOARD_URL,
-      window.location,
-      5160,
-    ),
+    openUrl: resolveModuleApplicationUrl(window.location, 5160),
   },
   {
     key: 'quality-assurance',
@@ -112,11 +104,7 @@ const MODULES: {
     description: 'Quality module administration',
     icon: ClipboardCheck,
     href: '#/admin/quality-assurance/overview',
-    openUrl: resolveModuleApplicationUrl(
-      import.meta.env.VITE_QUALITY_ASSURANCE_URL,
-      window.location,
-      5170,
-    ),
+    openUrl: resolveModuleApplicationUrl(window.location, 5170),
   },
 ]
 

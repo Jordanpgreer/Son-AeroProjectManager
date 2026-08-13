@@ -7,6 +7,8 @@
       .\Configure-HubHttpsPilot.ps1 -CertificateThumbprint <LEAF> -PilotRootThumbprint <ROOT> -PilotRemoteAddress 10.50.10.25 -Confirm:$false
     Roll back the last successful apply:
       .\Configure-HubHttpsPilot.ps1 -Rollback -Confirm:$false
+    Secure an already-deployed, otherwise valid legacy transaction state:
+      .\Configure-HubHttpsPilot.ps1 -MigrateLegacyStateProtection -WhatIf
 
     HTTP bindings on ports 5135-5170 are never removed. The pilot firewall rule is separate
     from the existing HTTP rule and never permits Any or LocalSubnet.
@@ -24,6 +26,8 @@ param(
     [string[]]$PilotRemoteAddress,
     [Parameter(Mandatory = $true, ParameterSetName = 'Rollback')]
     [switch]$Rollback,
+    [Parameter(Mandatory = $true, ParameterSetName = 'MigrateLegacyStateProtection')]
+    [switch]$MigrateLegacyStateProtection,
     [ValidateRange(7, 365)]
     [int]$MinimumRemainingDays = 30,
     [ValidateRange(30, 600)]
@@ -34,6 +38,9 @@ $ErrorActionPreference = 'Stop'
 $expectedComputerName = 'SON-IIS2'
 $firewallRuleName = 'SON-AERO Hub HTTPS pilot'
 $certificateStoreName = 'My'
+$stateRoot = 'C:\ProgramData\SonAero\deployment-state'
+$legacyStatePath = 'C:\ProgramData\SonAero\deployment-state\https-pilot.json'
+$bindingTransactionMutexName = 'Global\SonAero-HubHttpsBindingTransactions'
 $requiredDnsNames = @('SON-IIS2', 'SON-IIS2.SON4L.LOCAL')
 $applications = @(
     [pscustomobject]@{ Site = 'ProjectTracker'; HttpPort = 5135; HttpsPort = 6135 },
@@ -66,6 +73,22 @@ function Import-IisAdministration {
         throw "IIS administration assembly was not found at '$assemblyPath'."
     }
     Add-Type -Path $assemblyPath -ErrorAction Stop
+}
+function Enter-HubHttpsBindingTransactionLock {
+    $mutex = New-Object Threading.Mutex($false, $bindingTransactionMutexName)
+    $acquired = $false
+    try {
+        try { $acquired = $mutex.WaitOne(0) }
+        catch [Threading.AbandonedMutexException] { $acquired = $true }
+        if (-not $acquired) {
+            throw 'Another SON-AERO HTTPS binding transaction is already running on SON-IIS2.'
+        }
+        return $mutex
+    }
+    catch {
+        if (-not $acquired) { $mutex.Dispose() }
+        throw
+    }
 }
 function Convert-HashToHex {
     param($Value)
@@ -339,13 +362,227 @@ function Assert-FirewallAvailable {
         (($actualRemotes -join ',') -eq ($expectedRemotes -join ','))
     if (-not $exact) { throw "Existing firewall rule '$firewallRuleName' is not the exact requested pilot rule; it was not modified." }
 }
+function Get-CanonicalStatePath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    try {
+        return [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($Path))
+    }
+    catch {
+        throw "StatePath '$Path' is not a valid local path: $($_.Exception.Message)"
+    }
+}
+
+function Assert-SafeStatePath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $fullRoot = (Get-CanonicalStatePath $stateRoot).TrimEnd('\')
+    $sonAeroRoot = Split-Path -Parent $fullRoot
+    $commonApplicationData = (Get-CanonicalStatePath `
+        ([Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData))).TrimEnd('\')
+    if ((Split-Path -Parent $sonAeroRoot) -ine $commonApplicationData -or
+        (Split-Path -Leaf $sonAeroRoot) -ine 'SonAero' -or
+        (Split-Path -Leaf $fullRoot) -ine 'deployment-state') {
+        throw "Protected state root '$fullRoot' must be the SonAero\deployment-state directory directly under '$commonApplicationData'."
+    }
+    $fullPath = Get-CanonicalStatePath $Path
+    if ((Split-Path -Parent $fullPath) -ine $fullRoot -or
+        [IO.Path]::GetExtension($fullPath) -ine '.json') {
+        throw "StatePath must be a JSON file directly under '$fullRoot'."
+    }
+    return $fullPath
+}
+
+function Assert-NoReparsePointInStatePathChain {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $fullPath = Get-CanonicalStatePath $Path
+    $paths = @()
+    $current = $fullPath
+    while (-not [string]::IsNullOrWhiteSpace($current)) {
+        $paths += $current
+        $parent = Split-Path -Parent $current
+        if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $current) { break }
+        $current = $parent
+    }
+    for ($index = $paths.Count - 1; $index -ge 0; $index--) {
+        $candidate = $paths[$index]
+        try {
+            $attributes = [IO.File]::GetAttributes($candidate)
+        }
+        catch [IO.FileNotFoundException] { continue }
+        catch [IO.DirectoryNotFoundException] { continue }
+        catch {
+            throw "Could not inspect protected pilot state path ancestor '$candidate': $($_.Exception.Message)"
+        }
+        if (($attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Protected pilot state path ancestor '$candidate' must not be a reparse point."
+        }
+    }
+}
+
+function New-ProtectedFileSystemSecurity {
+    param([switch]$Directory)
+    $security = if ($Directory) { New-Object Security.AccessControl.DirectorySecurity }
+        else { New-Object Security.AccessControl.FileSecurity }
+    $security.SetAccessRuleProtection($true, $false)
+    $administrators = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
+    $system = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
+    $security.SetOwner($administrators)
+    $inheritance = if ($Directory) {
+        [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
+    }
+    else { [Security.AccessControl.InheritanceFlags]::None }
+    foreach ($identity in @($system, $administrators)) {
+        $rule = New-Object Security.AccessControl.FileSystemAccessRule(
+            $identity,
+            [Security.AccessControl.FileSystemRights]::FullControl,
+            $inheritance,
+            [Security.AccessControl.PropagationFlags]::None,
+            [Security.AccessControl.AccessControlType]::Allow
+        )
+        [void]$security.AddAccessRule($rule)
+    }
+    return $security
+}
+
+function Assert-ProtectedStatePath {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [switch]$Directory
+    )
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Protected pilot state path '$Path' must not be a reparse point."
+    }
+    if ($Directory -and -not $item.PSIsContainer) {
+        throw "Protected pilot state directory '$Path' is not a directory."
+    }
+    if (-not $Directory -and $item.PSIsContainer) {
+        throw "Protected pilot state file '$Path' is not a file."
+    }
+    $acl = Get-Acl -LiteralPath $Path
+    if (-not $acl.AreAccessRulesProtected) {
+        throw "Protected pilot state path '$Path' still inherits access rules."
+    }
+    $allowedSids = @('S-1-5-18', 'S-1-5-32-544')
+    $owner = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+    if ($owner -notin $allowedSids) {
+        throw "Protected pilot state path '$Path' has unexpected owner '$owner'."
+    }
+    $rules = @($acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
+    if ($rules.Count -ne 2) {
+        throw "Protected pilot state path '$Path' must contain exactly two access rules."
+    }
+    $fullControlSids = @()
+    foreach ($rule in $rules) {
+        $sid = $rule.IdentityReference.Value
+        if ($sid -notin $allowedSids -or
+            $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) {
+            throw "Protected pilot state path '$Path' grants access to unexpected identity '$sid'."
+        }
+        if (($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::FullControl) -eq
+            [Security.AccessControl.FileSystemRights]::FullControl) {
+            $fullControlSids += $sid
+        }
+    }
+    foreach ($sid in $allowedSids) {
+        if ($fullControlSids -notcontains $sid) {
+            throw "Protected pilot state path '$Path' does not grant full control to '$sid'."
+        }
+    }
+}
+
+function Assert-PilotStateProtection {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    Assert-ProtectedStatePath -Path (Split-Path -Parent $Path) -Directory
+    Assert-ProtectedStatePath -Path $Path
+}
+
+function Test-ProtectedStateExists {
+    Assert-NoReparsePointInStatePathChain -Path $StatePath
+    $directory = Split-Path -Parent $StatePath
+    if (Get-Item -LiteralPath $directory -Force -ErrorAction SilentlyContinue) {
+        Assert-ProtectedStatePath -Path $directory -Directory
+    }
+    if (-not (Get-Item -LiteralPath $StatePath -Force -ErrorAction SilentlyContinue)) { return $false }
+    Assert-PilotStateProtection -Path $StatePath
+    return $true
+}
+
+function Read-State {
+    param(
+        [Parameter(Mandatory = $true)][string]$MissingMessage,
+        [Parameter(Mandatory = $true)][string]$InvalidJsonLabel
+    )
+    Assert-NoReparsePointInStatePathChain -Path $StatePath
+    if (-not (Test-ProtectedStateExists)) { throw $MissingMessage }
+    # Repeat the check immediately before reading so retained JSON is never trusted first.
+    Assert-NoReparsePointInStatePathChain -Path $StatePath
+    Assert-PilotStateProtection -Path $StatePath
+    try { return Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json }
+    catch { throw "$InvalidJsonLabel at '$StatePath' is not valid JSON: $($_.Exception.Message)" }
+}
+
+function Initialize-ProtectedStateDirectory {
+    Assert-NoReparsePointInStatePathChain -Path $StatePath
+    $directory = Split-Path -Parent $StatePath
+    if (Get-Item -LiteralPath $directory -Force -ErrorAction SilentlyContinue) {
+        Assert-ProtectedStatePath -Path $directory -Directory
+        return
+    }
+    $security = New-ProtectedFileSystemSecurity -Directory
+    [void][IO.Directory]::CreateDirectory($directory, $security)
+    Assert-NoReparsePointInStatePathChain -Path $StatePath
+    Assert-ProtectedStatePath -Path $directory -Directory
+}
+
 function Write-State {
     param([Parameter(Mandatory = $true)]$State)
+    Initialize-ProtectedStateDirectory
+    Assert-NoReparsePointInStatePathChain -Path $StatePath
+    if (Get-Item -LiteralPath $StatePath -Force -ErrorAction SilentlyContinue) {
+        Assert-PilotStateProtection -Path $StatePath
+    }
     $directory = Split-Path -Parent $StatePath
-    if (-not (Test-Path -LiteralPath $directory)) { New-Item -ItemType Directory -Force -Path $directory | Out-Null }
-    $temporary = "$StatePath.tmp"
-    $State | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $temporary -Encoding UTF8
-    Move-Item -LiteralPath $temporary -Destination $StatePath -Force
+    $temporary = Join-Path $directory ((Split-Path -Leaf $StatePath) + '.' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        Assert-NoReparsePointInStatePathChain -Path $temporary
+        $json = ($State | ConvertTo-Json -Depth 12) + [Environment]::NewLine
+        $bytes = (New-Object Text.UTF8Encoding($false)).GetBytes($json)
+        $stream = [IO.File]::Open(
+            $temporary,
+            [IO.FileMode]::CreateNew,
+            [IO.FileAccess]::Write,
+            [IO.FileShare]::None
+        )
+        try {
+            $stream.Write($bytes, 0, $bytes.Length)
+            $stream.Flush($true)
+        }
+        finally { $stream.Dispose() }
+        Assert-NoReparsePointInStatePathChain -Path $temporary
+        $temporaryItem = Get-Item -LiteralPath $temporary -Force -ErrorAction Stop
+        if ($temporaryItem.PSIsContainer -or
+            ($temporaryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Temporary pilot state path '$temporary' must be a regular file, not a directory or reparse point."
+        }
+        Set-Acl -LiteralPath $temporary -AclObject (New-ProtectedFileSystemSecurity)
+        Assert-ProtectedStatePath -Path $temporary
+        if (Get-Item -LiteralPath $StatePath -Force -ErrorAction SilentlyContinue) {
+            Assert-NoReparsePointInStatePathChain -Path $StatePath
+            Assert-PilotStateProtection -Path $StatePath
+            [IO.File]::Replace($temporary, $StatePath, $null)
+        }
+        else {
+            Move-Item -LiteralPath $temporary -Destination $StatePath
+        }
+        Assert-PilotStateProtection -Path $StatePath
+    }
+    finally {
+        $temporaryItem = Get-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+        if ($temporaryItem -and -not $temporaryItem.PSIsContainer -and
+            ($temporaryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) {
+            Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Get-ComparableTargetBindings {
@@ -408,6 +645,273 @@ function Assert-StateProperties {
             throw "Rollback state property '$name' is null."
         }
     }
+}
+
+function Assert-ExactPropertySet {
+    param(
+        [Parameter(Mandatory = $true)]$Value,
+        [Parameter(Mandatory = $true)][string[]]$Names,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    if ($Value -isnot [pscustomobject]) { throw "$Label must be one JSON object." }
+    $actual = @($Value.PSObject.Properties.Name | Sort-Object -CaseSensitive)
+    $expected = @($Names | Sort-Object -CaseSensitive)
+    if ($actual.Count -ne $expected.Count -or ($actual -join "`n") -cne ($expected -join "`n")) {
+        throw "$Label has an unexpected or missing property; legacy migration accepts only the exact v1 schema."
+    }
+}
+
+function ConvertFrom-StrictUtcTimestamp {
+    param([Parameter(Mandatory = $true)][string]$Value, [Parameter(Mandatory = $true)][string]$Name)
+    $parsed = [DateTimeOffset]::MinValue
+    $valid = [DateTimeOffset]::TryParseExact(
+        $Value,
+        'o',
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::RoundtripKind,
+        [ref]$parsed
+    )
+    if (-not $valid -or $parsed.Offset -ne [TimeSpan]::Zero) {
+        throw "Legacy pilot state '$Name' must be an exact UTC round-trip timestamp."
+    }
+    return $parsed
+}
+
+function Assert-BindingSnapshotShape {
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]]$Bindings,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    $properties = @('Site', 'Protocol', 'BindingInformation', 'CertificateHash', 'CertificateStoreName', 'SslFlags')
+    foreach ($binding in @($Bindings)) {
+        Assert-ExactPropertySet -Value $binding -Names $properties -Label $Label
+        if ($binding.Site -isnot [string] -or $binding.Protocol -isnot [string] -or
+            $binding.BindingInformation -isnot [string] -or $binding.CertificateHash -isnot [string] -or
+            $binding.CertificateStoreName -isnot [string] -or $binding.SslFlags -isnot [int]) {
+            throw "$Label contains a binding with an invalid v1 property type."
+        }
+    }
+}
+
+function New-ExpectedPilotBindingSnapshot {
+    param([Parameter(Mandatory = $true)][string]$Thumbprint)
+    return @($applications | ForEach-Object {
+        [pscustomobject]@{
+            Site = $_.Site
+            Protocol = 'https'
+            BindingInformation = "*:$($_.HttpsPort):"
+            CertificateHash = $Thumbprint
+            CertificateStoreName = $certificateStoreName
+            SslFlags = 0
+        }
+    })
+}
+
+function Assert-StrictLegacyPilotState {
+    param([Parameter(Mandatory = $true)]$State)
+    $stateProperties = @(
+        'Version', 'ComputerName', 'Status', 'PreparedAtUtc', 'CertificateThumbprint',
+        'PilotRootThumbprint', 'PilotRemoteAddress', 'AllBindingsBefore', 'PriorTargetBindings',
+        'FirewallBefore', 'FirewallRuleAdded', 'AppliedTargetBindings', 'AppliedAtUtc',
+        'RolledBackAtUtc', 'ApplyFailure', 'ApplyFailedAtUtc', 'RollbackFailure', 'RollbackFailedAtUtc'
+    )
+    Assert-ExactPropertySet -Value $State -Names $stateProperties -Label 'Legacy pilot state'
+    if ($State.Version -isnot [int] -or $State.Version -ne 1 -or
+        $State.ComputerName -isnot [string] -or [string]$State.ComputerName -cne $expectedComputerName -or
+        $State.Status -isnot [string] -or [string]$State.Status -cne 'Applied') {
+        throw 'Legacy migration requires exact v1 SON-IIS2 state with status Applied.'
+    }
+    $thumbprint = [string]$State.CertificateThumbprint
+    $rootThumbprint = [string]$State.PilotRootThumbprint
+    if ($State.CertificateThumbprint -isnot [string] -or $thumbprint -cnotmatch '^[A-F0-9]{40}$' -or
+        $State.PilotRootThumbprint -isnot [string] -or $rootThumbprint -cnotmatch '^[A-F0-9]{40}$' -or
+        $thumbprint -ceq $rootThumbprint) {
+        throw 'Legacy pilot state leaf/root thumbprints must be distinct uppercase SHA-1 hex strings.'
+    }
+    if ($State.PilotRemoteAddress -isnot [object[]]) {
+        throw 'Legacy pilot state PilotRemoteAddress must be a JSON array.'
+    }
+    $rawRemoteAddresses = @($State.PilotRemoteAddress)
+    if ($rawRemoteAddresses.Count -eq 0 -or @($rawRemoteAddresses | Where-Object { $_ -isnot [string] }).Count -gt 0) {
+        throw 'Legacy pilot state contains no valid pilot remote-address strings.'
+    }
+    $remoteAddresses = @(Convert-ToPilotAddress -Address @($rawRemoteAddresses))
+    if ($remoteAddresses.Count -ne $rawRemoteAddresses.Count -or
+        ($remoteAddresses -join "`n") -cne (@($rawRemoteAddresses) -join "`n")) {
+        throw 'Legacy pilot state remote addresses are not the exact sorted, unique, constrained v1 values.'
+    }
+    if ($State.PriorTargetBindings -isnot [object[]] -or @($State.PriorTargetBindings).Count -ne 0) {
+        throw 'Legacy migration requires an empty recorded pre-pilot 61xx binding baseline.'
+    }
+    if ($State.AllBindingsBefore -isnot [object[]] -or $State.AppliedTargetBindings -isnot [object[]]) {
+        throw 'Legacy pilot state binding snapshots must be JSON arrays.'
+    }
+    $before = @($State.AllBindingsBefore)
+    $applied = @($State.AppliedTargetBindings)
+    Assert-BindingSnapshotShape -Bindings $before -Label 'Legacy AllBindingsBefore'
+    Assert-BindingSnapshotShape -Bindings $applied -Label 'Legacy AppliedTargetBindings'
+    Assert-RequiredHttpBindings -Snapshot $before
+    if (@(Get-TargetBindingSnapshot -Snapshot $before).Count -ne 0) {
+        throw 'Legacy AllBindingsBefore must record no preexisting pilot-port bindings.'
+    }
+    if ($applied.Count -ne $applications.Count) {
+        throw 'Legacy AppliedTargetBindings must contain exactly five pilot HTTPS bindings.'
+    }
+    Assert-PriorTargetBindings -Bindings $applied -Thumbprint $thumbprint
+    $expectedBindings = @(New-ExpectedPilotBindingSnapshot -Thumbprint $thumbprint)
+    if ((Get-ComparableTargetBindings $applied) -cne (Get-ComparableTargetBindings $expectedBindings)) {
+        throw 'Legacy AppliedTargetBindings do not equal the exact five expected pilot bindings.'
+    }
+    Assert-ExactPropertySet -Value $State.FirewallBefore -Names @('Existed') -Label 'Legacy FirewallBefore'
+    if ($State.FirewallBefore.Existed -isnot [bool] -or $State.FirewallBefore.Existed -ne $false -or
+        $State.FirewallRuleAdded -isnot [bool] -or $State.FirewallRuleAdded -ne $true) {
+        throw 'Legacy migration requires a transaction-created firewall rule and a recorded absent firewall baseline.'
+    }
+    $preparedAt = ConvertFrom-StrictUtcTimestamp -Value ([string]$State.PreparedAtUtc) -Name 'PreparedAtUtc'
+    $appliedAt = ConvertFrom-StrictUtcTimestamp -Value ([string]$State.AppliedAtUtc) -Name 'AppliedAtUtc'
+    if ($preparedAt -gt $appliedAt -or $appliedAt -gt [DateTimeOffset]::UtcNow.AddMinutes(5)) {
+        throw 'Legacy pilot state timestamps are out of order or in the future.'
+    }
+    foreach ($name in @('RolledBackAtUtc', 'ApplyFailure', 'ApplyFailedAtUtc', 'RollbackFailure', 'RollbackFailedAtUtc')) {
+        if ($null -ne $State.$name) { throw "Legacy Applied state property '$name' must be null." }
+    }
+    return [pscustomobject]@{
+        State = $State
+        Thumbprint = $thumbprint
+        RootThumbprint = $rootThumbprint
+        RemoteAddresses = $remoteAddresses
+        ExpectedBindings = $expectedBindings
+    }
+}
+
+function Initialize-LegacyStateNativeMethods {
+    if ('SonAero.PilotStateNativeMethods' -as [type]) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+namespace SonAero {
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ByHandleFileInformation {
+        public uint FileAttributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+    public static class PilotStateNativeMethods {
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GetFileInformationByHandle(
+            SafeFileHandle handle, out ByHandleFileInformation information);
+        public static uint GetLinkCount(SafeFileHandle handle) {
+            ByHandleFileInformation information;
+            if (!GetFileInformationByHandle(handle, out information)) {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            return information.NumberOfLinks;
+        }
+    }
+}
+'@ -ErrorAction Stop
+}
+
+function Get-Sha256Hex {
+    param([Parameter(Mandatory = $true)][byte[]]$Bytes)
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($sha256.ComputeHash($Bytes))).Replace('-', '') }
+    finally { $sha256.Dispose() }
+}
+
+function Open-LegacyPilotStateForMigration {
+    Assert-NoReparsePointInStatePathChain -Path $StatePath
+    $directory = Split-Path -Parent $StatePath
+    $directoryItem = Get-Item -LiteralPath $directory -Force -ErrorAction Stop
+    $fileItem = Get-Item -LiteralPath $StatePath -Force -ErrorAction Stop
+    if (-not $directoryItem.PSIsContainer -or $fileItem.PSIsContainer -or
+        ($directoryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        ($fileItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'Legacy pilot state must be one regular file in a regular deployment-state directory.'
+    }
+    if ($fileItem.Length -le 0 -or $fileItem.Length -gt 1MB) {
+        throw 'Legacy pilot state must be nonempty and no larger than 1 MiB.'
+    }
+    Initialize-LegacyStateNativeMethods
+    Assert-NoReparsePointInStatePathChain -Path $StatePath
+    $rights = [Security.AccessControl.FileSystemRights]::ReadData -bor
+        [Security.AccessControl.FileSystemRights]::ReadAttributes -bor
+        [Security.AccessControl.FileSystemRights]::ReadPermissions -bor
+        [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+        [Security.AccessControl.FileSystemRights]::TakeOwnership
+    $stream = [IO.FileStream]::new(
+        $StatePath, [IO.FileMode]::Open, $rights, [IO.FileShare]::None, 4096, [IO.FileOptions]::SequentialScan)
+    try {
+        if ([SonAero.PilotStateNativeMethods]::GetLinkCount($stream.SafeFileHandle) -ne 1) {
+            throw 'Legacy pilot state must have exactly one filesystem link.'
+        }
+        if ($stream.Length -le 0 -or $stream.Length -gt 1MB -or $stream.Length -ne $fileItem.Length) {
+            throw 'Legacy pilot state size changed or is outside the 1 MiB migration bound.'
+        }
+        [byte[]]$bytes = New-Object byte[] ([int]$stream.Length)
+        $offset = 0
+        while ($offset -lt $bytes.Length) {
+            $read = $stream.Read($bytes, $offset, $bytes.Length - $offset)
+            if ($read -le 0) { throw 'Legacy pilot state ended before its recorded file length.' }
+            $offset += $read
+        }
+        $textOffset = 0
+        if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+            $textOffset = 3
+        }
+        elseif ($bytes.Length -ge 2 -and
+            (($bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) -or ($bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF))) {
+            throw 'Legacy pilot state must be UTF-8, not UTF-16.'
+        }
+        $utf8 = New-Object Text.UTF8Encoding($false, $true)
+        try { $json = $utf8.GetString($bytes, $textOffset, $bytes.Length - $textOffset) }
+        catch { throw "Legacy pilot state is not strict UTF-8: $($_.Exception.Message)" }
+        try { $state = $json | ConvertFrom-Json -ErrorAction Stop }
+        catch { throw "Legacy pilot state is not valid JSON: $($_.Exception.Message)" }
+        $stream.Position = 0
+        return [pscustomobject]@{
+            Stream = $stream
+            Bytes = $bytes
+            Sha256 = Get-Sha256Hex -Bytes $bytes
+            Validated = Assert-StrictLegacyPilotState -State $state
+        }
+    }
+    catch {
+        $stream.Dispose()
+        throw
+    }
+}
+
+function Assert-LegacyPilotLiveState {
+    param([Parameter(Mandatory = $true)]$Validated)
+    $null = Assert-Certificate -Thumbprint $Validated.Thumbprint -RootThumbprint $Validated.RootThumbprint
+    $liveIis = @(Get-IisBindingSnapshot)
+    Assert-RequiredHttpBindings -Snapshot $liveIis
+    Assert-TargetBindingsAvailable -Snapshot $liveIis -Thumbprint $Validated.Thumbprint
+    $liveTarget = @(Get-TargetBindingSnapshot -Snapshot $liveIis)
+    if ($liveTarget.Count -ne $applications.Count -or
+        (Get-ComparableTargetBindings $liveTarget) -cne (Get-ComparableTargetBindings $Validated.ExpectedBindings)) {
+        throw 'Live pilot bindings do not equal the exact five bindings recorded in validated legacy state.'
+    }
+    $liveFirewall = Get-FirewallSnapshot
+    if (-not $liveFirewall.Existed) { throw "Required live firewall rule '$firewallRuleName' was not found." }
+    Assert-FirewallAvailable -Snapshot $liveFirewall -RemoteAddress @($Validated.RemoteAddresses)
+    Wait-Health -Scheme https -Ports @($applications.HttpsPort)
+    Wait-Health -Scheme http -Ports @($applications.HttpPort)
+}
+
+function Test-PilotStateProtectionCurrent {
+    try { Assert-PilotStateProtection -Path $StatePath; return $true }
+    catch { return $false }
 }
 
 function Try-WriteState {
@@ -555,15 +1059,86 @@ function Invoke-AutomaticRollback {
 }
 
 if (-not [IO.Path]::IsPathRooted($StatePath)) { throw 'StatePath must be an absolute local path.' }
-$StatePath = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($StatePath))
+$StatePath = Assert-SafeStatePath $StatePath
+if ($MigrateLegacyStateProtection -and $StatePath -ine (Get-CanonicalStatePath $legacyStatePath)) {
+    throw "Legacy migration is restricted to the exact deployed state path '$legacyStatePath'."
+}
 Assert-Host
-if (-not $WhatIfPreference) { Assert-Administrator }
+if ($MigrateLegacyStateProtection -or -not $WhatIfPreference) { Assert-Administrator }
 Import-IisAdministration
+$transactionMutex = Enter-HubHttpsBindingTransactionLock
+
+try {
+if ($MigrateLegacyStateProtection) {
+    $openedState = $null
+    $originalHash = $null
+    $alreadyProtected = $false
+    try {
+        # This is the only code path allowed to parse an unprotected state file. It is bounded to
+        # the exact deployed v1 path and never supplies rollback authority until live corroboration.
+        $openedState = Open-LegacyPilotStateForMigration
+        $originalHash = $openedState.Sha256
+        Assert-LegacyPilotLiveState -Validated $openedState.Validated
+        $alreadyProtected = Test-PilotStateProtectionCurrent
+        if ($alreadyProtected) {
+            Write-Output 'HTTPS_PILOT_STATE_PROTECTION_ALREADY_CURRENT'
+            exit 0
+        }
+        if (-not $PSCmdlet.ShouldProcess(
+            $legacyStatePath,
+            'Protect the validated legacy state file and directory with SYSTEM/Administrators-only ACLs')) {
+            if ($WhatIfPreference) {
+                Write-Output 'WHATIF_READY_HTTPS_PILOT_STATE_PROTECTION_MIGRATION'
+            }
+            else { Write-Output 'HTTPS_PILOT_STATE_PROTECTION_MIGRATION_CANCELLED' }
+            exit 0
+        }
+        # Revalidate both immutable content and external authority immediately before the ACL-only change.
+        $openedState.Stream.Position = 0
+        [byte[]]$currentBytes = New-Object byte[] ([int]$openedState.Stream.Length)
+        $currentOffset = 0
+        while ($currentOffset -lt $currentBytes.Length) {
+            $currentRead = $openedState.Stream.Read(
+                $currentBytes, $currentOffset, $currentBytes.Length - $currentOffset)
+            if ($currentRead -le 0) { throw 'Legacy pilot state changed length during migration.' }
+            $currentOffset += $currentRead
+        }
+        if ((Get-Sha256Hex -Bytes $currentBytes) -cne $originalHash) {
+            throw 'Legacy pilot state content changed during migration; no ACL was changed.'
+        }
+        Assert-NoReparsePointInStatePathChain -Path $StatePath
+        Assert-LegacyPilotLiveState -Validated $openedState.Validated
+        if ([SonAero.PilotStateNativeMethods]::GetLinkCount($openedState.Stream.SafeFileHandle) -ne 1) {
+            throw 'Legacy pilot state link count changed during migration; no ACL was changed.'
+        }
+        # Protect the already-open file object first. FileShare.None keeps it from being replaced
+        # while the containing directory is subsequently protected.
+        $openedState.Stream.SetAccessControl((New-ProtectedFileSystemSecurity))
+        Assert-NoReparsePointInStatePathChain -Path $StatePath
+        Set-Acl -LiteralPath (Split-Path -Parent $StatePath) `
+            -AclObject (New-ProtectedFileSystemSecurity -Directory)
+        Assert-NoReparsePointInStatePathChain -Path $StatePath
+        Assert-ProtectedStatePath -Path (Split-Path -Parent $StatePath) -Directory
+    }
+    finally {
+        if ($openedState -and $openedState.Stream) { $openedState.Stream.Dispose() }
+    }
+    Assert-NoReparsePointInStatePathChain -Path $StatePath
+    Assert-PilotStateProtection -Path $StatePath
+    if ((Get-FileHash -LiteralPath $StatePath -Algorithm SHA256).Hash -cne $originalHash) {
+        throw 'Legacy pilot state content changed while its protection was migrated.'
+    }
+    $protectedState = Read-State -MissingMessage "Migrated state disappeared from '$StatePath'." `
+        -InvalidJsonLabel 'Migrated state'
+    $validatedProtectedState = Assert-StrictLegacyPilotState -State $protectedState
+    Assert-LegacyPilotLiveState -Validated $validatedProtectedState
+    Write-Output 'HTTPS_PILOT_STATE_PROTECTION_MIGRATED'
+    exit 0
+}
 
 if ($Rollback) {
-    if (-not (Test-Path -LiteralPath $StatePath -PathType Leaf)) { throw "Rollback state was not found at '$StatePath'." }
-    try { $state = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json }
-    catch { throw "Rollback state at '$StatePath' is not valid JSON: $($_.Exception.Message)" }
+    $state = Read-State -MissingMessage "Rollback state was not found at '$StatePath'." `
+        -InvalidJsonLabel 'Rollback state'
     Assert-StateProperties -State $state -Names @(
         'Version', 'ComputerName', 'Status', 'CertificateThumbprint', 'PilotRemoteAddress',
         'PriorTargetBindings', 'FirewallRuleAdded'
@@ -668,9 +1243,9 @@ if ($Rollback) {
     exit 0
 }
 
-if (Test-Path -LiteralPath $StatePath -PathType Leaf) {
-    try { $oldState = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json }
-    catch { throw "Existing transaction state at '$StatePath' is not valid JSON: $($_.Exception.Message)" }
+if (Test-ProtectedStateExists) {
+    $oldState = Read-State -MissingMessage "Existing transaction state was not found at '$StatePath'." `
+        -InvalidJsonLabel 'Existing transaction state'
     Assert-StateProperties -State $oldState -Names @(
         'Version', 'ComputerName', 'Status', 'CertificateThumbprint', 'PilotRemoteAddress',
         'PriorTargetBindings', 'FirewallRuleAdded'
@@ -764,4 +1339,9 @@ catch {
     $failure = $_.Exception.Message
     Invoke-AutomaticRollback -State $state -OriginalFailure $failure
     throw "HTTPS pilot transaction failed and was automatically rolled back. Original apply failure: $failure"
+}
+}
+finally {
+    try { $transactionMutex.ReleaseMutex() }
+    finally { $transactionMutex.Dispose() }
 }

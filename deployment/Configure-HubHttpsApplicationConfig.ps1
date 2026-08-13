@@ -1,12 +1,18 @@
 <#
     Atomic production configuration transaction for HTTPS module URLs and dual Hub CORS.
 
-    Preview:
-      .\Configure-HubHttpsApplicationConfig.ps1 -WhatIf
+    Preview permanent production topology:
+      .\Configure-HubHttpsApplicationConfig.ps1 -Topology Production -WhatIf
     Apply:
-      .\Configure-HubHttpsApplicationConfig.ps1 -Confirm:$false
+      .\Configure-HubHttpsApplicationConfig.ps1 -Topology Production -Confirm:$false
     Roll back the last successful apply:
-      .\Configure-HubHttpsApplicationConfig.ps1 -Rollback -Confirm:$false
+      .\Configure-HubHttpsApplicationConfig.ps1 -Topology Production -Rollback -Confirm:$false
+
+    Production and Pilot use separate transaction-state files. The production transaction captures
+    the currently active retained configuration as its own rollback baseline; it does not trust or
+    overwrite a state file written by an older Pilot script.
+
+    The retained two-person pilot must always pass -Topology Pilot explicitly.
 
     The active IIS production files are backed up with restricted ACLs. Both files are restored
     automatically if replacement, targeted pool restart, CORS, dual-scheme, or gateway health fails.
@@ -19,31 +25,81 @@ param(
     [ValidateRange(30, 600)]
     [int]$HealthTimeoutSeconds = 180,
 
-    [string]$StatePath = 'C:\ProgramData\SonAero\deployment-state\https-application-config.json'
+    [ValidateSet('Production', 'Pilot')]
+    [string]$Topology = 'Production',
+
+    [string]$StatePath = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $expectedComputerName = 'SON-IIS2'
 $stateRoot = 'C:\ProgramData\SonAero\deployment-state'
 $backupBaseRoot = Join-Path $stateRoot 'https-config-backups'
+$pilotStatePath = Join-Path $stateRoot 'https-application-config.json'
+$productionStatePath = Join-Path $stateRoot 'https-production-application-config.json'
 $portalSiteName = 'SonAeroPortal'
 $trackerSiteName = 'ProjectTracker'
 $gatewayPath = '/project-tracker-api'
 $poolNames = @('ProjectTracker', 'SonAeroPortal', 'ProjectTrackerAdminGateway')
 $applications = @(
-    [pscustomobject]@{ Id = 'project-tracker'; Site = 'ProjectTracker'; HttpPort = 5135; HttpsPort = 6135 },
-    [pscustomobject]@{ Id = 'portal'; Site = 'SonAeroPortal'; HttpPort = 5140; HttpsPort = 6140 },
-    [pscustomobject]@{ Id = 'engineering-hub'; Site = 'EngineeringHub'; HttpPort = 5150; HttpsPort = 6150 },
-    [pscustomobject]@{ Id = 'estimating-dashboard'; Site = 'EstimatingDashboard'; HttpPort = 5160; HttpsPort = 6160 },
-    [pscustomobject]@{ Id = 'quality-assurance'; Site = 'QualityAssurance'; HttpPort = 5170; HttpsPort = 6170 }
+    [pscustomobject]@{ Id = 'project-tracker'; Site = 'ProjectTracker'; HttpPort = 5135; HttpsPort = 6135; ProductionHost = 'projects.hub.son4l.local' },
+    [pscustomobject]@{ Id = 'portal'; Site = 'SonAeroPortal'; HttpPort = 5140; HttpsPort = 6140; ProductionHost = 'hub.son4l.local' },
+    [pscustomobject]@{ Id = 'engineering-hub'; Site = 'EngineeringHub'; HttpPort = 5150; HttpsPort = 6150; ProductionHost = 'engineering.hub.son4l.local' },
+    [pscustomobject]@{ Id = 'estimating-dashboard'; Site = 'EstimatingDashboard'; HttpPort = 5160; HttpsPort = 6160; ProductionHost = 'estimating.hub.son4l.local' },
+    [pscustomobject]@{ Id = 'quality-assurance'; Site = 'QualityAssurance'; HttpPort = 5170; HttpsPort = 6170; ProductionHost = 'quality.hub.son4l.local' }
 )
-$moduleUrls = @{
+$pilotModuleUrls = @{
     'project-tracker' = 'https://SON-IIS2:6135'
     'engineering-hub' = 'https://SON-IIS2:6150'
     'estimating-dashboard' = 'https://SON-IIS2:6160'
     'quality-assurance' = 'https://SON-IIS2:6170'
 }
-$hubOrigins = @('https://SON-IIS2:6140', 'http://SON-IIS2:5140')
+$productionModuleUrls = @{
+    'project-tracker' = 'https://projects.hub.son4l.local'
+    'engineering-hub' = 'https://engineering.hub.son4l.local'
+    'estimating-dashboard' = 'https://estimating.hub.son4l.local'
+    'quality-assurance' = 'https://quality.hub.son4l.local'
+}
+$pilotHubOrigins = @('https://SON-IIS2:6140', 'http://SON-IIS2:5140')
+$productionHubOrigins = @(
+    'https://hub.son4l.local',
+    'https://SON-IIS2:6140',
+    'http://SON-IIS2:5140'
+)
+
+function Resolve-TransactionStatePath {
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet('Production', 'Pilot')][string]$SelectedTopology,
+        [AllowEmptyString()][string]$SuppliedPath,
+        [Parameter(Mandatory = $true)][bool]$WasExplicit
+    )
+    if ($WasExplicit) {
+        if ([string]::IsNullOrWhiteSpace($SuppliedPath)) {
+            throw 'StatePath cannot be empty when it is supplied explicitly.'
+        }
+        return $SuppliedPath
+    }
+    if ($SelectedTopology -eq 'Production') { return $productionStatePath }
+    return $pilotStatePath
+}
+
+function Set-TopologyConfiguration {
+    param([Parameter(Mandatory = $true)][ValidateSet('Production', 'Pilot')][string]$Name)
+    $script:activeTopology = $Name
+    if ($Name -eq 'Production') {
+        $script:moduleUrls = $productionModuleUrls
+        $script:hubOrigins = $productionHubOrigins
+    }
+    else {
+        $script:moduleUrls = $pilotModuleUrls
+        $script:hubOrigins = $pilotHubOrigins
+    }
+}
+
+$Topology = if ($Topology -ieq 'Production') { 'Production' } else { 'Pilot' }
+Set-TopologyConfiguration -Name $Topology
+$StatePath = Resolve-TransactionStatePath -SelectedTopology $Topology `
+    -SuppliedPath $StatePath -WasExplicit ($PSBoundParameters.ContainsKey('StatePath'))
 
 function Assert-Host {
     if ($env:COMPUTERNAME -ine $expectedComputerName) {
@@ -76,6 +132,22 @@ function Import-IisAdministration {
 function Get-FullPath {
     param([Parameter(Mandatory = $true)][string]$Path)
     return [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($Path)).TrimEnd('\')
+}
+
+function Assert-NoReparsePathChain {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $current = Get-FullPath $Path
+    while (-not [string]::IsNullOrWhiteSpace($current)) {
+        if (Test-Path -LiteralPath $current) {
+            $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "State path '$Path' traverses reparse point '$current'."
+            }
+        }
+        $parent = Split-Path -Parent $current
+        if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $current) { break }
+        $current = $parent
+    }
 }
 
 function Get-ActiveSitePath {
@@ -145,9 +217,16 @@ function Assert-SafeStatePath {
     param([Parameter(Mandatory = $true)][string]$Path)
     $fullRoot = Get-FullPath $stateRoot
     $fullPath = Get-FullPath $Path
+    $commonApplicationData = Get-FullPath ([Environment]::GetFolderPath(
+        [Environment+SpecialFolder]::CommonApplicationData))
+    $configuredCommonApplicationData = Split-Path -Parent (Split-Path -Parent $fullRoot)
+    if ($configuredCommonApplicationData -ine $commonApplicationData) {
+        throw "Configured deployment-state root '$fullRoot' is not under canonical CommonApplicationData '$commonApplicationData'."
+    }
     if ((Split-Path -Parent $fullPath) -ine $fullRoot -or [IO.Path]::GetExtension($fullPath) -ine '.json') {
         throw "StatePath must be a JSON file directly under '$fullRoot'."
     }
+    Assert-NoReparsePathChain -Path $fullPath
     return $fullPath
 }
 
@@ -189,50 +268,135 @@ function Assert-TrackerShape {
 }
 
 function New-TransformedConfig {
-    param([Parameter(Mandatory = $true)]$PortalConfig, [Parameter(Mandatory = $true)]$TrackerConfig)
+    param(
+        [Parameter(Mandatory = $true)]$PortalConfig,
+        [Parameter(Mandatory = $true)]$TrackerConfig,
+        [hashtable]$TargetModuleUrls = $moduleUrls,
+        [string[]]$TargetHubOrigins = $hubOrigins
+    )
     Assert-PortalShape $PortalConfig
     Assert-TrackerShape $TrackerConfig
-    foreach ($id in $moduleUrls.Keys) {
+    foreach ($id in $TargetModuleUrls.Keys) {
         $entry = @($PortalConfig.Portal.Applications | Where-Object { $_.Id -eq $id })[0]
-        $entry.Url = $moduleUrls[$id]
+        $entry.Url = $TargetModuleUrls[$id]
     }
-    $TrackerConfig.Cors.HubOrigins = @($hubOrigins)
+    $TrackerConfig.Cors.HubOrigins = @($TargetHubOrigins)
     Assert-PortalShape $PortalConfig
     Assert-TrackerShape $TrackerConfig
-    foreach ($id in $moduleUrls.Keys) {
+    foreach ($id in $TargetModuleUrls.Keys) {
         $entry = @($PortalConfig.Portal.Applications | Where-Object { $_.Id -eq $id })[0]
-        if ($entry.Url -ne $moduleUrls[$id]) { throw "Portal URL transform failed for '$id'." }
+        if ($entry.Url -ne $TargetModuleUrls[$id]) { throw "Portal URL transform failed for '$id'." }
     }
-    if ((@($TrackerConfig.Cors.HubOrigins) -join '|') -ne ($hubOrigins -join '|')) {
-        throw 'Project Tracker dual CORS transform failed or HTTPS is not first.'
+    if ((@($TrackerConfig.Cors.HubOrigins) -join '|') -ne ($TargetHubOrigins -join '|')) {
+        throw 'Project Tracker retained-origin CORS transform failed or permanent HTTPS is not first.'
     }
     return [pscustomobject]@{ Portal = $PortalConfig; Tracker = $TrackerConfig }
 }
 
-function New-SecureDirectory {
-    param([Parameter(Mandatory = $true)][string]$Path)
-    if (-not (Test-Path -LiteralPath $Path)) { New-Item -ItemType Directory -Force -Path $Path | Out-Null }
-    $security = New-Object Security.AccessControl.DirectorySecurity
+function New-ProtectedFileSystemSecurity {
+    param([switch]$Directory)
+    $security = if ($Directory) { New-Object Security.AccessControl.DirectorySecurity }
+        else { New-Object Security.AccessControl.FileSecurity }
     $security.SetAccessRuleProtection($true, $false)
-    $inheritance = [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
-    $propagation = [Security.AccessControl.PropagationFlags]::None
-    $allow = [Security.AccessControl.AccessControlType]::Allow
-    foreach ($identity in @('NT AUTHORITY\SYSTEM', 'BUILTIN\Administrators')) {
+    $administrators = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
+    $system = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
+    $security.SetOwner($administrators)
+    $inheritance = if ($Directory) { [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit' }
+        else { [Security.AccessControl.InheritanceFlags]::None }
+    foreach ($identity in @($system, $administrators)) {
         $rule = New-Object Security.AccessControl.FileSystemAccessRule(
-            $identity, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance, $propagation, $allow
-        )
+            $identity, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance,
+            [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow)
         $security.AddAccessRule($rule)
     }
+    return $security
+}
+
+function Assert-ProtectedPath {
+    param([Parameter(Mandatory = $true)][string]$Path, [switch]$Directory)
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Protected state path '$Path' must not be a reparse point." }
+    if ($Directory -and -not $item.PSIsContainer) { throw "Protected state directory '$Path' is not a directory." }
+    if (-not $Directory -and $item.PSIsContainer) { throw "Protected state file '$Path' is not a file." }
+    $acl = Get-Acl -LiteralPath $Path
+    if (-not $acl.AreAccessRulesProtected) { throw "Protected state path '$Path' still inherits access rules." }
+    $allowedSids = @('S-1-5-18', 'S-1-5-32-544')
+    $owner = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+    if ($owner -notin $allowedSids) { throw "Protected state path '$Path' has unexpected owner '$owner'." }
+    $rules = @($acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
+    if ($rules.Count -ne 2) { throw "Protected state path '$Path' must contain exactly two access rules." }
+    $fullControlSids = @()
+    foreach ($rule in $rules) {
+        $sid = $rule.IdentityReference.Value
+        if ($sid -notin $allowedSids -or $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) {
+            throw "Protected state path '$Path' grants access to unexpected identity '$sid'."
+        }
+        if (($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::FullControl) -eq
+            [Security.AccessControl.FileSystemRights]::FullControl) { $fullControlSids += $sid }
+    }
+    foreach ($sid in $allowedSids) {
+        if ($fullControlSids -notcontains $sid) { throw "Protected state path '$Path' does not grant full control to '$sid'." }
+    }
+}
+
+function New-SecureDirectory {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    Assert-NoReparsePathChain -Path $Path
+    $security = New-ProtectedFileSystemSecurity -Directory
+    if (-not (Test-Path -LiteralPath $Path)) { [void][IO.Directory]::CreateDirectory($Path, $security) }
+    Assert-NoReparsePathChain -Path $Path
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Protected directory '$Path' is missing, is not a directory, or is a reparse point."
+    }
     Set-Acl -LiteralPath $Path -AclObject $security
+    Assert-ProtectedPath -Path $Path -Directory
+}
+
+function Assert-StatePathProtection {
+    Assert-NoReparsePathChain -Path $StatePath
+    Assert-ProtectedPath -Path $stateRoot -Directory
+    Assert-ProtectedPath -Path $StatePath
+}
+
+function Read-SecureState {
+    if (-not (Test-Path -LiteralPath $StatePath -PathType Leaf)) { throw "Transaction state was not found at '$StatePath'." }
+    Assert-StatePathProtection
+    try { return Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json }
+    catch { throw "Transaction state at '$StatePath' is not valid JSON: $($_.Exception.Message)" }
 }
 
 function Write-SecureState {
     param([Parameter(Mandatory = $true)]$State)
     $directory = Split-Path -Parent $StatePath
+    Assert-NoReparsePathChain -Path $StatePath
     New-SecureDirectory $directory
-    $temporary = "$StatePath.tmp"
-    $State | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $temporary -Encoding UTF8
-    Move-Item -LiteralPath $temporary -Destination $StatePath -Force
+    if (Test-Path -LiteralPath $StatePath) { Assert-StatePathProtection }
+    $temporary = Join-Path $directory ((Split-Path -Leaf $StatePath) + '.' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        $json = ($State | ConvertTo-Json -Depth 12) + [Environment]::NewLine
+        $bytes = (New-Object Text.UTF8Encoding($false)).GetBytes($json)
+        $stream = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew,
+            [IO.FileAccess]::Write, [IO.FileShare]::None)
+        try {
+            $stream.Write($bytes, 0, $bytes.Length)
+            $stream.Flush($true)
+        }
+        finally { $stream.Dispose() }
+        Assert-NoReparsePathChain -Path $temporary
+        Set-Acl -LiteralPath $temporary -AclObject (New-ProtectedFileSystemSecurity)
+        Assert-ProtectedPath -Path $temporary
+        if (Test-Path -LiteralPath $StatePath) { [IO.File]::Replace($temporary, $StatePath, $null) }
+        else { Move-Item -LiteralPath $temporary -Destination $StatePath }
+        Assert-StatePathProtection
+    }
+    finally {
+        $temporaryItem = Get-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+        if ($temporaryItem -and -not $temporaryItem.PSIsContainer -and
+            ($temporaryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) {
+            Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Try-WriteSecureState {
@@ -261,9 +425,21 @@ function Assert-TransactionState {
         }
     }
     $version = [int]$State.Version
-    if ($version -notin @(1, 2) -or $State.ComputerName -ine $expectedComputerName) {
+    if ($version -notin @(1, 2, 3) -or $State.ComputerName -ine $expectedComputerName) {
         throw 'Transaction state identity or version does not match this script.'
     }
+    if ($State.PSObject.Properties.Name -notcontains 'Topology') {
+        if ($version -eq 3) { throw "Transaction state is missing required property 'Topology'." }
+        Set-StateProperty -State $State -Name 'Topology' -Value 'Pilot'
+    }
+    if ([string]$State.Topology -notin @('Production', 'Pilot')) {
+        throw "Transaction state has an invalid Topology value '$($State.Topology)'."
+    }
+    Set-StateProperty -State $State -Name 'Topology' -Value $(
+        if ([string]$State.Topology -ieq 'Production') { 'Production' } else { 'Pilot' }
+    )
+    $stateModuleUrls = if ([string]$State.Topology -eq 'Production') { $productionModuleUrls } else { $pilotModuleUrls }
+    $stateHubOrigins = if ([string]$State.Topology -eq 'Production') { $productionHubOrigins } else { $pilotHubOrigins }
     if ((Get-FullPath $State.PortalConfigPath) -ine (Get-FullPath $ExpectedPortalConfigPath) -or
         (Get-FullPath $State.TrackerConfigPath) -ine (Get-FullPath $ExpectedTrackerConfigPath)) {
         throw 'Transaction state active configuration paths do not match the current IIS sites.'
@@ -280,7 +456,11 @@ function Assert-TransactionState {
     if ($version -eq 1) {
         $portalOriginal = Read-JsonFile $State.PortalBackupPath
         $trackerOriginal = Read-JsonFile $State.TrackerBackupPath
-        $transformed = New-TransformedConfig -PortalConfig $portalOriginal -TrackerConfig $trackerOriginal
+        $transformed = New-TransformedConfig `
+            -PortalConfig $portalOriginal `
+            -TrackerConfig $trackerOriginal `
+            -TargetModuleUrls $stateModuleUrls `
+            -TargetHubOrigins $stateHubOrigins
         $portalPlannedSha256 = Get-BytesSha256 (Convert-ToUtf8JsonBytes $transformed.Portal)
         $trackerPlannedSha256 = Get-BytesSha256 (Convert-ToUtf8JsonBytes $transformed.Tracker)
         foreach ($pair in @(
@@ -294,10 +474,11 @@ function Assert-TransactionState {
         }
         Set-StateProperty -State $State -Name 'PortalPlannedSha256' -Value $portalPlannedSha256
         Set-StateProperty -State $State -Name 'TrackerPlannedSha256' -Value $trackerPlannedSha256
-        Set-StateProperty -State $State -Name 'Version' -Value 2
+        Set-StateProperty -State $State -Name 'Version' -Value 3
     }
     else {
         Assert-RequiredStateProperties -State $State -Names @('PortalPlannedSha256', 'TrackerPlannedSha256')
+        if ($version -eq 2) { Set-StateProperty -State $State -Name 'Version' -Value 3 }
     }
     foreach ($name in @('PortalPlannedSha256', 'TrackerPlannedSha256')) {
         if ([string]$State.$name -notmatch '^[A-Fa-f0-9]{64}$') { throw "Transaction state has an invalid $name value." }
@@ -312,6 +493,33 @@ function Assert-TransactionState {
         'RollbackStartedAtUtc', 'RollbackFailure', 'RollbackFailedAtUtc'
     )) {
         if ($State.PSObject.Properties.Name -notcontains $name) { Set-StateProperty -State $State -Name $name -Value $null }
+    }
+}
+
+function Enter-HttpsApplicationConfigTransactionLock {
+    $mutex = New-Object Threading.Mutex($false, 'Global\SonAero-HubHttpsApplicationConfig')
+    $acquired = $false
+    try {
+        try { $acquired = $mutex.WaitOne(0) }
+        catch [Threading.AbandonedMutexException] { $acquired = $true }
+        if (-not $acquired) {
+            throw 'Another Hub HTTPS application-configuration transaction is already running on SON-IIS2.'
+        }
+        return $mutex
+    }
+    catch {
+        if (-not $acquired) { $mutex.Dispose() }
+        throw
+    }
+}
+
+function Assert-RequestedStateTopology {
+    param(
+        [Parameter(Mandatory = $true)]$State,
+        [Parameter(Mandatory = $true)][ValidateSet('Production', 'Pilot')][string]$RequestedTopology
+    )
+    if ([string]$State.Topology -ine $RequestedTopology) {
+        throw "Transaction state topology '$($State.Topology)' does not match requested topology '$RequestedTopology'."
     }
 }
 
@@ -371,6 +579,15 @@ function Assert-RecoverableActiveConfiguration {
     if ($portalHash -notin @($State.PortalOriginalSha256, $State.PortalPlannedSha256) -or
         $trackerHash -notin @($State.TrackerOriginalSha256, $State.TrackerPlannedSha256)) {
         throw 'Active production configuration contains unrelated drift; recovery refused.'
+    }
+}
+
+function Assert-AppliedConfiguration {
+    param([Parameter(Mandatory = $true)]$State)
+    if ([string]$State.Status -cne 'Applied' -or
+        (Get-FileSha256 $State.PortalConfigPath) -cne [string]$State.PortalPlannedSha256 -or
+        (Get-FileSha256 $State.TrackerConfigPath) -cne [string]$State.TrackerPlannedSha256) {
+        throw 'Applied transaction state does not exactly match the current active production configuration.'
     }
 }
 
@@ -502,6 +719,108 @@ function Wait-UriHealth {
 }
 
 function Get-DualSchemeHealthUris {
+    $uris = @(Get-RetainedHealthUris)
+    if ($activeTopology -ne 'Production') { return $uris }
+    foreach ($application in $applications) {
+        $uris += "https://$($application.ProductionHost)/api/health"
+    }
+    $uris += "https://hub.son4l.local$gatewayPath/api/health"
+    return $uris
+}
+
+function Get-TrackerAuthenticationState {
+    $manager = New-Object Microsoft.Web.Administration.ServerManager
+    try {
+        $configuration = $manager.GetApplicationHostConfiguration()
+        return [pscustomobject]@{
+            AnonymousEnabled = [bool]$configuration.GetSection(
+                'system.webServer/security/authentication/anonymousAuthentication',
+                $trackerSiteName).GetAttributeValue('enabled')
+            WindowsEnabled = [bool]$configuration.GetSection(
+                'system.webServer/security/authentication/windowsAuthentication',
+                $trackerSiteName).GetAttributeValue('enabled')
+        }
+    }
+    finally { $manager.Dispose() }
+}
+
+function Assert-TrackerAuthenticationState {
+    param(
+        [Parameter(Mandatory = $true)][bool]$AnonymousEnabled,
+        [Parameter(Mandatory = $true)][bool]$WindowsEnabled
+    )
+    $actual = Get-TrackerAuthenticationState
+    if ($actual.AnonymousEnabled -ne $AnonymousEnabled -or
+        $actual.WindowsEnabled -ne $WindowsEnabled) {
+        throw "Project Tracker IIS authentication state is not Anonymous=$AnonymousEnabled, Windows=$WindowsEnabled."
+    }
+}
+
+function Assert-AnonymousTrackerApiDenied {
+    param([Parameter(Mandatory = $true)][string]$Uri)
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Method Get -Uri $Uri -TimeoutSec 10
+        $statusCode = [int]$response.StatusCode
+    }
+    catch {
+        if ($null -eq $_.Exception.Response) {
+            throw "Anonymous Project Tracker authorization probe failed at '$Uri': $($_.Exception.Message)"
+        }
+        $statusCode = [int]$_.Exception.Response.StatusCode
+    }
+    if ($statusCode -ne 401) {
+        throw "Anonymous Project Tracker /api/me must be denied with HTTP 401; received $statusCode at '$Uri'."
+    }
+}
+
+function Assert-CredentialedTrackerIdentity {
+    param(
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [Parameter(Mandatory = $true)][string]$ExpectedAccountName
+    )
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -UseDefaultCredentials -Method Get `
+            -Uri $Uri -TimeoutSec 10
+        $payload = $response.Content | ConvertFrom-Json
+    }
+    catch { throw "Credentialed Project Tracker identity probe failed at '$Uri': $($_.Exception.Message)" }
+    if ([int]$response.StatusCode -ne 200 -or
+        [string]$payload.accountName -ine $ExpectedAccountName) {
+        throw "Project Tracker at '$Uri' returned accountName '$($payload.accountName)', not current Windows identity '$ExpectedAccountName'."
+    }
+}
+
+function Get-TrackerProbeUris {
+    param([switch]$RetainedOnly)
+    $uris = @(
+        "https://$expectedComputerName`:6135/api/me",
+        "http://$expectedComputerName`:5135/api/me"
+    )
+    if (-not $RetainedOnly -and $activeTopology -eq 'Production') {
+        $uris = @('https://projects.hub.son4l.local/api/me') + $uris
+    }
+    return $uris
+}
+
+function Assert-TrackerCorsAuthenticationBoundary {
+    param([switch]$RetainedOnly)
+    $expectedAccountName = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    if ([string]::IsNullOrWhiteSpace($expectedAccountName)) {
+        throw 'The current Windows identity could not be determined for Project Tracker verification.'
+    }
+    Assert-TrackerAuthenticationState -AnonymousEnabled $true -WindowsEnabled $true
+    if ($RetainedOnly) {
+        Assert-CorsResponse -Origin 'https://son-iis2:6140' -Uri 'https://SON-IIS2:6135/api/me'
+        Assert-CorsResponse -Origin 'http://son-iis2:5140' -Uri 'http://SON-IIS2:5135/api/me'
+    }
+    else { Assert-DualCors }
+    foreach ($uri in @(Get-TrackerProbeUris -RetainedOnly:$RetainedOnly)) {
+        Assert-AnonymousTrackerApiDenied -Uri $uri
+        Assert-CredentialedTrackerIdentity -Uri $uri -ExpectedAccountName $expectedAccountName
+    }
+}
+
+function Get-RetainedHealthUris {
     $uris = @()
     foreach ($application in $applications) {
         $uris += "http://$expectedComputerName`:$($application.HttpPort)/api/health"
@@ -521,19 +840,40 @@ function Get-HttpHealthUris {
 function Assert-CorsResponse {
     param([Parameter(Mandatory = $true)][string]$Uri, [Parameter(Mandatory = $true)][string]$Origin)
     try {
-        $response = Invoke-WebRequest -UseBasicParsing -UseDefaultCredentials -Method Get -Uri $Uri -TimeoutSec 10 -Headers @{ Origin = $Origin }
+        # A browser preflight is anonymous even when the eventual request includes credentials.
+        # Probing OPTIONS here catches IIS/authentication ordering problems that a credentialed GET
+        # cannot reveal.
+        $response = Invoke-WebRequest -UseBasicParsing -Method Options -Uri $Uri -TimeoutSec 10 -Headers @{
+            Origin = $Origin
+            'Access-Control-Request-Method' = 'POST'
+            'Access-Control-Request-Headers' = 'content-type'
+        }
     }
     catch { throw "CORS preflight failed for origin '$Origin' at '$Uri': $($_.Exception.Message)" }
+    if ([int]$response.StatusCode -lt 200 -or [int]$response.StatusCode -ge 300) {
+        throw "CORS preflight returned HTTP $($response.StatusCode) for origin '$Origin' at '$Uri'."
+    }
     $allowedOrigin = [string]$response.Headers['Access-Control-Allow-Origin']
     $allowedCredentials = [string]$response.Headers['Access-Control-Allow-Credentials']
-    if ($allowedOrigin -ne $Origin -or $allowedCredentials -ine 'true') {
-        throw "CORS preflight did not allow credentials for exact origin '$Origin' at '$Uri'."
+    $allowedMethods = @(([string]$response.Headers['Access-Control-Allow-Methods']) -split '\s*,\s*')
+    $allowedHeaders = @(([string]$response.Headers['Access-Control-Allow-Headers']) -split '\s*,\s*')
+    if ($allowedOrigin -cne $Origin -or
+        $allowedCredentials -ine 'true' -or
+        'POST' -notin $allowedMethods -or
+        'content-type' -notin $allowedHeaders) {
+        throw "CORS preflight did not allow the exact credentialed POST/content-type request for origin '$Origin' at '$Uri'."
     }
 }
 
 function Assert-DualCors {
-    Assert-CorsResponse -Origin 'https://SON-IIS2:6140' -Uri 'https://SON-IIS2:6135/api/me'
-    Assert-CorsResponse -Origin 'http://SON-IIS2:5140' -Uri 'http://SON-IIS2:5135/api/me'
+    if ($activeTopology -eq 'Production') {
+        Assert-CorsResponse -Origin 'https://hub.son4l.local' -Uri 'https://projects.hub.son4l.local/api/me'
+        Assert-CorsResponse -Origin 'https://son-iis2:6140' -Uri 'https://SON-IIS2:6135/api/me'
+    }
+    else {
+        Assert-CorsResponse -Origin 'https://son-iis2:6140' -Uri 'https://SON-IIS2:6135/api/me'
+    }
+    Assert-CorsResponse -Origin 'http://son-iis2:5140' -Uri 'http://SON-IIS2:5135/api/me'
 }
 
 function Restore-FilesWhilePoolsStopped {
@@ -570,7 +910,12 @@ function Restore-Configuration {
         -Operation { Restore-FilesWhilePoolsStopped $State } `
         -RecoveryOperation { Restore-FilesWhilePoolsStopped $State } `
         -RecoveryCompletesOperation
-    if ($VerifyDualScheme) { Wait-UriHealth (Get-DualSchemeHealthUris) }
+    # Rollback must remain verifiable after the separate 443 binding transaction is removed.
+    # Its stable target is the retained HTTP + 61xx pilot baseline, never the production hosts.
+    if ($VerifyDualScheme) {
+        Wait-UriHealth (Get-RetainedHealthUris)
+        Assert-TrackerCorsAuthenticationBoundary -RetainedOnly
+    }
     else { Wait-UriHealth (Get-HttpHealthUris) }
 }
 
@@ -578,7 +923,10 @@ if (-not [IO.Path]::IsPathRooted($StatePath)) { throw 'StatePath must be an abso
 $StatePath = Assert-SafeStatePath $StatePath
 Assert-Host
 if (-not $WhatIfPreference) { Assert-Administrator }
+$transactionMutex = Enter-HttpsApplicationConfigTransactionLock
+try {
 Import-IisAdministration
+Assert-TrackerAuthenticationState -AnonymousEnabled $true -WindowsEnabled $true
 $portalRoot = Get-ActiveSitePath $portalSiteName
 $trackerRoot = Get-ActiveSitePath $trackerSiteName
 $portalConfigPath = Join-Path $portalRoot 'appsettings.Production.json'
@@ -586,15 +934,18 @@ $trackerConfigPath = Join-Path $trackerRoot 'appsettings.Production.json'
 
 if ($Rollback) {
     if (-not (Test-Path -LiteralPath $StatePath -PathType Leaf)) { throw "Rollback state was not found at '$StatePath'." }
-    $state = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
+    $state = Read-SecureState
     Assert-TransactionState -State $state -ExpectedPortalConfigPath $portalConfigPath -ExpectedTrackerConfigPath $trackerConfigPath
+    Assert-RequestedStateTopology -State $state -RequestedTopology $Topology
+    Set-TopologyConfiguration -Name ([string]$state.Topology)
     Assert-TransactionBackups $state
     $terminalStatuses = @('RolledBack', 'AutomaticallyRolledBack')
     $recoverableStatuses = @('Applied', 'Prepared', 'ApplyInProgress', 'ApplyFailedRollbackPending', 'ManualRollbackPending', 'RollbackFailed')
     if ($state.Status -in $terminalStatuses) {
         Assert-OriginalConfiguration $state
         Assert-PoolsPresentAndStarted
-        Wait-UriHealth (Get-DualSchemeHealthUris)
+        Wait-UriHealth (Get-RetainedHealthUris)
+        Assert-TrackerCorsAuthenticationBoundary -RetainedOnly
         Write-Output 'HTTPS_APPLICATION_CONFIG_ALREADY_ROLLED_BACK_AND_DUAL_SCHEME_HEALTHY'
         exit 0
     }
@@ -641,21 +992,33 @@ $null = New-TransformedConfig -PortalConfig $portalOriginal -TrackerConfig $trac
 # HTTPS must already be reachable before any production configuration is changed.
 Wait-UriHealth (Get-DualSchemeHealthUris)
 if (Test-Path -LiteralPath $StatePath -PathType Leaf) {
-    $oldState = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
+    $oldState = Read-SecureState
     Assert-TransactionState -State $oldState -ExpectedPortalConfigPath $portalConfigPath -ExpectedTrackerConfigPath $trackerConfigPath
+    Assert-RequestedStateTopology -State $oldState -RequestedTopology $Topology
+    if ($oldState.Status -eq 'Applied') {
+        Assert-AppliedConfiguration $oldState
+        Assert-PoolsPresentAndStarted
+        Wait-UriHealth (Get-DualSchemeHealthUris)
+        Assert-TrackerCorsAuthenticationBoundary
+        Write-Output 'HTTPS_APPLICATION_CONFIG_ALREADY_APPLIED_AND_RETAINED_ENDPOINTS_HEALTHY'
+        exit 0
+    }
     if ($oldState.Status -notin @('RolledBack', 'AutomaticallyRolledBack')) {
         throw "Transaction state '$($oldState.Status)' already exists at '$StatePath'; run -Rollback before applying another transaction."
     }
     Assert-OriginalConfiguration $oldState
+    Set-TopologyConfiguration -Name $Topology
 }
 
-if (-not $PSCmdlet.ShouldProcess($expectedComputerName, 'Atomically switch module URLs to HTTPS and configure HTTPS-first dual CORS')) {
+if (-not $PSCmdlet.ShouldProcess($expectedComputerName, 'Atomically switch module URLs to HTTPS and configure HTTPS-first retained-origin CORS')) {
     if ($WhatIfPreference) { Write-Output 'WHATIF_READY: active IIS paths, JSON transforms, pools, dual-scheme applications, and gateway passed preflight; nothing was changed.' }
     else { Write-Output 'HTTPS_APPLICATION_CONFIG_CANCELLED' }
     exit 0
 }
 
 $backupRoot = Join-Path $backupBaseRoot ([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmssfff'))
+New-SecureDirectory $stateRoot
+New-SecureDirectory $backupBaseRoot
 New-SecureDirectory $backupRoot
 $portalBackup = Join-Path $backupRoot 'Portal.appsettings.Production.json'
 $trackerBackup = Join-Path $backupRoot 'ProjectTracker.appsettings.Production.json'
@@ -671,8 +1034,9 @@ $trackerBytes = [byte[]]$snapshot.TrackerPlannedBytes
 $portalPlannedSha256 = $snapshot.PortalPlannedSha256
 $trackerPlannedSha256 = $snapshot.TrackerPlannedSha256
 $state = [pscustomobject]@{
-    Version = 2
+    Version = 3
     ComputerName = $expectedComputerName
+    Topology = $Topology
     Status = 'Prepared'
     PreparedAtUtc = [DateTime]::UtcNow.ToString('o')
     PortalConfigPath = $portalConfigPath
@@ -726,7 +1090,7 @@ try {
         } `
         -RecoveryOperation { Restore-FilesWhilePoolsStopped $state }
     Wait-UriHealth (Get-DualSchemeHealthUris)
-    Assert-DualCors
+    Assert-TrackerCorsAuthenticationBoundary
     $state.PortalAppliedSha256 = Get-FileSha256 $portalConfigPath
     $state.TrackerAppliedSha256 = Get-FileSha256 $trackerConfigPath
     $state.Status = 'Applied'
@@ -745,7 +1109,7 @@ catch {
     $restored = $false
     try {
         Assert-RecoverableActiveConfiguration $state
-        Restore-Configuration -State $state
+        Restore-Configuration -State $state -VerifyDualScheme
         $restored = $true
         Set-StateProperty -State $state -Name 'Status' -Value 'AutomaticallyRolledBack'
         Set-StateProperty -State $state -Name 'RolledBackAtUtc' -Value ([DateTime]::UtcNow.ToString('o'))
@@ -755,7 +1119,7 @@ catch {
     catch {
         $rollbackFailure = $_.Exception.Message
         if ($restored) {
-            throw "Configuration transaction failed: $failure Original configuration was restored and is HTTP healthy, but final state persistence failed: $rollbackFailure Re-run -Rollback to verify and finish the state record."
+            throw "Configuration transaction failed: $failure Original configuration was restored and its retained HTTP/61xx surfaces are healthy, but final state persistence failed: $rollbackFailure Re-run -Rollback to verify and finish the state record."
         }
         Set-StateProperty -State $state -Name 'Status' -Value 'RollbackFailed'
         Set-StateProperty -State $state -Name 'RollbackFailure' -Value $rollbackFailure
@@ -766,9 +1130,14 @@ catch {
         throw "Configuration transaction failed: $failure Automatic rollback also failed: $rollbackFailure$stateFailureText"
     }
     $pendingStateText = if ($pendingStateFailure) { " The intermediate failure state could not be persisted: $pendingStateFailure" } else { '' }
-    throw "Configuration transaction failed and original HTTP configuration was restored healthy: $failure$pendingStateText"
+    throw "Configuration transaction failed and the original configuration was restored with retained HTTP/61xx health: $failure$pendingStateText"
 }
 finally {
     Remove-Item -LiteralPath $portalTemporary -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $trackerTemporary -Force -ErrorAction SilentlyContinue
+}
+}
+finally {
+    try { $transactionMutex.ReleaseMutex() }
+    finally { $transactionMutex.Dispose() }
 }

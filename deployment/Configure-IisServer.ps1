@@ -118,7 +118,7 @@ foreach ($site in $sites) {
 
     Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' `
         -Location $site.Name -Filter 'system.webServer/security/authentication/anonymousAuthentication' `
-        -Name enabled -Value false
+        -Name enabled -Value ($site.Name -eq 'ProjectTracker')
     Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' `
         -Location $site.Name -Filter 'system.webServer/security/authentication/windowsAuthentication' `
         -Name enabled -Value true

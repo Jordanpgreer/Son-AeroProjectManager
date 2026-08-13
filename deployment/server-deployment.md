@@ -152,9 +152,12 @@ powershell -ExecutionPolicy Bypass -File .\deployment\Configure-IisServer.ps1 -C
 ```
 
 The script installs Windows Authentication and Application Initialization, creates five isolated
-sites plus the dedicated `/project-tracker-api` application and pool, applies folder permissions, disables
-Anonymous Authentication, enables Windows Authentication, reconciles the scoped firewall rule,
-and does not report success until every root and gateway `/api/health` endpoint returns HTTP 200.
+sites plus the dedicated `/project-tracker-api` application and pool, and applies folder permissions.
+It enables Windows Authentication everywhere. Anonymous Authentication remains disabled except on
+the direct Project Tracker site, where it is also enabled so browser CORS preflight can reach the
+application; Project Tracker's protected APIs still require authorization. The same-origin Portal
+gateway remains Windows-only. The script also reconciles the scoped firewall rule and does not report
+success until every root and gateway `/api/health` endpoint returns HTTP 200.
 
 Start ProjectTracker first so it applies database migrations and seeds the initial administrator.
 Then start EngineeringHub, EstimatingDashboard, QualityAssurance, and Portal.

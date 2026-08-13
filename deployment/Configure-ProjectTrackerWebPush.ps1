@@ -17,7 +17,7 @@ param(
     [string]$AppPoolName = 'ProjectTracker',
 
     [ValidatePattern('^https?://[A-Za-z0-9.-]+(?::[0-9]{1,5})?/api/push/public-key$')]
-    [string]$VerificationUri = 'http://SON-IIS2:5135/api/push/public-key',
+    [string]$VerificationUri = 'https://projects.hub.son4l.local/api/push/public-key',
 
     [string]$VapidPublicKey,
 
@@ -64,6 +64,59 @@ function ConvertTo-Base64Url {
     param([Parameter(Mandatory = $true)][byte[]]$Value)
 
     return [Convert]::ToBase64String($Value).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+}
+
+function Assert-VapidP256KeyPair {
+    param(
+        [Parameter(Mandatory = $true)][byte[]]$PublicKeyBytes,
+        [Parameter(Mandatory = $true)][byte[]]$PrivateKeyBytes
+    )
+    if ($PublicKeyBytes.Length -ne 65 -or $PublicKeyBytes[0] -ne 4 -or
+        $PrivateKeyBytes.Length -ne 32) {
+        throw 'VAPID key-pair validation requires one uncompressed P-256 public point and one 32-byte private scalar.'
+    }
+
+    $x = New-Object byte[] 32
+    $y = New-Object byte[] 32
+    [Array]::Copy($PublicKeyBytes, 1, $x, 0, 32)
+    [Array]::Copy($PublicKeyBytes, 33, $y, 0, 32)
+    $point = New-Object Security.Cryptography.ECPoint
+    $point.X = $x
+    $point.Y = $y
+    $privateParameters = New-Object Security.Cryptography.ECParameters
+    $privateParameters.Curve = [Security.Cryptography.ECCurve]::CreateFromFriendlyName('nistP256')
+    $privateParameters.Q = $point
+    $privateParameters.D = $PrivateKeyBytes
+    $publicParameters = New-Object Security.Cryptography.ECParameters
+    $publicParameters.Curve = [Security.Cryptography.ECCurve]::CreateFromFriendlyName('nistP256')
+    $publicParameters.Q = $point
+
+    $signer = New-Object Security.Cryptography.ECDsaCng
+    $verifier = New-Object Security.Cryptography.ECDsaCng
+    $probe = [Text.Encoding]::UTF8.GetBytes('SonAero VAPID key-pair validation')
+    $signature = $null
+    try {
+        try {
+            $signer.ImportParameters($privateParameters)
+            $verifier.ImportParameters($publicParameters)
+            $signature = $signer.SignData($probe, [Security.Cryptography.HashAlgorithmName]::SHA256)
+        }
+        catch [Security.Cryptography.CryptographicException] {
+            throw 'The supplied VAPID key material is not a valid P-256 key pair.'
+        }
+        if (-not $verifier.VerifyData(
+                $probe, $signature, [Security.Cryptography.HashAlgorithmName]::SHA256)) {
+            throw 'VapidPublicKey does not match VapidPrivateKey.'
+        }
+    }
+    finally {
+        if ($null -ne $signature) { [Array]::Clear($signature, 0, $signature.Length) }
+        [Array]::Clear($probe, 0, $probe.Length)
+        [Array]::Clear($x, 0, $x.Length)
+        [Array]::Clear($y, 0, $y.Length)
+        $signer.Dispose()
+        $verifier.Dispose()
+    }
 }
 
 function Get-EnvironmentVariableSnapshot {
@@ -211,9 +264,21 @@ if (-not $Disable) {
 }
 
 $verification = [Uri]$VerificationUri
-if ($verification.Host -ine $ExpectedComputerName) {
-    throw "VerificationUri must use the expected host $ExpectedComputerName."
+function Assert-VerificationEndpoint {
+    param(
+        [Parameter(Mandatory = $true)][Uri]$Uri,
+        [Parameter(Mandatory = $true)][string]$ComputerName
+    )
+    $approvedEndpoints = @(
+        "https://projects.hub.son4l.local/api/push/public-key",
+        "http://$ComputerName`:5135/api/push/public-key",
+        "https://$ComputerName`:6135/api/push/public-key"
+    )
+    if ($approvedEndpoints -inotcontains $Uri.AbsoluteUri.TrimEnd('/')) {
+        throw "VerificationUri must be the permanent HTTPS endpoint or the retained $ComputerName HTTP/HTTPS pilot endpoint."
+    }
 }
+Assert-VerificationEndpoint -Uri $verification -ComputerName $ExpectedComputerName
 
 $assemblyPath = Join-Path $env:WINDIR 'System32\inetsrv\Microsoft.Web.Administration.dll'
 if (-not (Test-Path -LiteralPath $assemblyPath -PathType Leaf)) {
@@ -240,6 +305,7 @@ $privateKeyPointer = [IntPtr]::Zero
 $generatedKey = $null
 $generatedPrivateBytes = $null
 $generatedPublicBytes = $null
+$privateKeyBytes = $null
 $effectivePublicKey = $null
 $publicKeyFingerprint = $null
 try {
@@ -248,6 +314,16 @@ try {
     }
     if ($null -eq $serverManager.ApplicationPools[$AppPoolName]) {
         throw "Required IIS application pool '$AppPoolName' does not exist."
+    }
+    if (-not $Disable -and -not $GenerateKeys) {
+        $privateKeyPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($VapidPrivateKey)
+        $plainPrivateKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($privateKeyPointer)
+        $privateKeyBytes = ConvertFrom-Base64Url -Value $plainPrivateKey -Label 'VapidPrivateKey'
+        if ($privateKeyBytes.Length -ne 32) {
+            throw 'VapidPrivateKey must be a 32-byte P-256 private key.'
+        }
+        Assert-VapidP256KeyPair -PublicKeyBytes $publicKeyBytes -PrivateKeyBytes $privateKeyBytes
+        $effectivePublicKey = $VapidPublicKey.Trim()
     }
 
     $configuration = $serverManager.GetApplicationHostConfiguration()
@@ -288,13 +364,8 @@ try {
             $effectivePublicKey = ConvertTo-Base64Url -Value $generatedPublicBytes
         }
         else {
-            $privateKeyPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($VapidPrivateKey)
-            $plainPrivateKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($privateKeyPointer)
-            $privateKeyBytes = ConvertFrom-Base64Url -Value $plainPrivateKey -Label 'VapidPrivateKey'
-            if ($privateKeyBytes.Length -ne 32) {
-                throw 'VapidPrivateKey must be a 32-byte P-256 private key.'
-            }
-            $effectivePublicKey = $VapidPublicKey.Trim()
+            # The supplied pair was decoded and cryptographically matched before ShouldProcess,
+            # so WhatIf and apply enforce the same preflight.
         }
 
         $sha256 = [Security.Cryptography.SHA256]::Create()
@@ -364,6 +435,9 @@ finally {
     }
     if ($null -ne $generatedPrivateBytes) {
         [Array]::Clear($generatedPrivateBytes, 0, $generatedPrivateBytes.Length)
+    }
+    if ($null -ne $privateKeyBytes) {
+        [Array]::Clear($privateKeyBytes, 0, $privateKeyBytes.Length)
     }
     if ($null -ne $generatedPublicBytes) {
         [Array]::Clear($generatedPublicBytes, 0, $generatedPublicBytes.Length)

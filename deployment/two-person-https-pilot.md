@@ -128,6 +128,35 @@ The script adds HTTPS 6135/6140/6150/6160, preserves HTTP 5135/5140/5150/5160, r
 firewall aliases, verifies the exact leaf-to-root chain, and automatically restores the prior IIS
 and firewall state if any check fails.
 
+The retained transaction state must remain a `.json` file directly under
+`C:\ProgramData\SonAero\deployment-state` (the default is `https-pilot.json`). The script refuses
+to trust the state if any existing path ancestor is a reparse point, or if the state directory/file
+inherits permissions, has an unexpected owner, or grants access to anyone other than local SYSTEM
+and BUILTIN\Administrators.
+Every update uses a uniquely named protected sibling temporary file and an atomic replacement. Do
+not manually loosen, relocate, or copy this state merely to bypass a protection check.
+
+### One-time protection migration for the deployed pilot state
+
+Before any future pilot rollback, retirement, or permanent-binding transaction, pull the reviewed
+release and run this exact-path migration in elevated Windows PowerShell 5.1 on SON-IIS2:
+
+```powershell
+$repo = 'C:\SonAero\src\SonAeroInternalHub'
+& "$repo\deployment\Configure-HubHttpsPilot.ps1" -MigrateLegacyStateProtection -WhatIf
+& "$repo\deployment\Configure-HubHttpsPilot.ps1" -MigrateLegacyStateProtection -Confirm:$false
+```
+
+The preview must end with `WHATIF_READY_HTTPS_PILOT_STATE_PROTECTION_MIGRATION`. The apply must end
+with `HTTPS_PILOT_STATE_PROTECTION_MIGRATED`; an already-secured rerun ends with
+`HTTPS_PILOT_STATE_PROTECTION_ALREADY_CURRENT`. This deliberately narrow mode accepts only the
+exact `C:\ProgramData\SonAero\deployment-state\https-pilot.json` v1 `Applied` state for SON-IIS2
+with an empty pre-pilot 61xx baseline. It verifies the saved leaf/root, remote addresses, exact five
+live 61xx bindings, restricted firewall rule, retained HTTP bindings, and both health surfaces
+before changing only the state file/directory ACLs. It never changes JSON, IIS, or Windows Firewall.
+If it reports path, schema, certificate, binding, firewall, address, or health drift, stop and
+preserve the file for administrator review; never manually grant the JSON rollback authority.
+
 ## 4. Publish and deploy an HTTPS-aware immutable release
 
 After these changes have been reviewed, committed, and pushed, update the clean server checkout in
@@ -148,11 +177,7 @@ if (Test-Path -LiteralPath $packageRoot) { throw "Staging path already exists: $
 
 & "$repo\deployment\Publish-Hub.ps1" `
   -OutputRoot $packageRoot `
-  -ProjectTrackerUrl '/project-tracker-api' `
-  -HubUrl 'https://SON-IIS2:6140' `
-  -EngineeringHubUrl 'https://SON-IIS2:6150' `
-  -EstimatingDashboardUrl 'https://SON-IIS2:6160' `
-  -QualityAssuranceUrl 'https://SON-IIS2:6170'
+  -ProjectTrackerUrl '/project-tracker-api'
 if ($LASTEXITCODE -ne 0) { throw 'HTTPS-aware publish failed; IIS was not changed.' }
 
 & "$repo\deployment\Deploy-HubRelease.ps1" `
@@ -172,14 +197,26 @@ Run the script from the clean server checkout on SON-IIS2 so the reviewed versio
 
 ```powershell
 $repo = 'C:\SonAero\src\SonAeroInternalHub'
+$corsAuthenticationScript = "$repo\deployment\Configure-ProjectTrackerCorsAuthentication.ps1"
+& $corsAuthenticationScript -WhatIf
+& $corsAuthenticationScript -Confirm:$false
+
 $configScript = "$repo\deployment\Configure-HubHttpsApplicationConfig.ps1"
-& $configScript -WhatIf
+& $configScript -Topology Pilot -WhatIf
 ```
+
+The CORS-authentication preview must end with
+`WHATIF_READY_PROJECT_TRACKER_CORS_AUTHENTICATION`; its apply must end with
+`PROJECT_TRACKER_CORS_AUTHENTICATION_CONFIGURED_AND_VERIFIED` (or the idempotent `ALREADY`
+variant). It enables Anonymous and Windows Authentication together only on the direct Project
+Tracker site so browser preflight can reach ASP.NET Core authorization. The same-origin gateway
+remains Windows-only. This setting is shared by HTTP, 61xx, and permanent HTTPS and is not reversed
+during pilot or production binding rollback.
 
 Require `WHATIF_READY`. Only then apply it:
 
 ```powershell
-& $configScript -Confirm:$false
+& $configScript -Topology Pilot -Confirm:$false
 ```
 
 Require
@@ -189,6 +226,13 @@ the three affected pools, checks both schemes plus both gateway paths, and resto
 on failure. Its state file is restricted to
 `C:\ProgramData\SonAero\deployment-state\https-application-config.json`; do not relocate it to a
 web root or another application directory.
+
+This release requires the application-config state file itself to have protected explicit
+SYSTEM/Administrators ACLs before it is trusted. A `https-application-config.json` created by the
+pre-hardening script is historical evidence only and cannot authorize `-Topology Pilot -Rollback`.
+Do not loosen that check or copy the JSON to bypass it. The permanent-hostname runbook does not rely
+on this legacy record: its Production transaction snapshots the currently active Pilot configuration
+into a new protected rollback state.
 
 ## 6. Configure HTTPS warm start
 
@@ -261,8 +305,10 @@ and confirm it opens the correct project. Do not call Web Push ready until all f
 Run rollback in this order from elevated PowerShell:
 
 1. Disable Web Push with `Configure-ProjectTrackerWebPush.ps1 -Disable` while HTTPS still works.
-2. On SON-IIS2: `Configure-HubHttpsApplicationConfig.ps1 -Rollback -WhatIf`, then repeat with
-   `-Confirm:$false`.
+2. For a Pilot application-config transaction created by this hardened release, run
+   `Configure-HubHttpsApplicationConfig.ps1 -Topology Pilot -Rollback -WhatIf`, then repeat with
+   `-Topology Pilot -Rollback -Confirm:$false`. Stop and escalate if the state predates this
+   hardening; that legacy file is not trusted rollback authority.
 3. Retarget both shortcuts to `http://SON-IIS2:5140` with `Install-EmployeeHubShortcut.ps1`.
 4. On SON-IIS2: `Configure-HubHttpsPilot.ps1 -Rollback -WhatIf`, then repeat with
    `-Confirm:$false`.
@@ -296,7 +342,7 @@ Require `WHATIF_READY_RECOVERY`. Then run:
 
 Require `HTTPS_PILOT_RECOVERED_ROLLED_BACK_AND_HTTP_HEALTHY`. Recovery permits an empty original
 HTTPS binding set, but it refuses to remove bindings or a firewall rule unless they exactly match
-this saved transaction. It restores the recorded baseline and verifies all four HTTP health
+this saved transaction. It restores the recorded baseline and verifies all five HTTP health
 endpoints before allowing another apply attempt. If recovery reports drift or a health error, stop
 and preserve `C:\ProgramData\SonAero\deployment-state\https-pilot.json` for diagnosis.
 
@@ -311,11 +357,11 @@ $repo = 'C:\SonAero\src\SonAeroInternalHub'
 git -C $repo pull --ff-only origin main
 if ($LASTEXITCODE -ne 0) { throw 'Git pull failed; no IIS configuration was changed.' }
 
-& "$repo\deployment\Configure-HubHttpsApplicationConfig.ps1" -Rollback -WhatIf
+& "$repo\deployment\Configure-HubHttpsApplicationConfig.ps1" -Topology Pilot -Rollback -WhatIf
 ```
 
 Require `WHATIF_READY_ROLLBACK`. Then run the same script with
-`-Rollback -Confirm:$false` and require
+`-Topology Pilot -Rollback -Confirm:$false` and require
 `HTTPS_APPLICATION_CONFIG_ROLLED_BACK_AND_DUAL_SCHEME_HEALTHY`. Recovery validates the exact IIS
 paths, the secured backup locations and hashes, and every active file hash before changing either
 production file. A terminal rollback can be rerun safely and returns

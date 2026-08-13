@@ -27,7 +27,29 @@ import EngineeringDashboard from './EngineeringDashboard'
 import type { EngineeringSearchResult } from './EngineeringDashboard'
 import { engineeringPermissionKeys, hasEngineeringPermission } from './permissions'
 
-const hubUrl = import.meta.env.VITE_HUB_URL ?? `${window.location.protocol}//${window.location.hostname}:5140`
+function defaultHubUrl() {
+  const hostname = window.location.hostname.toLowerCase()
+  const permanentHosts = new Set([
+    'hub.son4l.local',
+    'projects.hub.son4l.local',
+    'engineering.hub.son4l.local',
+    'estimating.hub.son4l.local',
+    'quality.hub.son4l.local',
+  ])
+  if (permanentHosts.has(hostname)) {
+    return 'https://hub.son4l.local'
+  }
+  const localHosts = new Set(['localhost', '127.0.0.1', '[::1]'])
+  if (localHosts.has(hostname)) return `http://${window.location.hostname}:5140`
+  if (hostname === 'son-iis2') {
+    return window.location.protocol === 'https:'
+      ? 'https://SON-IIS2:6140'
+      : 'http://SON-IIS2:5140'
+  }
+  return 'https://hub.son4l.local'
+}
+
+const hubUrl = defaultHubUrl()
 const engineeringAdminUrl = new URL('/#/admin/engineering/file-storage', hubUrl).toString()
 
 interface Me {

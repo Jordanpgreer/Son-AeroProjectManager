@@ -19,6 +19,117 @@ namespace EngineeringHub.Tests;
 
 public sealed class EngineeringAuthorizationTests
 {
+    [Fact]
+    public async Task Access_preview_returns_to_configured_permanent_portal_url()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<EngineeringRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new EngineeringRoleDbContext(options);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Portal:Url"] = "https://hub.son4l.local"
+            })
+            .Build();
+        var service = new EngineeringAccessPreviewService(db, configuration);
+
+        var url = service.GetReturnToAdminUrl(new DefaultHttpContext());
+
+        Assert.Equal("https://hub.son4l.local/#/admin/access", url);
+    }
+
+    [Fact]
+    public async Task Permanent_module_request_overrides_a_preserved_legacy_portal_url()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<EngineeringRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new EngineeringRoleDbContext(options);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Portal:Url"] = "http://SON-IIS2:5140"
+            })
+            .Build();
+        var context = new DefaultHttpContext();
+        context.Request.Scheme = "https";
+        context.Request.Host = new HostString("engineering.hub.son4l.local");
+
+        var url = new EngineeringAccessPreviewService(db, configuration).GetReturnToAdminUrl(context);
+
+        Assert.Equal("https://hub.son4l.local/#/admin/access", url);
+    }
+
+    [Fact]
+    public async Task Legacy_module_request_keeps_legacy_portal_url_for_rollback()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<EngineeringRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new EngineeringRoleDbContext(options);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Portal:Url"] = "http://SON-IIS2:5140"
+            })
+            .Build();
+        var context = new DefaultHttpContext();
+        context.Request.Scheme = "http";
+        context.Request.Host = new HostString("SON-IIS2", 5150);
+
+        var url = new EngineeringAccessPreviewService(db, configuration).GetReturnToAdminUrl(context);
+
+        Assert.Equal("http://son-iis2:5140/#/admin/access", url, ignoreCase: true);
+    }
+
+    [Fact]
+    public async Task Https_pilot_request_uses_pilot_port_even_with_permanent_portal_configuration()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<EngineeringRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new EngineeringRoleDbContext(options);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Portal:Url"] = "https://hub.son4l.local"
+            })
+            .Build();
+        var context = new DefaultHttpContext();
+        context.Request.Scheme = "https";
+        context.Request.Host = new HostString("SON-IIS2", 6150);
+
+        var url = new EngineeringAccessPreviewService(db, configuration).GetReturnToAdminUrl(context);
+
+        Assert.Equal("https://son-iis2:6140/#/admin/access", url, ignoreCase: true);
+    }
+
+    [Fact]
+    public async Task Arbitrary_request_host_is_never_used_in_preview_return_url()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<EngineeringRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new EngineeringRoleDbContext(options);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Portal:Url"] = "https://hub.son4l.local"
+            })
+            .Build();
+        var context = new DefaultHttpContext();
+        context.Request.Scheme = "https";
+        context.Request.Host = new HostString("engineering.hub.son4l.local.attacker.example");
+
+        var url = new EngineeringAccessPreviewService(db, configuration).GetReturnToAdminUrl(context);
+
+        Assert.Equal("https://hub.son4l.local/#/admin/access", url);
+        Assert.Throws<InvalidOperationException>(() =>
+            new EngineeringAccessPreviewService(db, new ConfigurationBuilder().Build())
+                .GetReturnToAdminUrl(context));
+    }
+
     [Theory]
     [InlineData(ApplicationRoles.Viewer, false, false, false)]
     [InlineData(ApplicationRoles.Editor, true, true, false)]

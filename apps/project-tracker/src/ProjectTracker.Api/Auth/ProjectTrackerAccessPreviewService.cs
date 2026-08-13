@@ -39,6 +39,7 @@ public sealed class ProjectTrackerAccessPreviewService(
     IConfiguration configuration)
 {
     public const string CookieName = "SonAero.ProjectTracker.AccessPreview";
+    private const string PermanentPortalOrigin = "https://hub.son4l.local";
 
     public bool HasPreviewCookie(HttpRequest request) => request.Cookies.ContainsKey(CookieName);
 
@@ -186,17 +187,56 @@ public sealed class ProjectTrackerAccessPreviewService(
 
     public string HubAccessAdminUrl(HttpRequest request)
     {
-        var configuredOrigin = configuration.GetSection("Cors:HubOrigins")
-            .Get<string[]>()?
-            .FirstOrDefault(origin => Uri.TryCreate(origin, UriKind.Absolute, out _));
-        if (configuredOrigin is not null)
+        var runtimePortalOrigin = RuntimePortalOrigin(request);
+        if (runtimePortalOrigin is not null)
         {
-            return $"{configuredOrigin.TrimEnd('/')}/#/admin/access";
+            return $"{runtimePortalOrigin}/#/admin/access";
         }
 
-        var host = request.Host.Host;
-        return $"{request.Scheme}://{host}:5140/#/admin/access";
+        var configuredOrigins = (configuration.GetSection("Cors:HubOrigins").Get<string[]>() ?? [])
+            .Select(origin => Uri.TryCreate(origin, UriKind.Absolute, out var uri) ? uri : null)
+            .OfType<Uri>()
+            .Where(IsValidPortalOrigin)
+            .ToList();
+        var configuredOrigin = configuredOrigins.FirstOrDefault(uri =>
+                uri.Scheme == Uri.UriSchemeHttps
+                && uri.Host.Equals("hub.son4l.local", StringComparison.OrdinalIgnoreCase))
+            ?? configuredOrigins.FirstOrDefault();
+        if (configuredOrigin is not null)
+        {
+            return $"{configuredOrigin.GetLeftPart(UriPartial.Authority)}/#/admin/access";
+        }
+
+        throw new InvalidOperationException(
+            "Cors:HubOrigins must contain a valid HTTP(S) origin when the request host is not an approved Project Tracker host.");
     }
+
+    private static string? RuntimePortalOrigin(HttpRequest request)
+    {
+        var host = request.Host.Host;
+        if (string.IsNullOrWhiteSpace(host)) return null;
+        if (host.Equals("projects.hub.son4l.local", StringComparison.OrdinalIgnoreCase))
+            return PermanentPortalOrigin;
+        if (host.Equals("SON-IIS2", StringComparison.OrdinalIgnoreCase))
+            return request.IsHttps ? "https://SON-IIS2:6140" : "http://SON-IIS2:5140";
+        var loopbackHost = CanonicalLoopbackHost(host);
+        return loopbackHost is null ? null : $"http://{loopbackHost}:5140";
+    }
+
+    private static string? CanonicalLoopbackHost(string host) => host.ToLowerInvariant() switch
+    {
+        "localhost" => "localhost",
+        "127.0.0.1" => "127.0.0.1",
+        "::1" or "[::1]" => "[::1]",
+        _ => null
+    };
+
+    private static bool IsValidPortalOrigin(Uri uri) =>
+        uri.Scheme is "http" or "https"
+        && string.IsNullOrEmpty(uri.UserInfo)
+        && uri.AbsolutePath == "/"
+        && string.IsNullOrEmpty(uri.Query)
+        && string.IsNullOrEmpty(uri.Fragment);
 
     private async Task<ProjectTrackerAccessPreview?> ResolveTargetAsync(
         AccessPreviewSessionRecord session,

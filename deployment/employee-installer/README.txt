@@ -4,7 +4,7 @@ SON-AERO HUB EMPLOYEE INSTALLER
 Before installing
 -----------------
 1. A Hub administrator must register the employee's Windows account and assign
-   the correct Project Tracker, Engineering, and Estimating access.
+   the correct Project Tracker, Engineering, Estimating, and Quality Assurance access.
 2. Sign into the employee computer as that employee.
 3. Right-click the ZIP and select Extract All. Do not run the installer from
    inside the compressed ZIP view.
@@ -26,6 +26,8 @@ SONAERO_HUB_EMPLOYEE_INSTALL_COMPLETE
 
 The PowerShell execution-policy bypass is limited to the installer process. The
 installer does not change server configuration, application data, or employee
-permissions. Re-running it is safe and updates the shortcut only when needed.
+permissions. Re-running it is safe and updates the shortcut only when needed. The
+package records its approved Hub address in SonAeroHubInstaller.json; do not edit
+that file after the package is built.
 
-Current Hub address: http://SON-IIS2:5140
+Packaged Hub address: see SonAeroHubInstaller.json

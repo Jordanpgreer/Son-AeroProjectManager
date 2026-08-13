@@ -10,6 +10,8 @@ param(
     [ValidateSet('http', 'https')]
     [string]$Scheme = 'http',
 
+    [switch]$PermanentHttps,
+
     [ValidateRange(1, 65535)]
     [int]$ProjectTrackerHttpsPort = 6135,
 
@@ -298,23 +300,40 @@ if ($ExpectedEstimatingRole -eq 'NoAccess' -and
     throw 'Non-empty Estimating permissions cannot be expected with the NoAccess role.'
 }
 
+if ($PermanentHttps) {
+    if ($Scheme -ne 'https') {
+        throw 'PermanentHttps requires -Scheme https.'
+    }
+    $conflictingParameters = @(
+        'ProjectTrackerHttpsPort', 'PortalHttpsPort', 'EngineeringHttpsPort',
+        'EstimatingHttpsPort', 'QualityAssuranceHttpsPort'
+    ) | Where-Object { $PSBoundParameters.ContainsKey($_) }
+    if ($conflictingParameters.Count -gt 0) {
+        throw "PermanentHttps uses the production hostnames on port 443; do not also supply: $($conflictingParameters -join ', ')."
+    }
+}
+
 $modules = @(
-    [pscustomobject]@{ Key = 'portal'; Name = 'Portal'; HttpPort = 5140; HttpsPort = $PortalHttpsPort; DenialCode = '' },
-    [pscustomobject]@{ Key = 'project-tracker'; Name = 'Project Tracker'; HttpPort = 5135; HttpsPort = $ProjectTrackerHttpsPort; DenialCode = '' },
-    [pscustomobject]@{ Key = 'engineering'; Name = 'Engineering'; HttpPort = 5150; HttpsPort = $EngineeringHttpsPort; DenialCode = 'ModuleAccessDenied' },
-    [pscustomobject]@{ Key = 'estimating'; Name = 'Estimating'; HttpPort = 5160; HttpsPort = $EstimatingHttpsPort; DenialCode = 'EstimatingAccessDenied' },
-    [pscustomobject]@{ Key = 'quality-assurance'; Name = 'Quality Assurance'; HttpPort = 5170; HttpsPort = $QualityAssuranceHttpsPort; DenialCode = 'QualityAssuranceAccessDenied' }
+    [pscustomobject]@{ Key = 'portal'; ExpectationKey = 'portal'; Name = 'Portal'; BasePath = ''; HttpPort = 5140; HttpsPort = $PortalHttpsPort; PermanentHttpsOrigin = 'https://hub.son4l.local'; DenialCode = '' },
+    [pscustomobject]@{ Key = 'project-tracker'; ExpectationKey = 'project-tracker'; Name = 'Project Tracker'; BasePath = ''; HttpPort = 5135; HttpsPort = $ProjectTrackerHttpsPort; PermanentHttpsOrigin = 'https://projects.hub.son4l.local'; DenialCode = '' },
+    [pscustomobject]@{ Key = 'project-tracker-gateway'; ExpectationKey = 'project-tracker'; Name = 'Project Tracker Gateway'; BasePath = '/project-tracker-api'; HttpPort = 5140; HttpsPort = $PortalHttpsPort; PermanentHttpsOrigin = 'https://hub.son4l.local'; DenialCode = '' },
+    [pscustomobject]@{ Key = 'engineering'; ExpectationKey = 'engineering'; Name = 'Engineering'; BasePath = ''; HttpPort = 5150; HttpsPort = $EngineeringHttpsPort; PermanentHttpsOrigin = 'https://engineering.hub.son4l.local'; DenialCode = 'ModuleAccessDenied' },
+    [pscustomobject]@{ Key = 'estimating'; ExpectationKey = 'estimating'; Name = 'Estimating'; BasePath = ''; HttpPort = 5160; HttpsPort = $EstimatingHttpsPort; PermanentHttpsOrigin = 'https://estimating.hub.son4l.local'; DenialCode = 'EstimatingAccessDenied' },
+    [pscustomobject]@{ Key = 'quality-assurance'; ExpectationKey = 'quality-assurance'; Name = 'Quality Assurance'; BasePath = ''; HttpPort = 5170; HttpsPort = $QualityAssuranceHttpsPort; PermanentHttpsOrigin = 'https://quality.hub.son4l.local'; DenialCode = 'QualityAssuranceAccessDenied' }
 )
 
 $report = foreach ($module in $modules) {
-    $selectedPort = if ($Scheme -eq 'https') { $module.HttpsPort } else { $module.HttpPort }
-    $baseUri = '{0}://{1}:{2}' -f $Scheme, $ServerName, $selectedPort
-    $health = Invoke-HubRequest -Uri "$baseUri/api/health"
+    $baseUri = if ($PermanentHttps) { $module.PermanentHttpsOrigin } else {
+        $selectedPort = if ($Scheme -eq 'https') { $module.HttpsPort } else { $module.HttpPort }
+        '{0}://{1}:{2}' -f $Scheme, $ServerName, $selectedPort
+    }
+    $endpointRoot = "$baseUri$($module.BasePath)"
+    $health = Invoke-HubRequest -Uri "$endpointRoot/api/health"
     if ($health.StatusCode -ne 200) {
         $failures.Add("$($module.Name) health failed: HTTP $($health.StatusCode) $($health.Error)")
     }
 
-    $me = Invoke-HubRequest -Uri "$baseUri/api/me"
+    $me = Invoke-HubRequest -Uri "$endpointRoot/api/me"
     $hasAccess = $me.StatusCode -eq 200
     if ($module.Key -eq 'portal' -and -not $hasAccess) {
         $failures.Add("Portal /api/me returned HTTP $($me.StatusCode); every domain employee must authenticate to the Portal with HTTP 200.")
@@ -336,7 +355,7 @@ $report = foreach ($module in $modules) {
         }
     }
 
-    switch ($module.Key) {
+    switch ($module.ExpectationKey) {
         'portal' {
             if ($PSBoundParameters.ContainsKey('ExpectedPortalRole')) {
                 if ($hasAccess -and $payload.role -ine $ExpectedPortalRole) {
