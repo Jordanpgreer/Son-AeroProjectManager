@@ -114,13 +114,13 @@ public sealed class ModuleAccessServiceTests
             fixture.Service.SetAsync(fixture.Db, user.Id, "unknown", true, ApplicationRoles.Viewer));
         await Assert.ThrowsAsync<ModuleAccessValidationException>(() =>
             fixture.Service.SetAsync(fixture.Db, user.Id, ApplicationModules.Engineering, true, "Owner"));
-        await Assert.ThrowsAsync<ModuleAccessValidationException>(() =>
-            fixture.Service.SetAsync(
-                fixture.Db,
-                user.Id,
-                ApplicationModules.QualityAssurance,
-                true,
-                ApplicationRoles.Viewer));
+        await fixture.Service.SetAsync(
+            fixture.Db,
+            user.Id,
+            ApplicationModules.QualityAssurance,
+            true,
+            ApplicationRoles.Viewer);
+        AssertAssignment(fixture.Db, user.Id, ApplicationModules.QualityAssurance, ApplicationRoles.Viewer);
     }
 
     [Fact]

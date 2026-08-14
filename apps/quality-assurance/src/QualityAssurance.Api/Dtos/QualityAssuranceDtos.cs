@@ -5,6 +5,7 @@ public sealed record MeDto(
     string DisplayName,
     string ModuleKey,
     string Role,
-    IReadOnlyList<string> Permissions);
+    IReadOnlyList<string> Permissions,
+    IReadOnlyList<string> Groups);
 
 public sealed record ErrorDto(string Code, string Message);

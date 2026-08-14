@@ -23,7 +23,7 @@ public sealed class QualityAssuranceUserService(
         accountName = WindowsAccountNames.Normalize(accountName);
         return accountName is null
             ? null
-            : await accessStore.FindAdministratorAsync(accountName, cancellationToken);
+            : await accessStore.FindAccessAsync(accountName, cancellationToken);
     }
 
     public static MeDto Current(QualityAssuranceAccessProfile access) => new(
@@ -31,5 +31,6 @@ public sealed class QualityAssuranceUserService(
         access.DisplayName,
         ApplicationModules.QualityAssurance,
         access.Role,
-        [QualityAssurancePermissions.View]);
+        access.Permissions,
+        access.Groups.Select(group => group.Name).ToList());
 }

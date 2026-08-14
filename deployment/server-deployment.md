@@ -135,7 +135,7 @@ Copy the matching file from `deployment\templates` into each stable site folder 
 | Portal | `portal...json` | Confirm SON-IIS2 module URLs and the Engineering drawings UNC share |
 | EngineeringHub | `engineering-hub...json` | Confirm the `\\SON-SQL2\EngineeringDrawings$` share |
 | EstimatingDashboard | `estimating-dashboard...json` | Confirm SQL port/instance |
-| QualityAssurance | `quality-assurance...json` | Confirm SQL port/instance |
+| QualityAssurance | `quality-assurance...json` | Confirm SQL port/instance and create/grant the `QualityAssurance` database |
 
 All templates already target SON-SQL2. The Project Tracker template bootstraps
 `SON4L\jordan.greer` as the first administrator. Change it only if a different account should

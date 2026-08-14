@@ -45,7 +45,9 @@ public sealed class PortalUserServiceTests
         Assert.Equal("Jane Doe", me.DisplayName);
         Assert.Equal("Editor", me.Role);
         Assert.All(me.Modules, module => Assert.Equal("Editor", module.Role));
-        Assert.DoesNotContain(me.Modules, module => module.ModuleKey == "quality-assurance");
+        Assert.Contains(me.Modules, module =>
+            module.ModuleKey == "quality-assurance"
+            && module.Permissions.Contains("quality-assurance.shipments.create"));
     }
 
     [Fact]
@@ -75,7 +77,7 @@ public sealed class PortalUserServiceTests
     }
 
     [Fact]
-    public async Task Current_IgnoresUnsupportedModuleRoleAssignments()
+    public async Task Current_SupportsQualityViewerAssignments()
     {
         var configuration = BuildConfiguration("""
         { "Authentication": { "Mode": "Windows" }, "Portal": {} }
@@ -92,7 +94,10 @@ public sealed class PortalUserServiceTests
                 "Viewer",
                 new Dictionary<string, string> { ["quality-assurance"] = "Viewer" }));
 
-        Assert.Empty((await service.CurrentAsync()).Modules);
+        var module = Assert.Single((await service.CurrentAsync()).Modules);
+        Assert.Equal("quality-assurance", module.ModuleKey);
+        Assert.Equal("Viewer", module.Role);
+        Assert.Contains("quality-assurance.shipments.view", module.Permissions);
     }
 
     [Fact]

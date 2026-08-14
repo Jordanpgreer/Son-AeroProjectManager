@@ -19,7 +19,7 @@ SonAeroInternalHub/
 │   │   ├── src/ tests/
 │   │   └── README.md
 │   ├── estimating-dashboard/   # estimating workspace
-│   ├── quality-assurance/      # admin-only quality workspace
+│   ├── quality-assurance/      # shipping status and quality workflow
 │   └── portal/                 # internal application launcher
 │       ├── src/ tests/
 │       └── PortalApp.sln
@@ -44,7 +44,7 @@ SonAeroInternalHub/
 | Project Tracker | http://localhost:5135 | First registered application |
 | Engineering Hub | http://localhost:5150 | Admin-only engineering module under test |
 | Estimating Dashboard | http://localhost:5160 | Quote calculations and estimating-rate reference |
-| Quality Assurance | http://localhost:5170 | Admin-only quality Dashboard |
+| Quality Assurance | http://localhost:5170 | Permission-controlled Shipping Status workflow |
 
 ## Prerequisites
 

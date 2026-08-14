@@ -60,8 +60,10 @@ param(
     [string[]]$ExpectedEstimatingPermissions,
 
     [Parameter(Mandatory = $true)]
-    [ValidateSet('Admin', 'NoAccess')]
+    [ValidateSet('Viewer', 'Editor', 'Admin', 'NoAccess')]
     [string]$ExpectedQualityAssuranceRole,
+
+    [string[]]$ExpectedQualityAssurancePermissions,
 
     [ValidateRange(2, 60)]
     [int]$TimeoutSeconds = 15
@@ -251,7 +253,57 @@ function Get-RolePermissions {
         return $permissions
     }
     if ($ModuleKey -eq 'quality-assurance') {
-        return @('quality-assurance.view')
+        $permissions = @(
+            'quality-assurance.view',
+            'quality-assurance.shipments.view',
+            'quality-assurance.assignments.view',
+            'quality-assurance.fields.status.view',
+            'quality-assurance.fields.sales-order.view',
+            'quality-assurance.fields.qa-arrival-date.view',
+            'quality-assurance.fields.part-number.view',
+            'quality-assurance.fields.purchase-order.view',
+            'quality-assurance.fields.customer.view',
+            'quality-assurance.fields.task-type.view',
+            'quality-assurance.fields.quantity.view',
+            'quality-assurance.fields.dollar-value.view',
+            'quality-assurance.fields.ship-date.view',
+            'quality-assurance.fields.hold-reason.view',
+            'quality-assurance.fields.source-requested-date.view',
+            'quality-assurance.fields.action.view',
+            'quality-assurance.fields.last-worked.view',
+            'quality-assurance.fields.comments.view'
+        )
+        if ($Role -in @('Editor', 'Admin')) {
+            $permissions += @(
+                'quality-assurance.shipments.create',
+                'quality-assurance.shipments.mark-shipped',
+                'quality-assurance.audit.view',
+                'quality-assurance.fields.status.edit',
+                'quality-assurance.fields.sales-order.edit',
+                'quality-assurance.fields.qa-arrival-date.edit',
+                'quality-assurance.fields.part-number.edit',
+                'quality-assurance.fields.purchase-order.edit',
+                'quality-assurance.fields.customer.edit',
+                'quality-assurance.fields.task-type.edit',
+                'quality-assurance.fields.quantity.edit',
+                'quality-assurance.fields.dollar-value.edit',
+                'quality-assurance.fields.ship-date.edit',
+                'quality-assurance.fields.hold-reason.edit',
+                'quality-assurance.fields.source-requested-date.edit',
+                'quality-assurance.fields.action.edit',
+                'quality-assurance.fields.comments.edit'
+            )
+        }
+        if ($Role -eq 'Admin') {
+            $permissions += @(
+                'quality-assurance.shipments.view-all',
+                'quality-assurance.dashboard.team-view',
+                'quality-assurance.assignments.group',
+                'quality-assurance.assignments.user',
+                'quality-assurance.rules.manage'
+            )
+        }
+        return $permissions
     }
     throw "Unknown module key '$ModuleKey'."
 }
@@ -298,6 +350,11 @@ if ($ExpectedEstimatingRole -eq 'NoAccess' -and
     $PSBoundParameters.ContainsKey('ExpectedEstimatingPermissions') -and
     (Normalize-Set $ExpectedEstimatingPermissions).Count -gt 0) {
     throw 'Non-empty Estimating permissions cannot be expected with the NoAccess role.'
+}
+if ($ExpectedQualityAssuranceRole -eq 'NoAccess' -and
+    $PSBoundParameters.ContainsKey('ExpectedQualityAssurancePermissions') -and
+    (Normalize-Set $ExpectedQualityAssurancePermissions).Count -gt 0) {
+    throw 'Non-empty Quality Assurance permissions cannot be expected with the NoAccess role.'
 }
 
 if ($PermanentHttps) {
@@ -370,7 +427,7 @@ $report = foreach ($module in $modules) {
                         continue
                     }
                     $expectedRole = [string]$ExpectedPortalModuleRoles[$key]
-                    $validRoles = if ($key -eq 'quality-assurance') { @('Admin', 'NoAccess') } else { @('Viewer', 'Editor', 'Admin', 'NoAccess') }
+                    $validRoles = @('Viewer', 'Editor', 'Admin', 'NoAccess')
                     if ($expectedRole -notin $validRoles) {
                         $failures.Add("Invalid expected portal role '$expectedRole' for $key.")
                         continue
@@ -472,13 +529,18 @@ $report = foreach ($module in $modules) {
             if ($ExpectedQualityAssuranceRole -eq 'NoAccess') {
                 Test-ExpectedDenial -Response $me -Label 'Quality Assurance' -ExpectedCode $module.DenialCode
             } elseif (-not $hasAccess) {
-                $failures.Add("Quality Assurance returned HTTP $($me.StatusCode); expected HTTP 200 for Admin access.")
+                $failures.Add("Quality Assurance returned HTTP $($me.StatusCode); expected HTTP 200 for role $ExpectedQualityAssuranceRole.")
             } else {
-                if ($payload.role -ine 'Admin') {
-                    $failures.Add("Quality Assurance role '$($payload.role)' does not match 'Admin'.")
+                if ($payload.role -ine $ExpectedQualityAssuranceRole) {
+                    $failures.Add("Quality Assurance role '$($payload.role)' does not match '$ExpectedQualityAssuranceRole'.")
+                }
+                $expectedPermissions = if ($PSBoundParameters.ContainsKey('ExpectedQualityAssurancePermissions')) {
+                    $ExpectedQualityAssurancePermissions
+                } else {
+                    Get-RolePermissions -ModuleKey quality-assurance -Role $ExpectedQualityAssuranceRole
                 }
                 Test-ExactSet -Actual $payload.permissions `
-                    -Expected (Get-RolePermissions -ModuleKey quality-assurance -Role Admin) `
+                    -Expected $expectedPermissions `
                     -Label 'Quality Assurance permissions'
             }
         }

@@ -21,6 +21,7 @@ public sealed class QualityAssuranceAccessDbContext(
             entity.Property(user => user.AccountName).HasMaxLength(160);
             entity.Property(user => user.DisplayName).HasMaxLength(160);
             entity.Property(user => user.PortalRole).HasColumnName("Role").HasMaxLength(32);
+            entity.Property(user => user.LastSeenAt);
             entity.HasMany(user => user.GroupMemberships)
                 .WithOne(membership => membership.User)
                 .HasForeignKey(membership => membership.AppUserId);
@@ -30,6 +31,8 @@ public sealed class QualityAssuranceAccessDbContext(
         {
             entity.ToTable("Groups");
             entity.HasKey(group => group.Id);
+            entity.Property(group => group.Name).HasMaxLength(120);
+            entity.Property(group => group.Description).HasMaxLength(500);
             entity.HasMany(group => group.UserMemberships)
                 .WithOne(membership => membership.Group)
                 .HasForeignKey(membership => membership.AppGroupId);
@@ -71,6 +74,7 @@ public sealed class QualityAssuranceUserRecord
     public string DisplayName { get; set; } = string.Empty;
     public string PortalRole { get; set; } = string.Empty;
     public bool IsActive { get; set; }
+    public DateTimeOffset LastSeenAt { get; set; }
     public ICollection<QualityAssuranceModuleAccessRecord> ModuleAccesses { get; set; } = [];
     public ICollection<QualityAssuranceUserGroupMembershipRecord> GroupMemberships { get; set; } = [];
 }
@@ -86,6 +90,8 @@ public sealed class QualityAssuranceModuleAccessRecord
 public sealed class QualityAssuranceAccessGroupRecord
 {
     public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Description { get; set; }
     public ICollection<QualityAssuranceUserGroupMembershipRecord> UserMemberships { get; set; } = [];
     public ICollection<QualityAssuranceGroupPermissionRecord> Permissions { get; set; } = [];
 }
