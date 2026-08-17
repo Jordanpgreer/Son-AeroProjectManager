@@ -253,7 +253,7 @@ api.MapGet("/users/mentions", async (ProjectTrackerDbContext db, CancellationTok
     return users.Select(user => new MentionableUserDto(user.AccountName, user.DisplayName, MentionNotificationService.MentionHandle(user.AccountName))).ToList();
 });
 
-api.MapPost("/projects", async (ProjectCreateDto dto, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
+api.MapPost("/projects", async (ProjectCreateDto dto, ProjectTrackerDbContext db, CurrentUserService currentUser, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
     if (string.IsNullOrWhiteSpace(dto.ProgramName))
     {
@@ -264,6 +264,20 @@ api.MapPost("/projects", async (ProjectCreateDto dto, ProjectTrackerDbContext db
     if (await db.Projects.AnyAsync(project => project.ProgramName == programName, cancellationToken))
     {
         return Results.Conflict("A project with this part number already exists.");
+    }
+
+    if ((!string.IsNullOrWhiteSpace(dto.SalesOrderUrl) || !string.IsNullOrWhiteSpace(dto.JobUrl))
+        && !currentUser.HasPermission(ProjectTrackerPermissions.ProjectEditExternalLinks))
+    {
+        return Results.Forbid();
+    }
+    if (!ProjectExternalLinks.TryNormalize(dto.SalesOrderUrl, "Sales order URL", out var salesOrderUrl, out var salesOrderUrlError))
+    {
+        return Results.BadRequest(salesOrderUrlError);
+    }
+    if (!ProjectExternalLinks.TryNormalize(dto.JobUrl, "Job URL", out var jobUrl, out var jobUrlError))
+    {
+        return Results.BadRequest(jobUrlError);
     }
 
     var nextPriority = (await db.Projects
@@ -278,7 +292,9 @@ api.MapPost("/projects", async (ProjectCreateDto dto, ProjectTrackerDbContext db
         Engineer = Clean(dto.Engineer),
         CustomerName = Clean(dto.CustomerName),
         SalesOrderNumber = Clean(dto.SalesOrderNumber),
+        SalesOrderUrl = salesOrderUrl,
         JobNumber = Clean(dto.JobNumber),
+        JobUrl = jobUrl,
         ProgramStart = dto.ProgramStart,
         PriorityRank = nextPriority
     };
@@ -343,14 +359,22 @@ api.MapPut("/projects/{id:int}", async (int id, ProjectUpsertDto dto, ProjectTra
     {
         return ConcurrencyConflict("Project", project.Id);
     }
-    var deniedProjectPermission = FindDeniedProjectPermission(project, dto, currentUser);
+    if (!ProjectExternalLinks.TryNormalize(dto.SalesOrderUrl, "Sales order URL", out var salesOrderUrl, out var salesOrderUrlError))
+    {
+        return Results.BadRequest(salesOrderUrlError);
+    }
+    if (!ProjectExternalLinks.TryNormalize(dto.JobUrl, "Job URL", out var jobUrl, out var jobUrlError))
+    {
+        return Results.BadRequest(jobUrlError);
+    }
+    var deniedProjectPermission = FindDeniedProjectPermission(project, dto, salesOrderUrl, jobUrl, currentUser);
     if (deniedProjectPermission is not null)
     {
         return Results.Forbid();
     }
 
     var before = ProjectAuditService.CaptureProject(project);
-    ApplyProjectDto(project, dto);
+    ApplyProjectDto(project, dto, salesOrderUrl, jobUrl);
     project.Version++;
     await metrics.RefreshProjectAsync(db, project, cancellationToken);
     var changes = ProjectAuditService.Diff(before, ProjectAuditService.CaptureProject(project));
@@ -868,7 +892,7 @@ app.MapFallbackToFile("index.html");
 
 app.Run();
 
-static void ApplyProjectDto(Project project, ProjectUpsertDto dto)
+static void ApplyProjectDto(Project project, ProjectUpsertDto dto, string? salesOrderUrl, string? jobUrl)
 {
     if (string.IsNullOrWhiteSpace(dto.ProgramName))
     {
@@ -880,7 +904,9 @@ static void ApplyProjectDto(Project project, ProjectUpsertDto dto)
     project.Engineer = Clean(dto.Engineer);
     project.CustomerName = Clean(dto.CustomerName);
     project.SalesOrderNumber = Clean(dto.SalesOrderNumber);
+    project.SalesOrderUrl = salesOrderUrl;
     project.JobNumber = Clean(dto.JobNumber);
+    project.JobUrl = jobUrl;
     ProjectImportCompletion.Refresh(project);
     project.UpdatedAt = DateTimeOffset.UtcNow;
 }
@@ -1114,7 +1140,9 @@ static async Task InitializeDatabaseAsync(WebApplication app)
             await SqliteCompatibility.EnsureLongColumnAsync(db, "Tasks", "Version", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "CustomerName", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "SalesOrderNumber", cancellationToken: default);
+            await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "SalesOrderUrl", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "JobNumber", cancellationToken: default);
+            await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "JobUrl", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "CompletedOn", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "DeletedAt", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "DeletedByAccountName", cancellationToken: default);
@@ -1179,7 +1207,12 @@ static async Task BackfillCompletedDatesAsync(ProjectTrackerDbContext db, Cancel
     }
 }
 
-static string? FindDeniedProjectPermission(Project project, ProjectUpsertDto dto, CurrentUserService currentUser)
+static string? FindDeniedProjectPermission(
+    Project project,
+    ProjectUpsertDto dto,
+    string? salesOrderUrl,
+    string? jobUrl,
+    CurrentUserService currentUser)
 {
     if (!string.Equals(project.ProgramName, dto.ProgramName?.Trim(), StringComparison.Ordinal)
         && !currentUser.HasPermission(ApplicationPermissions.ProjectEditProgramName))
@@ -1215,6 +1248,16 @@ static string? FindDeniedProjectPermission(Project project, ProjectUpsertDto dto
         && !currentUser.HasPermission(ProjectTrackerPermissions.ProjectEditJobNumber))
     {
         return ProjectTrackerPermissions.ProjectEditJobNumber;
+    }
+
+    var deniedExternalLinksPermission = ProjectExternalLinks.FindDeniedEditPermission(
+        project,
+        salesOrderUrl,
+        jobUrl,
+        currentUser.HasPermission);
+    if (deniedExternalLinksPermission is not null)
+    {
+        return deniedExternalLinksPermission;
     }
 
     return null;

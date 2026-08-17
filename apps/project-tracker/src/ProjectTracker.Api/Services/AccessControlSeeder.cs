@@ -10,6 +10,7 @@ namespace ProjectTracker.Api.Services;
 public sealed class AccessControlSeeder
 {
     private const string SharedModuleGroupsVersion = "shared-module-groups-v1";
+    private const string ProjectExternalLinksPermissionVersion = "project-external-links-permission-v1";
 
     public async Task SeedAsync(
         ProjectTrackerDbContext db,
@@ -25,6 +26,19 @@ public sealed class AccessControlSeeder
             db,
             migrateSharedModuleAccess,
             cancellationToken);
+        var addProjectExternalLinksPermission = !await HasVersionAsync(
+            db,
+            ProjectExternalLinksPermissionVersion,
+            cancellationToken);
+        if (addProjectExternalLinksPermission)
+        {
+            await AddPermissionsToGroupAsync(
+                db,
+                groupIds[ApplicationGroups.Administrators],
+                [ProjectTrackerPermissions.ProjectEditExternalLinks],
+                cancellationToken);
+            await RecordVersionAsync(db, ProjectExternalLinksPermissionVersion, cancellationToken);
+        }
         var existingUsers = await db.Users
             .Include(user => user.GroupMemberships)
             .ToDictionaryAsync(user => user.AccountName, StringComparer.OrdinalIgnoreCase, cancellationToken);
@@ -46,6 +60,23 @@ public sealed class AccessControlSeeder
             await MigrateLegacyModuleAssignmentsAsync(db, cancellationToken);
             await RecordVersionAsync(db, SharedModuleGroupsVersion, cancellationToken);
         }
+    }
+
+    private static async Task AddPermissionsToGroupAsync(
+        ProjectTrackerDbContext db,
+        int groupId,
+        IReadOnlyCollection<string> permissions,
+        CancellationToken cancellationToken)
+    {
+        var group = await db.Groups
+            .Include(candidate => candidate.Permissions)
+            .SingleAsync(candidate => candidate.Id == groupId, cancellationToken);
+        foreach (var permission in permissions.Where(permission => group.Permissions.All(existing =>
+                     !string.Equals(existing.PermissionKey, permission, StringComparison.OrdinalIgnoreCase))))
+        {
+            group.Permissions.Add(new AppGroupPermission { PermissionKey = permission });
+        }
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     private static async Task<Dictionary<string, int>> EnsureDefaultGroupsAsync(

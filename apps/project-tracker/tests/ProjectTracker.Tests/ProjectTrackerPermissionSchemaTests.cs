@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Metadata;
 using ProjectTracker.Api.Auth;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Models;
+using ProjectTracker.Api.Services;
 using SonAero.Platform.Security;
 
 namespace ProjectTracker.Tests;
@@ -17,6 +18,15 @@ public sealed class ProjectTrackerPermissionSchemaTests
             permission.Key == ProjectTrackerPermissions.ProjectActivityView
             && permission.Label == "View Project Activity");
         Assert.Contains(ProjectTrackerPermissions.AllKeys, key => key == ProjectTrackerPermissions.ProjectEditJobNumber);
+        Assert.Contains(ProjectTrackerPermissions.All, permission =>
+            permission.Key == ProjectTrackerPermissions.ProjectEditExternalLinks
+            && permission.Label == "Edit SO / Job Links");
+        Assert.Contains(
+            ProjectTrackerPermissions.ProjectEditExternalLinks,
+            ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Administrators));
+        Assert.DoesNotContain(
+            ProjectTrackerPermissions.ProjectEditExternalLinks,
+            ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Managers));
     }
 
     [Fact]
@@ -35,6 +45,8 @@ public sealed class ProjectTrackerPermissionSchemaTests
             DeleteBehavior.NoAction,
             notification.GetForeignKeys().Single(key => key.Properties.Single().Name == nameof(UserNotification.ProjectMessageId)).DeleteBehavior);
         Assert.Equal(80, db.Model.FindEntityType(typeof(Project))!.FindProperty(nameof(Project.JobNumber))!.GetMaxLength());
+        Assert.Equal(ProjectExternalLinks.MaxLength, db.Model.FindEntityType(typeof(Project))!.FindProperty(nameof(Project.SalesOrderUrl))!.GetMaxLength());
+        Assert.Equal(ProjectExternalLinks.MaxLength, db.Model.FindEntityType(typeof(Project))!.FindProperty(nameof(Project.JobUrl))!.GetMaxLength());
     }
 
     [Fact]

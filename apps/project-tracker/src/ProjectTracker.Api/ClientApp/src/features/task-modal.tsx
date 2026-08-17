@@ -43,12 +43,14 @@ export function AddProjectWizard({
   projects,
   defaultManager,
   scheduleSettings,
+  canEditExternalLinks,
   onClose,
   onCreate,
 }: {
   projects: ProjectDetail[]
   defaultManager: string
   scheduleSettings: ScheduleSettings
+  canEditExternalLinks: boolean
   onClose: () => void
   onCreate: (request: ProjectCreateRequest) => Promise<void>
 }) {
@@ -60,7 +62,9 @@ export function AddProjectWizard({
     programName: '',
     customerName: '',
     salesOrderNumber: '',
+    salesOrderUrl: '',
     jobNumber: '',
+    jobUrl: '',
     programManager: defaultManager,
     programStart: todayIso(),
     templateProjectId: '',
@@ -79,7 +83,9 @@ export function AddProjectWizard({
         programName: form.programName.trim(),
         customerName: form.customerName.trim() || null,
         salesOrderNumber: form.salesOrderNumber.trim() || null,
+        salesOrderUrl: canEditExternalLinks ? form.salesOrderUrl.trim() || null : null,
         jobNumber: form.jobNumber.trim() || null,
+        jobUrl: canEditExternalLinks ? form.jobUrl.trim() || null : null,
         programManager: form.programManager.trim() || null,
         programStart: form.programStart || null,
         templateProjectId: sourceMode === 'copy' ? Number(form.templateProjectId) : null,
@@ -117,6 +123,13 @@ export function AddProjectWizard({
                 <label className="field"><span>Project Manager</span><input value={form.programManager} onChange={(event) => setForm({ ...form, programManager: event.target.value })} placeholder="Project owner" /></label>
               </div>
               <label className="field"><span>Job Number</span><input className="technical-id-input" value={form.jobNumber} onChange={(event) => setForm({ ...form, jobNumber: event.target.value })} placeholder="Optional internal job number" /></label>
+              {canEditExternalLinks && (
+                <div className="field-row">
+                  <label className="field"><span>Sales Order Link</span><input type="url" value={form.salesOrderUrl} onChange={(event) => setForm({ ...form, salesOrderUrl: event.target.value })} placeholder="https://... (optional)" /></label>
+                  <label className="field"><span>Job Link</span><input type="url" value={form.jobUrl} onChange={(event) => setForm({ ...form, jobUrl: event.target.value })} placeholder="https://... (optional)" /></label>
+                </div>
+              )}
+              {canEditExternalLinks && <p className="field-hint">Links are optional and must use HTTPS. They open only when someone clicks the displayed SO or job number.</p>}
             </section>
           )}
 
@@ -154,6 +167,8 @@ export function AddProjectWizard({
               <div><span>Customer</span><strong>{form.customerName || 'Not set'}</strong></div>
               <div><span>Sales Order</span><strong className={form.salesOrderNumber ? 'technical-id' : undefined}>{form.salesOrderNumber || 'Not set'}</strong></div>
               <div><span>Job Number</span><strong className={form.jobNumber ? 'technical-id' : undefined}>{form.jobNumber || 'Not set'}</strong></div>
+              {canEditExternalLinks && <div><span>Sales Order Link</span><strong>{form.salesOrderUrl ? 'Configured' : 'Not set'}</strong></div>}
+              {canEditExternalLinks && <div><span>Job Link</span><strong>{form.jobUrl ? 'Configured' : 'Not set'}</strong></div>}
               <div><span>Project Manager</span><strong>{form.programManager || 'Unassigned'}</strong></div>
               <div><span>Start Date</span><strong>{compactDate(form.programStart)}</strong></div>
               <div><span>Operations</span><strong>{sourceMode === 'copy' ? `${template?.tasks.length ?? 0} copied from ${template?.programName}` : 'Blank schedule'}</strong></div>

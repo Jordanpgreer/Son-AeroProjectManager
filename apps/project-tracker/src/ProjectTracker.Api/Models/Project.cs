@@ -10,7 +10,9 @@ public sealed class Project
     public string? Engineer { get; set; }
     public string? CustomerName { get; set; }
     public string? SalesOrderNumber { get; set; }
+    public string? SalesOrderUrl { get; set; }
     public string? JobNumber { get; set; }
+    public string? JobUrl { get; set; }
     public DateOnly? ProgramStart { get; set; }
     public DateOnly? TargetDelivery { get; set; }
     public DateOnly? CompletedOn { get; set; }

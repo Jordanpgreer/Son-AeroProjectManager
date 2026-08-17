@@ -185,6 +185,21 @@ function latestDate(values: Array<string | null>) {
   return values.filter((value): value is string => Boolean(value)).sort().at(-1) ?? null
 }
 
+function ExternalProjectReference({ value, url }: { value: string; url: string | null | undefined }) {
+  if (!url) return <b className="technical-id">{value}</b>
+  return (
+    <a
+      className="technical-id external-reference-link"
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="Open external record in a new tab"
+    >
+      {value}
+    </a>
+  )
+}
+
 
 export function ProjectView({
   project,
@@ -248,6 +263,7 @@ export function ProjectView({
   const [noteSaveError, setNoteSaveError] = useState<string | null>(null)
   const isCompleted = project.status === 'Complete'
   const canEditMetadata = !isCompleted && hasAnyPermission(permissions, projectMetadataEditPermissions)
+  const canEditExternalLinks = !isCompleted && hasPermission(permissions, permissionKeys.projectEditExternalLinks)
   const canEditTaskFields = !isCompleted && hasAnyPermission(permissions, taskFieldEditPermissions)
   const canCreateTask = !isCompleted && hasPermission(permissions, permissionKeys.taskCreate)
   const canDeleteTask = !isCompleted && hasPermission(permissions, permissionKeys.taskDelete)
@@ -353,8 +369,8 @@ export function ProjectView({
               {!editMode && <span><i>Lead</i> {project.programManager || 'Unassigned'}</span>}
               {!editMode && <span><i>Eng</i> {project.engineer || 'Unassigned'}</span>}
                {!editMode && <span><i>Customer</i> {project.customerName || 'Not set'}</span>}
-               {!editMode && <span><i>SO</i> {project.salesOrderNumber ? <b className="technical-id">{project.salesOrderNumber}</b> : <b>Not set</b>}</span>}
-               {!editMode && <span><i>Job</i> {project.jobNumber ? <b className="technical-id">{project.jobNumber}</b> : <b>Not set</b>}</span>}
+               {!editMode && <span><i>SO</i> {project.salesOrderNumber ? <ExternalProjectReference value={project.salesOrderNumber} url={project.salesOrderUrl} /> : <b>Not set</b>}</span>}
+               {!editMode && <span><i>Job</i> {project.jobNumber ? <ExternalProjectReference value={project.jobNumber} url={project.jobUrl} /> : <b>Not set</b>}</span>}
                <span><i>Target</i> <b className="cell-mono">{compactDate(project.targetDelivery)}</b></span>
             </span>
           </div>
@@ -415,6 +431,26 @@ export function ProjectView({
                   title={!hasPermission(permissions, permissionKeys.projectEditJobNumber) ? 'Your access group does not allow editing Job Number' : undefined}
                 />
               </label>
+              {canEditExternalLinks && <label>
+                <span>Sales Order Link</span>
+                <input
+                  className="cell-input"
+                  type="url"
+                  value={projectMetadata.salesOrderUrl}
+                  onChange={(event) => onProjectMetadataChange({ ...projectMetadata, salesOrderUrl: event.target.value })}
+                  placeholder="https://... (optional)"
+                />
+              </label>}
+              {canEditExternalLinks && <label>
+                <span>Job Link</span>
+                <input
+                  className="cell-input"
+                  type="url"
+                  value={projectMetadata.jobUrl}
+                  onChange={(event) => onProjectMetadataChange({ ...projectMetadata, jobUrl: event.target.value })}
+                  placeholder="https://... (optional)"
+                />
+              </label>}
               <div className="project-detail-save-row">
                 <div className={`project-detail-save-state ${projectMetadataDirty ? 'unsaved' : 'saved'}`} role="status">
                   {projectMetadataDirty ? <AlertTriangle size={14} /> : <Check size={14} />}
