@@ -63,6 +63,11 @@ public static class NotificationEndpoints
             NotificationReadService notificationReader,
             CancellationToken cancellationToken) =>
         {
+            if (currentUser.IsAccessPreview)
+            {
+                return Results.Forbid();
+            }
+
             var userId = await CurrentUserIdAsync(db, currentUser, cancellationToken);
             if (userId is null)
             {
@@ -87,6 +92,11 @@ public static class NotificationEndpoints
             NotificationReadService notificationReader,
             CancellationToken cancellationToken) =>
         {
+            if (currentUser.IsAccessPreview)
+            {
+                return Results.Forbid();
+            }
+
             var userId = await CurrentUserIdAsync(db, currentUser, cancellationToken);
             if (userId is null)
             {
@@ -97,6 +107,54 @@ public static class NotificationEndpoints
                 userId.Value,
                 currentUser.AccountName,
                 cancellationToken);
+            return Results.NoContent();
+        });
+
+        api.MapDelete("/notifications/{id:int}", async (
+            int id,
+            ProjectTrackerDbContext db,
+            CurrentUserService currentUser,
+            NotificationReadService notificationReader,
+            CancellationToken cancellationToken) =>
+        {
+            if (currentUser.IsAccessPreview)
+            {
+                return Results.Forbid();
+            }
+
+            var userId = await CurrentUserIdAsync(db, currentUser, cancellationToken);
+            if (userId is null)
+            {
+                return Results.Forbid();
+            }
+
+            var deleted = await notificationReader.DeleteAsync(id, userId.Value, cancellationToken);
+            if (!deleted)
+            {
+                return Results.NotFound();
+            }
+
+            return Results.NoContent();
+        });
+
+        api.MapDelete("/notifications", async (
+            ProjectTrackerDbContext db,
+            CurrentUserService currentUser,
+            NotificationReadService notificationReader,
+            CancellationToken cancellationToken) =>
+        {
+            if (currentUser.IsAccessPreview)
+            {
+                return Results.Forbid();
+            }
+
+            var userId = await CurrentUserIdAsync(db, currentUser, cancellationToken);
+            if (userId is null)
+            {
+                return Results.Forbid();
+            }
+
+            await notificationReader.DeleteAllAsync(userId.Value, cancellationToken);
             return Results.NoContent();
         });
 

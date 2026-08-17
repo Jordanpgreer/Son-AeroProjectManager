@@ -8,6 +8,7 @@ namespace Portal.Api.Services;
 public interface IPortalRoleStore
 {
     Task<string?> FindRoleAsync(string accountName, CancellationToken cancellationToken = default);
+    Task<string?> FindDisplayNameAsync(string accountName, CancellationToken cancellationToken = default);
     Task<IReadOnlyDictionary<string, string>> FindModuleRolesAsync(
         string accountName,
         CancellationToken cancellationToken = default);
@@ -15,6 +16,24 @@ public interface IPortalRoleStore
 
 public sealed class PortalRoleStore(PortalRoleDbContext db, ILogger<PortalRoleStore> logger) : IPortalRoleStore
 {
+    public async Task<string?> FindDisplayNameAsync(string accountName, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var lookupKeys = WindowsAccountNames.LookupKeys(accountName);
+            return await db.Users
+                .AsNoTracking()
+                .Where(user => user.IsActive && lookupKeys.Contains(user.AccountName.ToUpper()))
+                .Select(user => user.DisplayName)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is DbException or InvalidOperationException)
+        {
+            logger.LogWarning(exception, "The shared application user store is unavailable; the Windows account name will be used as a fallback.");
+            return null;
+        }
+    }
+
     public async Task<string?> FindRoleAsync(string accountName, CancellationToken cancellationToken = default)
     {
         try

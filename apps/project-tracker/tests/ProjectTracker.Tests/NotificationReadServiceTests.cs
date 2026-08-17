@@ -177,6 +177,78 @@ public sealed class NotificationReadServiceTests
         Assert.Null(readStates[2]);
     }
 
+    [Fact]
+    public async Task DeleteAsync_deletes_only_the_matching_recipients_notification()
+    {
+        await using var db = CreateDb();
+        await db.Database.EnsureCreatedAsync();
+
+        var firstUser = new AppUser { AccountName = @"TEST\First", DisplayName = "First" };
+        var secondUser = new AppUser { AccountName = @"TEST\Second", DisplayName = "Second" };
+        var project = new Project { ProgramName = "DELETE-ONE-TEST" };
+        var message = new ProjectMessage
+        {
+            Project = project,
+            AuthorAccountName = @"TEST\Author",
+            AuthorDisplayName = "Author",
+            Body = "Delete one"
+        };
+        db.AddRange(firstUser, secondUser, project, message);
+        await db.SaveChangesAsync();
+
+        var firstNotification = CreateNotification(firstUser.Id, project.Id, message.Id, "First", DateTimeOffset.UtcNow);
+        var secondNotification = CreateNotification(secondUser.Id, project.Id, message.Id, "Second", DateTimeOffset.UtcNow);
+        db.UserNotifications.AddRange(firstNotification, secondNotification);
+        await db.SaveChangesAsync();
+
+        var service = new NotificationReadService(db);
+        Assert.False(await service.DeleteAsync(secondNotification.Id, firstUser.Id));
+        Assert.True(await service.DeleteAsync(firstNotification.Id, firstUser.Id));
+        Assert.False(await service.DeleteAsync(firstNotification.Id, firstUser.Id));
+
+        var remaining = await db.UserNotifications
+            .IgnoreQueryFilters()
+            .Select(notification => notification.Id)
+            .ToListAsync();
+        Assert.Equal([secondNotification.Id], remaining);
+    }
+
+    [Fact]
+    public async Task DeleteAllAsync_deletes_all_rows_for_the_recipient_only()
+    {
+        await using var db = CreateDb();
+        await db.Database.EnsureCreatedAsync();
+
+        var firstUser = new AppUser { AccountName = @"TEST\First", DisplayName = "First" };
+        var secondUser = new AppUser { AccountName = @"TEST\Second", DisplayName = "Second" };
+        var project = new Project { ProgramName = "DELETE-ALL-TEST" };
+        var message = new ProjectMessage
+        {
+            Project = project,
+            AuthorAccountName = @"TEST\Author",
+            AuthorDisplayName = "Author",
+            Body = "Delete all"
+        };
+        db.AddRange(firstUser, secondUser, project, message);
+        await db.SaveChangesAsync();
+
+        db.UserNotifications.AddRange(Enumerable.Range(1, 60).Select(index =>
+            CreateNotification(firstUser.Id, project.Id, message.Id, $"First {index}", DateTimeOffset.UtcNow)));
+        db.UserNotifications.Add(
+            CreateNotification(secondUser.Id, project.Id, message.Id, "Second", DateTimeOffset.UtcNow));
+        await db.SaveChangesAsync();
+
+        var service = new NotificationReadService(db);
+        Assert.Equal(60, await service.DeleteAllAsync(firstUser.Id));
+        Assert.Equal(0, await service.DeleteAllAsync(firstUser.Id));
+
+        var remainingRecipients = await db.UserNotifications
+            .IgnoreQueryFilters()
+            .Select(notification => notification.RecipientUserId)
+            .ToListAsync();
+        Assert.Equal([secondUser.Id], remainingRecipients);
+    }
+
     private static ProjectTrackerDbContext CreateDb()
     {
         var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>()

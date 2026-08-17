@@ -100,6 +100,7 @@ public sealed class RoleClaimsTransformation(
             .ToList();
 
         identity.AddClaim(new Claim(ApplicationClaimTypes.RegisteredUser, "true"));
+        identity.AddClaim(new Claim(ApplicationClaimTypes.DisplayName, access.DisplayName));
         identity.AddClaim(new Claim(ClaimTypes.Role, "Viewer"));
 
         foreach (var group in groups)

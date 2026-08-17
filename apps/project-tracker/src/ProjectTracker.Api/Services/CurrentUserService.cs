@@ -27,6 +27,8 @@ public sealed class CurrentUserService(IHttpContextAccessor httpContextAccessor)
         get
         {
             if (IsAccessPreview && !string.IsNullOrWhiteSpace(PreviewTargetTitle)) return PreviewTargetTitle;
+            var configuredDisplayName = Principal?.FindFirstValue(ApplicationClaimTypes.DisplayName);
+            if (!string.IsNullOrWhiteSpace(configuredDisplayName)) return configuredDisplayName;
             var account = ActorAccountName;
             return WindowsAccountNames.DisplayName(account);
         }

@@ -19,6 +19,7 @@ import type {
 } from './types'
 
 interface UserDraft {
+  displayName: string
   groupIds: number[]
   isActive: boolean
 }
@@ -155,7 +156,11 @@ export default function AccessPanel({
       setOverview(next)
       setUserDrafts(Object.fromEntries(next.users.map((user) => [
         user.id,
-        { groupIds: [...user.groupIds].sort((a, b) => a - b), isActive: user.isActive },
+        {
+          displayName: user.displayName,
+          groupIds: [...user.groupIds].sort((a, b) => a - b),
+          isActive: user.isActive,
+        },
       ])))
       setGroupDrafts(Object.fromEntries(next.groups.map((group) => [
         group.id,
@@ -175,7 +180,8 @@ export default function AccessPanel({
   const dirtyUserIds = useMemo(() => (overview?.users ?? []).filter((user) => {
     const draft = userDrafts[user.id]
     return draft && (
-      draft.isActive !== user.isActive
+      draft.displayName.trim() !== user.displayName
+      || draft.isActive !== user.isActive
       || !sameNumbers(draft.groupIds, [...user.groupIds].sort((a, b) => a - b))
     )
   }).map((user) => user.id), [overview, userDrafts])
@@ -330,7 +336,7 @@ export default function AccessPanel({
                   <input required value={newUser.accountName} onChange={(event) => setNewUser({ ...newUser, accountName: event.target.value })} placeholder="SON4L\\firstname.lastname" aria-describedby="windows-account-help" />
                   <small id="windows-account-help">Paste the user&apos;s <code>whoami</code> result. Forward slash is also accepted.</small>
                 </label>
-                <label><span>Display name</span><input value={newUser.displayName} onChange={(event) => setNewUser({ ...newUser, displayName: event.target.value })} placeholder="Optional" /></label>
+                <label><span>Display name</span><input value={newUser.displayName} maxLength={160} onChange={(event) => setNewUser({ ...newUser, displayName: event.target.value })} placeholder="Optional" /></label>
                 <button className="solid-button" type="submit"><Plus size={15} /> Register</button>
               </form>
             ) : (
@@ -338,20 +344,39 @@ export default function AccessPanel({
             )}
             <div className="admin-user-list">
               {filteredUsers.map((user) => {
-                const draft = userDrafts[user.id] ?? { groupIds: user.groupIds, isActive: user.isActive }
+                const draft = userDrafts[user.id] ?? {
+                  displayName: user.displayName,
+                  groupIds: user.groupIds,
+                  isActive: user.isActive,
+                }
+                const displayName = draft.displayName.trim() || user.displayName
                 const isCurrent = accountKey(currentAccountName) === accountKey(user.accountName)
                 return (
                   <details className="admin-user-card" key={user.id}>
                     <summary>
-                      <span className="admin-user-avatar" aria-hidden="true">{initials(user.displayName)}</span>
+                      <span className="admin-user-avatar" aria-hidden="true">{initials(displayName)}</span>
                       <div className="admin-user-identity">
-                        <strong>{user.displayName} {isCurrent && <small>You</small>}</strong>
+                        <strong>{displayName} {isCurrent && <small>You</small>}</strong>
                         <span>{user.accountName}</span>
                         <time dateTime={user.lastSeenAt}>{draft.groupIds.length} {draft.groupIds.length === 1 ? 'group' : 'groups'} · {draft.isActive ? formatLastSeen(user.lastSeenAt) : 'Inactive account'}</time>
                       </div>
                       <ChevronDown size={17} aria-hidden="true" />
                     </summary>
                     <div className="admin-user-card-body">
+                      <label className="admin-display-name-field">
+                        <span>Application display name</span>
+                        <input
+                          type="text"
+                          value={draft.displayName}
+                          maxLength={160}
+                          disabled={saving || !canManageUsers}
+                          onChange={(event) => updateUser(user.id, (current) => ({
+                            ...current,
+                            displayName: event.target.value,
+                          }))}
+                        />
+                        <small>This is how the user&apos;s name appears throughout Project Tracker.</small>
+                      </label>
                       <fieldset>
                         <legend>Shared groups</legend>
                         {overview.groups.map((group) => (

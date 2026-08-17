@@ -94,6 +94,29 @@ public sealed class NotificationReadService(
                 cancellationToken);
     }
 
+    public async Task<bool> DeleteAsync(
+        int id,
+        int recipientUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var deleted = await db.UserNotifications
+            .IgnoreQueryFilters()
+            .Where(notification =>
+                notification.Id == id
+                && notification.RecipientUserId == recipientUserId)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        return deleted > 0;
+    }
+
+    public Task<int> DeleteAllAsync(
+        int recipientUserId,
+        CancellationToken cancellationToken = default) =>
+        db.UserNotifications
+            .IgnoreQueryFilters()
+            .Where(notification => notification.RecipientUserId == recipientUserId)
+            .ExecuteDeleteAsync(cancellationToken);
+
     private async Task<IReadOnlyList<NotificationReadRow>> LoadValidRowsAsync(
         int recipientUserId,
         CancellationToken cancellationToken)

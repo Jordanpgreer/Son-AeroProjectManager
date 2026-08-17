@@ -43,13 +43,7 @@ public static class UserEndpoints
 
             if (user.IsActive && !currentUser.IsAccessPreview)
             {
-                var tracked = await db.Users.FindAsync([user.Id], cancellationToken);
-                if (tracked is not null)
-                {
-                    tracked.DisplayName = currentUser.DisplayName;
-                    tracked.LastSeenAt = DateTimeOffset.UtcNow;
-                    await db.SaveChangesAsync(cancellationToken);
-                }
+                await TouchLastSeenAsync(db, user.Id, DateTimeOffset.UtcNow, cancellationToken);
             }
 
             AccessPreviewInfoDto? preview = null;
@@ -120,72 +114,7 @@ public static class UserEndpoints
 
         api.MapPost("/admin/users", RegisterUserAsync).RequireAuthorization("ManageUsers");
 
-        api.MapPut("/admin/users/{id:int}", async (
-            int id,
-            RegisteredUserUpsertDto dto,
-            ProjectTrackerDbContext db,
-            ModuleAccessService moduleAccess,
-            CancellationToken cancellationToken) =>
-        {
-            var user = await db.Users
-                .Include(candidate => candidate.GroupMemberships)
-                .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
-            if (user is null)
-            {
-                return Results.NotFound();
-            }
-
-            var accountName = NormalizeAccountName(dto.AccountName);
-            if (string.IsNullOrWhiteSpace(accountName))
-            {
-                return Results.BadRequest("Account name is required.");
-            }
-
-            var accountLookupKeys = WindowsAccountNames.LookupKeys(accountName);
-            if (await db.Users.AnyAsync(candidate => candidate.Id != id && accountLookupKeys.Contains(candidate.AccountName.ToUpper()), cancellationToken))
-            {
-                return Results.Conflict("Another user is already registered with that account name.");
-            }
-
-            var groupIds = NormalizeGroupIds(dto.GroupIds);
-            if (groupIds.Count > 0 && await db.Groups.CountAsync(group => groupIds.Contains(group.Id), cancellationToken) != groupIds.Count)
-            {
-                return Results.BadRequest("One or more selected groups no longer exist.");
-            }
-
-            if (user.IsActive && !dto.IsActive)
-            {
-                try
-                {
-                    await moduleAccess.EnsureUserCanBeDeactivatedAsync(
-                        db,
-                        user.Id,
-                        cancellationToken);
-                }
-                catch (LastModuleAdministratorException exception)
-                {
-                    return Results.Conflict(new
-                    {
-                        code = "LastModuleAdministrator",
-                        message = exception.Message,
-                        moduleKey = exception.ModuleKey
-                    });
-                }
-            }
-
-            user.AccountName = accountName;
-            user.DisplayName = string.IsNullOrWhiteSpace(dto.DisplayName) ? DefaultDisplayName(accountName) : dto.DisplayName.Trim();
-            user.IsActive = dto.IsActive;
-            ReplaceMemberships(user, groupIds);
-            await SetLegacyRoleAsync(db, user, groupIds, cancellationToken);
-            if (!await HasActiveAccessManagerAsync(db, cancellationToken))
-            {
-                return Results.BadRequest("At least one active user must retain both user-management and group-management access.");
-            }
-
-            await db.SaveChangesAsync(cancellationToken);
-            return Results.Ok(await ToRegisteredUserDtoAsync(db, user.Id, cancellationToken));
-        }).RequireAuthorization("ManageUsers");
+        api.MapPut("/admin/users/{id:int}", UpdateUserAsync).RequireAuthorization("ManageUsers");
 
         api.MapPut("/admin/users/{id:int}/groups", async (int id, UserGroupAssignmentDto dto, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
         {
@@ -341,12 +270,16 @@ public static class UserEndpoints
             return Results.BadRequest("One or more selected groups no longer exist.");
         }
 
+        var displayName = NormalizeDisplayName(dto.DisplayName, accountName);
+        if (displayName.Length > 160)
+        {
+            return Results.BadRequest("Display name cannot exceed 160 characters.");
+        }
+
         var user = new AppUser
         {
             AccountName = accountName,
-            DisplayName = string.IsNullOrWhiteSpace(dto.DisplayName)
-                ? DefaultDisplayName(accountName)
-                : dto.DisplayName.Trim(),
+            DisplayName = displayName,
             IsActive = dto.IsActive,
             LastSeenAt = DateTimeOffset.UnixEpoch
         };
@@ -361,6 +294,95 @@ public static class UserEndpoints
         return Results.Created(
             $"/api/admin/users/{user.Id}",
             await ToRegisteredUserDtoAsync(db, user.Id, cancellationToken));
+    }
+
+    public static async Task<IResult> UpdateUserAsync(
+        int id,
+        RegisteredUserUpsertDto dto,
+        ProjectTrackerDbContext db,
+        ModuleAccessService moduleAccess,
+        CancellationToken cancellationToken)
+    {
+        var user = await db.Users
+            .Include(candidate => candidate.GroupMemberships)
+            .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+        if (user is null)
+        {
+            return Results.NotFound();
+        }
+
+        var accountName = NormalizeAccountName(dto.AccountName);
+        if (string.IsNullOrWhiteSpace(accountName))
+        {
+            return Results.BadRequest("Account name is required.");
+        }
+
+        var accountLookupKeys = WindowsAccountNames.LookupKeys(accountName);
+        if (await db.Users.AnyAsync(candidate => candidate.Id != id && accountLookupKeys.Contains(candidate.AccountName.ToUpper()), cancellationToken))
+        {
+            return Results.Conflict("Another user is already registered with that account name.");
+        }
+
+        var groupIds = NormalizeGroupIds(dto.GroupIds);
+        if (groupIds.Count > 0 && await db.Groups.CountAsync(group => groupIds.Contains(group.Id), cancellationToken) != groupIds.Count)
+        {
+            return Results.BadRequest("One or more selected groups no longer exist.");
+        }
+
+        if (user.IsActive && !dto.IsActive)
+        {
+            try
+            {
+                await moduleAccess.EnsureUserCanBeDeactivatedAsync(
+                    db,
+                    user.Id,
+                    cancellationToken);
+            }
+            catch (LastModuleAdministratorException exception)
+            {
+                return Results.Conflict(new
+                {
+                    code = "LastModuleAdministrator",
+                    message = exception.Message,
+                    moduleKey = exception.ModuleKey
+                });
+            }
+        }
+
+        var displayName = NormalizeDisplayName(dto.DisplayName, accountName);
+        if (displayName.Length > 160)
+        {
+            return Results.BadRequest("Display name cannot exceed 160 characters.");
+        }
+
+        user.AccountName = accountName;
+        user.DisplayName = displayName;
+        user.IsActive = dto.IsActive;
+        ReplaceMemberships(user, groupIds);
+        await SetLegacyRoleAsync(db, user, groupIds, cancellationToken);
+        if (!await HasActiveAccessManagerAsync(db, cancellationToken))
+        {
+            return Results.BadRequest("At least one active user must retain both user-management and group-management access.");
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return Results.Ok(await ToRegisteredUserDtoAsync(db, user.Id, cancellationToken));
+    }
+
+    public static async Task TouchLastSeenAsync(
+        ProjectTrackerDbContext db,
+        int userId,
+        DateTimeOffset seenAt,
+        CancellationToken cancellationToken)
+    {
+        var user = await db.Users.FindAsync([userId], cancellationToken);
+        if (user is null)
+        {
+            return;
+        }
+
+        user.LastSeenAt = seenAt;
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     private static void ReplaceMemberships(AppUser user, IReadOnlyCollection<int> groupIds)
@@ -561,6 +583,9 @@ public static class UserEndpoints
     {
         return WindowsAccountNames.DisplayName(accountName);
     }
+
+    private static string NormalizeDisplayName(string? displayName, string accountName) =>
+        string.IsNullOrWhiteSpace(displayName) ? DefaultDisplayName(accountName) : displayName.Trim();
 
     private static async Task<bool> HasActiveAccessManagerAsync(ProjectTrackerDbContext db, CancellationToken cancellationToken)
     {

@@ -22,6 +22,7 @@ import {
   Search,
   Settings2,
   StickyNote,
+  Trash2,
   X,
 } from 'lucide-react'
 import {
@@ -154,9 +155,11 @@ function NotificationsMenu({
   const [toasts, setToasts] = useState<MentionNotification[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const knownNotificationIdsRef = useRef<Set<number>>(new Set())
   const notificationsInitializedRef = useRef(false)
+  const notificationRequestGenerationRef = useRef(0)
   const push = usePushNotifications({
     registered: Boolean(user?.isRegistered),
     previewReadOnly: Boolean(user?.preview?.readOnly),
@@ -168,9 +171,11 @@ function NotificationsMenu({
 
   const loadNotifications = async (showLoading = false) => {
     if (!user?.isRegistered) return
+    const requestGeneration = notificationRequestGenerationRef.current
     if (showLoading) setLoading(true)
     try {
       const next = await api<MentionNotification[]>('/api/notifications')
+      if (requestGeneration !== notificationRequestGenerationRef.current) return
       if (notificationsInitializedRef.current) {
         const arrivals = next.filter((notification) =>
           !notification.readAt && !knownNotificationIdsRef.current.has(notification.id))
@@ -186,10 +191,13 @@ function NotificationsMenu({
       setNotifications(next)
       setError(null)
     } catch {
+      if (requestGeneration !== notificationRequestGenerationRef.current) return
       setNotifications([])
       setError('Notifications could not be refreshed. Please try again.')
     } finally {
-      if (showLoading) setLoading(false)
+      if (showLoading && requestGeneration === notificationRequestGenerationRef.current) {
+        setLoading(false)
+      }
     }
   }
 
@@ -197,7 +205,9 @@ function NotificationsMenu({
     setNotifications([])
     setToasts([])
     setError(null)
+    setActionError(null)
     setLoading(false)
+    notificationRequestGenerationRef.current += 1
     knownNotificationIdsRef.current = new Set()
     notificationsInitializedRef.current = false
     if (!user?.isRegistered) return
@@ -250,6 +260,48 @@ function NotificationsMenu({
     }
   }
 
+  const deleteNotification = async (notificationId: number) => {
+    setActionError(null)
+    notificationRequestGenerationRef.current += 1
+    setNotifications((current) => current.filter((notification) => notification.id !== notificationId))
+    dismissToast(notificationId)
+    knownNotificationIdsRef.current.delete(notificationId)
+
+    try {
+      await api<void>(`/api/notifications/${notificationId}`, { method: 'DELETE' })
+      notificationRequestGenerationRef.current += 1
+      setNotifications((current) => current.filter((notification) => notification.id !== notificationId))
+      dismissToast(notificationId)
+      knownNotificationIdsRef.current.delete(notificationId)
+      setLoading(false)
+    } catch {
+      notificationRequestGenerationRef.current += 1
+      await loadNotifications(true)
+      setActionError('That notification could not be deleted. Please try again.')
+    }
+  }
+
+  const clearAllNotifications = async () => {
+    setActionError(null)
+    notificationRequestGenerationRef.current += 1
+    setNotifications([])
+    setToasts([])
+    knownNotificationIdsRef.current = new Set()
+
+    try {
+      await api<void>('/api/notifications', { method: 'DELETE' })
+      notificationRequestGenerationRef.current += 1
+      setNotifications([])
+      setToasts([])
+      knownNotificationIdsRef.current = new Set()
+      setLoading(false)
+    } catch {
+      notificationRequestGenerationRef.current += 1
+      await loadNotifications(true)
+      setActionError('Notifications could not be cleared. Please try again.')
+    }
+  }
+
   return (
     <div className="notifications-menu" ref={rootRef}>
       <button
@@ -269,14 +321,21 @@ function NotificationsMenu({
       {open && (
         <section className="notifications-popover" role="dialog" aria-label="Notifications">
           <header>
-            <div>
+            <div className="notification-heading">
               <span className="kicker">Personal Inbox</span>
               <h2>Notifications</h2>
             </div>
-            {unreadCount > 0 && !user?.preview?.readOnly && (
-              <button className="notification-read-all" type="button" onClick={() => void markAllRead()}>
-                <CheckCheck size={14} /> Mark all read
-              </button>
+            {!user?.preview?.readOnly && notifications.length > 0 && (
+              <div className="notification-actions">
+                {unreadCount > 0 && (
+                  <button className="notification-read-all" type="button" onClick={() => void markAllRead()}>
+                    <CheckCheck size={14} /> Mark all read
+                  </button>
+                )}
+                <button className="notification-clear-all" type="button" onClick={() => void clearAllNotifications()}>
+                  <Trash2 size={14} /> Clear all
+                </button>
+              </div>
             )}
           </header>
           <DesktopNotificationControl
@@ -287,6 +346,20 @@ function NotificationsMenu({
             onRetry={() => void push.refresh()}
           />
           <div className="notification-list" aria-live="polite">
+            {actionError && (
+              <div className="notification-action-error" role="alert">
+                <span>{actionError}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActionError(null)
+                    void loadNotifications(true)
+                  }}
+                >
+                  Refresh
+                </button>
+              </div>
+            )}
             {loading ? (
               <div className="notification-state">Loading notifications...</div>
             ) : error ? (
@@ -302,25 +375,40 @@ function NotificationsMenu({
                 <span>Chat and operation-note mentions will appear here.</span>
               </div>
             ) : notifications.map((notification) => (
-              <button
-                type="button"
+              <div
                 className={`notification-item ${notification.readAt ? '' : 'unread'}`}
                 key={notification.id}
-                onClick={() => void openNotification(notification)}
               >
-                <span className={`notification-source ${notification.kind === 'OperationNoteMention' ? 'note' : 'chat'}`}>
-                  {notification.kind === 'OperationNoteMention' ? <StickyNote size={14} /> : <MessageSquare size={14} />}
-                </span>
-                <span className="notification-copy">
-                  <span>
-                    <strong>{notification.actorDisplayName}</strong>
-                    {!notification.readAt && <i aria-label="Unread" />}
+                <button
+                  type="button"
+                  className="notification-item-open"
+                  onClick={() => void openNotification(notification)}
+                >
+                  <span className={`notification-source ${notification.kind === 'OperationNoteMention' ? 'note' : 'chat'}`}>
+                    {notification.kind === 'OperationNoteMention' ? <StickyNote size={14} /> : <MessageSquare size={14} />}
                   </span>
-                  <b>{notification.title || notification.projectName}</b>
-                  <span>{notification.bodyPreview}</span>
-                  <time dateTime={notification.createdAt}>{formatActivityTime(notification.createdAt)}</time>
-                </span>
-              </button>
+                  <span className="notification-copy">
+                    <span>
+                      <strong>{notification.actorDisplayName}</strong>
+                      {!notification.readAt && <i aria-label="Unread" />}
+                    </span>
+                    <b>{notification.title || notification.projectName}</b>
+                    <span>{notification.bodyPreview}</span>
+                    <time dateTime={notification.createdAt}>{formatActivityTime(notification.createdAt)}</time>
+                  </span>
+                </button>
+                {!user?.preview?.readOnly && (
+                  <button
+                    type="button"
+                    className="notification-delete"
+                    onClick={() => void deleteNotification(notification.id)}
+                    aria-label={`Delete notification from ${notification.actorDisplayName}`}
+                    title="Delete notification"
+                  >
+                    <X size={15} />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         </section>

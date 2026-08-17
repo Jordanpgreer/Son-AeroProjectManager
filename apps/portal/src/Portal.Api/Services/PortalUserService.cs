@@ -26,6 +26,7 @@ public sealed class PortalUserService(
             ?? throw new UnauthorizedAccessException("A valid Windows account name is required.");
 
         var role = await ResolveRoleAsync(accountName, cancellationToken);
+        var displayName = await roleStore.FindDisplayNameAsync(accountName, cancellationToken);
         var moduleRoles = await roleStore.FindModuleRolesAsync(accountName, cancellationToken);
         if (moduleRoles.Count == 0 && IsDevelopmentMode())
         {
@@ -50,7 +51,11 @@ public sealed class PortalUserService(
             .OrderBy(access => access.ModuleKey, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return new MeDto(accountName, ToDisplayName(accountName), role, modules);
+        return new MeDto(
+            accountName,
+            string.IsNullOrWhiteSpace(displayName) ? ToDisplayName(accountName) : displayName,
+            role,
+            modules);
     }
 
     private async Task<string> ResolveRoleAsync(string accountName, CancellationToken cancellationToken)

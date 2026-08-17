@@ -31,6 +31,30 @@ public sealed class PortalRoleStoreTests
     }
 
     [Fact]
+    public async Task FindDisplayNameAsync_ReadsAdministratorConfiguredNameCaseInsensitively()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<PortalRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new PortalRoleDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        db.Users.Add(new PortalRoleRecord
+        {
+            AccountName = "SONAERO\\Planner.One",
+            DisplayName = "Preferred Application Name",
+            Role = "Editor",
+            IsActive = true
+        });
+        await db.SaveChangesAsync();
+
+        var store = new PortalRoleStore(db, NullLogger<PortalRoleStore>.Instance);
+
+        Assert.Equal(
+            "Preferred Application Name",
+            await store.FindDisplayNameAsync("sonaero/planner.one"));
+    }
+
+    [Fact]
     public async Task FindModuleRolesAsync_DerivesRolesFromSharedGroupPermissions()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

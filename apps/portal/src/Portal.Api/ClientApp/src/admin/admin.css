@@ -424,6 +424,9 @@
 .admin-user-identity span,
 .admin-user-identity time { overflow-wrap: anywhere; color: var(--muted); font-family: var(--font-mono); font-size: 8.5px; }
 .admin-user-card-body { display: grid; gap: 10px; padding: 12px; background: var(--surface); border-top: 1px solid var(--line); }
+.admin-display-name-field { display: grid; gap: 5px; }
+.admin-display-name-field > span { color: var(--ink); font-size: 10.5px; font-weight: 700; }
+.admin-display-name-field > small { color: var(--muted); font-size: 9px; }
 .admin-user-card fieldset { display: grid; gap: 6px; margin: 0; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-sm); }
 .admin-user-card legend,
 .admin-permission-groups legend { padding: 0 5px; color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; }

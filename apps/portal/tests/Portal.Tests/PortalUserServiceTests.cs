@@ -10,8 +10,12 @@ public sealed class PortalUserServiceTests
 {
     private sealed class StubRoleStore(
         string? role = null,
-        IReadOnlyDictionary<string, string>? moduleRoles = null) : IPortalRoleStore
+        IReadOnlyDictionary<string, string>? moduleRoles = null,
+        string? displayName = null) : IPortalRoleStore
     {
+        public Task<string?> FindDisplayNameAsync(string accountName, CancellationToken cancellationToken = default)
+            => Task.FromResult(displayName);
+
         public Task<string?> FindRoleAsync(string accountName, CancellationToken cancellationToken = default)
             => Task.FromResult(role);
 
@@ -72,6 +76,25 @@ public sealed class PortalUserServiceTests
         Assert.Equal("estimating", module.ModuleKey);
         Assert.Equal("Editor", module.Role);
         Assert.Contains("estimating.quotes.manage", module.Permissions);
+    }
+
+    [Fact]
+    public async Task Current_WindowsMode_UsesAdministratorConfiguredDisplayName()
+    {
+        var configuration = BuildConfiguration("""
+        { "Authentication": { "Mode": "Windows" }, "Portal": {} }
+        """);
+        var httpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                new[] { new Claim(ClaimTypes.Name, "SONAERO\\estimator") }, "TestAuth")),
+        };
+        var service = new PortalUserService(
+            new HttpContextAccessor { HttpContext = httpContext },
+            configuration,
+            new StubRoleStore(displayName: "Preferred Application Name"));
+
+        Assert.Equal("Preferred Application Name", (await service.CurrentAsync()).DisplayName);
     }
 
     [Fact]

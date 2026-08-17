@@ -169,10 +169,15 @@ public sealed class RoleClaimsTransformationTests
         await new RoleClaimsTransformation(db).TransformAsync(principal);
 
         Assert.True(principal.HasClaim(ApplicationClaimTypes.RegisteredUser, "true"));
+        Assert.True(principal.HasClaim(ApplicationClaimTypes.DisplayName, "Planner One"));
         Assert.True(principal.HasClaim(ApplicationClaimTypes.Group, ApplicationGroups.Engineering));
         Assert.True(principal.HasClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ModuleView));
         Assert.True(principal.HasClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.TaskEditEstimatedDuration));
         Assert.True(principal.IsInRole("Viewer"));
+
+        var httpContext = new DefaultHttpContext { User = principal };
+        var currentUser = new CurrentUserService(new HttpContextAccessor { HttpContext = httpContext });
+        Assert.Equal("Planner One", currentUser.DisplayName);
     }
 
     [Fact]
