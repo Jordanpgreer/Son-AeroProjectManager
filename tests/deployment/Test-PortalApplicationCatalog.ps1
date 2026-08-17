@@ -28,11 +28,11 @@ try {
   "Portal": {
     "Admins": [ "SON4L\\jordan.greer" ],
     "Applications": [
-      { "Id": "project-tracker", "Name": "Project Tracker", "Url": "http://SON-IIS2:5135" },
-      { "Id": "engineering-hub", "Name": "Engineering Hub", "Url": "http://SON-IIS2:5150" },
+      { "Id": "project-tracker", "Name": "Project Tracker", "Url": "http://SON-IIS2:5135", "AllowedRoles": [ "Viewer" ] },
+      { "Id": "engineering-hub", "Name": "Engineering Hub", "Url": "http://SON-IIS2:5150", "AllowedRoles": [], "ServerNote": "retain me" },
       { "Id": "estimating-dashboard", "Name": "Estimating Dashboard", "Url": "http://SON-IIS2:5160" },
       { "Id": "admin-console", "Name": "Admin Console", "Url": "/#/admin/access" },
-      { "Id": "custom-tool", "Name": "Custom Tool", "Url": "http://SON-IIS2:5180" }
+      { "Id": "custom-tool", "Name": "Custom Tool", "Url": "http://SON-IIS2:5180", "AllowedRoles": [ "Admin" ] }
     ]
   }
 }
@@ -43,10 +43,10 @@ try {
 {
   "Portal": {
     "Applications": [
-      { "Id": "project-tracker", "Name": "Project Tracker", "Url": "http://SON-IIS2:5135" },
-      { "Id": "engineering-hub", "Name": "Engineering Hub", "Url": "http://SON-IIS2:5150" },
+      { "Id": "project-tracker", "Name": "Project Tracker", "Url": "https://projects.hub.son4l.local", "AllowedRoles": [] },
+      { "Id": "engineering-hub", "Name": "Engineering Hub", "Url": "https://engineering.hub.son4l.local", "AllowedRoles": [ "__production-disabled__" ] },
       { "Id": "estimating-dashboard", "Name": "Estimating Dashboard", "Url": "http://SON-IIS2:5160" },
-      { "Id": "quality-assurance", "Name": "Quality Assurance", "Url": "http://SON-IIS2:5170" },
+      { "Id": "quality-assurance", "Name": "Quality Assurance", "Url": "http://SON-IIS2:5170", "AllowedRoles": [ "__production-disabled__" ] },
       { "Id": "admin-console", "Name": "Admin Console", "Url": "/#/admin/access" }
     ]
   }
@@ -83,6 +83,49 @@ try {
     if (($result.AddedApplicationIds -join '|') -ne 'quality-assurance') {
         throw 'The synchronization result did not report the added Quality Assurance entry.'
     }
+    $projectTracker = @($updated.Portal.Applications | Where-Object Id -eq 'project-tracker')[0]
+    if ((@($projectTracker.AllowedRoles) -join '|') -ne 'Viewer' -or
+        $projectTracker.Url -ne 'http://SON-IIS2:5135') {
+        throw 'Synchronization changed the non-target Project Tracker role policy or production URL.'
+    }
+    $engineering = @($updated.Portal.Applications | Where-Object Id -eq 'engineering-hub')[0]
+    if ((@($engineering.AllowedRoles) -join '|') -ne '__production-disabled__' -or
+        $engineering.Url -ne 'http://SON-IIS2:5150' -or
+        $engineering.ServerNote -ne 'retain me') {
+        throw 'The template disabled-role policy did not preserve unrelated Engineering production settings.'
+    }
+    if ((@($quality[0].AllowedRoles) -join '|') -ne '__production-disabled__') {
+        throw 'A newly added first-party application did not retain the template AllowedRoles policy.'
+    }
+    $custom = @($updated.Portal.Applications | Where-Object Id -eq 'custom-tool')[0]
+    if ((@($custom.AllowedRoles) -join '|') -ne 'Admin' -or $custom.Url -ne 'http://SON-IIS2:5180') {
+        throw 'The synchronization changed a custom application visibility policy or URL.'
+    }
+
+    $beforeInvalidPolicyTest = Get-Content -LiteralPath (Join-Path $candidate 'appsettings.Production.json') -Raw
+    $invalidTemplate = Get-Content -LiteralPath $template -Raw | ConvertFrom-Json
+    $invalidTemplate.Portal.Applications[1].AllowedRoles = '__production-disabled__'
+    $invalidTemplate | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $template -Encoding UTF8
+    $invalidPolicyFailed = $false
+    try {
+        Sync-PortalProductionApplicationCatalog `
+            -CandidatePortalPath $candidate `
+            -ProductionTemplatePath $template | Out-Null
+    }
+    catch {
+        $invalidPolicyFailed = $_.Exception.Message -match 'AllowedRoles.*must be a JSON array'
+    }
+    if (-not $invalidPolicyFailed) {
+        throw 'A scalar first-party AllowedRoles deployment policy was not rejected.'
+    }
+    $afterInvalidPolicyTest = Get-Content -LiteralPath (Join-Path $candidate 'appsettings.Production.json') -Raw
+    if ($afterInvalidPolicyTest -cne $beforeInvalidPolicyTest) {
+        throw 'Invalid template policy validation changed the production configuration.'
+    }
+
+    # Restore the valid template before testing carried-forward duplicate rejection.
+    $invalidTemplate.Portal.Applications[1].AllowedRoles = @('__production-disabled__')
+    $invalidTemplate | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $template -Encoding UTF8
 
     $beforeDuplicateTest = Get-Content -LiteralPath (Join-Path $candidate 'appsettings.Production.json') -Raw
     $duplicate = $beforeDuplicateTest | ConvertFrom-Json

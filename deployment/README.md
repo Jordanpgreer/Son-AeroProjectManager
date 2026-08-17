@@ -60,6 +60,24 @@ After a trusted HTTPS endpoint is operational, use
 server-only IIS environment and verify the public-key endpoint. Run its `-WhatIf` mode first. The
 production settings template stays disabled and never contains the private key.
 
+Engineering Hub and Quality Assurance remain in the repository and local development catalog but
+are deliberately hidden from the production Portal until they are production ready. After pulling
+a release containing this policy, apply it to the active Portal configuration on SON-IIS2 without
+deploying either deferred module:
+
+```powershell
+& .\deployment\Configure-PortalProductionModuleVisibility.ps1 -WhatIf
+& .\deployment\Configure-PortalProductionModuleVisibility.ps1 -Confirm:$false
+```
+
+Require `WHATIF_READY_PORTAL_PRODUCTION_MODULE_VISIBILITY`, then
+`PORTAL_PRODUCTION_MODULES_HIDDEN_AND_VERIFIED`. If the policy was already applied, either command
+may instead return `PORTAL_PRODUCTION_MODULES_ALREADY_HIDDEN_AND_VERIFIED`. The operation
+changes only the two Portal cards and recycles only the Portal pool. It does not stop, remove, or
+weaken authorization on either module site; direct module URLs remain independently protected.
+Later full releases synchronize this production visibility policy from the production template
+while preserving server-local URLs, other production fields, and custom applications.
+
 To build the approved employee workstation ZIP:
 
 ```powershell

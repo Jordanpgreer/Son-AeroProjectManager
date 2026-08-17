@@ -54,6 +54,40 @@ function Set-PortalApplicationsProperty {
     }
 }
 
+function Set-PortalTemplateAllowedRolesPolicy {
+    param(
+        [Parameter(Mandatory = $true)][object]$ProductionApplication,
+        [Parameter(Mandatory = $true)][object]$TemplateApplication,
+        [Parameter(Mandatory = $true)][string]$ApplicationId
+    )
+
+    $templateAllowedRoles = $TemplateApplication.PSObject.Properties['AllowedRoles']
+    if (-not $templateAllowedRoles) {
+        return
+    }
+    if ($null -eq $templateAllowedRoles.Value -or $templateAllowedRoles.Value -isnot [array]) {
+        throw "Portal production template AllowedRoles policy for '$ApplicationId' must be a JSON array."
+    }
+
+    $roles = @($templateAllowedRoles.Value)
+    foreach ($role in $roles) {
+        if ($role -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$role)) {
+            throw "Portal production template has an invalid AllowedRoles policy for '$ApplicationId'."
+        }
+    }
+
+    $productionAllowedRoles = $ProductionApplication.PSObject.Properties['AllowedRoles']
+    if ($productionAllowedRoles) {
+        $productionAllowedRoles.Value = $roles
+    }
+    else {
+        $ProductionApplication | Add-Member `
+            -MemberType NoteProperty `
+            -Name AllowedRoles `
+            -Value $roles
+    }
+}
+
 function Sync-PortalProductionApplicationCatalog {
     <#
         Reorders the carried-forward production catalog by application Id and adds any new
@@ -79,6 +113,7 @@ function Sync-PortalProductionApplicationCatalog {
     $production = Read-PortalCatalogJson -Path $productionPath
     $template = Read-PortalCatalogJson -Path $ProductionTemplatePath
 
+    $templateOwnedAllowedRolesIds = @('engineering-hub', 'quality-assurance')
     $baseApplications = @($base.Portal.Applications)
     if ($baseApplications.Count -eq 0) {
         throw "Portal base configuration has no Portal.Applications entries: $basePath"
@@ -101,7 +136,18 @@ function Sync-PortalProductionApplicationCatalog {
     foreach ($baseApplication in $baseApplications) {
         $id = [string]$baseApplication.Id
         if ($productionMap.ContainsKey($id)) {
-            $merged += ,$productionMap[$id]
+            $productionApplication = $productionMap[$id]
+            if ($templateMap.ContainsKey($id) -and $id -in $templateOwnedAllowedRolesIds) {
+                # AllowedRoles is a release policy, not a server-local customization. Applying
+                # the template value only for the two deferred modules ensures a carried-forward
+                # production file cannot accidentally re-enable them. Other first-party and
+                # custom application role policies remain untouched.
+                Set-PortalTemplateAllowedRolesPolicy `
+                    -ProductionApplication $productionApplication `
+                    -TemplateApplication $templateMap[$id] `
+                    -ApplicationId $id
+            }
+            $merged += ,$productionApplication
             continue
         }
         if (-not $templateMap.ContainsKey($id)) {
