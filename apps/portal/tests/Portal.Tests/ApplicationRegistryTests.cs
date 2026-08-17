@@ -108,13 +108,13 @@ public sealed class ApplicationRegistryTests
     }
 
     [Fact]
-    public void GetVisibleFor_QualityAssurance_RequiresPortalAdminAndModuleAssignment()
+    public void GetVisibleFor_QualityAssurance_RequiresModuleAssignment()
     {
         const string json = """
         {
           "Portal": {
             "Applications": [
-              { "Id": "quality-assurance", "Name": "Quality Assurance", "Order": 1, "Status": "Active", "AllowedRoles": ["Admin"] }
+              { "Id": "quality-assurance", "Name": "Quality Assurance", "Order": 1, "Status": "Active", "AllowedRoles": [] }
             ]
           }
         }
@@ -124,7 +124,7 @@ public sealed class ApplicationRegistryTests
             ["quality-assurance"],
             StringComparer.OrdinalIgnoreCase);
 
-        Assert.Empty(registry.GetVisibleFor("Viewer", qualityAccess));
+        Assert.Single(registry.GetVisibleFor("Viewer", qualityAccess));
         Assert.Empty(registry.GetVisibleFor("Admin", new HashSet<string>()));
         Assert.Single(registry.GetVisibleFor("Admin", qualityAccess));
     }

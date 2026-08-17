@@ -175,19 +175,21 @@ public static class ApplicationModuleCatalog
     private static ApplicationModuleDefinition CreateQualityAssuranceModule()
     {
         const string category = "Quality Assurance";
-        var view = new PermissionDefinition(
-            "quality-assurance.view",
-            "View Quality Assurance",
-            "Open and view the Quality Assurance module.",
-            category);
-
         return new ApplicationModuleDefinition(
             ApplicationModules.QualityAssurance,
             category,
             [
                 new ApplicationModuleRoleDefinition(
+                    ApplicationRoles.Viewer,
+                    QualityAssurancePermissions.All.Where(permission =>
+                        QualityAssurancePermissions.ViewerDefaults.Contains(permission.Key)).ToArray()),
+                new ApplicationModuleRoleDefinition(
+                    ApplicationRoles.Editor,
+                    QualityAssurancePermissions.All.Where(permission =>
+                        QualityAssurancePermissions.EditorDefaults.Contains(permission.Key)).ToArray()),
+                new ApplicationModuleRoleDefinition(
                     ApplicationRoles.Admin,
-                    [view])
+                    QualityAssurancePermissions.All)
             ]);
     }
 }

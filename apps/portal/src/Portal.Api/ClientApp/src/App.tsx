@@ -73,7 +73,7 @@ const CAPABILITIES: Record<string, string[]> = {
   'project-tracker': ['Scheduling', 'Gantt timelines', 'Operations'],
   'engineering-hub': ['Drawing control', 'Tooling', 'Technical records'],
   'estimating-dashboard': ['Quoting', 'Cost roll-ups', 'Bid tracking'],
-  'quality-assurance': ['Quality controls', 'Compliance', 'Admin only'],
+  'quality-assurance': ['Shipping status', 'Queue routing', 'Audit history'],
   'admin-console': ['Application catalog', 'Access control', 'Configuration'],
 }
 

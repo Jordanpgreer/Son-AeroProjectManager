@@ -15,6 +15,9 @@ export type ProjectTrackerAdminSection =
 export type EngineeringAdminSection =
   | 'file-storage'
 
+export type QualityAdminSection =
+  | 'assignment-rules'
+
 export type DayOfWeekName =
   | 'Sunday'
   | 'Monday'
@@ -172,4 +175,41 @@ export interface ImportApplyResult {
   operationsAdded: number
   operationsUpdated: number
   changeCount: number
+}
+
+export interface QualityDirectoryGroup {
+  id: number
+  name: string
+  description: string | null
+  activeUserCount: number
+}
+
+export interface QualityDirectoryUser {
+  id: number
+  accountName: string
+  displayName: string
+  groupIds: number[]
+}
+
+export interface QualityAssignmentOptions {
+  groups: QualityDirectoryGroup[]
+  users: QualityDirectoryUser[]
+}
+
+export interface QualityAssignmentRule {
+  id: number
+  name: string
+  isEnabled: boolean
+  priority: number
+  matchField: 'Customer' | 'TaskType'
+  matchOperator: 'Equals' | 'Contains' | 'StartsWith'
+  matchValue: string
+  targetGroupId: number
+  targetGroupName: string
+  assignmentMode: 'GroupOnly' | 'SpecificUser' | 'LeastLoaded'
+  targetUserId: number | null
+  targetDisplayName: string | null
+  version: number
+  updatedAt: string
+  updatedBy: string
 }

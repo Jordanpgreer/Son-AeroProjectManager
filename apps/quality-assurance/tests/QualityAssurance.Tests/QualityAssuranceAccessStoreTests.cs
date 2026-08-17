@@ -20,11 +20,11 @@ public sealed class QualityAssuranceAccessStoreTests
             true);
         await fixture.Db.SaveChangesAsync();
 
-        var access = await fixture.Store.FindAdministratorAsync("domain/qa.admin");
+        var access = await fixture.Store.FindAccessAsync("domain/qa.admin");
 
         Assert.NotNull(access);
         Assert.Equal("DOMAIN\\qa.admin", access.AccountName);
-        Assert.Equal(ApplicationRoles.Admin, access.Role);
+        Assert.Equal(ApplicationRoles.Viewer, access.Role);
     }
 
     [Theory]
@@ -38,7 +38,7 @@ public sealed class QualityAssuranceAccessStoreTests
         fixture.AddUser("DOMAIN\\denied", hasPermission, isActive);
         await fixture.Db.SaveChangesAsync();
 
-        var access = await fixture.Store.FindAdministratorAsync("DOMAIN\\denied");
+        var access = await fixture.Store.FindAccessAsync("DOMAIN\\denied");
 
         Assert.Null(access);
     }
@@ -68,8 +68,9 @@ public sealed class QualityAssuranceAccessStoreTests
         {
             var group = new QualityAssuranceAccessGroupRecord
             {
+                Name = "Quality Test",
                 Permissions = hasPermission
-                    ? [new QualityAssuranceGroupPermissionRecord { PermissionKey = QualityAssurancePermissions.View }]
+                    ? [new QualityAssuranceGroupPermissionRecord { PermissionKey = QualityAssurancePermissions.ModuleView }]
                     : []
             };
             Db.Users.Add(new QualityAssuranceUserRecord

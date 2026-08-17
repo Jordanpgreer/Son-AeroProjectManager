@@ -16,10 +16,12 @@ import {
   ShieldCheck,
   UploadCloud,
   Users,
+  Waypoints,
 } from 'lucide-react'
 import AccessPanel from './AccessPanel'
 import AccessPreviewPanel from './AccessPreviewPanel'
 import EngineeringStoragePanel from './EngineeringStoragePanel'
+import QualityAssignmentRulesPanel from './QualityAssignmentRulesPanel'
 import { toErrorMessage, trackerApi } from './api'
 import { resolveModuleApplicationUrl } from './moduleUrls'
 import { ImportsPanel } from './ProjectTrackerDataPanels'
@@ -32,6 +34,7 @@ import type {
   AdminModuleKey,
   EngineeringAdminSection,
   ProjectTrackerAdminSection,
+  QualityAdminSection,
   ProjectTrackerUser,
   AdminAccessPreviewTarget,
 } from './types'
@@ -103,7 +106,7 @@ const MODULES: {
     label: 'Quality Assurance',
     description: 'Quality module administration',
     icon: ClipboardCheck,
-    href: '#/admin/quality-assurance/overview',
+    href: '#/admin/quality-assurance/assignment-rules',
     openUrl: resolveModuleApplicationUrl(window.location, 5170),
   },
 ]
@@ -127,6 +130,14 @@ const ENGINEERING_SECTIONS: {
   { key: 'file-storage', label: 'File Storage', icon: FolderTree },
 ]
 
+const QUALITY_SECTIONS: {
+  key: QualityAdminSection
+  label: string
+  icon: typeof Settings2
+}[] = [
+  { key: 'assignment-rules', label: 'Assignment Rules', icon: Waypoints },
+]
+
 function parseRoute(hash = window.location.hash): AdminRoute {
   const path = hash.replace(/^#\/?/, '').split('?')[0]
   const [, rawModule, rawSection] = path.split('/')
@@ -139,6 +150,9 @@ function parseRoute(hash = window.location.hash): AdminRoute {
   const validEngineeringSection = ENGINEERING_SECTIONS.some(
     (candidate) => candidate.key === rawSection,
   )
+  const validQualitySection = QUALITY_SECTIONS.some(
+    (candidate) => candidate.key === rawSection,
+  )
   return {
     module,
     section: module === 'access' || module === 'hub'
@@ -147,10 +161,14 @@ function parseRoute(hash = window.location.hash): AdminRoute {
         ? rawSection
         : module === 'engineering' && validEngineeringSection
           ? rawSection
+          : module === 'quality-assurance' && validQualitySection
+            ? rawSection
           : module === 'project-tracker'
             ? 'calendar'
             : module === 'engineering'
               ? 'file-storage'
+              : module === 'quality-assurance'
+                ? 'assignment-rules'
               : 'overview',
   }
 }
@@ -247,6 +265,7 @@ export default function AdminConsole({
   const canManageUsers = granted.has(PERMISSIONS.manageUsers)
   const canManageGroups = granted.has(PERMISSIONS.manageGroups)
   const canOpenAccess = canManageUsers || canManageGroups
+  const canManageQualityRules = granted.has('quality-assurance.rules.manage')
   const isAdministrator = trackerUser?.groups.some(
     (group) => group.toLowerCase() === 'administrators',
   ) ?? false
@@ -346,14 +365,41 @@ export default function AdminConsole({
             })}
           </nav>
         )}
+        {route.module === 'quality-assurance' && (
+          <nav className="admin-section-tabs" role="tablist" aria-label="Quality Assurance admin sections" onKeyDown={(event) => handleTabKeys(event, `#/admin/quality-assurance/${route.section}`)}>
+            {QUALITY_SECTIONS.map((section) => {
+              const SectionIcon = section.icon
+              const selected = section.key === route.section
+              const allowed = !permissionsLoading && canManageQualityRules
+              return (
+                <a
+                  key={section.key}
+                  role="tab"
+                  id={`admin-quality-section-tab-${section.key}`}
+                  aria-selected={selected}
+                  aria-disabled={!allowed}
+                  aria-controls="admin-section-panel"
+                  tabIndex={selected && allowed ? 0 : -1}
+                  className={`${selected ? 'active' : ''} ${allowed ? '' : 'disabled'}`.trim()}
+                  href={`#/admin/quality-assurance/${section.key}`}
+                  onClick={(event) => blockUnauthorizedNavigation(event, allowed)}
+                >
+                  <SectionIcon size={15} aria-hidden="true" /> {section.label}
+                </a>
+              )
+            })}
+          </nav>
+        )}
 
         <div
           id="admin-section-panel"
-          role={route.module === 'project-tracker' || route.module === 'engineering' ? 'tabpanel' : undefined}
+          role={route.module === 'project-tracker' || route.module === 'engineering' || route.module === 'quality-assurance' ? 'tabpanel' : undefined}
           aria-labelledby={route.module === 'project-tracker'
             ? `admin-section-tab-${route.section}`
             : route.module === 'engineering'
               ? `admin-engineering-section-tab-${route.section}`
+              : route.module === 'quality-assurance'
+                ? `admin-quality-section-tab-${route.section}`
               : undefined}
         >
           {route.module === 'access' && permissionsLoading && <div className="admin-loading" role="status">Checking Access permissions...</div>}
@@ -379,7 +425,11 @@ export default function AdminConsole({
             </>
           )}
           {route.module === 'engineering' && <EngineeringStoragePanel/>}
-          {(route.module === 'estimating' || route.module === 'quality-assurance') && (
+          {route.module === 'quality-assurance' && permissionsLoading && <div className="admin-loading" role="status">Checking Quality Assurance permissions...</div>}
+          {route.module === 'quality-assurance' && !permissionsLoading && permissionsError && <NoAccess detail={permissionsError} />}
+          {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && !canManageQualityRules && <NoAccess detail="Your groups do not grant permission to manage Quality assignment rules." />}
+          {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && canManageQualityRules && <QualityAssignmentRulesPanel />}
+          {route.module === 'estimating' && (
             <section className="admin-surface admin-placeholder">
               <span className="admin-placeholder-icon"><ShieldCheck size={25}/></span>
               <h2>No module-specific settings yet</h2>
