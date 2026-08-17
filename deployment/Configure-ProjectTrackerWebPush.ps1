@@ -148,7 +148,11 @@ function Set-EnvironmentVariableValue {
     if ($null -eq $existing) {
         $existing = $Collection.CreateElement('environmentVariable')
         $existing.SetAttributeValue('name', $Name)
+        # IIS validates every required attribute when the element enters the collection.
+        # Set value before Add; setting it afterward causes Add to reject a new element.
+        $existing.SetAttributeValue('value', $Value)
         $Collection.Add($existing)
+        return
     }
     $existing.SetAttributeValue('value', $Value)
 }
