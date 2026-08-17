@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using ProjectTracker.Api.Models;
+using ProjectTracker.Api.Services;
 using SonAero.Platform.Security;
 
 namespace ProjectTracker.Api.Data;
@@ -35,7 +36,9 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
             entity.Property(project => project.Engineer).HasMaxLength(120);
             entity.Property(project => project.CustomerName).HasMaxLength(160);
             entity.Property(project => project.SalesOrderNumber).HasMaxLength(80);
+            entity.Property(project => project.SalesOrderUrl).HasMaxLength(ProjectExternalLinks.MaxLength);
             entity.Property(project => project.JobNumber).HasMaxLength(80);
+            entity.Property(project => project.JobUrl).HasMaxLength(ProjectExternalLinks.MaxLength);
             entity.Property(project => project.Progress).HasPrecision(5, 4);
             entity.Property(project => project.Status).HasConversion<string>().HasMaxLength(24);
             entity.Property(project => project.CurrentTask).HasMaxLength(240);

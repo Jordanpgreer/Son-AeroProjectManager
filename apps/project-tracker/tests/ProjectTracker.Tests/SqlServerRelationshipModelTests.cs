@@ -6,6 +6,7 @@ using System.Reflection;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Data.Migrations;
 using ProjectTracker.Api.Models;
+using ProjectTracker.Api.Services;
 
 namespace ProjectTracker.Tests;
 
@@ -76,6 +77,32 @@ public sealed class SqlServerRelationshipModelTests
     }
 
     [Fact]
+    public void ExternalLinksMigration_AddsOnlyNullableBoundedProjectColumns()
+    {
+        var builder = new MigrationBuilder("Microsoft.EntityFrameworkCore.SqlServer");
+        new TestableExternalLinksMigration().Build(builder);
+
+        var columns = builder.Operations.OfType<AddColumnOperation>().ToList();
+        Assert.Collection(
+            columns.OrderBy(column => column.Name),
+            column =>
+            {
+                Assert.Equal("JobUrl", column.Name);
+                Assert.Equal("Projects", column.Table);
+                Assert.True(column.IsNullable);
+                Assert.Equal(ProjectExternalLinks.MaxLength, column.MaxLength);
+            },
+            column =>
+            {
+                Assert.Equal("SalesOrderUrl", column.Name);
+                Assert.Equal("Projects", column.Table);
+                Assert.True(column.IsNullable);
+                Assert.Equal(ProjectExternalLinks.MaxLength, column.MaxLength);
+            });
+        Assert.Equal(2, builder.Operations.Count);
+    }
+
+    [Fact]
     public void HandwrittenMigrations_AreDiscoverableBeforeDependencyEnforcement()
     {
         var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>()
@@ -99,6 +126,11 @@ public sealed class SqlServerRelationshipModelTests
     }
 
     private sealed class TestableNotificationMigration : AddNotificationsJobNumberAndActivityPermission
+    {
+        public void Build(MigrationBuilder builder) => Up(builder);
+    }
+
+    private sealed class TestableExternalLinksMigration : AddProjectExternalLinks
     {
         public void Build(MigrationBuilder builder) => Up(builder);
     }

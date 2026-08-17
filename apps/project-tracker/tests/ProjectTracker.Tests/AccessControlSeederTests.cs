@@ -28,6 +28,16 @@ public sealed class AccessControlSeederTests
         Assert.Contains(user.GroupMemberships, membership => membership.Group.Name == ApplicationGroups.Administrators);
         Assert.DoesNotContain(user.GroupMemberships, membership => membership.Group.Name == ApplicationGroups.Managers);
         Assert.Contains(await fixture.Db.Groups.ToListAsync(), group => group.Name == ProjectTrackerGroups.ViewOnly);
+        var administratorGroup = await fixture.Db.Groups
+            .Include(group => group.Permissions)
+            .SingleAsync(group => group.Name == ApplicationGroups.Administrators);
+        Assert.Contains(administratorGroup.Permissions, permission =>
+            permission.PermissionKey == ProjectTrackerPermissions.ProjectEditExternalLinks);
+        var managerGroup = await fixture.Db.Groups
+            .Include(group => group.Permissions)
+            .SingleAsync(group => group.Name == ApplicationGroups.Managers);
+        Assert.DoesNotContain(managerGroup.Permissions, permission =>
+            permission.PermissionKey == ProjectTrackerPermissions.ProjectEditExternalLinks);
     }
 
     [Fact]
@@ -47,8 +57,11 @@ public sealed class AccessControlSeederTests
         var viewOnlyGroup = await fixture.Db.Groups.SingleAsync(group => group.Name == ProjectTrackerGroups.ViewOnly);
         var removedPermission = adminGroup.Permissions.Single(permission =>
             permission.PermissionKey == ApplicationPermissions.ProjectCreate);
+        var removedExternalLinksPermission = adminGroup.Permissions.Single(permission =>
+            permission.PermissionKey == ProjectTrackerPermissions.ProjectEditExternalLinks);
 
         fixture.Db.GroupPermissions.Remove(removedPermission);
+        fixture.Db.GroupPermissions.Remove(removedExternalLinksPermission);
         administrator.IsActive = false;
         administrator.GroupMemberships.Clear();
         administrator.GroupMemberships.Add(new AppUserGroupMembership { AppGroupId = viewOnlyGroup.Id });
@@ -69,6 +82,9 @@ public sealed class AccessControlSeederTests
         Assert.False(await fixture.Db.GroupPermissions.AnyAsync(permission =>
             permission.AppGroupId == adminGroup.Id
             && permission.PermissionKey == ApplicationPermissions.ProjectCreate));
+        Assert.False(await fixture.Db.GroupPermissions.AnyAsync(permission =>
+            permission.AppGroupId == adminGroup.Id
+            && permission.PermissionKey == ProjectTrackerPermissions.ProjectEditExternalLinks));
     }
 
     [Fact]

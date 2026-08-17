@@ -117,7 +117,9 @@ public sealed record ProjectSummaryDto(
     string? Engineer,
     string? CustomerName,
     string? SalesOrderNumber,
+    string? SalesOrderUrl,
     string? JobNumber,
+    string? JobUrl,
     string? CurrentTask,
     int? PriorityRank,
     decimal Progress,
@@ -144,7 +146,9 @@ public sealed record ProjectDetailDto(
     string? Engineer,
     string? CustomerName,
     string? SalesOrderNumber,
+    string? SalesOrderUrl,
     string? JobNumber,
+    string? JobUrl,
     string? CurrentTask,
     DateOnly? ProgramStart,
     DateOnly? TargetDelivery,
@@ -195,7 +199,9 @@ public sealed record ProjectUpsertDto(
     string? Engineer,
     string? CustomerName,
     string? SalesOrderNumber,
+    string? SalesOrderUrl,
     string? JobNumber,
+    string? JobUrl,
     long Version);
 
 public sealed record ProjectCreateDto(
@@ -204,7 +210,9 @@ public sealed record ProjectCreateDto(
     string? Engineer,
     string? CustomerName,
     string? SalesOrderNumber,
+    string? SalesOrderUrl,
     string? JobNumber,
+    string? JobUrl,
     DateOnly? ProgramStart,
     int? TemplateProjectId);
 

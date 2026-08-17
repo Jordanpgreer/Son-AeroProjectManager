@@ -11,6 +11,7 @@ public sealed class AccessControlSeeder
 {
     private const string SharedModuleGroupsVersion = "shared-module-groups-v1";
     private const string QualityShippingPermissionsVersion = "quality-shipping-permissions-v1";
+    private const string ProjectExternalLinksPermissionVersion = "project-external-links-permission-v1";
 
     public async Task SeedAsync(
         ProjectTrackerDbContext db,
@@ -38,6 +39,19 @@ public sealed class AccessControlSeeder
                 QualityAssurancePermissions.AdministratorDefaults,
                 cancellationToken);
             await RecordVersionAsync(db, QualityShippingPermissionsVersion, cancellationToken);
+        }
+        var addProjectExternalLinksPermission = !await HasVersionAsync(
+            db,
+            ProjectExternalLinksPermissionVersion,
+            cancellationToken);
+        if (addProjectExternalLinksPermission)
+        {
+            await AddPermissionsToGroupAsync(
+                db,
+                groupIds[ApplicationGroups.Administrators],
+                [ProjectTrackerPermissions.ProjectEditExternalLinks],
+                cancellationToken);
+            await RecordVersionAsync(db, ProjectExternalLinksPermissionVersion, cancellationToken);
         }
         var existingUsers = await db.Users
             .Include(user => user.GroupMemberships)

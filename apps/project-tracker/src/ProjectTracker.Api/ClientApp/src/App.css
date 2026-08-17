@@ -2357,3 +2357,15 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
     transition-duration: 0.01ms !important;
   }
 }
+.external-reference-link {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.external-reference-link:hover,
+.external-reference-link:focus-visible {
+  color: var(--accent, #2563eb);
+}

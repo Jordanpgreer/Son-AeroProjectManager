@@ -245,6 +245,10 @@ namespace ProjectTracker.Api.Data.Migrations
                         .HasMaxLength(80)
                         .HasColumnType("nvarchar(80)");
 
+                    b.Property<string>("JobUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)");
+
                     b.Property<int?>("PriorityRank")
                         .HasColumnType("int");
 
@@ -267,6 +271,10 @@ namespace ProjectTracker.Api.Data.Migrations
                     b.Property<string>("SalesOrderNumber")
                         .HasMaxLength(80)
                         .HasColumnType("nvarchar(80)");
+
+                    b.Property<string>("SalesOrderUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)");
 
                     b.Property<string>("Status")
                         .IsRequired()

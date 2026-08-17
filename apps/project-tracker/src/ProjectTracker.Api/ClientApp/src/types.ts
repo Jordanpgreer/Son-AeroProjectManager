@@ -51,7 +51,9 @@ export type ProjectSummary = {
   engineer: string | null
   customerName: string | null
   salesOrderNumber: string | null
+  salesOrderUrl: string | null
   jobNumber?: string | null
+  jobUrl?: string | null
   currentTask: string | null
   priorityRank: number | null
   progress: number
@@ -89,7 +91,9 @@ export type ProjectDetail = {
   engineer: string | null
   customerName: string | null
   salesOrderNumber: string | null
+  salesOrderUrl: string | null
   jobNumber?: string | null
+  jobUrl?: string | null
   currentTask: string | null
   programStart: string | null
   targetDelivery: string | null
@@ -118,7 +122,9 @@ export type ProjectMetadataDraft = {
   engineer: string
   customerName: string
   salesOrderNumber: string
+  salesOrderUrl: string
   jobNumber: string
+  jobUrl: string
 }
 
 export type ProjectVersion = {
@@ -227,7 +233,9 @@ export type ProjectCreateRequest = {
   programManager: string | null
   customerName: string | null
   salesOrderNumber: string | null
+  salesOrderUrl: string | null
   jobNumber: string | null
+  jobUrl: string | null
   programStart: string | null
   templateProjectId: number | null
 }

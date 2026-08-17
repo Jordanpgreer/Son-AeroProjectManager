@@ -9,6 +9,22 @@ namespace ProjectTracker.Tests;
 public sealed class ProjectAuditServiceTests
 {
     [Fact]
+    public void CaptureProject_IncludesExternalReferenceLinks()
+    {
+        var project = new Project
+        {
+            ProgramName = "Linked project",
+            SalesOrderUrl = "https://fulcrum.son4l.local/orders/123",
+            JobUrl = "https://fulcrum.son4l.local/jobs/456"
+        };
+
+        var captured = ProjectAuditService.CaptureProject(project);
+
+        Assert.Equal(project.SalesOrderUrl, captured["Sales order link"]);
+        Assert.Equal(project.JobUrl, captured["Job link"]);
+    }
+
+    [Fact]
     public void Diff_ReturnsOnlyChangedFields()
     {
         var before = new Dictionary<string, string?>

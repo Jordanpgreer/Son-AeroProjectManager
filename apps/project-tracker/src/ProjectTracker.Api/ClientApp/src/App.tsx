@@ -86,7 +86,9 @@ const emptyProjectMetadata: ProjectMetadataDraft = {
   engineer: '',
   customerName: '',
   salesOrderNumber: '',
+  salesOrderUrl: '',
   jobNumber: '',
+  jobUrl: '',
 }
 
 function projectMetadataFrom(project: ProjectDetail | null): ProjectMetadataDraft {
@@ -96,7 +98,9 @@ function projectMetadataFrom(project: ProjectDetail | null): ProjectMetadataDraf
     engineer: project.engineer ?? '',
     customerName: project.customerName ?? '',
     salesOrderNumber: project.salesOrderNumber ?? '',
+    salesOrderUrl: project.salesOrderUrl ?? '',
     jobNumber: project.jobNumber ?? '',
+    jobUrl: project.jobUrl ?? '',
   }
 }
 
@@ -187,14 +191,16 @@ function App() {
 
   const projectPayload = (
     project: ProjectDetail,
-    patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber' | 'jobNumber'>> = {},
+    patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber' | 'salesOrderUrl' | 'jobNumber' | 'jobUrl'>> = {},
   ) => ({
-    programName: patch.programName ?? project.programName,
-    programManager: patch.programManager ?? project.programManager,
-    engineer: patch.engineer ?? project.engineer,
-    customerName: patch.customerName ?? project.customerName,
-    salesOrderNumber: patch.salesOrderNumber ?? project.salesOrderNumber,
-    jobNumber: patch.jobNumber ?? project.jobNumber ?? null,
+    programName: 'programName' in patch ? patch.programName : project.programName,
+    programManager: 'programManager' in patch ? patch.programManager : project.programManager,
+    engineer: 'engineer' in patch ? patch.engineer : project.engineer,
+    customerName: 'customerName' in patch ? patch.customerName : project.customerName,
+    salesOrderNumber: 'salesOrderNumber' in patch ? patch.salesOrderNumber : project.salesOrderNumber,
+    salesOrderUrl: 'salesOrderUrl' in patch ? patch.salesOrderUrl : project.salesOrderUrl,
+    jobNumber: 'jobNumber' in patch ? patch.jobNumber : project.jobNumber ?? null,
+    jobUrl: 'jobUrl' in patch ? patch.jobUrl : project.jobUrl ?? null,
     version: project.version,
   })
 
@@ -205,7 +211,9 @@ function App() {
       || projectMetadata.engineer !== saved.engineer
       || projectMetadata.customerName !== saved.customerName
       || projectMetadata.salesOrderNumber !== saved.salesOrderNumber
+      || projectMetadata.salesOrderUrl !== saved.salesOrderUrl
       || projectMetadata.jobNumber !== saved.jobNumber
+      || projectMetadata.jobUrl !== saved.jobUrl
   }, [projectMetadata, selectedProject])
 
   const selectedProjectMetadataId = selectedProject?.id
@@ -213,7 +221,9 @@ function App() {
   const selectedProjectEngineer = selectedProject?.engineer ?? ''
   const selectedProjectCustomerName = selectedProject?.customerName ?? ''
   const selectedProjectSalesOrderNumber = selectedProject?.salesOrderNumber ?? ''
+  const selectedProjectSalesOrderUrl = selectedProject?.salesOrderUrl ?? ''
   const selectedProjectJobNumber = selectedProject?.jobNumber ?? ''
+  const selectedProjectJobUrl = selectedProject?.jobUrl ?? ''
 
   useEffect(() => {
     selectedProjectRef.current = selectedProject
@@ -233,7 +243,9 @@ function App() {
       engineer: selectedProjectEngineer,
       customerName: selectedProjectCustomerName,
       salesOrderNumber: selectedProjectSalesOrderNumber,
+      salesOrderUrl: selectedProjectSalesOrderUrl,
       jobNumber: selectedProjectJobNumber,
+      jobUrl: selectedProjectJobUrl,
     })
     setProjectMetadataError(null)
   }, [
@@ -242,7 +254,9 @@ function App() {
     selectedProjectEngineer,
     selectedProjectCustomerName,
     selectedProjectSalesOrderNumber,
+    selectedProjectSalesOrderUrl,
     selectedProjectJobNumber,
+    selectedProjectJobUrl,
   ])
 
   useEffect(() => {
@@ -559,7 +573,7 @@ function App() {
     }
   }
 
-  async function updateProject(patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber' | 'jobNumber'>>) {
+  async function updateProject(patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber' | 'salesOrderUrl' | 'jobNumber' | 'jobUrl'>>) {
     if (!selectedProject) return
     const project = await api<ProjectDetail>(`/api/projects/${selectedProject.id}`, {
       method: 'PUT',
@@ -603,7 +617,9 @@ function App() {
       engineer: projectMetadata.engineer.trim(),
       customerName: projectMetadata.customerName.trim(),
       salesOrderNumber: projectMetadata.salesOrderNumber.trim(),
+      salesOrderUrl: projectMetadata.salesOrderUrl.trim(),
       jobNumber: projectMetadata.jobNumber.trim(),
+      jobUrl: projectMetadata.jobUrl.trim(),
     }
     try {
       await updateProject({
@@ -611,7 +627,9 @@ function App() {
         engineer: normalized.engineer || null,
         customerName: normalized.customerName || null,
         salesOrderNumber: normalized.salesOrderNumber || null,
+        salesOrderUrl: normalized.salesOrderUrl || null,
         jobNumber: normalized.jobNumber || null,
+        jobUrl: normalized.jobUrl || null,
       })
       setProjectMetadata(normalized)
       return true
@@ -1112,6 +1130,7 @@ function App() {
           projects={scheduleProjects}
           defaultManager={user?.displayName ?? ''}
           scheduleSettings={scheduleSettings}
+          canEditExternalLinks={hasPermission(mutationPermissions, permissionKeys.projectEditExternalLinks)}
           onClose={() => setProjectWizardOpen(false)}
           onCreate={createProject}
         />
