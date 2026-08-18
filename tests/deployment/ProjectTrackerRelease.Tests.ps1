@@ -184,6 +184,129 @@ Assert-True ($source -match 'Direct Project Tracker authentication must remain A
     $source -match '\$gatewayAnonymous -or -not \$gatewayWindows') `
     'Release preflight does not preserve the direct True/True and gateway False/True authentication boundary.'
 
+# Gateway preload is an optional IIS warm-start optimization, not a health or security boundary.
+# A healthy gateway with PreloadEnabled=False must pass preflight unchanged, and this narrow release
+# transaction must never write the preload property.
+$boundaryDefinitions = @($ast.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -ceq 'Get-ProjectTrackerIisBoundary'
+}, $true))
+Assert-True ($boundaryDefinitions.Count -eq 1) 'Could not inspect the Project Tracker IIS boundary reader.'
+$boundaryText = $boundaryDefinitions[0].Extent.Text
+Assert-True ($boundaryText -notmatch 'PreloadEnabled' -and
+    $boundaryText -notmatch 'preload must remain enabled') `
+    'The release preflight incorrectly requires the healthy gateway to enable preload.'
+Assert-True ($setPathText -notmatch '(?i)preload' -and
+    $source -notmatch '(?i)PreloadEnabled\s*=' -and
+    $source -notmatch '(?i)(Set-ItemProperty|Set-WebConfigurationProperty|appcmd(?:\.exe)?)\b[^\r\n]*preload') `
+    'The Project Tracker-only release transaction can mutate the existing gateway preload setting.'
+
+if (-not ('Microsoft.Web.Administration.StartMode' -as [type])) {
+    Add-Type -TypeDefinition @'
+namespace Microsoft.Web.Administration
+{
+    public enum StartMode { OnDemand = 0, AlwaysRunning = 1 }
+    public enum ProcessModelIdentityType
+    {
+        LocalSystem = 0,
+        LocalService = 1,
+        NetworkService = 2,
+        SpecificUser = 3,
+        ApplicationPoolIdentity = 4
+    }
+}
+'@
+}
+
+$directSiteName = 'ProjectTracker'
+$directPoolName = 'ProjectTracker'
+$directPort = 5135
+$gatewaySiteName = 'SonAeroPortal'
+$gatewayPath = '/project-tracker-api'
+$gatewayPoolName = 'ProjectTrackerAdminGateway'
+$fakeDirectPath = 'C:\releases\active-direct'
+$fakeGatewayPath = 'C:\releases\active-gateway'
+$fakeDirectApplication = [pscustomobject]@{
+    ApplicationPoolName = $directPoolName
+    VirtualDirectories = @{ '/' = [pscustomobject]@{ PhysicalPath = $fakeDirectPath } }
+}
+$fakeGatewayApplication = [pscustomobject]@{
+    ApplicationPoolName = $gatewayPoolName
+    PreloadEnabled = $false
+    VirtualDirectories = @{ '/' = [pscustomobject]@{ PhysicalPath = $fakeGatewayPath } }
+}
+$fakeDirectSite = [pscustomobject]@{
+    Applications = @{ '/' = $fakeDirectApplication }
+    Bindings = @([pscustomobject]@{ Protocol = 'http'; BindingInformation = '*:5135:' })
+}
+$fakePortalSite = [pscustomobject]@{
+    Applications = @{ $gatewayPath = $fakeGatewayApplication }
+}
+$fakeGatewayPool = [pscustomobject]@{
+    ManagedRuntimeVersion = ''
+    AutoStart = $true
+    StartMode = [Microsoft.Web.Administration.StartMode]::AlwaysRunning
+    ProcessModel = [pscustomobject]@{
+        IdentityType = [Microsoft.Web.Administration.ProcessModelIdentityType]::ApplicationPoolIdentity
+        LoadUserProfile = $true
+        IdleTimeout = [TimeSpan]::Zero
+    }
+}
+$script:fakeAuthentication = @{
+    'ProjectTracker|anonymousAuthentication' = $true
+    'ProjectTracker|windowsAuthentication' = $true
+    'SonAeroPortal/project-tracker-api|anonymousAuthentication' = $false
+    'SonAeroPortal/project-tracker-api|windowsAuthentication' = $true
+}
+$fakeConfiguration = [pscustomobject]@{}
+$fakeConfiguration | Add-Member -MemberType ScriptMethod -Name GetSection -Value {
+    param([string]$SectionName, [string]$Location)
+    $kind = if ($SectionName -like '*anonymousAuthentication') { 'anonymousAuthentication' } else { 'windowsAuthentication' }
+    $value = [bool]$script:fakeAuthentication["$Location|$kind"]
+    $section = [pscustomobject]@{ Enabled = $value }
+    $section | Add-Member -MemberType ScriptMethod -Name GetAttributeValue -Value {
+        param([string]$Name)
+        return $this.Enabled
+    }
+    return $section
+}
+$script:fakeIisManager = [pscustomobject]@{
+    Sites = @{
+        $directSiteName = $fakeDirectSite
+        $gatewaySiteName = $fakePortalSite
+    }
+    ApplicationPools = @{
+        $directPoolName = [pscustomobject]@{}
+        $gatewayPoolName = $fakeGatewayPool
+    }
+}
+$script:fakeIisManager | Add-Member -MemberType ScriptMethod -Name GetApplicationHostConfiguration -Value {
+    return $script:fakeConfiguration
+}
+$script:fakeIisManager | Add-Member -MemberType ScriptMethod -Name Dispose -Value {}
+
+. (Get-TestableFunctions -Ast $ast -Names @('Get-FullPath', 'Get-ProjectTrackerIisBoundary'))
+function New-Object {
+    param([Parameter(Position = 0)][string]$TypeName)
+    if ($TypeName -cne 'Microsoft.Web.Administration.ServerManager') {
+        throw "Unexpected mocked New-Object type '$TypeName'."
+    }
+    return $script:fakeIisManager
+}
+try {
+    $falsePreloadBoundary = Get-ProjectTrackerIisBoundary
+    Assert-True ($falsePreloadBoundary.DirectPath -ceq $fakeDirectPath -and
+        $falsePreloadBoundary.GatewayPath -ceq $fakeGatewayPath -and
+        $fakeGatewayApplication.PreloadEnabled -eq $false) `
+        'A healthy authentication/pool/path boundary with gateway PreloadEnabled=False was rejected or mutated.'
+}
+finally {
+    Remove-Item -LiteralPath Function:\New-Object -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath Function:\Get-ProjectTrackerIisBoundary -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath Function:\Get-FullPath -Force -ErrorAction SilentlyContinue
+}
+
 # Candidate preparation can take long enough for another deployment to move either IIS path.
 # Re-read both paths after every candidate/ACL operation and reject drift before entering the switch.
 $aclPrepIndex = $source.LastIndexOf('& icacls.exe $releasePath')

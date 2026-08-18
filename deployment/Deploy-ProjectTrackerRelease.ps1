@@ -198,7 +198,6 @@ function Get-ProjectTrackerIisBoundary {
         if ($null -eq $directApplication -or $null -eq $gatewayApplication) { throw 'Required direct or gateway IIS application is missing.' }
         if ($directApplication.ApplicationPoolName -ine $directPoolName) { throw "Direct site must use pool '$directPoolName'." }
         if ($gatewayApplication.ApplicationPoolName -ine $gatewayPoolName) { throw "Gateway must use pool '$gatewayPoolName'." }
-        if (-not $gatewayApplication.PreloadEnabled) { throw 'Project Tracker gateway preload must remain enabled.' }
         if ($gatewayPool.ManagedRuntimeVersion -ne '' -or -not $gatewayPool.AutoStart -or
             $gatewayPool.StartMode -ne [Microsoft.Web.Administration.StartMode]::AlwaysRunning -or
             $gatewayPool.ProcessModel.IdentityType -ne [Microsoft.Web.Administration.ProcessModelIdentityType]::ApplicationPoolIdentity -or
