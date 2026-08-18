@@ -29,9 +29,8 @@ foreach ($required in @(
     'NT AUTHORITY\SYSTEM',
     'Restart-WebAppPool -Name $AppPoolName',
     'Invoke-WebRequest -UseBasicParsing -UseDefaultCredentials',
-    '[IO.File]::Copy($configurationPath, $backupPath, $false)',
-    '[IO.File]::Replace($temporaryPath, $configurationPath, $null)',
-    '[IO.File]::Replace($restorePath, $configurationPath, $null)',
+    '[IO.File]::Replace($temporaryPath, $configurationPath, $backupPath)',
+    '[IO.File]::Replace($restorePath, $configurationPath, $rollbackDisplacedPath)',
     "'project-tracker', 'admin-console'",
     'PORTAL_PRODUCTION_MODULES_HIDDEN_AND_VERIFIED',
     'PORTAL_PRODUCTION_MODULES_ALREADY_HIDDEN_AND_VERIFIED',
@@ -130,6 +129,33 @@ foreach ($invalidJson in @(
     }
     catch { $failed = $true }
     if (-not $failed) { throw "An invalid Portal catalog was accepted: $invalidJson" }
+}
+
+$replaceTestRoot = Join-Path ([IO.Path]::GetTempPath()) ('sonaero-portal-replace-' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $replaceTestRoot -Force | Out-Null
+try {
+    $activePath = Join-Path $replaceTestRoot 'appsettings.Production.json'
+    $preparedPath = Join-Path $replaceTestRoot 'prepared.tmp'
+    $backupPath = Join-Path $replaceTestRoot 'prior.backup'
+    [IO.File]::WriteAllText($activePath, 'prior')
+    [IO.File]::WriteAllText($preparedPath, 'updated')
+    [IO.File]::Replace($preparedPath, $activePath, $backupPath)
+    if ([IO.File]::ReadAllText($activePath) -cne 'updated' -or
+        [IO.File]::ReadAllText($backupPath) -cne 'prior') {
+        throw 'Atomic apply did not install the update and retain the exact prior file.'
+    }
+
+    $restorePath = Join-Path $replaceTestRoot 'restore.tmp'
+    $failedBackupPath = Join-Path $replaceTestRoot 'failed.backup'
+    [IO.File]::WriteAllText($restorePath, 'prior')
+    [IO.File]::Replace($restorePath, $activePath, $failedBackupPath)
+    if ([IO.File]::ReadAllText($activePath) -cne 'prior' -or
+        [IO.File]::ReadAllText($failedBackupPath) -cne 'updated') {
+        throw 'Atomic rollback did not restore the prior file and retain the displaced update.'
+    }
+}
+finally {
+    Remove-Item -LiteralPath $replaceTestRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Write-Output 'PORTAL_PRODUCTION_MODULE_VISIBILITY_TESTS_PASSED'

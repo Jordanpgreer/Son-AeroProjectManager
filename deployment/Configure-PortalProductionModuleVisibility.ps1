@@ -267,6 +267,7 @@ $changeMayHaveOccurred = $false
 $operationId = [Guid]::NewGuid().ToString('N')
 $temporaryPath = "$configurationPath.visibility-$operationId.tmp"
 $backupPath = "$configurationPath.visibility-$operationId.backup"
+$rollbackDisplacedPath = "$configurationPath.visibility-$operationId.failed.backup"
 try {
     [IO.File]::WriteAllBytes($temporaryPath, $updatedBytes)
     $prepared = Read-PortalProductionConfiguration -Path $temporaryPath
@@ -274,9 +275,10 @@ try {
             -ApplicationIds $hiddenApplicationIds -Sentinel $disabledRoleSentinel)) {
         throw 'The prepared Portal production configuration did not retain the hidden-module policy.'
     }
-    [IO.File]::Copy($configurationPath, $backupPath, $false)
     $changeMayHaveOccurred = $true
-    [IO.File]::Replace($temporaryPath, $configurationPath, $null)
+    # Windows PowerShell 5.1/.NET Framework requires a legal backup path for File.Replace.
+    # The replacement and durable backup are produced by the same atomic filesystem call.
+    [IO.File]::Replace($temporaryPath, $configurationPath, $backupPath)
     $written = Read-PortalProductionConfiguration -Path $configurationPath
     if (-not (Test-HiddenApplicationPolicy -Configuration $written `
             -ApplicationIds $hiddenApplicationIds -Sentinel $disabledRoleSentinel)) {
@@ -295,7 +297,7 @@ catch {
     try {
         $restorePath = "$configurationPath.restore-$operationId.tmp"
         [IO.File]::WriteAllBytes($restorePath, $originalBytes)
-        [IO.File]::Replace($restorePath, $configurationPath, $null)
+        [IO.File]::Replace($restorePath, $configurationPath, $rollbackDisplacedPath)
         $restoredBytes = [IO.File]::ReadAllBytes($configurationPath)
         if ([Convert]::ToBase64String($restoredBytes) -cne [Convert]::ToBase64String($originalBytes)) {
             throw 'The restored Portal configuration does not exactly match the prior file.'
@@ -306,7 +308,7 @@ catch {
     if ($rollbackFailure) {
         throw "Portal visibility apply failed, and exact rollback could not be verified: $rollbackFailure. Original failure: $failure"
     }
-    throw "Portal visibility apply failed and the exact prior configuration was restored. $failure"
+    throw "Portal visibility apply failed and the exact prior configuration was restored. Backups were retained at '$backupPath' and '$rollbackDisplacedPath'. $failure"
 }
 finally {
     foreach ($transientPath in @($temporaryPath, "$configurationPath.restore-$operationId.tmp")) {
