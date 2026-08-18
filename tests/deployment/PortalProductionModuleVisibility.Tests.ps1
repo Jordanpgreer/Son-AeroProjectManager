@@ -41,7 +41,7 @@ foreach ($required in @(
 
 $functionNames = @('Get-ApplicationMap', 'Get-NormalizedAllowedRoles',
     'Set-HiddenApplicationPolicy', 'Test-HiddenApplicationPolicy',
-    'Assert-PortalCatalogVisibility')
+    'Assert-PortalCatalogVisibility', 'ConvertFrom-PortalApplicationsJson')
 $definitions = @($ast.FindAll({
     param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
@@ -93,6 +93,17 @@ $visibleCatalog = @(
     [pscustomobject]@{ id = 'admin-console' }
 )
 Assert-PortalCatalogVisibility -Applications $visibleCatalog `
+    -HiddenIds @('engineering-hub', 'quality-assurance') `
+    -RequiredVisibleIds @('project-tracker', 'admin-console')
+
+$windowsPowerShellJson = '[{"id":"project-tracker","name":"Project Tracker"},{"id":"admin-console","name":"Admin Console"}]'
+$parsedApplications = @(ConvertFrom-PortalApplicationsJson -Json $windowsPowerShellJson)
+if ($parsedApplications.Count -ne 2 -or
+    $parsedApplications[0].id -cne 'project-tracker' -or
+    $parsedApplications[1].id -cne 'admin-console') {
+    throw 'Windows PowerShell 5.1 JSON-array parsing did not return two independent applications.'
+}
+Assert-PortalCatalogVisibility -Applications $parsedApplications `
     -HiddenIds @('engineering-hub', 'quality-assurance') `
     -RequiredVisibleIds @('project-tracker', 'admin-console')
 $invalidCatalogCases = @(

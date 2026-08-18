@@ -178,6 +178,16 @@ function Assert-PortalCatalogVisibility {
     }
 }
 
+function ConvertFrom-PortalApplicationsJson {
+    param([Parameter(Mandatory = $true)][string]$Json)
+
+    # Windows PowerShell 5.1 preserves a JSON array as one nested Object[] when
+    # ConvertFrom-Json is invoked directly inside @(...). Deserialize first, then
+    # enumerate the result so each application is verified independently.
+    $parsed = $Json | ConvertFrom-Json -ErrorAction Stop
+    return @($parsed)
+}
+
 function Wait-ForPortalVisibility {
     param(
         [Parameter(Mandatory = $true)][string]$Uri,
@@ -195,7 +205,7 @@ function Wait-ForPortalVisibility {
             if ([int]$response.StatusCode -ne 200) {
                 throw "HTTP $($response.StatusCode)"
             }
-            $applications = @($response.Content | ConvertFrom-Json)
+            $applications = @(ConvertFrom-PortalApplicationsJson -Json $response.Content)
             Assert-PortalCatalogVisibility -Applications $applications -HiddenIds $HiddenIds `
                 -RequiredVisibleIds $RequiredVisibleIds
             return
