@@ -53,6 +53,13 @@ public sealed class ReportService(ProjectTrackerDbContext db)
         return new ReportFile(content, PdfContentType, $"{SafeName(data.Project.ProgramName)}-schedule.pdf");
     }
 
+    public async Task<ReportFile> ProjectCustomerPdfAsync(int projectId, CancellationToken cancellationToken = default)
+    {
+        var data = await LoadProjectAsync(projectId, cancellationToken);
+        var content = PdfReportBuilder.BuildProject(data.Project, data.Calendar, ReportAssets.LogoPath, customerView: true);
+        return new ReportFile(content, PdfContentType, $"{SafeName(data.Project.ProgramName)}-schedule-customer.pdf");
+    }
+
     public async Task<ReportFile> ProjectActivityPdfAsync(int projectId, CancellationToken cancellationToken = default)
     {
         var project = await db.Projects

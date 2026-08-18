@@ -19,6 +19,8 @@ public static class ReportEndpoints
             ProjectFileAsync(() => reports.ProjectExcelAsync(id, cancellationToken)));
         api.MapGet("/reports/projects/{id:int}.pdf", (int id, ReportService reports, CancellationToken cancellationToken) =>
             ProjectFileAsync(() => reports.ProjectPdfAsync(id, cancellationToken)));
+        api.MapGet("/reports/projects/{id:int}/customer.pdf", (int id, ReportService reports, CancellationToken cancellationToken) =>
+            ProjectFileAsync(() => reports.ProjectCustomerPdfAsync(id, cancellationToken)));
         api.MapGet("/reports/projects/{id:int}/activity.pdf", (int id, ReportService reports, CancellationToken cancellationToken) =>
             ProjectFileAsync(() => reports.ProjectActivityPdfAsync(id, cancellationToken)))
             .RequireAuthorization("ProjectActivityView");

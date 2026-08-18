@@ -646,7 +646,9 @@ export function PageHeader({
   const projectId = selectedProject?.id
   const xlsxHref = portfolioExports ? '/api/reports/portfolio.xlsx' : pastProjectExports ? '/api/reports/past-projects.xlsx' : `/api/reports/projects/${projectId}.xlsx`
   const pdfHref = portfolioExports ? '/api/reports/portfolio.pdf' : pastProjectExports ? '/api/reports/past-projects.pdf' : `/api/reports/projects/${projectId}.pdf`
+  const customerPdfHref = `/api/reports/projects/${projectId}/customer.pdf`
   const showExports = screen === 'dashboard' || screen === 'project' || screen === 'pastProjects'
+  const showCustomerExport = screen === 'project' && projectId !== undefined
   const subtitle = screenSubtitle(screen)
 
   return (
@@ -709,6 +711,11 @@ export function PageHeader({
             <div className="export-menu-list">
               <a href={xlsxHref}><FileSpreadsheet size={15} /> XLSX</a>
               <a href={pdfHref}><FileText size={15} /> PDF</a>
+              {showCustomerExport && (
+                <a href={customerPdfHref} title="Customer-facing schedule without internal detail">
+                  <FileText size={15} /> Customer PDF
+                </a>
+              )}
             </div>
           </details>
         )}

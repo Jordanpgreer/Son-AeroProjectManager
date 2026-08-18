@@ -56,6 +56,8 @@ public sealed class ReportServiceTests
             Assert.NotNull(workbook.Worksheet("Project Summary"));
             var timeline = workbook.Worksheet("Gantt Timeline");
             Assert.Equal("TEST-1001 Timeline", timeline.Cell("A5").GetString());
+            Assert.Contains("Status: green on track", timeline.Cell("A6").GetString());
+            Assert.Contains("Work week:", timeline.Cell("A6").GetString());
             Assert.Equal("CNC Production", timeline.Cell("B10").GetString());
         }
 
@@ -63,6 +65,14 @@ public sealed class ReportServiceTests
         using var document = PdfReader.Open(new MemoryStream(pdf.Content), PdfDocumentOpenMode.Import);
         Assert.True(document.PageCount >= 2);
         Assert.Equal("TEST-1001 Project Schedule", document.Info.Title);
+
+        var customerPdf = await reports.ProjectCustomerPdfAsync(project.Id);
+        Assert.Equal("application/pdf", customerPdf.ContentType);
+        Assert.Equal("TEST-1001-schedule-customer.pdf", customerPdf.FileName);
+        using var customerDocument = PdfReader.Open(new MemoryStream(customerPdf.Content), PdfDocumentOpenMode.Import);
+        Assert.True(customerDocument.PageCount >= 2);
+        Assert.Equal("TEST-1001 Project Schedule", customerDocument.Info.Title);
+        Assert.Equal("Customer project schedule report", customerDocument.Info.Subject);
     }
 
     [Fact]

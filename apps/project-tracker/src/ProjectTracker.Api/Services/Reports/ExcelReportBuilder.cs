@@ -30,7 +30,7 @@ internal static class ExcelReportBuilder
         workbook.Properties.Subject = "SON-AERO internal project control report";
         workbook.Properties.Company = "SON-AERO";
 
-        BuildProjectSummary(workbook.Worksheets.Add("Project Summary"), project, calendar, logoPath);
+        BuildProjectSummary(workbook.Worksheets.Add("Project Summary"), project, logoPath);
         BuildProjectTimeline(workbook.Worksheets.Add("Gantt Timeline"), project, calendar, logoPath);
         return Save(workbook);
     }
@@ -59,22 +59,32 @@ internal static class ExcelReportBuilder
         return Save(workbook);
     }
 
-    private static void BuildProjectSummary(IXLWorksheet sheet, Project project, ScheduleCalendar calendar, string? logoPath)
+    private static void BuildProjectSummary(IXLWorksheet sheet, Project project, string? logoPath)
     {
         ConfigureSheet(sheet, XLPageOrientation.Landscape);
         AddBrandHeader(sheet, 10, logoPath, "PROJECT SCHEDULE");
 
         sheet.Range("A6:J6").Merge().Value = project.ProgramName;
         StyleTitle(sheet.Range("A6:J6"), 22);
-        sheet.Range("A7:J7").Merge().Value = $"Generated {DateTime.Now:MMM d, yyyy h:mm tt}  |  {WorkWeekLabel(calendar)}";
+        // Schedule window rides here now that the five detail cards below cover the rest of the header fields.
+        sheet.Range("A7:J7").Merge().Value =
+            $"Generated {DateTime.Now:MMM d, yyyy h:mm tt}  |  Schedule window: {ReportText.Date(project.ProgramStart)} - {ReportText.Date(project.TargetDelivery)}";
         StyleSubtitle(sheet.Range("A7:J7"));
+        sheet.Row(6).Height = 30;
+        sheet.Row(7).Height = 16;
+        sheet.Row(8).Height = 7;
+        sheet.Rows(9, 10).Height = 16;
+        sheet.Row(11).Height = 7;
+        sheet.Rows(12, 13).Height = 16;
+        sheet.Row(14).Height = 7;
 
-        AddDetail(sheet, "A9", "B9:C9", "Customer", project.CustomerName ?? "Not set");
-        AddDetail(sheet, "D9", "E9:F9", "Sales Order", project.SalesOrderNumber ?? "Not set");
-        AddDetail(sheet, "G9", "H9:J9", "Program Manager", project.ProgramManager ?? "Not set");
-        AddDetail(sheet, "A10", "B10:D10", "Current Operation", project.CurrentTask ?? "Not set");
-        AddDetail(sheet, "E10", "F10:G10", "Job Number", project.JobNumber ?? "Not set");
-        AddDetail(sheet, "H10", "I10:J10", "Schedule Window", $"{ReportText.Date(project.ProgramStart)} - {ReportText.Date(project.TargetDelivery)}");
+        // Label and value live in one merged cell so narrow columns cannot clip the label,
+        // and numeric-looking values (sales order, job number) do not raise "stored as text" flags.
+        AddDetailCard(sheet, "A9:B10", "Customer", project.CustomerName);
+        AddDetailCard(sheet, "C9:D10", "Sales Order", project.SalesOrderNumber);
+        AddDetailCard(sheet, "E9:F10", "Job Number", project.JobNumber);
+        AddDetailCard(sheet, "G9:H10", "Program Manager", project.ProgramManager);
+        AddDetailCard(sheet, "I9:J10", "Current Operation", project.CurrentTask);
 
         AddMetric(sheet, "A12:B13", "Status", ReportText.Status(project.Status), StatusColor(project.Status), StatusTint(project.Status));
         AddMetric(sheet, "C12:D13", "Completion", ReportText.Percent(project.Progress), Steel, SteelTint);
@@ -117,20 +127,23 @@ internal static class ExcelReportBuilder
         var lastRow = Math.Max(headerRow + 1, headerRow + tasks.Count);
         sheet.Range(headerRow, 1, lastRow, headers.Length).SetAutoFilter();
         sheet.SheetView.FreezeRows(headerRow);
-        sheet.Column(1).Width = 7;
-        sheet.Column(2).Width = 31;
-        sheet.Column(3).Width = 19;
-        sheet.Column(4).Width = 17;
+        // Widths leave room for the autofilter arrow so it cannot cover the header text.
+        sheet.Column(1).Width = 9;
+        sheet.Column(2).Width = 34;
+        sheet.Column(3).Width = 20;
+        sheet.Column(4).Width = 18;
         sheet.Columns(5, 6).Width = 14;
-        sheet.Column(7).Width = 10;
-        sheet.Column(8).Width = 11;
-        sheet.Column(9).Width = 14;
-        sheet.Column(10).Width = 34;
-        sheet.Range(headerRow + 1, 1, lastRow, headers.Length).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        sheet.Column(7).Width = 12;
+        sheet.Column(8).Width = 13;
+        sheet.Column(9).Width = 15;
+        sheet.Column(10).Width = 36;
+        var body = sheet.Range(headerRow + 1, 1, lastRow, headers.Length);
+        body.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
         sheet.Range(headerRow + 1, 2, lastRow, 4).Style.Alignment.WrapText = true;
         sheet.Range(headerRow + 1, 10, lastRow, 10).Style.Alignment.WrapText = true;
+        CenterColumns(sheet, headerRow + 1, lastRow, 1, 5, 6, 7, 8, 9);
         sheet.PageSetup.PrintAreas.Add($"A1:J{lastRow}");
-        sheet.PageSetup.SetRowsToRepeatAtTop(15, 15);
+        sheet.PageSetup.SetRowsToRepeatAtTop(headerRow, headerRow);
     }
 
     private static void BuildPortfolioSummary(IXLWorksheet sheet, IReadOnlyList<Project> projects, ScheduleCalendar calendar, string? logoPath)
@@ -273,7 +286,9 @@ internal static class ExcelReportBuilder
         var start = bounds.Count > 0 ? bounds.Min(range => range.Start) : DateOnly.FromDateTime(DateTime.Today);
         var end = bounds.Count > 0 ? bounds.Max(range => range.End) : start.AddDays(30);
         var buckets = BuildBuckets(start.AddDays(-2), end.AddDays(3));
-        BuildTimelineSheet(sheet, $"{project.ProgramName} Timeline", "OPERATION GANTT", buckets, tasks.Count, logoPath, calendar,
+        var labels = new[] { "#", "Operation", "Work Center", "Start", "End", "Complete" };
+        var legend = $"Status: green on track | red behind | graphite complete | gray not started  |  {WorkWeekLabel(calendar)}";
+        BuildTimelineSheet(sheet, $"{project.ProgramName} Timeline", "OPERATION GANTT", labels, legend, buckets, tasks.Count, logoPath, calendar,
             (row, itemIndex) =>
             {
                 var task = tasks[itemIndex];
@@ -295,7 +310,9 @@ internal static class ExcelReportBuilder
         var start = bounds.Count > 0 ? bounds.Min(range => range.Start) : DateOnly.FromDateTime(DateTime.Today);
         var end = bounds.Count > 0 ? bounds.Max(range => range.End) : start.AddMonths(3);
         var buckets = BuildBuckets(start.AddDays(-7), end.AddDays(14), preferWeekly: true);
-        BuildTimelineSheet(sheet, "Portfolio Delivery Timeline", "PORTFOLIO GANTT", buckets, ordered.Count, logoPath, calendar,
+        var labels = new[] { "#", "Project", "Customer", "Start", "End", "Complete" };
+        var legend = $"Status: green on track | red behind | graphite complete | gray not started  |  {WorkWeekLabel(calendar)}";
+        BuildTimelineSheet(sheet, "Portfolio Delivery Timeline", "PORTFOLIO GANTT", labels, legend, buckets, ordered.Count, logoPath, calendar,
             (row, itemIndex) =>
             {
                 var project = ordered[itemIndex];
@@ -314,6 +331,8 @@ internal static class ExcelReportBuilder
         IXLWorksheet sheet,
         string title,
         string eyebrow,
+        IReadOnlyList<string> labels,
+        string? legend,
         IReadOnlyList<TimelineBucket> buckets,
         int itemCount,
         string? logoPath,
@@ -325,14 +344,24 @@ internal static class ExcelReportBuilder
         AddBrandHeader(sheet, lastColumn, logoPath, eyebrow);
         sheet.Range(5, 1, 5, lastColumn).Merge().Value = title;
         StyleTitle(sheet.Range(5, 1, 5, lastColumn), 19);
-        sheet.Range(6, 1, 6, 6).Merge().Value = "Status: green on track | red behind | graphite complete | gray not started";
-        StyleSubtitle(sheet.Range(6, 1, 6, 6));
-        sheet.Range(6, 7, 6, lastColumn).Merge().Value = $"{buckets[0].Start:MMM d, yyyy} - {buckets[^1].End:MMM d, yyyy}  |  {WorkWeekLabel(calendar)}";
-        sheet.Range(6, 7, 6, lastColumn).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
-        StyleSubtitle(sheet.Range(6, 7, 6, lastColumn));
+        sheet.Row(5).Height = 26;
+        var window = $"{buckets[0].Start:MMM d, yyyy} - {buckets[^1].End:MMM d, yyyy}";
+        if (legend is null)
+        {
+            sheet.Range(6, 1, 6, 6).Merge().Value = window;
+            StyleSubtitle(sheet.Range(6, 1, 6, 6));
+        }
+        else
+        {
+            sheet.Range(6, 1, 6, 6).Merge().Value = legend;
+            StyleSubtitle(sheet.Range(6, 1, 6, 6));
+            sheet.Range(6, 7, 6, lastColumn).Merge().Value = window;
+            sheet.Range(6, 7, 6, lastColumn).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+            StyleSubtitle(sheet.Range(6, 7, 6, lastColumn));
+        }
+        sheet.Row(7).Height = 7;
 
-        var labels = new[] { "#", "Operation / Project", "Work Center / Customer", "Start", "End", "Complete" };
-        for (var column = 1; column <= labels.Length; column++)
+        for (var column = 1; column <= labels.Count; column++)
         {
             sheet.Cell(8, column).Value = labels[column - 1];
             sheet.Range(8, column, 9, column).Merge();
@@ -357,7 +386,9 @@ internal static class ExcelReportBuilder
             cell.Value = buckets[index].Label;
             StyleTimelineHeader(cell.AsRange());
             cell.Style.Font.FontSize = 8;
-            cell.Style.Alignment.TextRotation = buckets.Count > 70 ? 90 : 0;
+            cell.Style.Font.Bold = false;
+            cell.Style.Font.FontColor = Muted;
+            cell.Style.Alignment.TextRotation = buckets.Count > 90 ? 90 : 0;
         }
 
         var today = DateOnly.FromDateTime(DateTime.Today);
@@ -394,6 +425,17 @@ internal static class ExcelReportBuilder
                     cell.Style.Border.BottomBorder = XLBorderStyleValues.Thin;
                     cell.Style.Border.TopBorderColor = bar.Color;
                     cell.Style.Border.BottomBorderColor = bar.Color;
+                    // Cap the ends so each bar reads as one block rather than a run of tinted cells.
+                    if (index == 0)
+                    {
+                        cell.Style.Border.LeftBorder = XLBorderStyleValues.Thin;
+                        cell.Style.Border.LeftBorderColor = bar.Color;
+                    }
+                    if (index == matching.Count - 1)
+                    {
+                        cell.Style.Border.RightBorder = XLBorderStyleValues.Thin;
+                        cell.Style.Border.RightBorderColor = bar.Color;
+                    }
                 }
             }
         }
@@ -408,14 +450,15 @@ internal static class ExcelReportBuilder
         }
 
         sheet.Column(1).Width = 5;
-        sheet.Column(2).Width = 30;
+        sheet.Column(2).Width = 32;
         sheet.Column(3).Width = 20;
-        sheet.Columns(4, 5).Width = 13;
-        sheet.Column(6).Width = 10;
-        var bucketWidth = buckets.Count > 90 ? 2.4 : buckets.Count > 55 ? 3.2 : 4.5;
+        sheet.Columns(4, 5).Width = 14;
+        sheet.Column(6).Width = 11;
+        var bucketWidth = buckets.Count > 90 ? 2.6 : buckets.Count > 55 ? 3.4 : 4.6;
         sheet.Columns(7, lastColumn).Width = bucketWidth;
         sheet.Range(10, 2, lastRow, 3).Style.Alignment.WrapText = true;
         sheet.Range(10, 1, lastRow, lastColumn).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        CenterColumns(sheet, 10, lastRow, 1, 4, 5, 6);
         sheet.SheetView.FreezeRows(9);
         sheet.SheetView.FreezeColumns(6);
         sheet.SheetView.ZoomScale = buckets.Count > 70 ? 70 : 85;
@@ -440,7 +483,8 @@ internal static class ExcelReportBuilder
             var buckets = new List<TimelineBucket>();
             while (cursor <= end)
             {
-                buckets.Add(new TimelineBucket(cursor, cursor.AddDays(6), cursor.ToString("dd MMM")));
+                // Day number only - the merged month band above already carries the month.
+                buckets.Add(new TimelineBucket(cursor, cursor.AddDays(6), cursor.Day.ToString()));
                 cursor = cursor.AddDays(7);
             }
             return buckets;
@@ -500,18 +544,29 @@ internal static class ExcelReportBuilder
         label.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
     }
 
-    private static void AddDetail(IXLWorksheet sheet, string labelCell, string valueRange, string label, string value)
+    private static void AddDetailCard(IXLWorksheet sheet, string address, string label, string? value)
     {
-        var labelTarget = sheet.Cell(labelCell);
-        labelTarget.Value = label.ToUpperInvariant();
-        labelTarget.Style.Font.FontSize = 8;
-        labelTarget.Style.Font.Bold = true;
-        labelTarget.Style.Font.FontColor = Muted;
-        var range = sheet.Range(valueRange);
-        range.Merge().Value = value;
-        range.Style.Font.Bold = true;
-        range.Style.Font.FontColor = Ink2;
+        var range = sheet.Range(address);
+        range.Merge();
+        range.Style.Fill.BackgroundColor = Surface2;
+        range.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        range.Style.Border.OutsideBorderColor = Line;
         range.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+
+        var cell = range.FirstCell();
+        cell.Value = $"{label.ToUpperInvariant()}\n{(string.IsNullOrWhiteSpace(value) ? "Not set" : value)}";
+        cell.Style.Alignment.WrapText = true;
+        cell.Style.Font.FontColor = Ink2;
+        cell.Style.Font.Bold = true;
+        cell.Style.Font.FontSize = 10;
+    }
+
+    private static void CenterColumns(IXLWorksheet sheet, int firstRow, int lastRow, params int[] columns)
+    {
+        foreach (var column in columns)
+        {
+            sheet.Range(firstRow, column, lastRow, column).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        }
     }
 
     private static void AddMetric(IXLWorksheet sheet, string address, string label, string value, XLColor accent, XLColor fill)

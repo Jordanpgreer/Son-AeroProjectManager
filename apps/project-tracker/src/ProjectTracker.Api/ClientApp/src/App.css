@@ -657,7 +657,7 @@ nav { display: grid; gap: 3px; }
   top: calc(100% + 6px);
   right: 0;
   z-index: 20;
-  min-width: 132px;
+  min-width: 168px;
   padding: 5px;
   background: var(--surface);
   border: 1px solid var(--line-2);
