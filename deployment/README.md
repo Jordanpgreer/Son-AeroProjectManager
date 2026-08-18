@@ -105,6 +105,24 @@ all five applications plus the same-origin Project Tracker gateway, and rolls II
 paths if health verification fails. Run `Configure-PortalProjectTrackerGateway.ps1` once on SON-IIS2
 before the first gateway-aware release.
 
+When a release changes **only Project Tracker** and does not require a Portal, Engineering,
+Estimating, Quality, shared-production-configuration, or cross-module database change, use
+`Deploy-ProjectTrackerRelease.ps1` instead. Continue to build a fresh deterministic Hub staging
+root with `Publish-Hub.ps1`; the targeted transaction reads only its `ProjectTracker` folder and
+switches and verifies only the direct `ProjectTracker` IIS site and the existing
+`/project-tracker-api` Portal gateway. It preserves the active Project Tracker
+`appsettings.Production.json` and automatically restores both prior paths if candidate health
+verification fails. This avoids making a deferred module's health a release gate for an otherwise
+independent Project Tracker update.
+
+Run the targeted transaction with `-WhatIf` first and require
+`WHATIF_READY_PROJECT_TRACKER_RELEASE`. Apply only after that exact marker, and require
+`PROJECT_TRACKER_RELEASE_DEPLOYED_AND_HEALTHY` from the apply. A message reporting automatic
+rollback, rollback verification failure, or the absence of the success marker is a stop condition:
+do not rerun the command, recycle pools, change IIS paths, or delete the retained failed release.
+Capture the complete output and diagnose the retained candidate first. See the Project Tracker-only
+procedure in [production-hostname-https.md](production-hostname-https.md).
+
 The default publish is intentionally topology-neutral: the same immutable frontend bundle resolves
 permanent hostnames to `https://hub.son4l.local`, HTTP endpoints to the 51xx topology, and retained
 HTTPS pilot endpoints to the 61xx topology at runtime. Publish-time Hub/module origin overrides are

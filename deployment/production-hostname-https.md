@@ -89,6 +89,144 @@ The release apply must end with `HUB_RELEASE_DEPLOYED_AND_HEALTHY`. It must be h
 retained HTTP endpoints before binding or application configuration changes; do not point
 shortcuts at the new hostnames yet.
 
+### Later Project Tracker-only application releases
+
+After permanent HTTPS is configured, a change limited to Project Tracker does not need to switch or
+health-gate the four unrelated module sites. Use this procedure only when the commit has no Portal,
+Engineering, Estimating, Quality, shared production configuration, deployment-topology, or
+cross-module database change. Otherwise use the full immutable Hub release above.
+
+Run this in **elevated Windows PowerShell 5.1 on the SON-IIS2 Remote Desktop** as an authorized
+domain user such as `SON4L\Jordan.Greer`. Do not run it through N-Central System Shell or as
+`NT AUTHORITY\SYSTEM`.
+
+```powershell
+& {
+    $ErrorActionPreference = 'Stop'
+
+    $repo = 'C:\SonAero\src\SonAeroInternalHub'
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+
+    if (
+        $env:COMPUTERNAME -ine 'SON-IIS2' -or
+        $identity.IsSystem -or
+        $identity.Name -ieq 'NT AUTHORITY\SYSTEM' -or
+        $identity.Name -notlike 'SON4L\*'
+    ) {
+        throw "Run this interactively as an authorized SON4L user on SON-IIS2. Current identity: $($identity.Name)"
+    }
+
+    if (-not (Test-Path -LiteralPath "$repo\.git" -PathType Container)) {
+        throw "Git checkout not found: $repo"
+    }
+
+    $dirty = @(git -C $repo status --porcelain)
+    if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the server checkout.' }
+    if ($dirty.Count -ne 0) {
+        throw "The server checkout is dirty. Stop and inspect it; do not reset it: $($dirty -join '; ')"
+    }
+
+    git -C $repo fetch --prune origin
+    if ($LASTEXITCODE -ne 0) { throw 'Git fetch failed; IIS was not changed.' }
+
+    $expectedCommit = (git -C $repo rev-parse origin/main).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($expectedCommit)) {
+        throw 'Could not resolve origin/main; IIS was not changed.'
+    }
+
+    git -C $repo pull --ff-only origin main
+    if ($LASTEXITCODE -ne 0) { throw 'Fast-forward pull failed; IIS was not changed.' }
+
+    $sourceCommit = (git -C $repo rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or $sourceCommit -cne $expectedCommit) {
+        throw "Checkout is $sourceCommit, expected $expectedCommit. Stop."
+    }
+
+    $dirty = @(git -C $repo status --porcelain)
+    if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) {
+        throw "Pull left the checkout dirty. Stop and inspect it: $($dirty -join '; ')"
+    }
+
+    $releaseId = (git -C $repo rev-parse --short=12 HEAD).Trim()
+    $packageRoot = "C:\SonAero\staging\project-tracker-$releaseId"
+    if (Test-Path -LiteralPath $packageRoot) {
+        throw "Staging path already exists; do not overwrite it: $packageRoot"
+    }
+
+    powershell.exe -NoProfile -ExecutionPolicy Bypass `
+        -File "$repo\deployment\Publish-Hub.ps1" `
+        -OutputRoot $packageRoot `
+        -ProjectTrackerUrl '/project-tracker-api'
+    if ($LASTEXITCODE -ne 0) { throw 'Publish failed; IIS was not changed.' }
+
+    Write-Host '=== PROJECT TRACKER RELEASE PREVIEW ===' -ForegroundColor Cyan
+    $preview = @(
+        & "$repo\deployment\Deploy-ProjectTrackerRelease.ps1" `
+            -PackageRoot $packageRoot `
+            -ReleaseId $releaseId `
+            -WhatIf
+    )
+    $preview | ForEach-Object { Write-Host $_ }
+    if ($preview -notcontains 'WHATIF_READY_PROJECT_TRACKER_RELEASE') {
+        throw 'Preview did not return WHATIF_READY_PROJECT_TRACKER_RELEASE; IIS was not changed.'
+    }
+
+    Write-Host '=== PROJECT TRACKER RELEASE APPLY ===' -ForegroundColor Cyan
+    $apply = @(
+        & "$repo\deployment\Deploy-ProjectTrackerRelease.ps1" `
+            -PackageRoot $packageRoot `
+            -ReleaseId $releaseId `
+            -Confirm:$false
+    )
+    $apply | ForEach-Object { Write-Host $_ }
+    if ($apply -notcontains 'PROJECT_TRACKER_RELEASE_DEPLOYED_AND_HEALTHY') {
+        throw 'The healthy marker was not returned. Stop and inspect the rollback output; do not rerun blindly.'
+    }
+
+    foreach ($uri in @(
+        'https://projects.hub.son4l.local/api/health',
+        'https://hub.son4l.local/project-tracker-api/api/health'
+    )) {
+        $response = Invoke-WebRequest `
+            -UseBasicParsing `
+            -UseDefaultCredentials `
+            -Uri $uri `
+            -TimeoutSec 30
+        if ($response.StatusCode -ne 200) {
+            throw "Post-deployment health verification failed: $uri returned $($response.StatusCode)."
+        }
+        Write-Host "HTTP 200 $uri" -ForegroundColor Green
+    }
+
+    foreach ($uri in @(
+        'https://projects.hub.son4l.local/api/me',
+        'https://hub.son4l.local/project-tracker-api/api/me'
+    )) {
+        $me = Invoke-RestMethod -UseDefaultCredentials -Uri $uri -TimeoutSec 30
+        if ([string]$me.accountName -ine $identity.Name) {
+            throw "Identity verification failed at $uri. Expected $($identity.Name), received $($me.accountName)."
+        }
+        Write-Host "IDENTITY_OK $uri $($me.accountName)" -ForegroundColor Green
+    }
+
+    Write-Host "PROJECT_TRACKER_RELEASE_VERIFIED $expectedCommit" -ForegroundColor Green
+}
+```
+
+`Publish-Hub.ps1` still creates the deterministic Hub staging root, but the targeted deploy reads
+only `$packageRoot\ProjectTracker`. Its default immutable destination is
+`C:\SonAero\releases\project-tracker\<release-id>`.
+
+Required markers are:
+
+- preview: `WHATIF_READY_PROJECT_TRACKER_RELEASE`;
+- apply: `PROJECT_TRACKER_RELEASE_DEPLOYED_AND_HEALTHY`;
+- wrapper completion: `PROJECT_TRACKER_RELEASE_VERIFIED <full-commit-hash>`.
+
+If apply reports automatic rollback, rollback verification failure, or omits the apply marker, stop.
+Do not rerun the transaction, recycle pools, manually repoint IIS, or remove the retained failed
+release. Capture the complete output and diagnose the retained candidate first.
+
 ## 2. Secure and complete the retained pilot rollback surface once
 
 Before any pilot rollback/retirement or permanent binding work, migrate the already-deployed legacy
