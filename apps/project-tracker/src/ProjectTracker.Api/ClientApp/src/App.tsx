@@ -142,6 +142,13 @@ function clearNotificationDestination() {
 
 function App() {
   const [theme, setTheme] = useState(() => readThemePreference())
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return window.localStorage.getItem('sonaero-project-tracker-sidebar') === 'collapsed'
+    } catch {
+      return false
+    }
+  })
   const [user, setUser] = useState<User | null>(null)
   const [dashboard, setDashboard] = useState<Dashboard>(emptyDashboard)
   const [selectedProject, setSelectedProject] = useState<ProjectDetail | null>(null)
@@ -188,6 +195,17 @@ function App() {
   const projectMutationTail = useRef<Promise<void>>(Promise.resolve())
   const pendingNavigationRef = useRef<(() => void | Promise<void>) | null>(null)
   const promptedImportProjectId = useRef<number | null>(null)
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        'sonaero-project-tracker-sidebar',
+        sidebarCollapsed ? 'collapsed' : 'expanded',
+      )
+    } catch {
+      // Sidebar state persistence is optional.
+    }
+  }, [sidebarCollapsed])
 
   const projectPayload = (
     project: ProjectDetail,
@@ -963,6 +981,8 @@ function App() {
   const canCreateProject = hasPermission(mutationPermissions, permissionKeys.projectCreate)
   const canReorderPriority = hasPermission(mutationPermissions, permissionKeys.projectEditPriority)
   const canRestoreArchived = hasPermission(mutationPermissions, permissionKeys.archivedRestore)
+  const canDeleteArchived = Boolean(user?.groups.some((group) => group.toLowerCase() === 'administrators'))
+    && hasPermission(mutationPermissions, permissionKeys.archivedDelete)
   const canViewActivity = Boolean(userPermissions.includes('project.activity.view'))
   const isProjectScreen = screen === 'project'
   const holidaySet = useMemo(() => new Set(holidays.map((holiday) => holiday.date)), [holidays])
@@ -981,7 +1001,7 @@ function App() {
   }, [notificationTaskId])
 
   return (
-    <div className="app-shell project-tracker-app">
+    <div className={`app-shell project-tracker-app ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
       <Sidebar
         screen={screen}
         setScreen={(target) => { void requestNavigation(() => setScreen(target)) }}
@@ -1004,6 +1024,8 @@ function App() {
         <PageHeader
           theme={theme}
           onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+          sidebarCollapsed={sidebarCollapsed}
+          onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
           screen={screen}
           selectedProject={selectedProject}
           canEnterProjectEdit={canEnterProjectEdit}
@@ -1107,7 +1129,7 @@ function App() {
                 />
               )}
               {screen === 'calendar' && <CalendarView data={scheduleProjects} holidaySet={holidaySet} workingDaySet={workingDaySet} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} />}
-              {screen === 'pastProjects' && <PastProjectsView projects={dashboard.projects} search={pastProjectsSearch} canRestoreArchived={canRestoreArchived} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} onProjectRestored={async () => setDashboard(await api<Dashboard>('/api/dashboard'))} />}
+              {screen === 'pastProjects' && <PastProjectsView projects={dashboard.projects} search={pastProjectsSearch} canRestoreArchived={canRestoreArchived} canDeleteArchived={canDeleteArchived} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} onProjectRestored={async () => setDashboard(await api<Dashboard>('/api/dashboard'))} />}
             </>
           )}
         </div>

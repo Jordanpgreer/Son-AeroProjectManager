@@ -1,0 +1,122 @@
+.ops-edit .col-slider {
+  width: 268px;
+  min-width: 268px;
+}
+
+.operation-progress-editor {
+  display: grid;
+  grid-template-columns: minmax(78px, 88px) minmax(142px, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.operation-progress-number {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink-2);
+  overflow: hidden;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.operation-progress-number:focus-within {
+  border-color: var(--steel);
+  box-shadow: 0 0 0 3px var(--steel-tint);
+}
+
+.operation-progress-number:has(input[aria-invalid='true']) {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px var(--red-tint);
+}
+
+.operation-progress-number input {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 2px 0 10px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.operation-progress-number > span[aria-hidden='true'] {
+  padding: 0 8px 0 2px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.operation-progress-number.is-disabled {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.operation-progress-number input:disabled {
+  color: var(--ink-2);
+  cursor: not-allowed;
+}
+
+.operation-complete-button,
+.operation-progress-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 11px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.operation-complete-button {
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+.operation-complete-button:hover:not(:disabled) {
+  border-color: var(--ok);
+  background: var(--ok-tint);
+  color: var(--ok-700);
+}
+
+.operation-complete-button:focus-visible {
+  outline: 0;
+  border-color: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-tint);
+}
+
+.operation-complete-button:disabled,
+.operation-progress-status {
+  cursor: default;
+}
+
+.operation-progress-status.is-complete {
+  border-color: color-mix(in srgb, var(--ok) 38%, var(--line-2));
+  background: var(--ok-tint);
+  color: var(--ok-700);
+}
+
+.operation-complete-button:disabled {
+  opacity: 0.58;
+  cursor: wait;
+}
+
+.operation-progress-error {
+  grid-column: 1 / -1;
+  color: var(--red-700);
+  font-size: 10.5px;
+  line-height: 1.3;
+}

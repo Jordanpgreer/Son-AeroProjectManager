@@ -12,6 +12,7 @@ public sealed class AccessControlSeeder
     private const string SharedModuleGroupsVersion = "shared-module-groups-v1";
     private const string QualityShippingPermissionsVersion = "quality-shipping-permissions-v1";
     private const string ProjectExternalLinksPermissionVersion = "project-external-links-permission-v1";
+    private const string ArchivedDeletePermissionVersion = "project-archived-delete-permission-v1";
 
     public async Task SeedAsync(
         ProjectTrackerDbContext db,
@@ -52,6 +53,19 @@ public sealed class AccessControlSeeder
                 [ProjectTrackerPermissions.ProjectEditExternalLinks],
                 cancellationToken);
             await RecordVersionAsync(db, ProjectExternalLinksPermissionVersion, cancellationToken);
+        }
+        var addArchivedDeletePermission = !await HasVersionAsync(
+            db,
+            ArchivedDeletePermissionVersion,
+            cancellationToken);
+        if (addArchivedDeletePermission)
+        {
+            await AddPermissionsToGroupAsync(
+                db,
+                groupIds[ApplicationGroups.Administrators],
+                [ProjectTrackerPermissions.ArchivedDelete],
+                cancellationToken);
+            await RecordVersionAsync(db, ArchivedDeletePermissionVersion, cancellationToken);
         }
         var existingUsers = await db.Users
             .Include(user => user.GroupMemberships)
@@ -179,9 +193,11 @@ public sealed class AccessControlSeeder
                      !string.Equals(group.Name, ApplicationGroups.Administrators, StringComparison.OrdinalIgnoreCase)))
         {
             foreach (var permission in group.Permissions.Where(permission =>
-                         string.Equals(
-                             permission.PermissionKey,
+                         permission.PermissionKey.Equals(
                              ApplicationPermissions.ImportManage,
+                             StringComparison.OrdinalIgnoreCase)
+                         || permission.PermissionKey.Equals(
+                             ProjectTrackerPermissions.ArchivedDelete,
                              StringComparison.OrdinalIgnoreCase)).ToList())
             {
                 group.Permissions.Remove(permission);

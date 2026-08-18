@@ -27,6 +27,13 @@ public sealed class ControlledImportReviewStore
 
     public void Remove(string id) => reviews.TryRemove(id, out _);
 
+    public void RemoveForProject(int projectId)
+    {
+        RemoveExpired();
+        foreach (var pair in reviews.Where(pair => pair.Value.ProjectVersions.ContainsKey(projectId)))
+            reviews.TryRemove(pair.Key, out _);
+    }
+
     private void RemoveExpired()
     {
         var now = DateTimeOffset.UtcNow;

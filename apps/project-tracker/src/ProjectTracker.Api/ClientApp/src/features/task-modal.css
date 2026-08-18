@@ -1,0 +1,208 @@
+.operation-modal {
+  width: min(820px, 100%);
+}
+
+.operation-modal-body {
+  gap: 8px;
+  padding-block: 12px 16px;
+}
+
+.operation-editor-sections {
+  display: grid;
+  gap: 8px;
+}
+
+.operation-accordion {
+  overflow: visible;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.operation-accordion.open {
+  border-color: var(--line-2);
+  box-shadow: 0 5px 16px rgba(16, 24, 33, 0.045);
+}
+
+.operation-accordion-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(150px, 0.8fr) minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 62px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+
+.operation-accordion-toggle:hover {
+  background: var(--surface-2);
+}
+
+.operation-accordion-toggle:focus-visible {
+  outline: 3px solid var(--steel-tint-2);
+  outline-offset: 2px;
+}
+
+.operation-accordion-content input:focus,
+.operation-accordion-content select:focus,
+.operation-accordion-content textarea:focus,
+.operation-accordion-content .work-station-control:focus-within {
+  border-color: var(--steel);
+  box-shadow: 0 0 0 3px var(--steel-tint-2);
+}
+
+.operation-accordion-content input[aria-invalid='true']:focus {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px var(--red-tint);
+}
+
+.operation-accordion-content .field-error {
+  color: var(--red-700);
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.35;
+}
+
+.operation-accordion-title {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.operation-accordion-title small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 400;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operation-accordion-summary {
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operation-accordion.open .operation-accordion-summary {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.operation-accordion-chevron {
+  color: var(--muted);
+  transition: transform 180ms ease;
+}
+
+.operation-accordion.open .operation-accordion-chevron {
+  transform: rotate(180deg);
+}
+
+.operation-accordion-content {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-top: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--surface-2), var(--surface) 30px);
+}
+
+.operation-accordion-content[hidden] {
+  display: none;
+}
+
+.operation-routing-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.operation-schedule-row {
+  grid-template-columns: 1.1fr 1.1fr 0.72fr 0.72fr;
+}
+
+.operation-modal-progress-editor {
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) 1fr;
+  align-items: end;
+  gap: 12px;
+}
+
+.operation-modal-progress-editor .button {
+  min-height: 36px;
+  justify-self: end;
+}
+
+.operation-modal-progress-input input {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.operation-progress-presets {
+  max-width: 430px;
+}
+
+.operation-notes-field textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+
+.operation-accordion-content > .advanced-grid {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .operation-accordion,
+  .operation-accordion-toggle,
+  .operation-accordion-chevron {
+    transition: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .operation-accordion-toggle {
+    grid-template-columns: auto 1fr auto;
+  }
+
+  .operation-accordion-summary {
+    grid-column: 2 / -1;
+    text-align: left;
+  }
+
+  .operation-routing-grid,
+  .operation-schedule-row,
+  .operation-modal-progress-editor {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .operation-routing-grid,
+  .operation-schedule-row,
+  .operation-modal-progress-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .operation-modal-progress-editor .button {
+    width: 100%;
+    justify-self: stretch;
+  }
+}

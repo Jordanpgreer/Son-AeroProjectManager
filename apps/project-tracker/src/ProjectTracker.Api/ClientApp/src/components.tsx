@@ -96,6 +96,7 @@ export function WorkStationPicker({
   onCommit,
   disabled = false,
   title,
+  ariaLabel = 'Work station',
 }: {
   value: string
   options: string[]
@@ -103,6 +104,7 @@ export function WorkStationPicker({
   onCommit?: () => void
   disabled?: boolean
   title?: string
+  ariaLabel?: string
 }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -149,6 +151,7 @@ export function WorkStationPicker({
         <Search size={15} />
         <input
           role="combobox"
+          aria-label={ariaLabel}
           aria-autocomplete="list"
           aria-expanded={open}
           disabled={disabled}

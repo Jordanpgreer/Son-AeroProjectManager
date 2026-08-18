@@ -1,13 +1,27 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Dtos;
 using ProjectTracker.Api.Models;
 using ProjectTracker.Api.Services;
+using ProjectTracker.Api.Auth;
+using ProjectTracker.Api.Services.Import;
+using SonAero.Platform.Security;
 
 namespace ProjectTracker.Api.Endpoints;
 
 public static class ArchivedProjectEndpoints
 {
+    public const string PermanentDeletePolicyName = "PermanentlyDeleteArchived";
+
+    public static void ConfigurePermanentDeletePolicy(AuthorizationPolicyBuilder policy)
+    {
+        policy
+            .RequireClaim(ApplicationClaimTypes.Group, ApplicationGroups.Administrators)
+            .RequireClaim(ApplicationClaimTypes.Permission, ProjectTrackerPermissions.ArchivedDelete);
+    }
+
     public static RouteGroupBuilder MapArchivedProjectEndpoints(this RouteGroupBuilder api)
     {
         api.MapGet("/archived-projects", async (ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
@@ -77,6 +91,95 @@ public static class ArchivedProjectEndpoints
             return Results.NoContent();
         }).RequireAuthorization("RestoreArchived");
 
+        api.MapDelete("/archived-projects/{id:int}", PermanentlyDeleteAsync)
+            .RequireAuthorization(PermanentDeletePolicyName);
+
         return api;
+    }
+
+    public static async Task<IResult> PermanentlyDeleteAsync(
+        int id,
+        [FromBody] ArchivedProjectPermanentDeleteDto dto,
+        ProjectTrackerDbContext db,
+        ControlledImportReviewStore importReviews,
+        CancellationToken cancellationToken)
+    {
+        var project = await db.Projects
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                candidate => candidate.Id == id && candidate.DeletedAt != null,
+                cancellationToken);
+        if (project is null)
+        {
+            return Results.NotFound();
+        }
+        if (dto.Version != project.Version)
+        {
+            return Results.Conflict(new ConcurrencyConflictDto(
+                "ConcurrencyConflict",
+                "This archived project changed before it could be permanently deleted. Reload the archived-project list and try again.",
+                "Project",
+                project.Id));
+        }
+        if (!string.Equals(dto.Confirmation, project.ProgramName, StringComparison.Ordinal))
+        {
+            return Results.BadRequest("Enter the exact project name to confirm permanent deletion.");
+        }
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        await db.UserNotifications
+            .IgnoreQueryFilters()
+            .Where(notification => notification.ProjectId == id)
+            .ExecuteDeleteAsync(cancellationToken);
+        await db.StatusHistory
+            .IgnoreQueryFilters()
+            .Where(history => history.ProjectId == id)
+            .ExecuteDeleteAsync(cancellationToken);
+        await db.ProjectAuditEntries
+            .IgnoreQueryFilters()
+            .Where(entry => entry.ProjectId == id)
+            .ExecuteDeleteAsync(cancellationToken);
+        await db.ProjectMessages
+            .IgnoreQueryFilters()
+            .Where(message => message.ProjectId == id)
+            .ExecuteDeleteAsync(cancellationToken);
+        await db.TaskOvertimeDays
+            .IgnoreQueryFilters()
+            .Where(day => day.ProjectTask.ProjectId == id)
+            .ExecuteDeleteAsync(cancellationToken);
+        await db.Tasks
+            .IgnoreQueryFilters()
+            .Where(task => task.ProjectId == id && task.DependencyTaskId != null)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(task => task.DependencyTaskId, (int?)null),
+                cancellationToken);
+        await db.Tasks
+            .IgnoreQueryFilters()
+            .Where(task => task.ProjectId == id)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        var deletedProjects = await db.Projects
+            .IgnoreQueryFilters()
+            .Where(candidate =>
+                candidate.Id == id
+                && candidate.DeletedAt != null
+                && candidate.Version == dto.Version
+                && candidate.ProgramName == dto.Confirmation)
+            .ExecuteDeleteAsync(cancellationToken);
+        if (deletedProjects != 1)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return Results.Conflict(new ConcurrencyConflictDto(
+                "ConcurrencyConflict",
+                "This archived project changed before it could be permanently deleted. Reload the archived-project list and try again.",
+                "Project",
+                id));
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        importReviews.RemoveForProject(id);
+        return Results.NoContent();
     }
 }

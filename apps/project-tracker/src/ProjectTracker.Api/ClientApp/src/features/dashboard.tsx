@@ -15,6 +15,7 @@ import {
   EyeOff,
   LoaderCircle,
   RefreshCw,
+  Trash2,
   UserRoundCheck,
 } from 'lucide-react'
 import {
@@ -34,6 +35,7 @@ import type {
   User,
 } from '../types'
 import { buildPersonalPriorityRanks, isProjectAssignedToUser } from './dashboard-priority'
+import { PermanentDeleteProjectDialog } from './permanent-delete-project-dialog'
 import {
   Kpi,
   StatusBar,
@@ -202,12 +204,14 @@ export function PastProjectsView({
   projects,
   search,
   canRestoreArchived,
+  canDeleteArchived,
   onOpenProject,
   onProjectRestored,
 }: {
   projects: ProjectSummary[]
   search: string
   canRestoreArchived: boolean
+  canDeleteArchived: boolean
   onOpenProject: (projectId: number) => Promise<void>
   onProjectRestored: () => Promise<void>
 }) {
@@ -217,6 +221,9 @@ export function PastProjectsView({
   const [archivedError, setArchivedError] = useState<string | null>(null)
   const [archivedMessage, setArchivedMessage] = useState<string | null>(null)
   const [restoringId, setRestoringId] = useState<number | null>(null)
+  const [deletingProject, setDeletingProject] = useState<ArchivedProject | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const completed = projects.filter((project) => project.status === 'Complete')
   const query = search.trim().toLowerCase()
   const visible = query
@@ -273,6 +280,28 @@ export function PastProjectsView({
       setArchivedError(error instanceof Error ? error.message : 'The project could not be restored.')
     } finally {
       setRestoringId(null)
+    }
+  }
+
+  async function permanentlyDeleteArchived(confirmation: string) {
+    if (!canDeleteArchived || deletingProject === null || deleting) return
+    setDeleting(true)
+    setDeleteError(null)
+    setArchivedError(null)
+    setArchivedMessage(null)
+    try {
+      await api<void>(`/api/archived-projects/${deletingProject.id}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ version: deletingProject.version, confirmation }),
+      })
+      const deletedName = deletingProject.programName
+      setArchivedProjects((current) => current?.filter((candidate) => candidate.id !== deletingProject.id) ?? [])
+      setDeletingProject(null)
+      setArchivedMessage(`${deletedName} was permanently deleted.`)
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : 'The project could not be permanently deleted.')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -342,10 +371,25 @@ export function PastProjectsView({
               body={query && (archivedProjects?.length ?? 0) > 0 ? 'The archived records do not match the current Past Projects search.' : 'Projects that are archived will be stored here.'}
             />
           ) : (
-            <ArchivedProjectsTable projects={visibleArchived} canRestore={canRestoreArchived} restoringId={restoringId} onRestore={restoreArchived} />
+            <ArchivedProjectsTable
+              projects={visibleArchived}
+              canRestore={canRestoreArchived}
+              canDelete={canDeleteArchived}
+              restoringId={restoringId}
+              deletingId={deletingProject?.id ?? null}
+              onRestore={restoreArchived}
+              onDelete={(project) => { setDeleteError(null); setDeletingProject(project) }}
+            />
           )}
         </section>
       )}
+      {deletingProject && <PermanentDeleteProjectDialog
+        project={deletingProject}
+        pending={deleting}
+        error={deleteError}
+        onCancel={() => { if (!deleting) { setDeletingProject(null); setDeleteError(null) } }}
+        onConfirm={permanentlyDeleteArchived}
+      />}
     </section>
   )
 }
@@ -353,13 +397,19 @@ export function PastProjectsView({
 function ArchivedProjectsTable({
   projects,
   canRestore,
+  canDelete,
   restoringId,
+  deletingId,
   onRestore,
+  onDelete,
 }: {
   projects: ArchivedProject[]
   canRestore: boolean
+  canDelete: boolean
   restoringId: number | null
+  deletingId: number | null
   onRestore: (project: ArchivedProject) => Promise<void>
+  onDelete: (project: ArchivedProject) => void
 }) {
   return (
     <div className="table-wrap">
@@ -371,7 +421,7 @@ function ArchivedProjectsTable({
             <th>Sales Order</th>
             <th>Archived</th>
             <th>Archived By</th>
-            {canRestore && <th aria-label="Restore" />}
+            {(canRestore || canDelete) && <th aria-label="Actions" />}
           </tr>
         </thead>
         <tbody>
@@ -382,11 +432,16 @@ function ArchivedProjectsTable({
               <td className="cell-mono">{project.salesOrderNumber ?? '—'}</td>
               <td className="cell-mono">{formatArchivedDate(project.deletedAt)}</td>
               <td className="cell-muted">{project.deletedByDisplayName ?? '—'}</td>
-              {canRestore && <td className="archived-project-action">
-                <button className="icon-button restore" type="button" disabled={restoringId !== null} onClick={() => void onRestore(project)}>
-                  {restoringId === project.id ? <LoaderCircle size={14} className="spin" /> : <ArchiveRestore size={14} />}
-                  {restoringId === project.id ? 'Restoring...' : 'Restore'}
-                </button>
+              {(canRestore || canDelete) && <td className="archived-project-action">
+                <div className="archived-project-actions">
+                  {canRestore && <button className="icon-button restore" type="button" disabled={restoringId !== null || deletingId !== null} onClick={() => void onRestore(project)}>
+                    {restoringId === project.id ? <LoaderCircle size={14} className="spin" /> : <ArchiveRestore size={14} />}
+                    {restoringId === project.id ? 'Restoring...' : 'Restore'}
+                  </button>}
+                  {canDelete && <button className="icon-button danger" type="button" disabled={restoringId !== null || deletingId !== null} onClick={() => onDelete(project)}>
+                    <Trash2 size={14} /> Delete
+                  </button>}
+                </div>
               </td>}
             </tr>
           ))}

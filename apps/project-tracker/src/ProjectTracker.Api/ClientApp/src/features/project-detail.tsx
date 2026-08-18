@@ -1,4 +1,5 @@
 import '../App.css'
+import './project-detail-progress.css'
 import { useState, useEffect, useMemo, useRef, Fragment } from 'react'
 import {
   AlertTriangle,
@@ -664,6 +665,8 @@ export function OpsEditGrid({
   const [overIndex, setOverIndex] = useState<number | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [savingRowIds, setSavingRowIds] = useState<Set<number>>(new Set())
+  const [progressDrafts, setProgressDrafts] = useState<Record<number, string>>({})
+  const [progressErrors, setProgressErrors] = useState<Record<number, string>>({})
   const rowsRef = useRef(rows)
   const dirtyRowIdsRef = useRef<Set<number>>(new Set())
   const rowRevisionRef = useRef<Map<number, number>>(new Map())
@@ -676,7 +679,7 @@ export function OpsEditGrid({
   const canReorder = can(permissionKeys.taskReorder)
   const canEditPercent = can(permissionKeys.taskEditPercentComplete)
   const canEditOvertime = can(permissionKeys.taskEditOvertimeDays)
-  const showActions = canEditPercent || canEditOvertime || canDelete
+  const showActions = canEditOvertime || canDelete
 
   useEffect(() => {
     setRows((current) => project.tasks.map((task) =>
@@ -774,6 +777,7 @@ export function OpsEditGrid({
   }
 
   const completeRow = (row: ProjectTask) => {
+    clearProgressState(row.id)
     markDirty(row.id)
     const today = todayIso()
     const nextRows = buildScheduledRows(rowsRef.current, row.id, {
@@ -786,6 +790,41 @@ export function OpsEditGrid({
     setRows(nextRows)
     const updated = nextRows.find((item) => item.id === row.id)
     if (updated) void persistRow(updated)
+  }
+
+  const clearProgressState = (id: number) => {
+    setProgressDrafts((current) => {
+      if (!(id in current)) return current
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
+    setProgressErrors((current) => {
+      if (!(id in current)) return current
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
+  }
+
+  const commitProgress = (row: ProjectTask, rawValue: string) => {
+    if (!(row.id in progressDrafts)) return
+    const normalized = rawValue.trim()
+    const nextPercent = Number(normalized)
+    if (normalized === '' || !Number.isInteger(nextPercent) || nextPercent < 0 || nextPercent > 100) {
+      setProgressErrors((current) => ({ ...current, [row.id]: 'Enter a whole number from 0 to 100.' }))
+      return
+    }
+
+    clearProgressState(row.id)
+    const updated = {
+      ...row,
+      percentComplete: nextPercent / 100,
+      percentCompleteManual: true,
+    }
+    markDirty(row.id)
+    setRows((current) => current.map((item) => item.id === row.id ? updated : item))
+    void persistRow(updated)
   }
 
   const renumber = (list: ProjectTask[]) => list.map((row, index) => ({ ...row, sequence: index + 1, externalTaskId: String(index + 1) }))
@@ -855,6 +894,8 @@ export function OpsEditGrid({
           <tbody>
             {rows.map((row, index) => {
               const pct = Math.round(clamp(row.percentComplete, 0, 1) * 100)
+              const progressValue = progressDrafts[row.id] ?? String(pct)
+              const progressError = progressErrors[row.id]
               const hasConflict = conflictKeys.has(taskConflictKey(project.id, row.id))
               const saving = savingRowIds.has(row.id)
               return (
@@ -883,7 +924,7 @@ export function OpsEditGrid({
                       {row.overtimeDays.length > 0 && <span className="ot-badge">OT +{row.overtimeDays.length}</span>}
                     </div>
                   </td>
-                  <td className="col-station"><WorkStationPicker value={row.workStation ?? ''} options={workStations} onChange={(workStation) => update(row.id, { workStation })} onCommit={() => commit(row.id)} disabled={!can(permissionKeys.taskEditWorkStation) || saving} title={!can(permissionKeys.taskEditWorkStation) ? 'Your access group does not allow editing work stations' : undefined} /></td>
+                  <td className="col-station"><WorkStationPicker ariaLabel={`Work station for ${row.title}`} value={row.workStation ?? ''} options={workStations} onChange={(workStation) => update(row.id, { workStation })} onCommit={() => commit(row.id)} disabled={!can(permissionKeys.taskEditWorkStation) || saving} title={!can(permissionKeys.taskEditWorkStation) ? 'Your access group does not allow editing work stations' : undefined} /></td>
                   <td className="col-dependency">
                     <select className="cell-input" value={row.dependencyTaskId ?? ''} onChange={(event) => updateScheduleField(row.id, { dependencyTaskId: event.target.value ? Number(event.target.value) : null })} onBlur={() => commit(row.id)} disabled={!can(permissionKeys.taskEditDependency) || saving} title={!can(permissionKeys.taskEditDependency) ? 'Your access group does not allow editing dependencies' : undefined}>
                       <option value="">Default: previous op</option>
@@ -911,24 +952,61 @@ export function OpsEditGrid({
                   <td className="col-num"><input className="cell-input num" type="number" min="0" value={row.estimatedDuration ?? ''} onChange={(event) => updateScheduleField(row.id, { estimatedDuration: event.target.value === '' ? null : Number(event.target.value) })} onBlur={() => commit(row.id)} disabled={!can(permissionKeys.taskEditEstimatedDuration) || saving} /></td>
                   <td className="col-num"><input className="cell-input num" type="number" min="0" value={row.actualDuration ?? ''} onChange={(event) => update(row.id, { actualDuration: event.target.value === '' ? null : Number(event.target.value) })} onBlur={() => commit(row.id)} disabled={!can(permissionKeys.taskEditActualDuration) || saving} /></td>
                   <td className="col-slider">
-                    <div className="cell-slider">
-                      <input
-                        type="range"
-                        className="slider tiny"
-                        min="0"
-                        max="100"
-                        value={pct}
-                        disabled={!canEditPercent || saving}
-                        onChange={(event) => update(row.id, { percentComplete: Number(event.target.value) / 100, percentCompleteManual: true })}
-                        onMouseUp={() => commit(row.id)}
-                        onBlur={() => commit(row.id)}
-                        style={{ background: `linear-gradient(to right, var(--ok) ${pct}%, var(--surface-3) ${pct}%)` }}
-                      />
-                      <strong className="cell-pct">{pct}%</strong>
+                    <div className={`operation-progress-editor ${pct === 100 ? 'is-complete' : ''}`}>
+                      <div className={`operation-progress-number ${!canEditPercent || saving ? 'is-disabled' : ''}`}>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="1"
+                          inputMode="numeric"
+                          value={progressValue}
+                          disabled={!canEditPercent || saving}
+                          aria-label={`Progress percentage for ${row.title}`}
+                          aria-invalid={Boolean(progressError)}
+                          aria-describedby={progressError ? `progress-error-${row.id}` : undefined}
+                          onChange={(event) => {
+                            const value = event.target.value
+                            setProgressDrafts((current) => ({ ...current, [row.id]: value }))
+                            if (progressError) setProgressErrors((current) => ({ ...current, [row.id]: '' }))
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault()
+                              commitProgress(row, event.currentTarget.value)
+                            }
+                            if (event.key === 'Escape') {
+                              event.preventDefault()
+                              clearProgressState(row.id)
+                            }
+                          }}
+                          onBlur={(event) => commitProgress(row, event.currentTarget.value)}
+                        />
+                        <span aria-hidden="true">%</span>
+                      </div>
+                      {canEditPercent && pct < 100 ? (
+                        <button
+                          type="button"
+                          className="operation-complete-button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => completeRow(row)}
+                          disabled={saving}
+                          aria-label={`Complete ${row.title} today: set progress to 100 percent and end date to today`}
+                          title="Sets progress to 100% and the operation end date to today"
+                        >
+                          <CheckCircle2 size={15} />
+                          Complete today
+                        </button>
+                      ) : (
+                        <span className={`operation-progress-status ${pct === 100 ? 'is-complete' : ''}`} role="status">
+                          {pct === 100 && <CheckCircle2 size={15} />}
+                          {pct === 100 ? 'Completed' : 'Read only'}
+                        </span>
+                      )}
+                      {progressError && <span className="operation-progress-error" id={`progress-error-${row.id}`} role="alert">{progressError}</span>}
                     </div>
                   </td>
                   {showActions && <td className="row-actions">
-                    {canEditPercent && <button className="icon-button" onClick={() => completeRow(row)} title="Complete operation" disabled={saving}><CheckCircle2 size={14} /></button>}
                     {canEditOvertime && <button className="icon-button" onClick={() => onEditOvertime(row)} aria-label={`Overtime dates for ${row.title}`} title="Approved overtime" disabled={saving}><CalendarPlus size={14} /></button>}
                     {canDelete && <button className="icon-button danger" onClick={() => void removeRow(row)} aria-label={`Delete ${row.title}`} title="Delete step" disabled={saving}><Trash2 size={14} /></button>}
                   </td>}

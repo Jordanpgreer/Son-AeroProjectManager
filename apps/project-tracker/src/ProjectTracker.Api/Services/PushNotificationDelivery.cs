@@ -158,23 +158,34 @@ public sealed class PushNotificationWorker(
 
     public static string CreatePayload(UserNotification notification)
     {
-        var url = $"/?notificationProjectId={notification.ProjectId}"
+        var targetUrl = $"/?notificationProjectId={notification.ProjectId}"
             + $"&notificationKind={Uri.EscapeDataString(notification.Kind.ToString())}"
             + $"&notificationId={notification.Id}";
-        if (notification.ProjectTaskId is { } taskId) url += $"&notificationTaskId={taskId}";
+        if (notification.ProjectTaskId is { } taskId) targetUrl += $"&notificationTaskId={taskId}";
 
         return JsonSerializer.Serialize(new
         {
             title = notification.Title,
             body = notification.BodyPreview,
-            url,
+            targetUrl,
+            // Retained while existing service workers age out. Both values are
+            // generated exclusively from persisted notification identifiers.
+            url = targetUrl,
             tag = $"project-tracker-notification-{notification.Id}",
             notificationId = notification.Id,
             projectId = notification.ProjectId,
             kind = notification.Kind.ToString(),
             projectTaskId = notification.ProjectTaskId,
-            icon = "/favicon.svg",
-            badge = "/favicon.svg"
+            icon = "/brand/son-aero-mark.png",
+            badge = "/brand/son-aero-mark.png",
+            data = new
+            {
+                targetUrl,
+                notificationId = notification.Id,
+                projectId = notification.ProjectId,
+                kind = notification.Kind.ToString(),
+                projectTaskId = notification.ProjectTaskId
+            }
         });
     }
 }

@@ -12,6 +12,8 @@ import {
   History,
   LoaderCircle,
   Lock,
+  PanelLeftClose,
+  PanelLeftOpen,
   RefreshCw,
   Settings,
   ShieldCheck,
@@ -201,6 +203,13 @@ function UserProfile({ me, className = '' }: { me: Me | null; className?: string
 
 export default function App() {
   const [theme, setTheme] = useState(() => readThemePreference())
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return window.localStorage.getItem('sonaero-engineering-sidebar') === 'collapsed'
+    } catch {
+      return false
+    }
+  })
   const [me, setMe] = useState<Me | null>(null)
   const [moduleData, setModuleData] = useState<EngineeringModule | null>(null)
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null)
@@ -217,6 +226,17 @@ export default function App() {
   const permissions = me?.permissions ?? []
   const can = (permission: string) => hasEngineeringPermission(permissions, permission)
   const canEditMetadata = !me?.isPreview && (can(engineeringPermissionKeys.drawingMetadataEdit) || can(engineeringPermissionKeys.specificationsEdit))
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        'sonaero-engineering-sidebar',
+        sidebarCollapsed ? 'collapsed' : 'expanded',
+      )
+    } catch {
+      // Sidebar state persistence is optional.
+    }
+  }, [sidebarCollapsed])
 
   useEffect(() => {
     async function load() {
@@ -415,8 +435,8 @@ export default function App() {
   const showingDrawingRegister = activeSection?.id === 'drawing-document-control' && drawingScreen === 'dashboard'
 
   return (
-    <div className={`engineering-shell engineering-app ${me?.isPreview ? 'access-preview-active' : ''}`.trim()}>
-      <aside className="sidebar">
+    <div className={`engineering-shell engineering-app ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${me?.isPreview ? 'access-preview-active' : ''}`.trim()}>
+      <aside className="sidebar" id="engineering-sidebar">
         <a
           className="brand brand-hub-link"
           href={hubUrl}
@@ -424,7 +444,8 @@ export default function App() {
           aria-label="Return to All Applications"
           title="Return to All Applications"
         >
-          <img src="/brand/son-aero-lockup-dark.png" alt="Son-Aero — Sonfarrel Aerospace" />
+          <img className="brand-lockup" src="/brand/son-aero-lockup-dark.png" alt="Son-Aero — Sonfarrel Aerospace" />
+          <img className="brand-mark" src="/brand/son-aero-mark.png" alt="Son-Aero" />
         </a>
 
         <div className="nav-section">
@@ -441,6 +462,8 @@ export default function App() {
                 <button
                   type="button"
                   className={`nav-button ${active ? 'active' : ''}`.trim()}
+                  aria-current={active ? 'page' : undefined}
+                  title={section.title}
                   onClick={() => {
                     if (section.id === 'drawing-document-control') openDrawingDashboard()
                     else {
@@ -453,7 +476,7 @@ export default function App() {
                   <span className="nav-icon">
                     <Icon size={17} />
                   </span>
-                  {section.title}
+                  <span className="nav-label">{section.title}</span>
                 </button>
               </div>
             )
@@ -468,10 +491,10 @@ export default function App() {
               href={me?.isPreview ? undefined : engineeringAdminUrl}
               target="_top"
               aria-disabled={me?.isPreview || undefined}
-              title={me?.isPreview ? 'Return to Admin before changing Engineering settings' : undefined}
+              title={me?.isPreview ? 'Return to Admin before changing Engineering settings' : 'Engineering Admin / Settings'}
             >
               <span className="nav-icon"><Settings size={17}/></span>
-              Engineering Admin / Settings
+              <span className="nav-label">Engineering Admin / Settings</span>
             </a>
           </nav>
         </div>}
@@ -486,7 +509,21 @@ export default function App() {
           <a href="/access-preview/end" target="_top">Return to Admin</a>
         </section>}
         <header className={`topbar ${showingDrawingRecord ? 'drawing-record-topbar' : ''}`.trim()}>
-          <div className={`page-title-block ${showingDrawingRecord ? 'drawing-record-page-title' : ''}`.trim()}>
+          <div className="topbar-title-area">
+            <button
+              type="button"
+              className="sidebar-toggle"
+              aria-label={sidebarCollapsed ? 'Expand Engineering navigation' : 'Collapse Engineering navigation'}
+              aria-expanded={!sidebarCollapsed}
+              aria-controls="engineering-sidebar"
+              title={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+              onClick={() => setSidebarCollapsed((current) => !current)}
+            >
+              {sidebarCollapsed
+                ? <PanelLeftOpen size={19} aria-hidden="true" />
+                : <PanelLeftClose size={19} aria-hidden="true" />}
+            </button>
+            <div className={`page-title-block ${showingDrawingRecord ? 'drawing-record-page-title' : ''}`.trim()}>
             {showingDrawingRecord ? (
               <>
                 <div className="record-header-kicker">
@@ -534,6 +571,7 @@ export default function App() {
                   : moduleData?.summary ?? 'Loading module overview...'}</p>
               </>
             )}
+            </div>
           </div>
           <div className="topbar-actions">
             <a

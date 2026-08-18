@@ -66,11 +66,14 @@ h1, h2, h3, p { margin: 0; }
 
 .qa-shell {
   display: grid;
-  grid-template-columns: 256px minmax(0, 1fr);
+  grid-template-columns: 232px minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
   background: var(--bg);
+  transition: grid-template-columns 180ms ease;
 }
+
+.qa-shell.is-sidebar-collapsed { grid-template-columns: 74px minmax(0, 1fr); }
 
 .sidebar {
   display: flex;
@@ -117,6 +120,20 @@ h1, h2, h3, p { margin: 0; }
   transition: opacity 150ms ease, transform 150ms ease;
 }
 .brand img { width: 100%; max-width: 188px; height: auto; object-fit: contain; transition: filter 150ms ease, transform 150ms ease; }
+.brand-mark { display: none; }
+.is-sidebar-collapsed .sidebar { padding-inline: 10px; }
+.is-sidebar-collapsed .brand { justify-content: center; padding-inline: 8px; }
+.is-sidebar-collapsed .brand-hub-link::after { left: 50%; content: 'Hub'; transform: translate(-50%, 4px); }
+.is-sidebar-collapsed .brand-hub-link:hover::after,
+.is-sidebar-collapsed .brand-hub-link:focus-visible::after { transform: translate(-50%, 0); }
+.is-sidebar-collapsed .brand-lockup { display: none; }
+.is-sidebar-collapsed .brand-mark { display: block; width: 32px; height: auto; object-fit: contain; }
+.is-sidebar-collapsed .nav-heading,
+.is-sidebar-collapsed .nav-label { display: none; }
+.is-sidebar-collapsed .nav-button { justify-content: center; padding-inline: 6px; }
+.is-sidebar-collapsed .nav-icon { justify-content: center; }
+.is-sidebar-collapsed .nav-button.active::before { left: -11px; }
+.is-sidebar-collapsed .sidebar-foot { display: grid; justify-content: center; }
 .brand-hub-link:hover img { filter: brightness(1.16); transform: translateY(-3px); }
 .brand-hub-link:hover, .brand-hub-link:focus-visible {
   background: rgba(var(--qa-accent-rgb), .10);
@@ -197,6 +214,9 @@ nav { display: grid; gap: 3px; }
   background: linear-gradient(90deg, var(--red), rgba(var(--qa-accent-rgb), .25) 38%, transparent 78%);
   content: '';
 }
+.topbar-title-area { display: flex; min-width: 0; gap: 14px; align-items: center; }
+.sidebar-toggle { flex: none; }
+.sidebar-toggle:focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; }
 :root[data-theme='dark'] .quality-assurance-app .topbar {
   background:
     linear-gradient(100deg, rgba(var(--qa-accent-rgb), .10), transparent 34%),
@@ -430,8 +450,10 @@ nav { display: grid; gap: 3px; }
 .return-button { display: flex; gap: 8px; align-items: center; margin-top: 24px; padding: 10px 14px; color: #fff; text-decoration: none; background: var(--red); border-radius: var(--r-sm); }
 
 @media (max-width: 980px) {
-  .qa-shell { grid-template-columns: 1fr; }
+  .qa-shell,
+  .qa-shell.is-sidebar-collapsed { grid-template-columns: 1fr; }
   .sidebar { display: none; }
+  .icon-button.sidebar-toggle { display: none; }
   .topbar-brand-link { display: inline-grid; }
   .topbar { flex-direction: column; gap: 14px; align-items: stretch; }
   .topbar-actions { justify-content: flex-start; padding-top: 0; }

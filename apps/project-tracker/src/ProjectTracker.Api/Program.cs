@@ -83,6 +83,9 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("ManageUsers", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.AccessManageUsers));
     options.AddPolicy("ManageGroups", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.AccessManageGroups));
     options.AddPolicy("RestoreArchived", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ArchivedRestore));
+    options.AddPolicy(
+        ArchivedProjectEndpoints.PermanentDeletePolicyName,
+        ArchivedProjectEndpoints.ConfigurePermanentDeletePolicy);
 });
 
 builder.Services.AddDbContext<ProjectTrackerDbContext>((serviceProvider, options) =>

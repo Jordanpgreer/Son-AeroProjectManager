@@ -74,9 +74,51 @@ public sealed class PushNotificationDeliveryTests
         Assert.Equal(notification.BodyPreview, root.GetProperty("body").GetString());
         Assert.Equal(notification.Id, root.GetProperty("notificationId").GetInt32());
         Assert.Equal(project.Id, root.GetProperty("projectId").GetInt32());
-        Assert.Contains($"notificationProjectId={project.Id}", root.GetProperty("url").GetString());
-        Assert.Contains($"notificationTaskId={task.Id}", root.GetProperty("url").GetString());
-        Assert.StartsWith("/?", root.GetProperty("url").GetString());
+        var expectedTarget = $"/?notificationProjectId={project.Id}"
+            + $"&notificationKind={NotificationKind.OperationNoteMention}"
+            + $"&notificationId={notification.Id}"
+            + $"&notificationTaskId={task.Id}";
+        Assert.Equal(expectedTarget, root.GetProperty("targetUrl").GetString());
+        Assert.Equal(expectedTarget, root.GetProperty("url").GetString());
+        Assert.Equal(expectedTarget, root.GetProperty("data").GetProperty("targetUrl").GetString());
+        Assert.Equal(notification.Id, root.GetProperty("data").GetProperty("notificationId").GetInt32());
+        Assert.Equal(project.Id, root.GetProperty("data").GetProperty("projectId").GetInt32());
+        Assert.Equal(NotificationKind.OperationNoteMention.ToString(), root.GetProperty("data").GetProperty("kind").GetString());
+        Assert.Equal(task.Id, root.GetProperty("data").GetProperty("projectTaskId").GetInt32());
+        Assert.Equal("/brand/son-aero-mark.png", root.GetProperty("icon").GetString());
+        Assert.Equal("/brand/son-aero-mark.png", root.GetProperty("badge").GetString());
+    }
+
+    [Fact]
+    public void CreatePayload_DoesNotAllowUntrustedNotificationTextToControlNavigationOrIcons()
+    {
+        var notification = new UserNotification
+        {
+            Id = 37,
+            ProjectId = 12,
+            Kind = NotificationKind.ProjectChatMention,
+            Title = "Visit https://evil.example or use icon=/favicon.svg",
+            BodyPreview = "\"targetUrl\":\"https://evil.example\",\"icon\":\"https://evil.example/icon.png\""
+        };
+
+        using var payload = JsonDocument.Parse(PushNotificationWorker.CreatePayload(notification));
+        var root = payload.RootElement;
+        const string expectedTarget = "/?notificationProjectId=12&notificationKind=ProjectChatMention&notificationId=37";
+
+        Assert.Equal(notification.Title, root.GetProperty("title").GetString());
+        Assert.Equal(notification.BodyPreview, root.GetProperty("body").GetString());
+        Assert.Equal(expectedTarget, root.GetProperty("targetUrl").GetString());
+        Assert.Equal(expectedTarget, root.GetProperty("url").GetString());
+        Assert.Equal(expectedTarget, root.GetProperty("data").GetProperty("targetUrl").GetString());
+        Assert.StartsWith("/", root.GetProperty("targetUrl").GetString());
+        Assert.DoesNotContain("evil.example", root.GetProperty("targetUrl").GetString());
+        Assert.Equal("/brand/son-aero-mark.png", root.GetProperty("icon").GetString());
+        Assert.Equal("/brand/son-aero-mark.png", root.GetProperty("badge").GetString());
+        Assert.False(Uri.TryCreate(root.GetProperty("targetUrl").GetString(), UriKind.Absolute, out _));
+        Assert.False(Uri.TryCreate(root.GetProperty("icon").GetString(), UriKind.Absolute, out _));
+        Assert.False(Uri.TryCreate(root.GetProperty("badge").GetString(), UriKind.Absolute, out _));
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("projectTaskId").ValueKind);
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("data").GetProperty("projectTaskId").ValueKind);
     }
 
     [Fact]

@@ -156,7 +156,7 @@ public static class UserEndpoints
             var permissions = NormalizePermissions(dto.Permissions);
             if (!CanHoldAdministratorOnlyPermissions(name, permissions))
             {
-                return Results.BadRequest("Workbook imports can only be assigned to the Administrators group.");
+                return Results.BadRequest("Administrator-only permissions can only be assigned to the Administrators group.");
             }
             var group = new AppGroup
             {
@@ -194,7 +194,7 @@ public static class UserEndpoints
             var permissions = NormalizePermissions(dto.Permissions);
             if (!CanHoldAdministratorOnlyPermissions(name, permissions))
             {
-                return Results.BadRequest("Workbook imports can only be assigned to the Administrators group.");
+                return Results.BadRequest("Administrator-only permissions can only be assigned to the Administrators group.");
             }
 
             group.Name = name;
@@ -455,10 +455,11 @@ public static class UserEndpoints
 
     private static List<int> NormalizeGroupIds(IReadOnlyList<int> groupIds) => groupIds.Distinct().OrderBy(id => id).ToList();
 
-    private static bool CanHoldAdministratorOnlyPermissions(
+    public static bool CanHoldAdministratorOnlyPermissions(
         string groupName,
         IReadOnlyCollection<string> permissions) =>
-        !permissions.Contains(ApplicationPermissions.ImportManage, StringComparer.OrdinalIgnoreCase)
+        (!permissions.Contains(ApplicationPermissions.ImportManage, StringComparer.OrdinalIgnoreCase)
+         && !permissions.Contains(ProjectTrackerPermissions.ArchivedDelete, StringComparer.OrdinalIgnoreCase))
         || string.Equals(groupName, ApplicationGroups.Administrators, StringComparison.OrdinalIgnoreCase);
 
     private static List<string> NormalizePermissions(IReadOnlyList<string> permissions)

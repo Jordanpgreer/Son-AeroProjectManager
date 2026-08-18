@@ -84,6 +84,10 @@ public sealed record ArchivedProjectDto(
     DateTimeOffset DeletedAt,
     string? DeletedByDisplayName);
 
+public sealed record ArchivedProjectPermanentDeleteDto(
+    long Version,
+    string Confirmation);
+
 public sealed record RegisteredUserUpsertDto(string AccountName, string? DisplayName, bool IsActive, IReadOnlyList<int> GroupIds);
 
 public sealed record UserGroupAssignmentDto(IReadOnlyList<int> GroupIds);

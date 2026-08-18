@@ -12,6 +12,7 @@ export const permissionKeys = {
   projectReopen: 'project.reopen',
   projectArchive: 'project.archive',
   archivedRestore: 'archived.restore',
+  archivedDelete: 'archived.delete',
   taskCreate: 'task.create',
   taskDelete: 'task.delete',
   taskEditTitle: 'task.edit.title',

@@ -5,6 +5,7 @@ using ProjectTracker.Api.Auth;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Models;
 using ProjectTracker.Api.Services;
+using ProjectTracker.Api.Endpoints;
 using SonAero.Platform.Security;
 
 namespace ProjectTracker.Tests;
@@ -27,6 +28,29 @@ public sealed class ProjectTrackerPermissionSchemaTests
         Assert.DoesNotContain(
             ProjectTrackerPermissions.ProjectEditExternalLinks,
             ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Managers));
+        Assert.Contains(ProjectTrackerPermissions.All, permission =>
+            permission.Key == ProjectTrackerPermissions.ArchivedDelete
+            && permission.Label == "Permanently Delete Archived Projects");
+        Assert.Contains(
+            ProjectTrackerPermissions.ArchivedDelete,
+            ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Administrators));
+        Assert.DoesNotContain(
+            ProjectTrackerPermissions.ArchivedDelete,
+            ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Managers));
+    }
+
+    [Fact]
+    public void ArchivedDeletePermission_CannotBeAssignedOutsideTheAdministratorsGroup()
+    {
+        Assert.True(UserEndpoints.CanHoldAdministratorOnlyPermissions(
+            ApplicationGroups.Administrators,
+            [ProjectTrackerPermissions.ArchivedDelete]));
+        Assert.False(UserEndpoints.CanHoldAdministratorOnlyPermissions(
+            ApplicationGroups.Managers,
+            [ProjectTrackerPermissions.ArchivedDelete]));
+        Assert.False(UserEndpoints.CanHoldAdministratorOnlyPermissions(
+            "Custom Admin-Like Group",
+            [ApplicationPermissions.ModuleView, ProjectTrackerPermissions.ArchivedDelete]));
     }
 
     [Fact]

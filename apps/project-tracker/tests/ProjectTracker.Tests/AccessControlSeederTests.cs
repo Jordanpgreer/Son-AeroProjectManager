@@ -33,11 +33,15 @@ public sealed class AccessControlSeederTests
             .SingleAsync(group => group.Name == ApplicationGroups.Administrators);
         Assert.Contains(administratorGroup.Permissions, permission =>
             permission.PermissionKey == ProjectTrackerPermissions.ProjectEditExternalLinks);
+        Assert.Contains(administratorGroup.Permissions, permission =>
+            permission.PermissionKey == ProjectTrackerPermissions.ArchivedDelete);
         var managerGroup = await fixture.Db.Groups
             .Include(group => group.Permissions)
             .SingleAsync(group => group.Name == ApplicationGroups.Managers);
         Assert.DoesNotContain(managerGroup.Permissions, permission =>
             permission.PermissionKey == ProjectTrackerPermissions.ProjectEditExternalLinks);
+        Assert.DoesNotContain(managerGroup.Permissions, permission =>
+            permission.PermissionKey == ProjectTrackerPermissions.ArchivedDelete);
     }
 
     [Fact]
@@ -59,9 +63,12 @@ public sealed class AccessControlSeederTests
             permission.PermissionKey == ApplicationPermissions.ProjectCreate);
         var removedExternalLinksPermission = adminGroup.Permissions.Single(permission =>
             permission.PermissionKey == ProjectTrackerPermissions.ProjectEditExternalLinks);
+        var removedArchivedDeletePermission = adminGroup.Permissions.Single(permission =>
+            permission.PermissionKey == ProjectTrackerPermissions.ArchivedDelete);
 
         fixture.Db.GroupPermissions.Remove(removedPermission);
         fixture.Db.GroupPermissions.Remove(removedExternalLinksPermission);
+        fixture.Db.GroupPermissions.Remove(removedArchivedDeletePermission);
         administrator.IsActive = false;
         administrator.GroupMemberships.Clear();
         administrator.GroupMemberships.Add(new AppUserGroupMembership { AppGroupId = viewOnlyGroup.Id });
@@ -85,6 +92,9 @@ public sealed class AccessControlSeederTests
         Assert.False(await fixture.Db.GroupPermissions.AnyAsync(permission =>
             permission.AppGroupId == adminGroup.Id
             && permission.PermissionKey == ProjectTrackerPermissions.ProjectEditExternalLinks));
+        Assert.False(await fixture.Db.GroupPermissions.AnyAsync(permission =>
+            permission.AppGroupId == adminGroup.Id
+            && permission.PermissionKey == ProjectTrackerPermissions.ArchivedDelete));
     }
 
     [Fact]
@@ -107,7 +117,7 @@ public sealed class AccessControlSeederTests
     }
 
     [Fact]
-    public async Task Seed_RemovesImportPermissionFromNonAdministratorGroups()
+    public async Task Seed_RemovesAdministratorOnlyPermissionsFromNonAdministratorGroups()
     {
         await using var fixture = await AccessFixture.CreateAsync();
         fixture.Db.Groups.Add(new AppGroup
@@ -116,6 +126,7 @@ public sealed class AccessControlSeederTests
             Permissions =
             [
                 new AppGroupPermission { PermissionKey = ApplicationPermissions.ImportManage },
+                new AppGroupPermission { PermissionKey = ProjectTrackerPermissions.ArchivedDelete },
                 new AppGroupPermission { PermissionKey = ApplicationPermissions.ModuleView }
             ]
         });
@@ -129,6 +140,8 @@ public sealed class AccessControlSeederTests
             .SingleAsync(group => group.Name == "Legacy Importers");
         Assert.DoesNotContain(legacyGroup.Permissions, permission =>
             permission.PermissionKey == ApplicationPermissions.ImportManage);
+        Assert.DoesNotContain(legacyGroup.Permissions, permission =>
+            permission.PermissionKey == ProjectTrackerPermissions.ArchivedDelete);
         Assert.Contains(legacyGroup.Permissions, permission =>
             permission.PermissionKey == ApplicationPermissions.ModuleView);
     }

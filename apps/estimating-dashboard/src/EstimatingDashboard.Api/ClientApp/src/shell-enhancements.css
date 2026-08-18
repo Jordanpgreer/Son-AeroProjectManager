@@ -68,6 +68,22 @@
 .sidebar-toggle {
   flex: none;
 }
+
+@media (max-width: 980px) {
+  .estimating-shell.is-sidebar-collapsed {
+    grid-template-columns: 1fr;
+  }
+
+  .icon-button.sidebar-toggle {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .estimating-shell {
+    transition-duration: 0.01ms;
+  }
+}
 .estimating-access-state {
   min-height: 100vh;
   display: grid;

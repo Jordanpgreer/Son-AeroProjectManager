@@ -3,6 +3,8 @@ import {
   AlertTriangle,
   LayoutDashboard,
   LockKeyhole,
+  PanelLeftClose,
+  PanelLeftOpen,
   RefreshCw,
   Settings2,
   ShieldCheck,
@@ -67,11 +69,29 @@ function ThemeSwitch({ theme, onToggleTheme }: { theme: AppTheme; onToggleTheme:
 
 export default function App() {
   const [theme, setTheme] = useState<AppTheme>(() => readThemePreference())
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return window.localStorage.getItem('sonaero-quality-sidebar') === 'collapsed'
+    } catch {
+      return false
+    }
+  })
   const [user, setUser] = useState<QualityAssuranceUser | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [route, setRoute] = useState(routeFromHash)
   const [reloadKey, setReloadKey] = useState(0)
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        'sonaero-quality-sidebar',
+        sidebarCollapsed ? 'collapsed' : 'expanded',
+      )
+    } catch {
+      // Sidebar state persistence is optional.
+    }
+  }, [sidebarCollapsed])
 
   useEffect(() => {
     let active = true
@@ -120,23 +140,28 @@ export default function App() {
     : { eyebrow: 'Quality Operations', title: 'Shipping Status', description: 'Controlled shipment queue, ownership, and completion tracking.' }
 
   return (
-    <div className="qa-shell quality-assurance-app">
+    <div className={`qa-shell quality-assurance-app ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
       <a className="skip-link" href="#main-content">Skip to main content</a>
-      <aside className="sidebar">
-        <a className="brand brand-hub-link" href={hubUrl} target="_top" aria-label="Return to All Applications" title="Return to All Applications"><img src="/brand/son-aero-lockup-dark.png" alt="Son-Aero - Sonfarrel Aerospace" /></a>
+      <aside className="sidebar" id="quality-sidebar">
+        <a className="brand brand-hub-link" href={hubUrl} target="_top" aria-label="Return to All Applications" title="Return to All Applications"><img className="brand-lockup" src="/brand/son-aero-lockup-dark.png" alt="Son-Aero - Sonfarrel Aerospace" /><img className="brand-mark" src="/brand/son-aero-mark.png" alt="Son-Aero" /></a>
         <div className="nav-section">
           <span className="nav-heading">Quality Assurance</span>
           <nav aria-label="Quality Assurance pages">
-            <a className={`nav-button ${route === 'dashboard' ? 'active' : ''}`} href="#/dashboard" aria-current={route === 'dashboard' ? 'page' : undefined}><span className="nav-icon"><LayoutDashboard size={17} /></span>Dashboard</a>
-            <a className={`nav-button ${route === 'shipping-status' ? 'active' : ''}`} href="#/shipping-status" aria-current={route === 'shipping-status' ? 'page' : undefined}><span className="nav-icon"><Truck size={17} /></span>Shipping Status</a>
+            <a className={`nav-button ${route === 'dashboard' ? 'active' : ''}`} href="#/dashboard" aria-current={route === 'dashboard' ? 'page' : undefined} title="Dashboard"><span className="nav-icon"><LayoutDashboard size={17} /></span><span className="nav-label">Dashboard</span></a>
+            <a className={`nav-button ${route === 'shipping-status' ? 'active' : ''}`} href="#/shipping-status" aria-current={route === 'shipping-status' ? 'page' : undefined} title="Shipping Status"><span className="nav-icon"><Truck size={17} /></span><span className="nav-label">Shipping Status</span></a>
           </nav>
         </div>
-        <div className="sidebar-foot"><nav className="foot-nav" aria-label="Quality Assurance administration"><a className="nav-button" href={qualityAdminUrl} target="_top"><span className="nav-icon"><Settings2 size={17} /></span>Quality Admin / Settings</a></nav></div>
+        <div className="sidebar-foot"><nav className="foot-nav" aria-label="Quality Assurance administration"><a className="nav-button" href={qualityAdminUrl} target="_top" title="Quality Admin / Settings"><span className="nav-icon"><Settings2 size={17} /></span><span className="nav-label">Quality Admin / Settings</span></a></nav></div>
       </aside>
 
       <main className="main-area" id="main-content">
         <header className="topbar">
-          <div className="page-title-block"><span className="eyebrow">{page.eyebrow}</span><h1>{page.title}</h1><p>{page.description}</p></div>
+          <div className="topbar-title-area">
+            <button type="button" className="icon-button sidebar-toggle" aria-label={sidebarCollapsed ? 'Expand Quality Assurance navigation' : 'Collapse Quality Assurance navigation'} aria-expanded={!sidebarCollapsed} aria-controls="quality-sidebar" title={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} onClick={() => setSidebarCollapsed((current) => !current)}>
+              {sidebarCollapsed ? <PanelLeftOpen size={19} aria-hidden="true" /> : <PanelLeftClose size={19} aria-hidden="true" />}
+            </button>
+            <div className="page-title-block"><span className="eyebrow">{page.eyebrow}</span><h1>{page.title}</h1><p>{page.description}</p></div>
+          </div>
           <div className="topbar-actions">
             <a className="topbar-brand-link" href={hubUrl} target="_top" aria-label="Return to All Applications" title="Return to All Applications"><img src="/brand/son-aero-mark.png" alt="" /></a>
             <div className="topbar-identity"><ThemeSwitch theme={theme} onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} /><div className="user-chip topbar-user-chip" title={`${user.accountName}\n${user.groups.join(', ')}`}><span className="user-copy"><strong>{user.displayName}</strong><small>{user.role}</small></span><span className="avatar">{initials(user.displayName)}</span></div></div>

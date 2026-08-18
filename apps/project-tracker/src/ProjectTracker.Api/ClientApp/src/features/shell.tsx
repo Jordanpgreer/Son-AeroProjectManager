@@ -18,6 +18,8 @@ import {
   MessageSquare,
   Pencil,
   Plus,
+  PanelLeftClose,
+  PanelLeftOpen,
   RefreshCw,
   Search,
   Settings2,
@@ -82,7 +84,7 @@ export function Sidebar({
   user: User | null
 }) {
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" id="project-tracker-sidebar">
       <a
         className="brand brand-hub-link"
         href={hubUrl}
@@ -90,7 +92,8 @@ export function Sidebar({
         aria-label="Return to All Applications"
         title="Return to All Applications"
       >
-        <img src="/brand/son-aero-lockup-dark.png" alt="Son-Aero — Sonfarrel Aerospace" />
+        <img className="brand-lockup" src="/brand/son-aero-lockup-dark.png" alt="Son-Aero — Sonfarrel Aerospace" />
+        <img className="brand-mark" src="/brand/son-aero-mark.png" alt="Son-Aero" />
       </a>
 
       <div className="nav-section">
@@ -111,9 +114,10 @@ export function Sidebar({
               href={`${hubUrl.replace(/\/+$/, '')}/#/admin/access`}
               target="_top"
               aria-label="Hub Admin / Admin settings"
+              title="Hub Admin / Admin settings"
             >
               <span className="nav-icon"><Settings2 size={17} /></span>
-              Hub Admin / Admin settings
+              <span className="nav-label">Hub Admin / Admin settings</span>
             </a>
           </nav>
         </div>
@@ -136,9 +140,15 @@ export function NavButton({
   disabled?: boolean
 }) {
   return (
-    <button className={`nav-button ${active ? 'active' : ''}`} onClick={onClick} disabled={disabled}>
+    <button
+      className={`nav-button ${active ? 'active' : ''}`}
+      onClick={onClick}
+      disabled={disabled}
+      aria-current={active ? 'page' : undefined}
+      title={label}
+    >
       <span className="nav-icon">{icon}</span>
-      {label}
+      <span className="nav-label">{label}</span>
     </button>
   )
 }
@@ -591,6 +601,8 @@ function ThemeSwitch({
 export function PageHeader({
   theme,
   onToggleTheme,
+  sidebarCollapsed,
+  onToggleSidebar,
   screen,
   selectedProject,
   canEnterProjectEdit,
@@ -610,6 +622,8 @@ export function PageHeader({
 }: {
   theme: AppTheme
   onToggleTheme: () => void
+  sidebarCollapsed: boolean
+  onToggleSidebar: () => void
   screen: Screen
   selectedProject: ProjectDetail | null
   canEnterProjectEdit: boolean
@@ -637,17 +651,32 @@ export function PageHeader({
 
   return (
     <header className="topbar">
-      <div className="page-title-block">
-        <span className="eyebrow">{screenEyebrow(screen)}</span>
-        <div className="page-title-row">
-          <h1 className={screen === 'project' ? 'technical-id' : undefined}>{screenTitle(screen, selectedProject)}</h1>
-          {screen === 'project' && selectedProject && hasPermission(user, 'project.activity.view') && (
-            <button className="button ghost page-activity-button" type="button" onClick={onOpenActivity}>
-              <History size={15} /> Activity
-            </button>
-          )}
+      <div className="topbar-title-area">
+        <button
+          type="button"
+          className="icon-button sidebar-toggle"
+          aria-label={sidebarCollapsed ? 'Expand Project Tracker navigation' : 'Collapse Project Tracker navigation'}
+          aria-expanded={!sidebarCollapsed}
+          aria-controls="project-tracker-sidebar"
+          title={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+          onClick={onToggleSidebar}
+        >
+          {sidebarCollapsed
+            ? <PanelLeftOpen size={19} aria-hidden="true" />
+            : <PanelLeftClose size={19} aria-hidden="true" />}
+        </button>
+        <div className="page-title-block">
+          <span className="eyebrow">{screenEyebrow(screen)}</span>
+          <div className="page-title-row">
+            <h1 className={screen === 'project' ? 'technical-id' : undefined}>{screenTitle(screen, selectedProject)}</h1>
+            {screen === 'project' && selectedProject && hasPermission(user, 'project.activity.view') && (
+              <button className="button ghost page-activity-button" type="button" onClick={onOpenActivity}>
+                <History size={15} /> Activity
+              </button>
+            )}
+          </div>
+          {subtitle && <p>{subtitle}</p>}
         </div>
-        {subtitle && <p>{subtitle}</p>}
       </div>
       <div className="topbar-actions">
         <a
