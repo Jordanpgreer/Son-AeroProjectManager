@@ -300,6 +300,7 @@ public sealed record UserNotificationDto(
     string ActorDisplayName,
     string Title,
     string BodyPreview,
+    DateOnly? ScheduledDate,
     DateTimeOffset CreatedAt,
     DateTimeOffset? ReadAt);
 

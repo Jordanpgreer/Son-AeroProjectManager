@@ -13,8 +13,8 @@ import {
   Lock,
   MessageSquare,
   Plus,
+  Copy,
   RefreshCw,
-  Save,
   Search,
   Trash2,
   Unlock,
@@ -35,6 +35,7 @@ import {
   addDays,
   startOfTodayMs,
   clamp,
+  toOperationTitleCase,
 } from '../lib'
 import type {
   ProjectSummary,
@@ -213,13 +214,12 @@ export function ProjectView({
   editMode,
   projectMetadata,
   projectMetadataDirty,
-  projectMetadataSaving,
   projectMetadataError,
   onProjectMetadataChange,
-  onSaveProjectMetadata,
   onSelectProject,
   onEditTask,
   onAddTask,
+  onDuplicateTask,
   onDeleteTask,
   onCompleteProject,
   onReopenProject,
@@ -240,13 +240,12 @@ export function ProjectView({
   editMode: boolean
   projectMetadata: ProjectMetadataDraft
   projectMetadataDirty: boolean
-  projectMetadataSaving: boolean
   projectMetadataError: string | null
   onProjectMetadataChange: (metadata: ProjectMetadataDraft) => void
-  onSaveProjectMetadata: () => Promise<boolean>
   onSelectProject: (projectId: number) => Promise<void>
   onEditTask: (task: ProjectTask) => void
   onAddTask: () => void
+  onDuplicateTask: (task: ProjectTask) => void
   onDeleteTask: (task: ProjectTask) => void
   onCompleteProject: () => void
   onReopenProject: () => void
@@ -262,6 +261,7 @@ export function ProjectView({
   const [noteDraft, setNoteDraft] = useState('')
   const [savingNoteId, setSavingNoteId] = useState<number | null>(null)
   const [noteSaveError, setNoteSaveError] = useState<string | null>(null)
+  const [projectDetailsOpen, setProjectDetailsOpen] = useState(true)
   const isCompleted = project.status === 'Complete'
   const canEditMetadata = !isCompleted && hasAnyPermission(permissions, projectMetadataEditPermissions)
   const canEditExternalLinks = !isCompleted && hasPermission(permissions, permissionKeys.projectEditExternalLinks)
@@ -296,6 +296,15 @@ export function ProjectView({
       : completionVariance > 0
         ? `${completionVariance} day${completionVariance === 1 ? '' : 's'} late`
         : `${Math.abs(completionVariance)} day${completionVariance === -1 ? '' : 's'} early`
+  const projectEditDetailsId = `project-edit-details-${project.id}`
+
+  useEffect(() => {
+    setProjectDetailsOpen(true)
+  }, [editMode, project.id])
+
+  useEffect(() => {
+    if (projectMetadataError) setProjectDetailsOpen(true)
+  }, [projectMetadataError])
 
   useEffect(() => {
     if (!notificationTaskId) return
@@ -356,27 +365,51 @@ export function ProjectView({
     </div>
   )
 
+  const projectContextLine = (
+    <div className="program-sub">
+      <span className="program-current-inline"><span className="dot active" />{project.currentTask ?? 'No current operation'}</span>
+      <span className="program-facts">
+        {!editMode && <span><i>Lead</i> {project.programManager || 'Unassigned'}</span>}
+        {!editMode && <span><i>Eng</i> {project.engineer || 'Unassigned'}</span>}
+        {!editMode && <span><i>Customer</i> {project.customerName || 'Not set'}</span>}
+        {!editMode && <span><i>SO</i> {project.salesOrderNumber ? <ExternalProjectReference value={project.salesOrderNumber} url={project.salesOrderUrl} /> : <b>Not set</b>}</span>}
+        {!editMode && <span><i>Job</i> {project.jobNumber ? <ExternalProjectReference value={project.jobNumber} url={project.jobUrl} /> : <b>Not set</b>}</span>}
+        <span><i>Target</i> <b className="cell-mono">{compactDate(project.targetDelivery)}</b></span>
+      </span>
+    </div>
+  )
+
   return (
     <section className="view project-view">
-      <header className={`program-topbar ${editMode ? 'is-editing' : ''}`}>
+      <header className={`program-topbar ${editMode ? `is-editing${projectDetailsOpen ? '' : ' is-details-collapsed'}` : ''}`}>
         <div className="program-lead">
           <div className="program-summary-line">
             <ProjectPicker project={project} projects={projects} onSelectProject={onSelectProject} disabled={editMode} />
+            {editMode && (
+              <button
+                type="button"
+                className={`project-details-toggle ${projectMetadataDirty || projectMetadataError ? 'has-attention' : ''}`}
+                onClick={() => setProjectDetailsOpen((current) => !current)}
+                aria-expanded={projectDetailsOpen}
+                aria-controls={projectEditDetailsId}
+                title={projectDetailsOpen ? 'Collapse project details to make more room for operations' : 'Expand project details'}
+              >
+                {projectDetailsOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                <span>{projectDetailsOpen ? 'Hide project details' : 'Show project details'}</span>
+                {projectMetadataError ? (
+                  <small className="project-details-toggle-state error">Needs attention</small>
+                ) : projectMetadataDirty ? (
+                  <small className="project-details-toggle-state">Unsaved</small>
+                ) : null}
+              </button>
+            )}
             {!editMode && projectStats}
           </div>
-          <div className="program-sub">
-            <span className="program-current-inline"><span className="dot active" />{project.currentTask ?? 'No current operation'}</span>
-            <span className="program-facts">
-              {!editMode && <span><i>Lead</i> {project.programManager || 'Unassigned'}</span>}
-              {!editMode && <span><i>Eng</i> {project.engineer || 'Unassigned'}</span>}
-               {!editMode && <span><i>Customer</i> {project.customerName || 'Not set'}</span>}
-               {!editMode && <span><i>SO</i> {project.salesOrderNumber ? <ExternalProjectReference value={project.salesOrderNumber} url={project.salesOrderUrl} /> : <b>Not set</b>}</span>}
-               {!editMode && <span><i>Job</i> {project.jobNumber ? <ExternalProjectReference value={project.jobNumber} url={project.jobUrl} /> : <b>Not set</b>}</span>}
-               <span><i>Target</i> <b className="cell-mono">{compactDate(project.targetDelivery)}</b></span>
-            </span>
-          </div>
-          {editMode && canEditMetadata && (
-            <div className="program-meta-grid">
+          {!editMode && projectContextLine}
+          {editMode && (
+            <div id={projectEditDetailsId} className="project-edit-details" hidden={!projectDetailsOpen}>
+              {projectContextLine}
+              {canEditMetadata && <div className="program-meta-grid">
               <label>
                 <span>Contact Lead</span>
                 <input
@@ -457,17 +490,15 @@ export function ProjectView({
                   {projectMetadataDirty ? <AlertTriangle size={14} /> : <Check size={14} />}
                   <span>
                     <strong>{projectMetadataDirty ? 'Unsaved project details' : 'Project details saved'}</strong>
-                    <small>Operation-grid changes save when you leave each field.</small>
+                    <small>{projectMetadataDirty ? 'Choose Done to review, save, or discard only these changes.' : 'Operation-grid changes save when you leave each field.'}</small>
                   </span>
                 </div>
-                <button className="button primary project-detail-save-button" type="button" onClick={() => void onSaveProjectMetadata()} disabled={!projectMetadataDirty || projectMetadataSaving}>
-                  <Save size={15} /> {projectMetadataSaving ? 'Saving...' : 'Save Project Details'}
-                </button>
               </div>
               {projectMetadataError && <p className="inline-note warning project-detail-save-error" role="alert"><AlertTriangle size={14} /> {projectMetadataError}</p>}
+              </div>}
+              {projectStats}
             </div>
           )}
-          {editMode && projectStats}
         </div>
         {!editMode && <div className="project-actions" role="group" aria-label="Project actions">
           <button className="button ghost" type="button" onClick={onOpenChat}><MessageSquare size={15} /> Chat</button>
@@ -512,7 +543,7 @@ export function ProjectView({
       )}
 
       {editMode && canEditOperations ? (
-        <OpsEditGrid project={project} holidaySet={holidaySet} workingDaySet={workingDaySet} workStations={workStations} conflictKeys={conflictKeys} permissions={permissions} onSaveRow={onSaveRow} onReorder={onReorder} onDeleteTask={onDeleteTask} onAddTask={onAddTask} onEditOvertime={onEditOvertime} />
+        <OpsEditGrid project={project} holidaySet={holidaySet} workingDaySet={workingDaySet} workStations={workStations} conflictKeys={conflictKeys} permissions={permissions} onSaveRow={onSaveRow} onReorder={onReorder} onDeleteTask={onDeleteTask} onAddTask={onAddTask} onDuplicateTask={onDuplicateTask} onEditOvertime={onEditOvertime} />
       ) : (
         <div className={`program-workspace ${ganttOpen ? 'is-open' : ''}`}>
           <section className="panel table-panel ops-panel">
@@ -646,6 +677,7 @@ export function OpsEditGrid({
   onReorder,
   onDeleteTask,
   onAddTask,
+  onDuplicateTask,
   onEditOvertime,
 }: {
   project: ProjectDetail
@@ -658,6 +690,7 @@ export function OpsEditGrid({
   onReorder: (row: ProjectTask, position: number) => Promise<void>
   onDeleteTask: (task: ProjectTask) => void
   onAddTask: () => void
+  onDuplicateTask: (task: ProjectTask) => void
   onEditOvertime: (task: ProjectTask) => void
 }) {
   const [rows, setRows] = useState<ProjectTask[]>(project.tasks)
@@ -667,7 +700,15 @@ export function OpsEditGrid({
   const [savingRowIds, setSavingRowIds] = useState<Set<number>>(new Set())
   const [progressDrafts, setProgressDrafts] = useState<Record<number, string>>({})
   const [progressErrors, setProgressErrors] = useState<Record<number, string>>({})
+  const [positionDrafts, setPositionDrafts] = useState<Record<number, string>>({})
+  const [completionTarget, setCompletionTarget] = useState<ProjectTask | null>(null)
+  const [completionMode, setCompletionMode] = useState<'today' | 'scheduled' | 'custom'>('today')
+  const [customCompletionDate, setCustomCompletionDate] = useState(todayIso())
   const rowsRef = useRef(rows)
+  const tableWrapRef = useRef<HTMLDivElement>(null)
+  const dragPointerYRef = useRef(0)
+  const dragScrollFrameRef = useRef<number | null>(null)
+  const draggingRef = useRef(false)
   const dirtyRowIdsRef = useRef<Set<number>>(new Set())
   const rowRevisionRef = useRef<Map<number, number>>(new Map())
   const queuedRevisionRef = useRef<Map<number, number>>(new Map())
@@ -679,7 +720,10 @@ export function OpsEditGrid({
   const canReorder = can(permissionKeys.taskReorder)
   const canEditPercent = can(permissionKeys.taskEditPercentComplete)
   const canEditOvertime = can(permissionKeys.taskEditOvertimeDays)
-  const showActions = canEditOvertime || canDelete
+  const showActions = canCreate || canEditOvertime || canDelete
+  const scheduledCompletionAllowed = Boolean(
+    completionTarget?.endDate && completionTarget.endDate <= todayIso(),
+  )
 
   useEffect(() => {
     setRows((current) => project.tasks.map((task) =>
@@ -687,6 +731,19 @@ export function OpsEditGrid({
         ? current.find((row) => row.id === task.id) ?? task
         : task))
   }, [project.tasks])
+
+  useEffect(() => () => {
+    if (dragScrollFrameRef.current !== null) window.cancelAnimationFrame(dragScrollFrameRef.current)
+  }, [])
+
+  useEffect(() => {
+    if (!completionTarget) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setCompletionTarget(null)
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [completionTarget])
 
   const markDirty = (id: number) => {
     dirtyRowIdsRef.current.add(id)
@@ -776,20 +833,25 @@ export function OpsEditGrid({
     if (updated) void persistRow(updated)
   }
 
-  const completeRow = (row: ProjectTask) => {
+  const completeRow = (row: ProjectTask, completionDate: string) => {
     clearProgressState(row.id)
     markDirty(row.id)
-    const today = todayIso()
     const nextRows = buildScheduledRows(rowsRef.current, row.id, {
-      startDate: row.startDate ?? today,
+      startDate: row.startDate ?? completionDate,
       startDateLocked: true,
-      endDate: today,
+      endDate: completionDate,
       percentComplete: 1,
       percentCompleteManual: true,
     })
     setRows(nextRows)
     const updated = nextRows.find((item) => item.id === row.id)
     if (updated) void persistRow(updated)
+  }
+
+  const openCompletion = (row: ProjectTask) => {
+    setCompletionTarget(row)
+    setCompletionMode('today')
+    setCustomCompletionDate(todayIso())
   }
 
   const clearProgressState = (id: number) => {
@@ -835,20 +897,99 @@ export function OpsEditGrid({
     void persistRow(row)
   }
 
-  const handleDrop = async (targetIndex: number) => {
-    if (dragIndex === null || dragIndex === targetIndex) { setDragIndex(null); setOverIndex(null); return }
-    const next = [...rows]
-    const [moved] = next.splice(dragIndex, 1)
+  const stopDragScroll = () => {
+    draggingRef.current = false
+    if (dragScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragScrollFrameRef.current)
+      dragScrollFrameRef.current = null
+    }
+  }
+
+  const startDragScroll = (clientY: number) => {
+    dragPointerYRef.current = clientY
+    if (dragScrollFrameRef.current !== null) return
+    const tick = () => {
+      if (!draggingRef.current) {
+        dragScrollFrameRef.current = null
+        return
+      }
+      const scrollHost = tableWrapRef.current
+      const viewportTop = scrollHost?.getBoundingClientRect().top ?? 0
+      const viewportBottom = scrollHost?.getBoundingClientRect().bottom ?? window.innerHeight
+      const threshold = Math.min(120, Math.max(64, (viewportBottom - viewportTop) * 0.18))
+      const distanceFromTop = dragPointerYRef.current - viewportTop
+      const distanceFromBottom = viewportBottom - dragPointerYRef.current
+      const delta = distanceFromTop < threshold
+        ? -Math.ceil((threshold - distanceFromTop) / 7)
+        : distanceFromBottom < threshold
+          ? Math.ceil((threshold - distanceFromBottom) / 7)
+          : 0
+      if (delta !== 0) {
+        if (scrollHost) scrollHost.scrollTop += delta
+        else window.scrollBy(0, delta)
+      }
+      dragScrollFrameRef.current = window.requestAnimationFrame(tick)
+    }
+    dragScrollFrameRef.current = window.requestAnimationFrame(tick)
+  }
+
+  const validateDependencyOrder = (list: ProjectTask[]) => {
+    const indexById = new Map(list.map((row, index) => [row.id, index]))
+    return list.find((row, index) => {
+      if (!row.dependencyTaskId) return false
+      const dependencyIndex = indexById.get(row.dependencyTaskId)
+      return dependencyIndex === undefined || dependencyIndex >= index
+    })
+  }
+
+  const reorderRow = async (row: ProjectTask, targetPosition: number) => {
+    const current = rowsRef.current
+    const sourceIndex = current.findIndex((item) => item.id === row.id)
+    const clampedPosition = Math.max(1, Math.min(current.length, targetPosition))
+    const targetIndex = clampedPosition - 1
+    if (sourceIndex < 0 || sourceIndex === targetIndex) return
+    const next = [...current]
+    const [moved] = next.splice(sourceIndex, 1)
     next.splice(targetIndex, 0, moved)
-    setRows(renumber(next))
-    setDragIndex(null)
-    setOverIndex(null)
+    const renumbered = renumber(next)
+    const invalid = validateDependencyOrder(renumbered)
+    if (invalid) {
+      setSaveError(`Move blocked: operation ${invalid.sequence} must remain after its selected dependency.`)
+      return
+    }
+    setRows(renumbered)
+    rowsRef.current = renumbered
     setSaveError(null)
     try {
-      await onReorder(moved, targetIndex + 1)
+      await onReorder(moved, clampedPosition)
     } catch (error) {
-      handleSaveError(moved.id, error)
+      setRows(project.tasks)
+      rowsRef.current = project.tasks
+      setSaveError(error instanceof Error ? error.message : 'The operation could not be reordered. The saved order was restored.')
     }
+  }
+
+  const commitPosition = (row: ProjectTask, rawValue: string) => {
+    setPositionDrafts((current) => {
+      const next = { ...current }
+      delete next[row.id]
+      return next
+    })
+    const position = Number(rawValue)
+    if (!Number.isInteger(position) || position < 1 || position > rowsRef.current.length) {
+      setSaveError(`Enter a step number from 1 to ${rowsRef.current.length}.`)
+      return
+    }
+    void reorderRow(row, position)
+  }
+
+  const handleDrop = async (targetIndex: number) => {
+    stopDragScroll()
+    if (dragIndex === null || dragIndex === targetIndex) { setDragIndex(null); setOverIndex(null); return }
+    const moved = rowsRef.current[dragIndex]
+    setDragIndex(null)
+    setOverIndex(null)
+    if (moved) await reorderRow(moved, targetIndex + 1)
   }
 
   const removeRow = async (row: ProjectTask) => {
@@ -872,12 +1013,20 @@ export function OpsEditGrid({
           <button type="button" className="icon-button" onClick={() => setSaveError(null)} aria-label="Dismiss save error"><X size={14} /></button>
         </div>
       )}
-      <div className="table-wrap">
+      <div
+        className="table-wrap"
+        ref={tableWrapRef}
+        onDragOver={(event) => {
+          if (!canReorder || dragIndex === null) return
+          event.preventDefault()
+          startDragScroll(event.clientY)
+        }}
+      >
         <table className="data-table ops-table edit-table">
           <thead>
             <tr>
               <th className="col-drag">#</th>
-              <th>Operation</th>
+              <th className="col-operation">Operation</th>
               <th>Work Station</th>
               <th>Dependency</th>
               <th className="col-lock">Lock</th>
@@ -909,29 +1058,83 @@ export function OpsEditGrid({
                     <span
                       className="drag-handle"
                       draggable={canReorder && !saving}
-                      onDragStart={() => { if (canReorder && !saving) setDragIndex(index) }}
-                      onDragEnd={() => { setDragIndex(null); setOverIndex(null) }}
+                      onDragStart={() => {
+                        if (!canReorder || saving) return
+                        draggingRef.current = true
+                        setDragIndex(index)
+                      }}
+                      onDragEnd={() => { stopDragScroll(); setDragIndex(null); setOverIndex(null) }}
                       title={canReorder ? 'Drag to reorder' : 'Your access group does not allow reordering operations'}
                     >
                       <GripVertical size={15} />
                     </span>
-                    <span className="seq-num">{index + 1}</span>
+                    {canReorder ? (
+                      <input
+                        className="operation-position-input"
+                        type="number"
+                        min="1"
+                        max={rows.length}
+                        value={positionDrafts[row.id] ?? String(index + 1)}
+                        aria-label={`Step position for ${row.title}`}
+                        title="Type a step number and press Enter to move this operation"
+                        disabled={saving}
+                        onChange={(event) => setPositionDrafts((current) => ({ ...current, [row.id]: event.target.value }))}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault()
+                            commitPosition(row, event.currentTarget.value)
+                          }
+                          if (event.key === 'Escape') {
+                            event.preventDefault()
+                            setPositionDrafts((current) => {
+                              const next = { ...current }
+                              delete next[row.id]
+                              return next
+                            })
+                          }
+                        }}
+                        onBlur={(event) => {
+                          if (row.id in positionDrafts) commitPosition(row, event.currentTarget.value)
+                        }}
+                      />
+                    ) : <span className="seq-num">{index + 1}</span>}
                   </td>
-                  <td>
+                  <td className="col-operation">
                     <div className="cell-with-warning">
-                      <input className="cell-input" value={row.title} onChange={(event) => update(row.id, { title: event.target.value })} onBlur={() => commit(row.id)} disabled={!can(permissionKeys.taskEditTitle) || saving} title={!can(permissionKeys.taskEditTitle) ? 'Your access group does not allow editing operation names' : undefined} />
+                      <input
+                        className="cell-input operation-title-input"
+                        value={row.title}
+                        onChange={(event) => update(row.id, { title: toOperationTitleCase(event.target.value) })}
+                        onBlur={() => commit(row.id)}
+                        disabled={!can(permissionKeys.taskEditTitle) || saving}
+                        title={!can(permissionKeys.taskEditTitle) ? 'Your access group does not allow editing operation names' : undefined}
+                      />
                       {hasConflict && <ConflictIcon message={`Work-center conflict: ${row.workStation || 'this work center'} is assigned to another active project during these dates.`} />}
                       {row.overtimeDays.length > 0 && <span className="ot-badge">OT +{row.overtimeDays.length}</span>}
                     </div>
                   </td>
                   <td className="col-station"><WorkStationPicker ariaLabel={`Work station for ${row.title}`} value={row.workStation ?? ''} options={workStations} onChange={(workStation) => update(row.id, { workStation })} onCommit={() => commit(row.id)} disabled={!can(permissionKeys.taskEditWorkStation) || saving} title={!can(permissionKeys.taskEditWorkStation) ? 'Your access group does not allow editing work stations' : undefined} /></td>
                   <td className="col-dependency">
-                    <select className="cell-input" value={row.dependencyTaskId ?? ''} onChange={(event) => updateScheduleField(row.id, { dependencyTaskId: event.target.value ? Number(event.target.value) : null })} onBlur={() => commit(row.id)} disabled={!can(permissionKeys.taskEditDependency) || saving} title={!can(permissionKeys.taskEditDependency) ? 'Your access group does not allow editing dependencies' : undefined}>
-                      <option value="">Default: previous op</option>
-                      {rows.filter((option) => option.id !== row.id && option.sequence < row.sequence).map((option) => (
-                        <option key={option.id} value={option.id}>{option.externalTaskId || option.sequence}. {option.title || 'Untitled operation'}</option>
-                      ))}
-                    </select>
+                    <details className="dependency-editor">
+                      <summary
+                        title={!can(permissionKeys.taskEditDependency) ? 'Your access group does not allow editing dependencies' : 'Choose this operation dependency'}
+                        onClick={(event) => { if (!can(permissionKeys.taskEditDependency) || saving) event.preventDefault() }}
+                      >
+                        <span>{row.dependencyTaskId
+                          ? `${rows.find((option) => option.id === row.dependencyTaskId)?.sequence ?? '—'}. ${rows.find((option) => option.id === row.dependencyTaskId)?.title ?? 'Missing dependency'}`
+                          : 'Previous operation'}</span>
+                        <ChevronDown size={13} aria-hidden="true" />
+                      </summary>
+                      <div className="dependency-editor-popover">
+                        <label htmlFor={`dependency-${row.id}`}>Depends on</label>
+                        <select id={`dependency-${row.id}`} className="cell-input" value={row.dependencyTaskId ?? ''} onChange={(event) => updateScheduleField(row.id, { dependencyTaskId: event.target.value ? Number(event.target.value) : null })} onBlur={() => commit(row.id)} disabled={!can(permissionKeys.taskEditDependency) || saving}>
+                          <option value="">Default: previous operation</option>
+                          {rows.filter((option) => option.id !== row.id && option.sequence < row.sequence).map((option) => (
+                            <option key={option.id} value={option.id}>{option.externalTaskId || option.sequence}. {option.title || 'Untitled operation'}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </details>
                   </td>
                   <td className="col-lock">
                     <button
@@ -989,24 +1192,25 @@ export function OpsEditGrid({
                           type="button"
                           className="operation-complete-button"
                           onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => completeRow(row)}
+                          onClick={() => openCompletion(row)}
                           disabled={saving}
-                          aria-label={`Complete ${row.title} today: set progress to 100 percent and end date to today`}
-                          title="Sets progress to 100% and the operation end date to today"
+                          aria-label={`Complete ${row.title} and choose its completion date`}
+                          title="Set progress to 100% and choose when the operation was completed"
                         >
                           <CheckCircle2 size={15} />
-                          Complete today
+                          Complete
                         </button>
                       ) : (
-                        <span className={`operation-progress-status ${pct === 100 ? 'is-complete' : ''}`} role="status">
+                        <span className={`operation-progress-status ${pct === 100 ? 'is-complete' : ''} ${row.status === 'CompletedLate' ? 'is-late' : ''}`} role="status">
                           {pct === 100 && <CheckCircle2 size={15} />}
-                          {pct === 100 ? 'Completed' : 'Read only'}
+                          {row.status === 'CompletedLate' ? 'Completed late' : pct === 100 ? 'Complete' : 'Read only'}
                         </span>
                       )}
                       {progressError && <span className="operation-progress-error" id={`progress-error-${row.id}`} role="alert">{progressError}</span>}
                     </div>
                   </td>
                   {showActions && <td className="row-actions">
+                    {canCreate && <button className="icon-button" onClick={() => onDuplicateTask(row)} aria-label={`Duplicate ${row.title}`} title="Duplicate operation" disabled={saving}><Copy size={14} /></button>}
                     {canEditOvertime && <button className="icon-button" onClick={() => onEditOvertime(row)} aria-label={`Overtime dates for ${row.title}`} title="Approved overtime" disabled={saving}><CalendarPlus size={14} /></button>}
                     {canDelete && <button className="icon-button danger" onClick={() => void removeRow(row)} aria-label={`Delete ${row.title}`} title="Delete step" disabled={saving}><Trash2 size={14} /></button>}
                   </td>}
@@ -1016,6 +1220,61 @@ export function OpsEditGrid({
           </tbody>
         </table>
       </div>
+      {completionTarget && (
+        <div className="modal-backdrop" onClick={() => setCompletionTarget(null)}>
+          <section className="modal operation-completion-modal" role="dialog" aria-modal="true" aria-labelledby="operation-completion-title" onClick={(event) => event.stopPropagation()}>
+            <header className="modal-head">
+              <div className="panel-head-text">
+                <span className="kicker">Complete Operation</span>
+                <h2 id="operation-completion-title">When was this completed?</h2>
+                <p>{completionTarget.sequence}. {completionTarget.title}</p>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setCompletionTarget(null)} aria-label="Close completion dialog"><X size={16} /></button>
+            </header>
+            <div className="completion-date-options" role="radiogroup" aria-label="Completion date">
+              <label className={`completion-date-choice ${completionMode === 'today' ? 'selected' : ''}`}>
+                <input type="radio" name="completion-date" checked={completionMode === 'today'} onChange={() => setCompletionMode('today')} />
+                <span><strong>Today</strong><small>{compactDate(todayIso())}</small></span>
+              </label>
+              <label className={`completion-date-choice ${completionMode === 'scheduled' ? 'selected' : ''} ${!scheduledCompletionAllowed ? 'disabled' : ''}`}>
+                <input type="radio" name="completion-date" checked={completionMode === 'scheduled'} disabled={!scheduledCompletionAllowed} onChange={() => setCompletionMode('scheduled')} />
+                <span><strong>Scheduled end date</strong><small>{completionTarget.endDate
+                  ? completionTarget.endDate <= todayIso()
+                    ? compactDate(completionTarget.endDate)
+                    : `${compactDate(completionTarget.endDate)} · Future date`
+                  : 'No scheduled end date'}</small></span>
+              </label>
+              <label className={`completion-date-choice ${completionMode === 'custom' ? 'selected' : ''}`}>
+                <input type="radio" name="completion-date" checked={completionMode === 'custom'} onChange={() => setCompletionMode('custom')} />
+                <span><strong>Different date</strong><small>Choose the actual completion date</small></span>
+              </label>
+            </div>
+            {completionMode === 'custom' && (
+              <label className="field completion-custom-date"><span>Completion date</span><input type="date" value={customCompletionDate} max={todayIso()} onChange={(event) => setCustomCompletionDate(event.target.value)} autoFocus /></label>
+            )}
+            <div className="modal-actions">
+              <button className="button ghost" type="button" onClick={() => setCompletionTarget(null)}>Cancel</button>
+              <button
+                className="button primary"
+                type="button"
+                disabled={completionMode === 'custom' && !customCompletionDate}
+                onClick={() => {
+                  const completionDate = completionMode === 'scheduled'
+                    ? completionTarget.endDate
+                    : completionMode === 'custom'
+                      ? customCompletionDate
+                      : todayIso()
+                  if (!completionDate) return
+                  completeRow(completionTarget, completionDate)
+                  setCompletionTarget(null)
+                }}
+              >
+                <CheckCircle2 size={15} /> Complete Operation
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   )
 }

@@ -97,6 +97,7 @@ public sealed class ProjectAuditService(CurrentUserService currentUser)
             ["Duration"] = task.EstimatedDuration?.ToString(CultureInfo.InvariantCulture),
             ["Actual duration"] = task.ActualDuration?.ToString(CultureInfo.InvariantCulture),
             ["Completion"] = Percent(task.PercentComplete),
+            ["Progress calculation"] = task.PercentCompleteManual ? "Manual" : "Automatic",
             ["Status"] = Friendly(task.Status.ToString()),
             ["Start date locked"] = task.StartDateLocked ? "Yes" : "No",
             ["Notes"] = task.Notes,
@@ -113,6 +114,7 @@ public sealed class ProjectAuditService(CurrentUserService currentUser)
     {
         "NotStarted" => "Not Started",
         "OnTrack" => "On Track",
+        "CompletedLate" => "Completed Late",
         _ => value
     };
 }

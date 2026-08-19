@@ -179,6 +179,12 @@
   border-color: #2f6548;
 }
 
+:root[data-theme='dark'] .project-tracker-app .status.completed-late {
+  color: var(--risk-700);
+  background: linear-gradient(135deg, var(--done-tint), var(--risk-tint));
+  border-color: #713a35;
+}
+
 :root[data-theme='dark'] .project-tracker-app .status.not-started {
   color: var(--muted);
   background: var(--idle-tint);

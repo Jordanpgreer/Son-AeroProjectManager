@@ -102,6 +102,15 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
         modelBuilder.Entity<UserNotification>(entity =>
         {
             entity.HasIndex(notification => new { notification.RecipientUserId, notification.ReadAt, notification.CreatedAt });
+            entity.HasIndex(notification => new
+                {
+                    notification.RecipientUserId,
+                    notification.ProjectTaskId,
+                    notification.Kind,
+                    notification.ScheduledDate
+                })
+                .IsUnique()
+                .HasFilter("[ScheduledDate] IS NOT NULL");
             entity.HasIndex(notification => notification.ProjectMessageId);
             entity.HasIndex(notification => notification.ProjectTaskId);
             entity.Property(notification => notification.Kind).HasConversion<string>().HasMaxLength(40);

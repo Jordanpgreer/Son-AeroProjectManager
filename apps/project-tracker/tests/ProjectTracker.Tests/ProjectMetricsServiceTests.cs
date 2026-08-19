@@ -91,6 +91,35 @@ public sealed class ProjectMetricsServiceTests
     }
 
     [Fact]
+    public void RefreshProject_PreservesCompletedLateStatusForArchivedOperation()
+    {
+        var project = new Project
+        {
+            ProgramName = "Completed late project",
+            CompletedOn = new DateOnly(2026, 8, 17),
+            Status = ProjectStatus.Complete,
+            Progress = 1m,
+            Tasks =
+            [
+                new ProjectTask
+                {
+                    Sequence = 1,
+                    Title = "Late operation",
+                    EstimatedDuration = 5,
+                    ActualDuration = 4,
+                    PercentComplete = 1m,
+                    Status = TaskScheduleStatus.Complete
+                }
+            ]
+        };
+
+        metrics.RefreshProject(project, ScheduleCalendar.Default, new DateOnly(2026, 8, 19));
+
+        Assert.Equal(ProjectStatus.Complete, project.Status);
+        Assert.Equal(TaskScheduleStatus.CompletedLate, project.Tasks[0].Status);
+    }
+
+    [Fact]
     public void RefreshProject_DoesNotCompleteOperationBecauseItsEndDatePassed()
     {
         var finalDate = new DateOnly(2026, 6, 23);
@@ -113,8 +142,9 @@ public sealed class ProjectMetricsServiceTests
         metrics.RefreshProject(project, ScheduleCalendar.Default, new DateOnly(2026, 6, 29));
 
         Assert.Equal(0m, project.Tasks[0].PercentComplete);
-        Assert.Equal(TaskScheduleStatus.Behind, project.Tasks[0].Status);
-        Assert.Equal(ProjectStatus.Behind, project.Status);
+        Assert.Equal(TaskScheduleStatus.NotStarted, project.Tasks[0].Status);
+        Assert.Equal(ProjectStatus.NotStarted, project.Status);
+        Assert.Null(project.DaysBehind);
         Assert.Null(project.CompletedOn);
     }
 
@@ -195,7 +225,7 @@ public sealed class ProjectMetricsServiceTests
     }
 
     [Fact]
-    public void RefreshProject_CalculatesWorkingDaysBehindFromProgressLag()
+    public void RefreshProject_DoesNotMarkProjectBehindFromProgressLagAlone()
     {
         var project = new Project
         {
@@ -218,12 +248,13 @@ public sealed class ProjectMetricsServiceTests
 
         metrics.RefreshProject(project, ScheduleCalendar.Default, new DateOnly(2026, 7, 9));
 
-        Assert.Equal(ProjectStatus.Behind, project.Status);
-        Assert.Equal(2, project.DaysBehind);
+        Assert.Equal(TaskScheduleStatus.OnTrack, project.Tasks[0].Status);
+        Assert.Equal(ProjectStatus.OnTrack, project.Status);
+        Assert.Null(project.DaysBehind);
     }
 
     [Fact]
-    public void RefreshProject_IncludesOverdueTimeInProjectedWorkingDaysBehind()
+    public void RefreshProject_DoesNotMarkProjectBehindFromProjectedDelayAlone()
     {
         var project = new Project
         {
@@ -246,7 +277,137 @@ public sealed class ProjectMetricsServiceTests
 
         metrics.RefreshProject(project, ScheduleCalendar.Default, new DateOnly(2026, 7, 14));
 
+        Assert.Equal(TaskScheduleStatus.OnTrack, project.Tasks[0].Status);
+        Assert.Equal(ProjectStatus.OnTrack, project.Status);
+        Assert.Null(project.DaysBehind);
+    }
+
+    [Fact]
+    public void RefreshProject_AutomaticallyAdvancesConfirmedOperationByWorkingDay()
+    {
+        var project = new Project
+        {
+            ProgramName = "Automatic progress",
+            Tasks =
+            [
+                new ProjectTask
+                {
+                    Sequence = 1,
+                    Title = "Build",
+                    StartDate = new DateOnly(2026, 8, 10),
+                    StartDateLocked = true,
+                    EndDate = new DateOnly(2026, 8, 13),
+                    EstimatedDuration = 4,
+                    PercentCompleteManual = false
+                }
+            ]
+        };
+
+        metrics.RefreshProject(project, ScheduleCalendar.Default, new DateOnly(2026, 8, 11));
+
+        Assert.Equal(0.5m, project.Tasks[0].PercentComplete);
+        Assert.False(project.Tasks[0].PercentCompleteManual);
+        Assert.Equal(TaskScheduleStatus.OnTrack, project.Tasks[0].Status);
+    }
+
+    [Fact]
+    public void RefreshProject_CapsAutomaticProgressUntilFinishIsConfirmed()
+    {
+        var project = new Project
+        {
+            ProgramName = "Awaiting finish",
+            Tasks =
+            [
+                new ProjectTask
+                {
+                    Sequence = 1,
+                    Title = "Build",
+                    StartDate = new DateOnly(2026, 8, 10),
+                    StartDateLocked = true,
+                    EndDate = new DateOnly(2026, 8, 13),
+                    EstimatedDuration = 4,
+                    PercentCompleteManual = false
+                }
+            ]
+        };
+
+        metrics.RefreshProject(project, ScheduleCalendar.Default, new DateOnly(2026, 8, 17));
+
+        Assert.Equal(0.99m, project.Tasks[0].PercentComplete);
+        Assert.Equal(TaskScheduleStatus.OnTrack, project.Tasks[0].Status);
+        Assert.NotEqual("Ready to close", project.CurrentTask);
+    }
+
+    [Fact]
+    public void RefreshProject_UsesOnlyFinalOperationEndVarianceForProjectBehindStatus()
+    {
+        var project = new Project
+        {
+            ProgramName = "Final operation controls project",
+            Tasks =
+            [
+                new ProjectTask
+                {
+                    Sequence = 1,
+                    Title = "Late intermediate operation",
+                    StartDate = new DateOnly(2026, 8, 3),
+                    EndDate = new DateOnly(2026, 8, 10),
+                    OriginalStartDate = new DateOnly(2026, 8, 3),
+                    OriginalEndDate = new DateOnly(2026, 8, 6),
+                    EstimatedDuration = 5,
+                    ActualDuration = 4,
+                    PercentComplete = 1m
+                },
+                new ProjectTask
+                {
+                    Sequence = 2,
+                    Title = "On-time final operation",
+                    StartDate = new DateOnly(2026, 8, 11),
+                    EndDate = new DateOnly(2026, 8, 13),
+                    OriginalStartDate = new DateOnly(2026, 8, 10),
+                    OriginalEndDate = new DateOnly(2026, 8, 13),
+                    EstimatedDuration = 3,
+                    ActualDuration = 4,
+                    PercentComplete = 0.5m
+                }
+            ]
+        };
+
+        metrics.RefreshProject(project, ScheduleCalendar.Default, new DateOnly(2026, 8, 12));
+
+        Assert.Equal(TaskScheduleStatus.CompletedLate, project.Tasks[0].Status);
+        Assert.Equal(ProjectStatus.OnTrack, project.Status);
+        Assert.Null(project.DaysBehind);
+    }
+
+    [Fact]
+    public void RefreshProject_MarksProjectBehindWhenFinalOperationEndsAfterOriginalEnd()
+    {
+        var project = new Project
+        {
+            ProgramName = "Late final operation",
+            Tasks =
+            [
+                new ProjectTask
+                {
+                    Sequence = 1,
+                    Title = "Final operation",
+                    StartDate = new DateOnly(2026, 8, 10),
+                    EndDate = new DateOnly(2026, 8, 17),
+                    OriginalStartDate = new DateOnly(2026, 8, 10),
+                    OriginalEndDate = new DateOnly(2026, 8, 13),
+                    EstimatedDuration = 5,
+                    ActualDuration = 4,
+                    PercentComplete = 1m
+                }
+            ]
+        };
+
+        metrics.RefreshProject(project, ScheduleCalendar.Default, new DateOnly(2026, 8, 17));
+
+        Assert.Equal(TaskScheduleStatus.CompletedLate, project.Tasks[0].Status);
         Assert.Equal(ProjectStatus.Behind, project.Status);
-        Assert.Equal(3, project.DaysBehind);
+        Assert.Equal(1, project.DaysBehind);
+        Assert.Equal("Ready to close", project.CurrentTask);
     }
 }

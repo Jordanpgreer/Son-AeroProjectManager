@@ -155,6 +155,8 @@
   .admin-record-row,
   .admin-record-row.holiday { grid-template-columns: 26px minmax(0, 1fr) 38px 38px; }
   .admin-record-row.holiday label:nth-of-type(2) { grid-column: 2 / -1; }
+  .admin-holiday-group > summary { grid-template-columns: 36px minmax(0, 1fr) 18px; }
+  .admin-holiday-group-count { display: none; }
   .admin-group-card summary { grid-template-columns: 34px minmax(0, 1fr) 18px; }
   .admin-group-counts { grid-column: 2; white-space: normal; }
   .module-role-guide { grid-template-columns: 1fr; }

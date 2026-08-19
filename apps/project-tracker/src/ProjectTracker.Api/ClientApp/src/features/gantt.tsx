@@ -10,6 +10,7 @@ import {
 import {
   buildSchedule,
   statusClass,
+  statusLabel,
   formatPercent,
   compactDate,
   msToIso,
@@ -137,6 +138,7 @@ export function Gantt({
             <span><i className="legend-swatch on-track" /> On track</span>
             <span><i className="legend-swatch behind" /> Behind</span>
             <span><i className="legend-swatch complete" /> Complete</span>
+            <span><i className="legend-swatch completed-late" /> Completed late</span>
             <span><i className="legend-swatch projected" /> Projected</span>
             <span><i className="legend-today" /> Today</span>
           </div>
@@ -220,7 +222,8 @@ export function Gantt({
             const barPx = (width / 100) * trackWidth
             const narrow = barPx < 48
             const label = formatPercent(task.percentComplete)
-            const tip = `${task.title}\n${compactDate(msToIso(startMs))} – ${compactDate(msToIso(endMs))}\n${label} complete${projected ? ' · projected' : ''}`
+            const completedLate = task.status === 'CompletedLate'
+            const tip = `${task.title}\n${compactDate(msToIso(startMs))} – ${compactDate(msToIso(endMs))}\n${label} complete · ${statusLabel(task.status)}${projected ? ' · projected' : ''}`
             const status = statusClass(task.status)
             const bridgeFilled = clamp(task.percentComplete, 0, 1) >= 1
             const visualRight = left + width + bridgeWidth
@@ -231,6 +234,7 @@ export function Gantt({
                   <span className="gantt-sub">
                     {task.workStation && <span className="station-tag mini">{task.workStation}</span>}
                     <span className="cell-mono">{formatDuration(Math.max(1, Math.round((endMs - startMs) / dayMs) + 1))}</span>
+                    {completedLate && <span className="gantt-late-chip">Completed late</span>}
                   </span>
                 </div>
                 <div className="gantt-track">

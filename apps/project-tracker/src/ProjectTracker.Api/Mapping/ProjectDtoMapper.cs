@@ -40,7 +40,7 @@ public static class ProjectDtoMapper
             project.DaysBehind,
             project.Status,
             project.Tasks.Count,
-            project.Tasks.Count(task => task.Status == TaskScheduleStatus.Behind),
+            project.Tasks.Count(task => task.Status is TaskScheduleStatus.Behind or TaskScheduleStatus.CompletedLate),
             recentNote,
             schedule.PlannedStart,
             schedule.PlannedFinish,

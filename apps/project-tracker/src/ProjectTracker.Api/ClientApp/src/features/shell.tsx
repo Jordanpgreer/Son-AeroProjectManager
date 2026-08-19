@@ -6,6 +6,7 @@ import {
   Bell,
   BellOff,
   BellRing,
+  CalendarCheck2,
   CalendarRange,
   ChevronDown,
   Check,
@@ -49,6 +50,15 @@ function hasPermission(user: User | null, permission: string) {
   return Boolean(user?.permissions?.includes(permission))
 }
 
+function isScheduleConfirmation(notification: MentionNotification) {
+  return notification.kind === 'OperationStartConfirmation'
+    || notification.kind === 'OperationFinishConfirmation'
+}
+
+function scheduleConfirmationLabel(notification: MentionNotification) {
+  return notification.kind === 'OperationFinishConfirmation' ? 'Yes, it finished' : 'Yes, it started'
+}
+
 function UserProfile({ user }: { user: User | null }) {
   const accessLabel = user?.isAdmin ? 'Admin' : user?.groups[0] ?? 'User'
   const avatarLabel = user
@@ -69,6 +79,8 @@ function UserProfile({ user }: { user: User | null }) {
 }
 
 export function Sidebar({
+  collapsed,
+  onToggleCollapsed,
   screen,
   setScreen,
   selectedProject,
@@ -76,6 +88,8 @@ export function Sidebar({
   onOpenActiveProjects,
   user,
 }: {
+  collapsed: boolean
+  onToggleCollapsed: () => void
   screen: Screen
   setScreen: (screen: Screen) => void
   selectedProject: ProjectDetail | null
@@ -95,6 +109,21 @@ export function Sidebar({
         <img className="brand-lockup" src="/brand/son-aero-lockup-dark.png" alt="Son-Aero — Sonfarrel Aerospace" />
         <img className="brand-mark" src="/brand/son-aero-mark.png" alt="Son-Aero" />
       </a>
+
+      <button
+        type="button"
+        className="sidebar-rail-toggle"
+        aria-label={collapsed ? 'Expand Project Tracker navigation' : 'Collapse Project Tracker navigation'}
+        aria-expanded={!collapsed}
+        aria-controls="project-tracker-sidebar"
+        title={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+        onClick={onToggleCollapsed}
+      >
+        {collapsed
+          ? <PanelLeftOpen size={18} aria-hidden="true" />
+          : <PanelLeftClose size={18} aria-hidden="true" />}
+        <span className="sidebar-rail-toggle-label">{collapsed ? 'Expand menu' : 'Collapse menu'}</span>
+      </button>
 
       <div className="nav-section">
         <span className="nav-heading">Program Control</span>
@@ -166,6 +195,8 @@ function NotificationsMenu({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [actionMessage, setActionMessage] = useState<string | null>(null)
+  const [confirmingNotificationId, setConfirmingNotificationId] = useState<number | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const knownNotificationIdsRef = useRef<Set<number>>(new Set())
   const notificationsInitializedRef = useRef(false)
@@ -216,6 +247,8 @@ function NotificationsMenu({
     setToasts([])
     setError(null)
     setActionError(null)
+    setActionMessage(null)
+    setConfirmingNotificationId(null)
     setLoading(false)
     notificationRequestGenerationRef.current += 1
     knownNotificationIdsRef.current = new Set()
@@ -270,6 +303,28 @@ function NotificationsMenu({
     }
   }
 
+  const confirmScheduleNotification = async (notification: MentionNotification) => {
+    if (!isScheduleConfirmation(notification) || confirmingNotificationId !== null) return
+    setActionError(null)
+    setActionMessage(null)
+    setConfirmingNotificationId(notification.id)
+    try {
+      await api<void>(`/api/notifications/${notification.id}/confirm`, { method: 'POST' })
+      setNotifications((current) => current.filter((item) => item.id !== notification.id))
+      dismissToast(notification.id)
+      knownNotificationIdsRef.current.delete(notification.id)
+      setActionMessage(notification.kind === 'OperationFinishConfirmation'
+        ? `${notification.operationName || 'Operation'} was marked complete.`
+        : `${notification.operationName || 'Operation'} will now update progress automatically each workday.`)
+      await loadNotifications()
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : 'That schedule confirmation could not be saved. Please try again.')
+      await loadNotifications()
+    } finally {
+      setConfirmingNotificationId(null)
+    }
+  }
+
   const deleteNotification = async (notificationId: number) => {
     setActionError(null)
     notificationRequestGenerationRef.current += 1
@@ -293,17 +348,22 @@ function NotificationsMenu({
 
   const clearAllNotifications = async () => {
     setActionError(null)
+    setActionMessage(null)
     notificationRequestGenerationRef.current += 1
-    setNotifications([])
-    setToasts([])
-    knownNotificationIdsRef.current = new Set()
+    setNotifications((current) => current.filter(isScheduleConfirmation))
+    setToasts((current) => current.filter(isScheduleConfirmation))
+    knownNotificationIdsRef.current = new Set(
+      notifications.filter(isScheduleConfirmation).map((notification) => notification.id),
+    )
 
     try {
       await api<void>('/api/notifications', { method: 'DELETE' })
       notificationRequestGenerationRef.current += 1
-      setNotifications([])
-      setToasts([])
-      knownNotificationIdsRef.current = new Set()
+      setNotifications((current) => current.filter(isScheduleConfirmation))
+      setToasts((current) => current.filter(isScheduleConfirmation))
+      knownNotificationIdsRef.current = new Set(
+        notifications.filter(isScheduleConfirmation).map((notification) => notification.id),
+      )
       setLoading(false)
     } catch {
       notificationRequestGenerationRef.current += 1
@@ -342,9 +402,11 @@ function NotificationsMenu({
                     <CheckCheck size={14} /> Mark all read
                   </button>
                 )}
-                <button className="notification-clear-all" type="button" onClick={() => void clearAllNotifications()}>
-                  <Trash2 size={14} /> Clear all
-                </button>
+                {notifications.some((notification) => !isScheduleConfirmation(notification)) && (
+                  <button className="notification-clear-all" type="button" onClick={() => void clearAllNotifications()}>
+                    <Trash2 size={14} /> Clear mentions
+                  </button>
+                )}
               </div>
             )}
           </header>
@@ -370,6 +432,12 @@ function NotificationsMenu({
                 </button>
               </div>
             )}
+            {actionMessage && (
+              <div className="notification-action-success" role="status">
+                <Check size={14} aria-hidden="true" />
+                <span>{actionMessage}</span>
+              </div>
+            )}
             {loading ? (
               <div className="notification-state">Loading notifications...</div>
             ) : error ? (
@@ -382,11 +450,11 @@ function NotificationsMenu({
               <div className="notification-state">
                 <Bell size={19} />
                 <strong>You are all caught up</strong>
-                <span>Chat and operation-note mentions will appear here.</span>
+                <span>Mentions and operation schedule checks will appear here.</span>
               </div>
             ) : notifications.map((notification) => (
               <div
-                className={`notification-item ${notification.readAt ? '' : 'unread'}`}
+                className={`notification-item ${notification.readAt ? '' : 'unread'} ${isScheduleConfirmation(notification) ? 'schedule-confirmation' : ''}`}
                 key={notification.id}
               >
                 <button
@@ -394,8 +462,10 @@ function NotificationsMenu({
                   className="notification-item-open"
                   onClick={() => void openNotification(notification)}
                 >
-                  <span className={`notification-source ${notification.kind === 'OperationNoteMention' ? 'note' : 'chat'}`}>
-                    {notification.kind === 'OperationNoteMention' ? <StickyNote size={14} /> : <MessageSquare size={14} />}
+                  <span className={`notification-source ${isScheduleConfirmation(notification) ? 'schedule' : notification.kind === 'OperationNoteMention' ? 'note' : 'chat'}`}>
+                    {isScheduleConfirmation(notification)
+                      ? <CalendarCheck2 size={14} />
+                      : notification.kind === 'OperationNoteMention' ? <StickyNote size={14} /> : <MessageSquare size={14} />}
                   </span>
                   <span className="notification-copy">
                     <span>
@@ -407,7 +477,7 @@ function NotificationsMenu({
                     <time dateTime={notification.createdAt}>{formatActivityTime(notification.createdAt)}</time>
                   </span>
                 </button>
-                {!user?.preview?.readOnly && (
+                {!user?.preview?.readOnly && !isScheduleConfirmation(notification) && (
                   <button
                     type="button"
                     className="notification-delete"
@@ -417,6 +487,22 @@ function NotificationsMenu({
                   >
                     <X size={15} />
                   </button>
+                )}
+                {!user?.preview?.readOnly && isScheduleConfirmation(notification) && (
+                  <div className="notification-confirm-actions">
+                    <button
+                      className="button primary"
+                      type="button"
+                      onClick={() => void confirmScheduleNotification(notification)}
+                      disabled={confirmingNotificationId !== null}
+                    >
+                      <Check size={14} aria-hidden="true" />
+                      {confirmingNotificationId === notification.id ? 'Saving...' : scheduleConfirmationLabel(notification)}
+                    </button>
+                    <button className="button ghost" type="button" onClick={() => void openNotification(notification)}>
+                      Review operation
+                    </button>
+                  </div>
                 )}
               </div>
             ))}
@@ -431,6 +517,10 @@ function NotificationsMenu({
               notification={notification}
               onDismiss={() => dismissToast(notification.id)}
               onOpen={() => void openNotification(notification)}
+              onConfirm={isScheduleConfirmation(notification)
+                ? () => void confirmScheduleNotification(notification)
+                : undefined}
+              confirming={confirmingNotificationId === notification.id}
             />
           ))}
         </aside>
@@ -520,10 +610,14 @@ function NotificationToast({
   notification,
   onDismiss,
   onOpen,
+  onConfirm,
+  confirming,
 }: {
   notification: MentionNotification
   onDismiss: () => void
   onOpen: () => void
+  onConfirm?: () => void
+  confirming: boolean
 }) {
   const dismissRef = useRef(onDismiss)
   dismissRef.current = onDismiss
@@ -532,18 +626,21 @@ function NotificationToast({
     return () => window.clearTimeout(timeout)
   }, [notification.id])
 
-  const destination = notification.kind === 'OperationNoteMention' && notification.operationName
+  const scheduleConfirmation = isScheduleConfirmation(notification)
+  const destination = (notification.kind === 'OperationNoteMention' || scheduleConfirmation) && notification.operationName
     ? `${notification.operationName} in ${notification.projectName}`
     : `project ${notification.projectName}`
 
   return (
-    <article className="notification-toast">
+    <article className={`notification-toast ${scheduleConfirmation ? 'schedule-confirmation' : ''}`}>
       <button className="notification-toast-open" type="button" onClick={onOpen}>
-        <span className={`notification-source ${notification.kind === 'OperationNoteMention' ? 'note' : 'chat'}`}>
-          {notification.kind === 'OperationNoteMention' ? <StickyNote size={16} /> : <MessageSquare size={16} />}
+        <span className={`notification-source ${scheduleConfirmation ? 'schedule' : notification.kind === 'OperationNoteMention' ? 'note' : 'chat'}`}>
+          {scheduleConfirmation
+            ? <CalendarCheck2 size={16} />
+            : notification.kind === 'OperationNoteMention' ? <StickyNote size={16} /> : <MessageSquare size={16} />}
         </span>
         <span>
-          <strong>{notification.actorDisplayName} mentioned you</strong>
+          <strong>{scheduleConfirmation ? notification.title : `${notification.actorDisplayName} mentioned you`}</strong>
           <small>{destination}</small>
           {notification.bodyPreview && <span>{notification.bodyPreview}</span>}
         </span>
@@ -551,6 +648,15 @@ function NotificationToast({
       <button className="notification-toast-dismiss" type="button" onClick={onDismiss} aria-label="Dismiss notification">
         <X size={15} />
       </button>
+      {scheduleConfirmation && onConfirm && (
+        <div className="notification-toast-actions">
+          <button className="button primary" type="button" onClick={onConfirm} disabled={confirming}>
+            <Check size={14} aria-hidden="true" />
+            {confirming ? 'Saving...' : scheduleConfirmationLabel(notification)}
+          </button>
+          <button className="button ghost" type="button" onClick={onOpen}>Review</button>
+        </div>
+      )}
       <span className="notification-toast-timer" aria-hidden="true" />
     </article>
   )
@@ -601,8 +707,6 @@ function ThemeSwitch({
 export function PageHeader({
   theme,
   onToggleTheme,
-  sidebarCollapsed,
-  onToggleSidebar,
   screen,
   selectedProject,
   canEnterProjectEdit,
@@ -622,8 +726,6 @@ export function PageHeader({
 }: {
   theme: AppTheme
   onToggleTheme: () => void
-  sidebarCollapsed: boolean
-  onToggleSidebar: () => void
   screen: Screen
   selectedProject: ProjectDetail | null
   canEnterProjectEdit: boolean
@@ -654,19 +756,6 @@ export function PageHeader({
   return (
     <header className="topbar">
       <div className="topbar-title-area">
-        <button
-          type="button"
-          className="icon-button sidebar-toggle"
-          aria-label={sidebarCollapsed ? 'Expand Project Tracker navigation' : 'Collapse Project Tracker navigation'}
-          aria-expanded={!sidebarCollapsed}
-          aria-controls="project-tracker-sidebar"
-          title={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
-          onClick={onToggleSidebar}
-        >
-          {sidebarCollapsed
-            ? <PanelLeftOpen size={19} aria-hidden="true" />
-            : <PanelLeftClose size={19} aria-hidden="true" />}
-        </button>
         <div className="page-title-block">
           <span className="eyebrow">{screenEyebrow(screen)}</span>
           <div className="page-title-row">

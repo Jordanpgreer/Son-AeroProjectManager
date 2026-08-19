@@ -31,7 +31,8 @@ public static class NotificationEndpoints
                 currentUser.EffectiveAccountName!,
                 unreadOnly == true,
                 limit,
-                cancellationToken);
+                includeScheduleConfirmations: currentUser.HasPermission(ProjectTracker.Api.Auth.ProjectTrackerPermissions.OperationScheduleConfirm),
+                cancellationToken: cancellationToken);
 
             return Results.Ok(notifications);
         });
@@ -52,7 +53,8 @@ public static class NotificationEndpoints
             var count = await notificationReader.GetUnreadCountAsync(
                 userId.Value,
                 currentUser.EffectiveAccountName!,
-                cancellationToken);
+                includeScheduleConfirmations: currentUser.HasPermission(ProjectTracker.Api.Auth.ProjectTrackerPermissions.OperationScheduleConfirm),
+                cancellationToken: cancellationToken);
             return Results.Ok(new NotificationCountDto(count));
         });
 
@@ -78,7 +80,8 @@ public static class NotificationEndpoints
                 id,
                 userId.Value,
                 currentUser.AccountName,
-                cancellationToken);
+                includeScheduleConfirmations: currentUser.HasPermission(ProjectTracker.Api.Auth.ProjectTrackerPermissions.OperationScheduleConfirm),
+                cancellationToken: cancellationToken);
             if (!found)
             {
                 return Results.NotFound();
@@ -106,8 +109,55 @@ public static class NotificationEndpoints
             await notificationReader.MarkAllReadAsync(
                 userId.Value,
                 currentUser.AccountName,
-                cancellationToken);
+                includeScheduleConfirmations: currentUser.HasPermission(ProjectTracker.Api.Auth.ProjectTrackerPermissions.OperationScheduleConfirm),
+                cancellationToken: cancellationToken);
             return Results.NoContent();
+        });
+
+        api.MapPost("/notifications/{id:int}/confirm", async (
+            int id,
+            HttpRequest request,
+            ProjectTrackerDbContext db,
+            CurrentUserService currentUser,
+            OperationScheduleReminderService reminders,
+            CancellationToken cancellationToken) =>
+        {
+            // Requiring JSON makes this a CORS-preflighted browser mutation. An
+            // untrusted site cannot submit it with a simple cross-site form POST.
+            if (!HasMutationJsonContentType(request))
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status415UnsupportedMediaType,
+                    title: "application/json is required.");
+            }
+
+            if (currentUser.IsAccessPreview)
+            {
+                return Results.Forbid();
+            }
+
+            var userId = await CurrentUserIdAsync(db, currentUser, cancellationToken);
+            if (userId is null)
+            {
+                return Results.Forbid();
+            }
+
+            var result = await reminders.ConfirmAsync(
+                id,
+                userId.Value,
+                currentUser.HasPermission(ProjectTracker.Api.Auth.ProjectTrackerPermissions.OperationScheduleConfirm),
+                currentUser.AccountName,
+                currentUser.DisplayName,
+                DateOnly.FromDateTime(DateTime.Today),
+                cancellationToken);
+            return result.Status switch
+            {
+                OperationScheduleConfirmationStatus.Confirmed => Results.NoContent(),
+                OperationScheduleConfirmationStatus.AlreadyConfirmed => Results.NoContent(),
+                OperationScheduleConfirmationStatus.Forbidden => Results.Forbid(),
+                OperationScheduleConfirmationStatus.NotFound => Results.NotFound(),
+                _ => Results.Conflict("This reminder no longer matches the operation schedule. Refresh notifications and try again.")
+            };
         });
 
         api.MapDelete("/notifications/{id:int}", async (
@@ -160,6 +210,9 @@ public static class NotificationEndpoints
 
         return api;
     }
+
+    private static bool HasMutationJsonContentType(HttpRequest request) =>
+        request.HasJsonContentType();
 
     private static Task<int?> CurrentUserIdAsync(
         ProjectTrackerDbContext db,

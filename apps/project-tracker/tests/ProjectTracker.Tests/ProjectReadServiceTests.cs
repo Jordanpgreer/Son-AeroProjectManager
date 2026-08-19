@@ -103,6 +103,7 @@ public sealed class ProjectReadServiceTests
                         Title = "Late task",
                         StartDate = DateOnly.FromDateTime(DateTime.Today.AddDays(-4)),
                         EndDate = DateOnly.FromDateTime(DateTime.Today.AddDays(-1)),
+                        OriginalEndDate = DateOnly.FromDateTime(DateTime.Today.AddDays(-2)),
                         EstimatedDuration = 4,
                         PercentComplete = 0.2m,
                         PercentCompleteManual = true

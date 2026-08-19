@@ -1,6 +1,6 @@
 import '../App.css'
 import './task-modal.css'
-import { useState, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import type { FormEvent } from 'react'
 import {
   AlertTriangle,
@@ -10,6 +10,7 @@ import {
   ListChecks,
   Lock,
   Plus,
+  RefreshCw,
   Save,
   Unlock,
   X,
@@ -17,9 +18,11 @@ import {
 import {
   calculateEndDate,
   calculateDuration,
+  calculateAutoProgressPercent,
   todayIso,
   compactDate,
   clamp,
+  toOperationTitleCase,
 } from '../lib'
 import type {
   ProjectDetail,
@@ -218,21 +221,31 @@ export function TaskModal({
   saving: boolean
   error: string | null
 }) {
-  const [openSection, setOpenSection] = useState<'identity' | 'routing' | 'schedule' | 'progress' | 'notes' | 'advanced' | null>('identity')
+  const [openSection, setOpenSection] = useState<'identity' | 'routing' | 'schedule' | 'progress' | 'notes' | 'advanced' | null>(() => form.id ? null : 'identity')
   const [titleRequired, setTitleRequired] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
   const creating = !form.id
   const canField = (permission: string) => creating || hasPermission(permissions, permission)
   const pct = Math.round(clamp(Number(form.percentComplete) || 0, 0, 100))
   const overtimeDates = useMemo(() => new Set(form.overtimeDays.map((day) => day.date)), [form.overtimeDays])
-  const dependency = tasks.find((task) => String(task.id) === form.dependencyTaskId)
-  const routingSummary = `${form.workStation || 'No work station'} · ${dependency?.title || 'Previous operation'}`
-  const scheduleSummary = form.startDate || form.endDate
-    ? `${form.startDate ? compactDate(form.startDate) : 'No start'} → ${form.endDate ? compactDate(form.endDate) : 'No end'} · ${form.estimatedDuration || '—'} workdays · ${form.startDateLocked ? 'Locked' : 'Flexible'}`
-    : 'Dates not scheduled'
-  const progressSummary = `${pct}% complete${pct === 100 ? ' · Completed' : pct > 0 ? ' · In progress' : ' · Not started'}`
-  const notesSummary = form.notes.trim() || 'No notes added'
-  const baselineSummary = `Step ${form.sequence} · ${form.originalStartDate || form.originalEndDate ? 'Baseline set' : 'No baseline dates'}`
+  const calculatedProgressToday = calculateAutoProgressPercent(
+    form.startDate || null,
+    form.endDate || null,
+    todayIso(),
+    holidaySet,
+    workingDaySet,
+    overtimeDates,
+  )
+  const placementTarget = tasks.find((task) => String(task.id) === form.placementTaskId)
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !saving) onClose()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [onClose, saving])
+
   const toggleSection = (section: Exclude<typeof openSection, null>) => {
     setOpenSection((current) => current === section ? null : section)
   }
@@ -263,6 +276,16 @@ export function TaskModal({
     setForm(next)
   }
 
+  const updatePlacement = (mode: NonNullable<TaskForm['placementMode']>, taskId = form.placementTaskId ?? '') => {
+    const target = tasks.find((task) => String(task.id) === taskId)
+    const sequence = mode === 'position'
+      ? Math.max(1, Math.min(tasks.length + 1, form.sequence || tasks.length + 1))
+      : target
+        ? Math.min(tasks.length + 1, target.sequence + (mode === 'after' ? 1 : 0))
+        : tasks.length + 1
+    setForm({ ...form, placementMode: mode, placementTaskId: taskId, sequence })
+  }
+
   return (
     <div className="modal-backdrop" onClick={() => !saving && onClose()}>
       <form
@@ -290,28 +313,72 @@ export function TaskModal({
             index="01"
             title="Operation"
             description="Name this step"
-            summary={form.title.trim() || 'Operation name required'}
+            primary={(
+              <label className="field operation-name-primary"><span>Operation Name</span>
+                <input
+                  ref={titleInputRef}
+                  value={form.title}
+                  onChange={(event) => {
+                    const title = toOperationTitleCase(event.target.value)
+                    if (title.trim()) setTitleRequired(false)
+                    setForm({ ...form, title })
+                  }}
+                  placeholder="e.g. CNC Production"
+                  required
+                  aria-invalid={titleRequired}
+                  aria-describedby={titleRequired ? 'operation-title-error' : undefined}
+                  autoFocus
+                  disabled={!canField(permissionKeys.taskEditTitle) || saving}
+                />
+                {titleRequired && <em className="field-error" id="operation-title-error" role="alert">Enter an operation name before saving.</em>}
+              </label>
+            )}
             open={openSection === 'identity'}
             onToggle={() => toggleSection('identity')}
           >
-            <label className="field"><span>Operation Name</span>
-              <input
-                ref={titleInputRef}
-                value={form.title}
-                onChange={(event) => {
-                  const title = event.target.value
-                  if (title.trim()) setTitleRequired(false)
-                  setForm({ ...form, title })
-                }}
-                placeholder="e.g. CNC Production"
-                required
-                aria-invalid={titleRequired}
-                aria-describedby={titleRequired ? 'operation-title-error' : undefined}
-                autoFocus
-                disabled={!canField(permissionKeys.taskEditTitle) || saving}
-              />
-              {titleRequired && <em className="field-error" id="operation-title-error" role="alert">Enter an operation name before saving.</em>}
-            </label>
+            {creating && (
+              <div className="operation-placement-editor">
+                <span className="field-label">Place this operation</span>
+                <div className="placement-mode-control" role="group" aria-label="Operation placement method">
+                  {(['before', 'after', 'position'] as const).map((mode) => (
+                    <button
+                      type="button"
+                      key={mode}
+                      className={(form.placementMode ?? 'after') === mode ? 'selected' : ''}
+                      onClick={() => updatePlacement(mode, form.placementTaskId || String(tasks.at(-1)?.id ?? ''))}
+                      disabled={saving}
+                    >
+                      {mode === 'position' ? 'Step number' : `${mode[0].toUpperCase()}${mode.slice(1)} an operation`}
+                    </button>
+                  ))}
+                </div>
+                {(form.placementMode ?? 'after') === 'position' ? (
+                  <label className="field placement-position-field"><span>Step number</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max={tasks.length + 1}
+                      value={form.sequence}
+                      onChange={(event) => setForm({ ...form, sequence: Math.max(1, Math.min(tasks.length + 1, Number(event.target.value) || 1)), placementMode: 'position' })}
+                    />
+                    <em className="field-note">Existing operations will move automatically.</em>
+                  </label>
+                ) : (
+                  <label className="field placement-operation-field"><span>{form.placementMode === 'before' ? 'Insert before' : 'Insert after'}</span>
+                    <select
+                      value={placementTarget ? String(placementTarget.id) : String(tasks.at(-1)?.id ?? '')}
+                      onChange={(event) => updatePlacement(form.placementMode ?? 'after', event.target.value)}
+                      disabled={tasks.length === 0 || saving}
+                    >
+                      {tasks.length === 0 && <option value="">First operation</option>}
+                      {tasks.map((task) => <option key={task.id} value={task.id}>{task.sequence}. {task.title || 'Untitled operation'}</option>)}
+                    </select>
+                    <em className="field-note">This operation will be step {form.sequence}; the remaining steps will be renumbered.</em>
+                  </label>
+                )}
+              </div>
+            )}
+            {!creating && <p className="field-hint">Use Planning details to move this operation to another step. Existing operations will renumber automatically.</p>}
           </OperationEditorSection>
 
           <OperationEditorSection
@@ -319,23 +386,23 @@ export function TaskModal({
             index="02"
             title="Routing"
             description="Work station and dependency"
-            summary={routingSummary}
-            open={openSection === 'routing'}
-            onToggle={() => toggleSection('routing')}
-          >
-            <div className="operation-routing-grid">
+            primary={(
               <div className="field"><span>Work Station</span>
                 <WorkStationPicker ariaLabel="Work station" value={form.workStation} options={workStations} onChange={(workStation) => setForm({ ...form, workStation })} disabled={!canField(permissionKeys.taskEditWorkStation) || saving} />
               </div>
-              <label className="field"><span>Dependency</span>
-                <select value={form.dependencyTaskId} onChange={(event) => setForm({ ...form, dependencyTaskId: event.target.value })} disabled={!canField(permissionKeys.taskEditDependency) || saving}>
-                  <option value="">Default: previous operation</option>
-                  {tasks.filter((task) => task.id !== form.id && task.sequence < form.sequence).map((task) => (
-                    <option key={task.id} value={task.id}>{task.externalTaskId || task.sequence}. {task.title || 'Untitled operation'}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
+            )}
+            open={openSection === 'routing'}
+            onToggle={() => toggleSection('routing')}
+          >
+            <label className="field operation-dependency-field"><span>Dependency</span>
+              <select value={form.dependencyTaskId} onChange={(event) => setForm({ ...form, dependencyTaskId: event.target.value })} disabled={!canField(permissionKeys.taskEditDependency) || saving}>
+                <option value="">Default: previous operation</option>
+                {tasks.filter((task) => task.id !== form.id && task.sequence < form.sequence).map((task) => (
+                  <option key={task.id} value={task.id}>{task.externalTaskId || task.sequence}. {task.title || 'Untitled operation'}</option>
+                ))}
+              </select>
+              <em className="field-note">Choose an earlier operation when this step should wait for something other than the step directly above it.</em>
+            </label>
           </OperationEditorSection>
 
           <OperationEditorSection
@@ -343,36 +410,37 @@ export function TaskModal({
             index="03"
             title="Schedule"
             description="Dates, duration, and overtime"
-            summary={scheduleSummary}
+            primary={(
+              <div className="operation-schedule-primary">
+                <label className="field"><span>Start</span>
+                  <input type="date" value={form.startDate} onChange={(event) => updateSchedule({ startDate: event.target.value, startDateLocked: Boolean(event.target.value) })} disabled={!canField(permissionKeys.taskEditStartDate) || saving} />
+                </label>
+                <label className="field"><span>End</span>
+                  <input type="date" value={form.endDate} onChange={(event) => updateSchedule({ endDate: event.target.value })} disabled={!canField(permissionKeys.taskEditEndDate) || saving} />
+                </label>
+                <label className="field"><span>Duration</span>
+                  <div className="input-suffix">
+                    <input type="number" min="0" value={form.estimatedDuration} onChange={(event) => updateSchedule({ estimatedDuration: event.target.value })} placeholder="0" disabled={!canField(permissionKeys.taskEditEstimatedDuration) || saving} />
+                    <span>days</span>
+                  </div>
+                </label>
+              </div>
+            )}
             open={openSection === 'schedule'}
             onToggle={() => toggleSection('schedule')}
           >
-            <div className="field-row operation-schedule-row">
-              <label className="field"><span>Start Date</span>
-                <input type="date" value={form.startDate} onChange={(event) => updateSchedule({ startDate: event.target.value, startDateLocked: Boolean(event.target.value) })} disabled={!canField(permissionKeys.taskEditStartDate) || saving} />
-              </label>
-              <label className="field"><span>End Date</span>
-                <input type="date" value={form.endDate} onChange={(event) => updateSchedule({ endDate: event.target.value })} disabled={!canField(permissionKeys.taskEditEndDate) || saving} />
-              </label>
-              <label className="field"><span>Duration</span>
-                <div className="input-suffix">
-                  <input type="number" min="0" value={form.estimatedDuration} onChange={(event) => updateSchedule({ estimatedDuration: event.target.value })} placeholder="0" disabled={!canField(permissionKeys.taskEditEstimatedDuration) || saving} />
-                  <span>days</span>
-                </div>
-              </label>
-              <label className="field lock-field"><span>Start Lock</span>
-                <button
-                  className={`icon-button lock-button ${form.startDateLocked ? 'active' : ''}`}
-                  type="button"
-                  onClick={() => setForm({ ...form, startDateLocked: !form.startDateLocked })}
-                  disabled={!canField(permissionKeys.taskEditStartDateLocked) || saving}
-                  title={form.startDateLocked ? 'Unlock start date' : 'Lock start date'}
-                >
-                  {form.startDateLocked ? <Lock size={14} /> : <Unlock size={14} />}
-                  {form.startDateLocked ? 'Locked' : 'Unlocked'}
-                </button>
-              </label>
-            </div>
+            <label className="field lock-field"><span>Start Lock</span>
+              <button
+                className={`icon-button lock-button ${form.startDateLocked ? 'active' : ''}`}
+                type="button"
+                onClick={() => setForm({ ...form, startDateLocked: !form.startDateLocked })}
+                disabled={!canField(permissionKeys.taskEditStartDateLocked) || saving}
+                title={form.startDateLocked ? 'Unlock start date' : 'Lock start date'}
+              >
+                {form.startDateLocked ? <Lock size={14} /> : <Unlock size={14} />}
+                {form.startDateLocked ? 'Locked' : 'Unlocked'}
+              </button>
+            </label>
             <p className="field-hint">Changing duration calculates the end date. Changing the end date recalculates duration using the company work week, holidays, and approved overtime dates.</p>
             {canField(permissionKeys.taskEditOvertimeDays) && <OvertimeDateEditor
               days={form.overtimeDays}
@@ -387,27 +455,55 @@ export function TaskModal({
             index="04"
             title="Progress"
             description="Completion percentage and status"
-            summary={progressSummary}
+            primary={(
+              <div className="operation-progress-primary">
+                <label className="field operation-modal-progress-input"><span>Completion</span>
+                  <div className="input-suffix">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={form.percentComplete}
+                      inputMode="numeric"
+                      disabled={!canField(permissionKeys.taskEditPercentComplete) || saving}
+                      onChange={(event) => setForm({ ...form, percentComplete: event.target.value, percentCompleteManual: true })}
+                      onBlur={() => setForm({ ...form, percentComplete: String(pct), percentCompleteManual: true })}
+                    />
+                    <span>%</span>
+                  </div>
+                </label>
+                <button
+                  type="button"
+                  className="button ghost operation-primary-action"
+                  disabled={!canField(permissionKeys.taskEditPercentComplete) || saving || calculatedProgressToday === null || pct === 100}
+                  onClick={() => calculatedProgressToday !== null && setForm({ ...form, percentComplete: String(calculatedProgressToday), percentCompleteManual: true })}
+                  title="Set progress to the scheduled percentage through today"
+                >
+                  <RefreshCw size={14} /> Calculate today
+                </button>
+                <button
+                  type="button"
+                  className={`button ghost operation-primary-action ${!form.percentCompleteManual ? 'active' : ''}`}
+                  disabled={!canField(permissionKeys.taskEditPercentComplete) || saving || calculatedProgressToday === null || pct === 100}
+                  onClick={() => {
+                    if (!form.percentCompleteManual) {
+                      setForm({ ...form, percentCompleteManual: true })
+                    } else if (calculatedProgressToday !== null) {
+                      setForm({ ...form, percentComplete: String(calculatedProgressToday), percentCompleteManual: false })
+                    }
+                  }}
+                  aria-pressed={!form.percentCompleteManual}
+                  title={!form.percentCompleteManual ? 'Stop automatic progress updates' : 'Keep progress aligned to elapsed scheduled workdays'}
+                >
+                  <RefreshCw size={14} /> {!form.percentCompleteManual ? 'Auto-updating' : 'Auto-update daily'}
+                </button>
+              </div>
+            )}
             open={openSection === 'progress'}
             onToggle={() => toggleSection('progress')}
           >
             <div className="operation-modal-progress-editor">
-              <label className="field operation-modal-progress-input"><span>Completion</span>
-                <div className="input-suffix">
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="1"
-                    value={form.percentComplete}
-                    inputMode="numeric"
-                    disabled={!canField(permissionKeys.taskEditPercentComplete) || saving}
-                    onChange={(event) => setForm({ ...form, percentComplete: event.target.value, percentCompleteManual: true })}
-                    onBlur={() => setForm({ ...form, percentComplete: String(pct), percentCompleteManual: true })}
-                  />
-                  <span>%</span>
-                </div>
-              </label>
               <button
                 type="button"
                 className="button complete-solid"
@@ -427,6 +523,7 @@ export function TaskModal({
                 <CheckCircle2 size={15} /> {pct === 100 ? 'Completed' : 'Complete today'}
               </button>
             </div>
+            <p className="field-hint">Calculate today is a one-time update. Auto-update daily keeps progress aligned to elapsed scheduled workdays. Neither option marks the operation complete; completion stays explicit.</p>
             <p className="field-hint">Complete today sets progress to 100%, locks the start date, and uses today as the end date.</p>
             <div className="progress-presets operation-progress-presets" aria-label="Quick completion values">
               {[0, 25, 50, 75, 100].map((value) => (
@@ -440,13 +537,15 @@ export function TaskModal({
             index="05"
             title="Notes"
             description="Exceptions, context, and handoffs"
-            summary={notesSummary}
+            primary={(
+              <label className="field operation-notes-field operation-notes-primary"><span>Operation Notes</span>
+                <textarea rows={1} value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Add a note, exception, or handoff" disabled={!canField(permissionKeys.taskEditNotes) || saving} />
+              </label>
+            )}
             open={openSection === 'notes'}
             onToggle={() => toggleSection('notes')}
           >
-            <label className="field operation-notes-field"><span>Operation Notes</span>
-              <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} placeholder="Optional notes, exceptions, or handoff context" disabled={!canField(permissionKeys.taskEditNotes) || saving} />
-            </label>
+            <p className="field-hint">Include schedule exceptions, material constraints, quality concerns, or anything the next person needs for a clean handoff.</p>
           </OperationEditorSection>
 
           <OperationEditorSection
@@ -454,15 +553,16 @@ export function TaskModal({
             index="06"
             title="Planning details"
             description="Original baseline and step order"
-            summary={baselineSummary}
+            primary={(
+              <label className="field operation-step-primary"><span>Step Order</span>
+                <input type="number" min="1" value={form.sequence} onChange={(event) => setForm({ ...form, sequence: Number(event.target.value) })} disabled={!canField(permissionKeys.taskReorder) || saving} />
+                <em className="field-note">Changing the number moves this step automatically.</em>
+              </label>
+            )}
             open={openSection === 'advanced'}
             onToggle={() => toggleSection('advanced')}
           >
             <div className="advanced-grid">
-              <label className="field"><span>Step Order</span>
-                <input type="number" min="1" value={form.sequence} onChange={(event) => setForm({ ...form, sequence: Number(event.target.value) })} disabled={!canField(permissionKeys.taskReorder) || saving} />
-                <em className="field-note">The step number — change it to move this step up or down</em>
-              </label>
               <label className="field"><span>Original Duration</span>
                 <div className="input-suffix">
                   <input type="number" min="0" value={form.actualDuration} onChange={(event) => setForm({ ...form, actualDuration: event.target.value })} placeholder="0" disabled={!canField(permissionKeys.taskEditActualDuration) || saving} />

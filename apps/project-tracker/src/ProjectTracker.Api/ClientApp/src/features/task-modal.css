@@ -1,5 +1,5 @@
 .operation-modal {
-  width: min(820px, 100%);
+  width: min(980px, 100%);
 }
 
 .operation-modal-body {
@@ -25,47 +25,42 @@
   box-shadow: 0 5px 16px rgba(16, 24, 33, 0.045);
 }
 
-.operation-accordion-toggle {
+.operation-section-main {
   display: grid;
-  grid-template-columns: auto minmax(150px, 0.8fr) minmax(180px, 1fr) auto;
+  grid-template-columns: auto minmax(122px, 0.52fr) minmax(300px, 1.9fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
-  min-height: 62px;
-  padding: 10px 14px;
-  border: 0;
-  border-radius: inherit;
+  min-height: 76px;
+  padding: 10px 12px;
   background: transparent;
   color: var(--ink);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
   transition: background 160ms ease;
 }
 
-.operation-accordion-toggle:hover {
-  background: var(--surface-2);
+.operation-accordion.open > .operation-section-main {
+  background: linear-gradient(90deg, var(--surface-2), transparent 70%);
 }
 
-.operation-accordion-toggle:focus-visible {
+.operation-details-toggle:focus-visible {
   outline: 3px solid var(--steel-tint-2);
   outline-offset: 2px;
 }
 
-.operation-accordion-content input:focus,
-.operation-accordion-content select:focus,
-.operation-accordion-content textarea:focus,
-.operation-accordion-content .work-station-control:focus-within {
+.operation-accordion input:focus,
+.operation-accordion select:focus,
+.operation-accordion textarea:focus,
+.operation-accordion .work-station-control:focus-within {
   border-color: var(--steel);
   box-shadow: 0 0 0 3px var(--steel-tint-2);
 }
 
-.operation-accordion-content input[aria-invalid='true']:focus {
+.operation-accordion input[aria-invalid='true']:focus {
   border-color: var(--red);
   box-shadow: 0 0 0 3px var(--red-tint);
 }
 
-.operation-accordion-content .field-error {
+.operation-accordion .field-error {
   color: var(--red-700);
   font-size: 11px;
   font-style: normal;
@@ -88,20 +83,39 @@
   white-space: nowrap;
 }
 
-.operation-accordion-summary {
-  overflow: hidden;
-  color: var(--ink-2);
-  font-size: 11.5px;
-  font-weight: 600;
-  line-height: 1.4;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.operation-primary-control {
+  min-width: 0;
 }
 
-.operation-accordion.open .operation-accordion-summary {
-  color: var(--muted);
-  font-weight: 500;
+.operation-primary-control > .field,
+.operation-primary-control > .operation-schedule-primary,
+.operation-primary-control > .operation-progress-primary {
+  width: 100%;
+}
+
+.operation-details-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 78px;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.operation-details-toggle:hover {
+  border-color: var(--line-3);
+  background: var(--surface-2);
+  color: var(--ink);
 }
 
 .operation-accordion-chevron {
@@ -121,30 +135,56 @@
   background: linear-gradient(180deg, var(--surface-2), var(--surface) 30px);
 }
 
+.operation-schedule-primary {
+  display: grid;
+  grid-template-columns: minmax(128px, 1fr) minmax(128px, 1fr) minmax(110px, 0.78fr);
+  gap: 8px;
+}
+
+.operation-progress-primary {
+  display: grid;
+  grid-template-columns: minmax(105px, 0.6fr) auto auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.operation-primary-action {
+  min-height: 36px;
+  padding-inline: 10px;
+  white-space: nowrap;
+}
+
+.operation-primary-action.active {
+  border-color: var(--ok);
+  background: var(--ok-tint);
+  color: var(--ok-700);
+}
+
+.operation-notes-primary textarea {
+  min-height: 38px;
+  max-height: 92px;
+  resize: vertical;
+}
+
+.operation-step-primary {
+  max-width: 230px;
+}
+
+.operation-dependency-field {
+  max-width: 580px;
+}
+
 .operation-accordion-content[hidden] {
   display: none;
 }
 
-.operation-routing-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.operation-schedule-row {
-  grid-template-columns: 1.1fr 1.1fr 0.72fr 0.72fr;
-}
-
 .operation-modal-progress-editor {
-  display: grid;
-  grid-template-columns: minmax(150px, 220px) 1fr;
-  align-items: end;
-  gap: 12px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .operation-modal-progress-editor .button {
   min-height: 36px;
-  justify-self: end;
 }
 
 .operation-modal-progress-input input {
@@ -157,7 +197,7 @@
   max-width: 430px;
 }
 
-.operation-notes-field textarea {
+.operation-accordion-content .operation-notes-field textarea {
   min-height: 76px;
   resize: vertical;
 }
@@ -171,36 +211,64 @@
 
 @media (prefers-reduced-motion: reduce) {
   .operation-accordion,
-  .operation-accordion-toggle,
+  .operation-section-main,
+  .operation-details-toggle,
   .operation-accordion-chevron {
     transition: none;
   }
 }
 
 @media (max-width: 720px) {
-  .operation-accordion-toggle {
+  .operation-section-main {
     grid-template-columns: auto 1fr auto;
   }
 
-  .operation-accordion-summary {
+  .operation-primary-control {
     grid-column: 2 / -1;
-    text-align: left;
   }
 
-  .operation-routing-grid,
-  .operation-schedule-row,
-  .operation-modal-progress-editor {
+  .operation-schedule-primary {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .operation-schedule-primary .field:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .operation-progress-primary {
+    grid-template-columns: minmax(110px, 1fr) 1fr;
+  }
+
+  .operation-progress-primary .operation-primary-action:last-child {
+    grid-column: 1 / -1;
   }
 }
 
 @media (max-width: 520px) {
-  .operation-routing-grid,
-  .operation-schedule-row,
-  .operation-modal-progress-editor {
+  .operation-section-main {
+    grid-template-columns: auto 1fr;
+  }
+
+  .operation-details-toggle {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .operation-primary-control {
+    grid-column: 1 / -1;
+  }
+
+  .operation-schedule-primary,
+  .operation-progress-primary {
     grid-template-columns: 1fr;
   }
 
+  .operation-schedule-primary .field:last-child,
+  .operation-progress-primary .operation-primary-action:last-child {
+    grid-column: auto;
+  }
+
+  .operation-primary-action,
   .operation-modal-progress-editor .button {
     width: 100%;
     justify-self: stretch;

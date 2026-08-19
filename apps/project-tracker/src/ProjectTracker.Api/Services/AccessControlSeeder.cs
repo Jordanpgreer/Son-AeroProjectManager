@@ -13,6 +13,7 @@ public sealed class AccessControlSeeder
     private const string QualityShippingPermissionsVersion = "quality-shipping-permissions-v1";
     private const string ProjectExternalLinksPermissionVersion = "project-external-links-permission-v1";
     private const string ArchivedDeletePermissionVersion = "project-archived-delete-permission-v1";
+    private const string OperationScheduleConfirmationPermissionVersion = "operation-schedule-confirmation-permission-v1";
 
     public async Task SeedAsync(
         ProjectTrackerDbContext db,
@@ -66,6 +67,27 @@ public sealed class AccessControlSeeder
                 [ProjectTrackerPermissions.ArchivedDelete],
                 cancellationToken);
             await RecordVersionAsync(db, ArchivedDeletePermissionVersion, cancellationToken);
+        }
+        var addOperationScheduleConfirmationPermission = !await HasVersionAsync(
+            db,
+            OperationScheduleConfirmationPermissionVersion,
+            cancellationToken);
+        if (addOperationScheduleConfirmationPermission)
+        {
+            foreach (var groupName in new[]
+                     {
+                         ApplicationGroups.Administrators,
+                         ApplicationGroups.Managers,
+                         ApplicationGroups.Engineering
+                     })
+            {
+                await AddPermissionsToGroupAsync(
+                    db,
+                    groupIds[groupName],
+                    [ProjectTrackerPermissions.OperationScheduleConfirm],
+                    cancellationToken);
+            }
+            await RecordVersionAsync(db, OperationScheduleConfirmationPermissionVersion, cancellationToken);
         }
         var existingUsers = await db.Users
             .Include(user => user.GroupMemberships)

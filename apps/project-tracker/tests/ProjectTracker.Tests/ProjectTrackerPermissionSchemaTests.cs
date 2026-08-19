@@ -37,6 +37,15 @@ public sealed class ProjectTrackerPermissionSchemaTests
         Assert.DoesNotContain(
             ProjectTrackerPermissions.ArchivedDelete,
             ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Managers));
+        Assert.Contains(ProjectTrackerPermissions.All, permission =>
+            permission.Key == ProjectTrackerPermissions.OperationScheduleConfirm
+            && permission.Label == "Operation Start / Finish Prompts");
+        Assert.Contains(
+            ProjectTrackerPermissions.OperationScheduleConfirm,
+            ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Managers));
+        Assert.Contains(
+            ProjectTrackerPermissions.OperationScheduleConfirm,
+            ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Engineering));
     }
 
     [Fact]
@@ -71,6 +80,14 @@ public sealed class ProjectTrackerPermissionSchemaTests
         Assert.Equal(80, db.Model.FindEntityType(typeof(Project))!.FindProperty(nameof(Project.JobNumber))!.GetMaxLength());
         Assert.Equal(ProjectExternalLinks.MaxLength, db.Model.FindEntityType(typeof(Project))!.FindProperty(nameof(Project.SalesOrderUrl))!.GetMaxLength());
         Assert.Equal(ProjectExternalLinks.MaxLength, db.Model.FindEntityType(typeof(Project))!.FindProperty(nameof(Project.JobUrl))!.GetMaxLength());
+        var reminderIndex = notification.GetIndexes().Single(index =>
+            index.Properties.Select(property => property.Name).SequenceEqual([
+                nameof(UserNotification.RecipientUserId),
+                nameof(UserNotification.ProjectTaskId),
+                nameof(UserNotification.Kind),
+                nameof(UserNotification.ScheduledDate)]));
+        Assert.True(reminderIndex.IsUnique);
+        Assert.Equal("[ScheduledDate] IS NOT NULL", reminderIndex.GetFilter());
     }
 
     [Fact]

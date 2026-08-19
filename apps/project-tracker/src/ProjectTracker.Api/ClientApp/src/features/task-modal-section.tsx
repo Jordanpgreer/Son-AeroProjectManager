@@ -6,7 +6,7 @@ export function OperationEditorSection({
   index,
   title,
   description,
-  summary,
+  primary,
   open,
   onToggle,
   children,
@@ -15,7 +15,7 @@ export function OperationEditorSection({
   index?: string
   title: string
   description: string
-  summary: string
+  primary: ReactNode
   open: boolean
   onToggle: () => void
   children: ReactNode
@@ -24,23 +24,26 @@ export function OperationEditorSection({
   const panelId = `${id}-panel`
 
   return (
-    <section className={`operation-accordion ${open ? 'open' : ''}`}>
-      <button
-        type="button"
-        className="operation-accordion-toggle"
-        id={headingId}
-        aria-expanded={open}
-        aria-controls={panelId}
-        onClick={onToggle}
-      >
+    <section className={`operation-accordion ${open ? 'open' : ''}`} aria-labelledby={headingId}>
+      <div className="operation-section-main">
         {index && <span className="operation-section-index">{index}</span>}
-        <span className="operation-accordion-title">
-          <span className="section-label">{title}</span>
+        <span className="operation-accordion-title" id={headingId}>
+          <strong className="section-label">{title}</strong>
           <small>{description}</small>
         </span>
-        <span className="operation-accordion-summary">{summary}</span>
-        <ChevronDown className="operation-accordion-chevron" size={17} aria-hidden="true" />
-      </button>
+        <div className="operation-primary-control">{primary}</div>
+        <button
+          type="button"
+          className="operation-details-toggle"
+          aria-expanded={open}
+          aria-controls={panelId}
+          aria-label={`${open ? 'Hide' : 'Show'} ${title.toLowerCase()} details`}
+          onClick={onToggle}
+        >
+          <span>{open ? 'Hide' : 'Details'}</span>
+          <ChevronDown className="operation-accordion-chevron" size={17} aria-hidden="true" />
+        </button>
+      </div>
       <div
         id={panelId}
         role="region"

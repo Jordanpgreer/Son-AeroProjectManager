@@ -144,6 +144,10 @@ export default function App() {
       <a className="skip-link" href="#main-content">Skip to main content</a>
       <aside className="sidebar" id="quality-sidebar">
         <a className="brand brand-hub-link" href={hubUrl} target="_top" aria-label="Return to All Applications" title="Return to All Applications"><img className="brand-lockup" src="/brand/son-aero-lockup-dark.png" alt="Son-Aero - Sonfarrel Aerospace" /><img className="brand-mark" src="/brand/son-aero-mark.png" alt="Son-Aero" /></a>
+        <button type="button" className="sidebar-rail-toggle" aria-label={sidebarCollapsed ? 'Expand Quality Assurance navigation' : 'Collapse Quality Assurance navigation'} aria-expanded={!sidebarCollapsed} aria-controls="quality-sidebar" title={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} onClick={() => setSidebarCollapsed((current) => !current)}>
+          {sidebarCollapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}
+          <span className="sidebar-rail-toggle-label">{sidebarCollapsed ? 'Expand menu' : 'Collapse menu'}</span>
+        </button>
         <div className="nav-section">
           <span className="nav-heading">Quality Assurance</span>
           <nav aria-label="Quality Assurance pages">
@@ -157,9 +161,6 @@ export default function App() {
       <main className="main-area" id="main-content">
         <header className="topbar">
           <div className="topbar-title-area">
-            <button type="button" className="icon-button sidebar-toggle" aria-label={sidebarCollapsed ? 'Expand Quality Assurance navigation' : 'Collapse Quality Assurance navigation'} aria-expanded={!sidebarCollapsed} aria-controls="quality-sidebar" title={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} onClick={() => setSidebarCollapsed((current) => !current)}>
-              {sidebarCollapsed ? <PanelLeftOpen size={19} aria-hidden="true" /> : <PanelLeftClose size={19} aria-hidden="true" />}
-            </button>
             <div className="page-title-block"><span className="eyebrow">{page.eyebrow}</span><h1>{page.title}</h1><p>{page.description}</p></div>
           </div>
           <div className="topbar-actions">

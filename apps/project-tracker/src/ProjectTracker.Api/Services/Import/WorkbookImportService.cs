@@ -222,6 +222,7 @@ public sealed class WorkbookImportService(ProjectMetricsService metricsService)
         return value?.Trim() switch
         {
             "Complete" => TaskScheduleStatus.Complete,
+            "Completed Late" or "CompletedLate" => TaskScheduleStatus.CompletedLate,
             "Behind" => TaskScheduleStatus.Behind,
             "On Track" => TaskScheduleStatus.OnTrack,
             "Not Started" => TaskScheduleStatus.NotStarted,

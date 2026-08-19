@@ -262,10 +262,11 @@ export function Progress({ value, status, compact = false }: { value: number; st
 
 
 export function StatusBadge({ status }: { status: ProjectStatus | TaskStatus }) {
+  const label = statusLabel(status)
   return (
-    <span className={`status ${statusClass(status)}`}>
-      <i className="status-dot" />
-      {statusLabel(status)}
+    <span className={`status ${statusClass(status)}`} aria-label={label} title={label}>
+      <i className="status-dot" aria-hidden="true" />
+      {label}
     </span>
   )
 }

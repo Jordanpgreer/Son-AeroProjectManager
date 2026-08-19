@@ -12,17 +12,21 @@ public sealed class NotificationReadService(
 {
     private const string ProjectChatMention = nameof(NotificationKind.ProjectChatMention);
     private const string OperationNoteMention = nameof(NotificationKind.OperationNoteMention);
+    private const string OperationStartConfirmation = nameof(NotificationKind.OperationStartConfirmation);
+    private const string OperationFinishConfirmation = nameof(NotificationKind.OperationFinishConfirmation);
 
     public async Task<IReadOnlyList<UserNotificationDto>> GetAsync(
         int recipientUserId,
         string recipientAccountName,
         bool unreadOnly,
         int take,
+        bool includeScheduleConfirmations = true,
         CancellationToken cancellationToken = default)
     {
         var rows = await LoadValidRowsAsync(recipientUserId, cancellationToken);
         return rows
             .Where(row => !WindowsAccountNames.Equals(row.ActorAccountName, recipientAccountName))
+            .Where(row => includeScheduleConfirmations || !IsScheduleConfirmation(row.Kind))
             .Where(row => !unreadOnly || row.ReadAt is null)
             .OrderByDescending(row => row.CreatedAt)
             .ThenByDescending(row => row.Id)
@@ -34,11 +38,13 @@ public sealed class NotificationReadService(
     public async Task<int> GetUnreadCountAsync(
         int recipientUserId,
         string recipientAccountName,
+        bool includeScheduleConfirmations = true,
         CancellationToken cancellationToken = default)
     {
         var rows = await LoadValidRowsAsync(recipientUserId, cancellationToken);
         return rows.Count(row =>
             row.ReadAt is null
+            && (includeScheduleConfirmations || !IsScheduleConfirmation(row.Kind))
             && !WindowsAccountNames.Equals(row.ActorAccountName, recipientAccountName));
     }
 
@@ -46,11 +52,13 @@ public sealed class NotificationReadService(
         int id,
         int recipientUserId,
         string recipientAccountName,
+        bool includeScheduleConfirmations = true,
         CancellationToken cancellationToken = default)
     {
         var rows = await LoadValidRowsAsync(recipientUserId, cancellationToken);
         if (!rows.Any(row =>
                 row.Id == id
+                && (includeScheduleConfirmations || !IsScheduleConfirmation(row.Kind))
                 && !WindowsAccountNames.Equals(row.ActorAccountName, recipientAccountName)))
         {
             return false;
@@ -69,12 +77,14 @@ public sealed class NotificationReadService(
     public async Task MarkAllReadAsync(
         int recipientUserId,
         string recipientAccountName,
+        bool includeScheduleConfirmations = true,
         CancellationToken cancellationToken = default)
     {
         var rows = await LoadValidRowsAsync(recipientUserId, cancellationToken);
         var unreadIds = rows
             .Where(row =>
                 row.ReadAt is null
+                && (includeScheduleConfirmations || !IsScheduleConfirmation(row.Kind))
                 && !WindowsAccountNames.Equals(row.ActorAccountName, recipientAccountName))
             .Select(row => row.Id)
             .ToArray();
@@ -103,7 +113,10 @@ public sealed class NotificationReadService(
             .IgnoreQueryFilters()
             .Where(notification =>
                 notification.Id == id
-                && notification.RecipientUserId == recipientUserId)
+                && notification.RecipientUserId == recipientUserId
+                && (notification.RespondedAt != null
+                    || (notification.Kind != NotificationKind.OperationStartConfirmation
+                        && notification.Kind != NotificationKind.OperationFinishConfirmation)))
             .ExecuteDeleteAsync(cancellationToken);
 
         return deleted > 0;
@@ -114,7 +127,10 @@ public sealed class NotificationReadService(
         CancellationToken cancellationToken = default) =>
         db.UserNotifications
             .IgnoreQueryFilters()
-            .Where(notification => notification.RecipientUserId == recipientUserId)
+            .Where(notification => notification.RecipientUserId == recipientUserId
+                && (notification.RespondedAt != null
+                    || (notification.Kind != NotificationKind.OperationStartConfirmation
+                        && notification.Kind != NotificationKind.OperationFinishConfirmation)))
             .ExecuteDeleteAsync(cancellationToken);
 
     private async Task<IReadOnlyList<NotificationReadRow>> LoadValidRowsAsync(
@@ -135,8 +151,10 @@ public sealed class NotificationReadService(
                     notification.[ActorDisplayName],
                     notification.[Title],
                     notification.[BodyPreview],
+                    notification.[ScheduledDate],
                     notification.[CreatedAt],
-                    notification.[ReadAt]
+                    notification.[ReadAt],
+                    notification.[RespondedAt]
                 FROM [UserNotifications] AS notification
                 INNER JOIN [Projects] AS project
                     ON project.[Id] = notification.[ProjectId]
@@ -152,6 +170,19 @@ public sealed class NotificationReadService(
                         (notification.[Kind] = {ProjectChatMention} AND message.[Id] IS NOT NULL)
                         OR
                         (notification.[Kind] = {OperationNoteMention} AND task.[Id] IS NOT NULL)
+                        OR
+                        (notification.[Kind] = {OperationStartConfirmation}
+                            AND task.[Id] IS NOT NULL
+                            AND notification.[RespondedAt] IS NULL
+                            AND notification.[ScheduledDate] = task.[StartDate]
+                            AND CAST(task.[PercentComplete] AS REAL) = 0
+                            AND task.[PercentCompleteManual] = 1)
+                        OR
+                        (notification.[Kind] = {OperationFinishConfirmation}
+                            AND task.[Id] IS NOT NULL
+                            AND notification.[RespondedAt] IS NULL
+                            AND notification.[ScheduledDate] = task.[EndDate]
+                            AND CAST(task.[PercentComplete] AS REAL) < 1)
                     )
                 """).ToListAsync(cancellationToken);
         }
@@ -167,9 +198,13 @@ public sealed class NotificationReadService(
 
     private static UserNotificationDto ToDto(NotificationReadRow row) => new(
         row.Id,
-        row.Kind == OperationNoteMention
-            ? NotificationKind.OperationNoteMention
-            : NotificationKind.ProjectChatMention,
+        row.Kind switch
+        {
+            OperationNoteMention => NotificationKind.OperationNoteMention,
+            OperationStartConfirmation => NotificationKind.OperationStartConfirmation,
+            OperationFinishConfirmation => NotificationKind.OperationFinishConfirmation,
+            _ => NotificationKind.ProjectChatMention
+        },
         row.ProjectId,
         row.ProjectName,
         row.ProjectTaskId,
@@ -178,8 +213,12 @@ public sealed class NotificationReadService(
         row.ActorDisplayName,
         row.Title,
         row.BodyPreview,
+        row.ScheduledDate,
         row.CreatedAt,
         row.ReadAt);
+
+    private static bool IsScheduleConfirmation(string kind) =>
+        kind is OperationStartConfirmation or OperationFinishConfirmation;
 
     private sealed class NotificationReadRow
     {
@@ -193,7 +232,9 @@ public sealed class NotificationReadService(
         public string ActorDisplayName { get; set; } = string.Empty;
         public string Title { get; set; } = string.Empty;
         public string BodyPreview { get; set; } = string.Empty;
+        public DateOnly? ScheduledDate { get; set; }
         public DateTimeOffset CreatedAt { get; set; }
         public DateTimeOffset? ReadAt { get; set; }
+        public DateTimeOffset? RespondedAt { get; set; }
     }
 }

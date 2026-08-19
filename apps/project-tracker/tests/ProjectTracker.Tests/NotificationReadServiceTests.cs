@@ -249,6 +249,54 @@ public sealed class NotificationReadServiceTests
         Assert.Equal([secondUser.Id], remainingRecipients);
     }
 
+    [Fact]
+    public async Task Schedule_confirmations_require_access_and_disappear_after_response()
+    {
+        await using var db = CreateDb();
+        await db.Database.EnsureCreatedAsync();
+
+        var user = new AppUser { AccountName = @"TEST\Reader", DisplayName = "Reader" };
+        var project = new Project { ProgramName = "REMINDER-READ" };
+        var task = new ProjectTask
+        {
+            Project = project,
+            Sequence = 1,
+            Title = "Build",
+            StartDate = new DateOnly(2026, 8, 13),
+            EndDate = new DateOnly(2026, 8, 19),
+            EstimatedDuration = 4,
+            PercentCompleteManual = true
+        };
+        db.AddRange(user, project, task);
+        await db.SaveChangesAsync();
+        var reminder = new UserNotification
+        {
+            RecipientUserId = user.Id,
+            ProjectId = project.Id,
+            ProjectTaskId = task.Id,
+            Kind = NotificationKind.OperationStartConfirmation,
+            ActorAccountName = "PROJECT-TRACKER",
+            ActorDisplayName = "Project Tracker",
+            Title = "Did Build start Thursday?",
+            BodyPreview = "Scheduled start",
+            ScheduledDate = new DateOnly(2026, 8, 13)
+        };
+        db.UserNotifications.Add(reminder);
+        await db.SaveChangesAsync();
+
+        var service = new NotificationReadService(db);
+        Assert.Empty(await service.GetAsync(user.Id, user.AccountName, false, 20, includeScheduleConfirmations: false));
+        Assert.Single(await service.GetAsync(user.Id, user.AccountName, false, 20, includeScheduleConfirmations: true));
+        Assert.False(await service.DeleteAsync(reminder.Id, user.Id));
+
+        reminder.RespondedAt = DateTimeOffset.UtcNow;
+        reminder.ReadAt = reminder.RespondedAt;
+        await db.SaveChangesAsync();
+
+        Assert.Empty(await service.GetAsync(user.Id, user.AccountName, false, 20, includeScheduleConfirmations: true));
+        Assert.True(await service.DeleteAsync(reminder.Id, user.Id));
+    }
+
     private static ProjectTrackerDbContext CreateDb()
     {
         var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>()

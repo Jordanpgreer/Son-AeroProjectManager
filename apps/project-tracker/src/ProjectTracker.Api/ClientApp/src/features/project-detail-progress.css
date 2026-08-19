@@ -109,6 +109,12 @@
   color: var(--ok-700);
 }
 
+.operation-progress-status.is-late {
+  border-color: color-mix(in srgb, var(--risk) 42%, var(--line-2));
+  background: var(--risk-tint);
+  color: var(--risk-700);
+}
+
 .operation-complete-button:disabled {
   opacity: 0.58;
   cursor: wait;

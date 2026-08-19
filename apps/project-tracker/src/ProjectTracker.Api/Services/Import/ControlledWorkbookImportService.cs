@@ -1112,6 +1112,7 @@ public sealed class ControlledWorkbookImportService(
     {
         TaskScheduleStatus.NotStarted => "Not Started",
         TaskScheduleStatus.OnTrack => "On Track",
+        TaskScheduleStatus.CompletedLate => "Completed Late",
         _ => status.ToString()
     };
     private static string ColumnLetter(int number)

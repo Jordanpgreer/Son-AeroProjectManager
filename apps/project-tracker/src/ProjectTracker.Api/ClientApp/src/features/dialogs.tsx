@@ -34,6 +34,7 @@ import type {
   MentionableUser,
   ProjectTask,
   OperationDependent,
+  ProjectMetadataChange,
 } from '../types'
 import {
   SkeletonLine,
@@ -251,12 +252,14 @@ export function OperationDeleteDialog({
 
 export function UnsavedProjectDetailsDialog({
   projectName,
+  changes,
   saving,
   onContinueEditing,
   onDiscard,
   onSave,
 }: {
   projectName: string
+  changes: ProjectMetadataChange[]
   saving: boolean
   onContinueEditing: () => void
   onDiscard: () => void
@@ -278,8 +281,16 @@ export function UnsavedProjectDetailsDialog({
           <span className="kicker">Unsaved Project Details</span>
           <h2 id="unsaved-project-details-title">Save before continuing?</h2>
           <p>
-            The contact lead, engineer, customer, or sales order for <strong>{projectName}</strong> has changed. Operation-grid edits save automatically, but these project details still need to be saved.
+            The following project details for <strong>{projectName}</strong> changed. Operation-grid edits save automatically, but these changes still need to be saved.
           </p>
+          <ul className="unsaved-detail-list" aria-label="Changed project details">
+            {changes.map((change) => (
+              <li key={change.key}>
+                <strong>{change.label}</strong>
+                <span>{change.previousValue || 'Not set'} <ChevronRight size={13} aria-hidden="true" /> {change.nextValue || 'Not set'}</span>
+              </li>
+            ))}
+          </ul>
         </div>
         <div className="modal-actions confirmation-actions unsaved-detail-actions">
           <button className="button ghost" type="button" onClick={onContinueEditing} disabled={saving}>Continue Editing</button>

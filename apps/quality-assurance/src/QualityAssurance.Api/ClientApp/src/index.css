@@ -122,6 +122,8 @@ h1, h2, h3, p { margin: 0; }
 .brand img { width: 100%; max-width: 188px; height: auto; object-fit: contain; transition: filter 150ms ease, transform 150ms ease; }
 .brand-mark { display: none; }
 .is-sidebar-collapsed .sidebar { padding-inline: 10px; }
+.is-sidebar-collapsed .sidebar-rail-toggle { width: 42px; justify-content: center; align-self: center; padding: 0; }
+.is-sidebar-collapsed .sidebar-rail-toggle-label { display: none; }
 .is-sidebar-collapsed .brand { justify-content: center; padding-inline: 8px; }
 .is-sidebar-collapsed .brand-hub-link::after { left: 50%; content: 'Hub'; transform: translate(-50%, 4px); }
 .is-sidebar-collapsed .brand-hub-link:hover::after,
@@ -142,6 +144,29 @@ h1, h2, h3, p { margin: 0; }
 }
 .brand-hub-link:hover::after, .brand-hub-link:focus-visible::after { opacity: 1; transform: translateY(0); }
 .brand-hub-link:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
+
+.sidebar-rail-toggle {
+  display: flex;
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 11px;
+  color: #c8d0d8;
+  background: rgba(255, 255, 255, .035);
+  border: 1px solid var(--nav-line);
+  border-radius: var(--r-sm);
+  font: 600 11px/1 var(--font-sans);
+  letter-spacing: .02em;
+  text-align: left;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+.sidebar-rail-toggle svg { flex: none; color: var(--nav-muted); transition: color 150ms ease; }
+.sidebar-rail-toggle:hover { color: #fff; background: rgba(255, 255, 255, .075); border-color: rgba(255, 255, 255, .20); }
+.sidebar-rail-toggle:hover svg { color: #fff; }
+.sidebar-rail-toggle:focus-visible { outline: 2px solid #f06c5d; outline-offset: 2px; }
+.sidebar-rail-toggle-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .nav-section { display: grid; gap: 8px; }
 .nav-heading {
@@ -215,8 +240,6 @@ nav { display: grid; gap: 3px; }
   content: '';
 }
 .topbar-title-area { display: flex; min-width: 0; gap: 14px; align-items: center; }
-.sidebar-toggle { flex: none; }
-.sidebar-toggle:focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; }
 :root[data-theme='dark'] .quality-assurance-app .topbar {
   background:
     linear-gradient(100deg, rgba(var(--qa-accent-rgb), .10), transparent 34%),
@@ -453,7 +476,6 @@ nav { display: grid; gap: 3px; }
   .qa-shell,
   .qa-shell.is-sidebar-collapsed { grid-template-columns: 1fr; }
   .sidebar { display: none; }
-  .icon-button.sidebar-toggle { display: none; }
   .topbar-brand-link { display: inline-grid; }
   .topbar { flex-direction: column; gap: 14px; align-items: stretch; }
   .topbar-actions { justify-content: flex-start; padding-top: 0; }

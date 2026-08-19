@@ -90,7 +90,7 @@ internal static class ExcelReportBuilder
         AddMetric(sheet, "C12:D13", "Completion", ReportText.Percent(project.Progress), Steel, SteelTint);
         AddMetric(sheet, "E12:F13", "Target Delivery", ReportText.Date(project.TargetDelivery), project.Status == ProjectStatus.Behind ? Red : Ink2, project.Status == ProjectStatus.Behind ? RedTint : Surface2);
         AddMetric(sheet, "G12:H13", "Operations", project.Tasks.Count.ToString(), Ink2, Surface2);
-        AddMetric(sheet, "I12:J13", "Behind", project.Tasks.Count(task => task.Status == TaskScheduleStatus.Behind).ToString(), Red, RedTint);
+        AddMetric(sheet, "I12:J13", "Behind", project.Tasks.Count(task => task.Status is TaskScheduleStatus.Behind or TaskScheduleStatus.CompletedLate).ToString(), Red, RedTint);
 
         var headers = new[] { "Step", "Operation", "Work Center", "Phase", "Start", "End", "Duration", "Complete", "Status", "Notes" };
         const int headerRow = 15;
@@ -184,7 +184,7 @@ internal static class ExcelReportBuilder
             SetDate(sheet.Cell(row, 7), project.TargetDelivery);
             sheet.Cell(row, 8).Value = ReportText.Status(project.Status);
             sheet.Cell(row, 9).Value = project.Tasks.Count;
-            sheet.Cell(row, 10).Value = project.Tasks.Count(task => task.Status == TaskScheduleStatus.Behind);
+            sheet.Cell(row, 10).Value = project.Tasks.Count(task => task.Status is TaskScheduleStatus.Behind or TaskScheduleStatus.CompletedLate);
             var range = sheet.Range(row, 1, row, headers.Length);
             StyleDataRow(range, index);
             range.Style.Border.BottomBorder = XLBorderStyleValues.Hair;
@@ -704,6 +704,7 @@ internal static class ExcelReportBuilder
     private static XLColor StatusColor(TaskScheduleStatus status) => status switch
     {
         TaskScheduleStatus.Behind => Red,
+        TaskScheduleStatus.CompletedLate => Red,
         TaskScheduleStatus.OnTrack => Green,
         TaskScheduleStatus.Complete => Done,
         _ => Idle
@@ -712,6 +713,7 @@ internal static class ExcelReportBuilder
     private static XLColor StatusTint(TaskScheduleStatus status) => status switch
     {
         TaskScheduleStatus.Behind => RedTint,
+        TaskScheduleStatus.CompletedLate => RedTint,
         TaskScheduleStatus.OnTrack => GreenTint,
         TaskScheduleStatus.Complete => DoneTint,
         _ => IdleTint

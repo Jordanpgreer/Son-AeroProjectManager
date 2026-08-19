@@ -21,7 +21,7 @@ public sealed class ProjectTask
     public int? EstimatedDuration { get; set; }
     public int? ActualDuration { get; set; }
     public decimal PercentComplete { get; set; }
-    public bool PercentCompleteManual { get; set; }
+    public bool PercentCompleteManual { get; set; } = true;
     public TaskScheduleStatus Status { get; set; } = TaskScheduleStatus.NotStarted;
     public string? Notes { get; set; }
     public DateTimeOffset? NoteUpdatedAt { get; set; }

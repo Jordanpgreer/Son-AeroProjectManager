@@ -179,6 +179,7 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
             <span className="cal-legend-item start"><Play size={11} aria-hidden="true" /> Scheduled start</span>
             <span className="cal-legend-item finish"><Flag size={11} aria-hidden="true" /> Scheduled finish</span>
             <span className="cal-legend-item load"><Factory size={11} aria-hidden="true" /> Active work center</span>
+            <span className="cal-legend-item completed-late"><Check size={11} aria-hidden="true" /> Completed late</span>
             <span className="cal-legend-item conflict"><ConflictIcon message="Work-center conflict: two or more active projects overlap at the same work center." /> Work-center conflict</span>
           </div>
           <div className={`cal-grid ${viewMode === 'week' ? 'week-mode' : 'month-mode'}`}>
@@ -190,6 +191,7 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
               const stations = stationsForDay(ops)
               const visibleStationCount = viewMode === 'week' ? (milestones.length > 0 ? 4 : 5) : (milestones.length > 0 ? 2 : 3)
               const hasConflict = ops.some((op) => op.conflict)
+              const completedLateCount = ops.filter((op) => op.status === 'CompletedLate').length
               const classes = [
                 'cal-cell',
                 cell.inMonth ? '' : 'out',
@@ -202,7 +204,7 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
                 hasConflict ? 'has-conflict' : '',
               ].join(' ')
               return (
-                <button key={cell.iso} className={classes} onClick={() => setSelectedDay(cell.iso)} aria-label={`${calendarCellLabel(cell.iso, ops.length, milestoneCounts.start, milestoneCounts.finish)}${hasConflict ? ', work-center conflict' : ''}`}>
+                <button key={cell.iso} className={classes} onClick={() => setSelectedDay(cell.iso)} aria-label={`${calendarCellLabel(cell.iso, ops.length, milestoneCounts.start, milestoneCounts.finish)}${completedLateCount > 0 ? `, ${completedLateCount} completed late operation${completedLateCount === 1 ? '' : 's'}` : ''}${hasConflict ? ', work-center conflict' : ''}`}>
                   <span className="cal-date">{new Date(cell.ms).getDate()}</span>
                   {ops.length > 0 && <span className="cal-count" title={`${ops.length} active operation${ops.length === 1 ? '' : 's'}`}><Factory size={9} aria-hidden="true" />{ops.length}</span>}
                   {hasConflict && <ConflictIcon className="cal-conflict" focusable={false} message="Work-center conflict: two or more active projects use the same work center on this date." />}
@@ -215,7 +217,9 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
                   <span className="cal-ops">
                     {stations.slice(0, visibleStationCount).map((entry) => (
                       <span className={`cal-op ${statusClass(entry.status)} ${entry.unassigned ? 'unassigned' : ''} ${entry.completed ? 'completed-project' : ''}`} key={entry.station}>
-                        {entry.station}{entry.completed && <Check size={10} aria-hidden="true" />}
+                        {entry.station}
+                        {entry.status === 'CompletedLate' && <span className="cal-op-status">Late</span>}
+                        {entry.completed && <Check size={10} aria-hidden="true" />}
                       </span>
                     ))}
                     {stations.length > visibleStationCount && <span className="cal-more">+{stations.length - visibleStationCount} work center{stations.length - visibleStationCount === 1 ? '' : 's'}</span>}
@@ -268,6 +272,7 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
                           <span className="day-milestone-meta">
                             <span className="day-milestone-kind">Scheduled {milestone.kind}</span>
                             {milestone.projected && <span className="projected-badge">Projected</span>}
+                            {milestone.status === 'CompletedLate' && <span className="completed-late-badge">Completed late</span>}
                             {milestone.completedProject && <span className="completed-project-badge">Completed project</span>}
                           </span>
                           <span className="mono-id">{milestone.programName}</span>
@@ -300,7 +305,10 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
                         <span className={`day-rail ${statusClass(op.status)}`} />
                         <div className="day-op-body">
                           <span className="mono-id">{op.programName}{op.completedProject && <span className="completed-project-badge">Completed</span>}</span>
-                          <span className="day-op-task">{op.taskTitle}{op.projected ? ' · projected' : ''}</span>
+                          <span className="day-op-task">
+                            {op.taskTitle}{op.projected ? ' · projected' : ''}
+                            {op.status === 'CompletedLate' && <span className="completed-late-badge">Completed late</span>}
+                          </span>
                         </div>
                       </button>
                     ))}
@@ -343,7 +351,7 @@ export function calendarCellLabel(iso: string, activeOperations: number, starts:
 }
 
 export function worseStatus(a: TaskStatus, b: TaskStatus) {
-  const rank = (status: TaskStatus) => (status === 'Behind' ? 0 : status === 'OnTrack' ? 1 : status === 'NotStarted' ? 2 : 3)
+  const rank = (status: TaskStatus) => (status === 'Behind' ? 0 : status === 'CompletedLate' ? 1 : status === 'OnTrack' ? 2 : status === 'NotStarted' ? 3 : 4)
   return rank(a) <= rank(b) ? a : b
 }
 

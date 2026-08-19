@@ -23,6 +23,7 @@ builder.Services.AddScoped<ProjectTrackerAccessPreviewService>();
 builder.Services.AddScoped<ProjectAuditService>();
 builder.Services.AddScoped<MentionNotificationService>();
 builder.Services.AddScoped<NotificationReadService>();
+builder.Services.AddScoped<OperationScheduleReminderService>();
 builder.Services.AddScoped<PushSubscriptionService>();
 builder.Services.AddOptions<WebPushOptions>()
     .Bind(builder.Configuration.GetSection(WebPushOptions.SectionName))
@@ -31,6 +32,7 @@ builder.Services.AddSingleton<IValidateOptions<WebPushOptions>, WebPushOptionsVa
 builder.Services.AddSingleton<IPushNotificationQueue, PushNotificationQueue>();
 builder.Services.AddSingleton<IWebPushSender, WebPushSender>();
 builder.Services.AddHostedService<PushNotificationWorker>();
+builder.Services.AddHostedService<OperationScheduleReminderWorker>();
 builder.Services.AddScoped<AccessControlSeeder>();
 builder.Services.AddScoped<ModuleAccessService>();
 builder.Services.AddSingleton<ScheduleCalculator>();
@@ -389,7 +391,7 @@ api.MapPut("/projects/{id:int}", async (int id, ProjectUpsertDto dto, ProjectTra
     return Results.Ok(ToDetailDto(project));
 }).RequireAuthorization(ProjectTrackerAccessAuthorization.PolicyName);
 
-api.MapPost("/projects/{id:int}/complete", async (int id, ProjectActionDto dto, ProjectTrackerDbContext db, ProjectAuditService audit, CancellationToken cancellationToken) =>
+api.MapPost("/projects/{id:int}/complete", async (int id, ProjectActionDto dto, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
     var project = await db.Projects.Include(project => project.Tasks).ThenInclude(task => task.OvertimeDays).FirstOrDefaultAsync(project => project.Id == id, cancellationToken);
     if (project is null)
@@ -406,10 +408,11 @@ api.MapPost("/projects/{id:int}/complete", async (int id, ProjectActionDto dto, 
     {
         task.PercentComplete = 1m;
         task.PercentCompleteManual = true;
-        task.Status = TaskScheduleStatus.Complete;
         task.UpdatedAt = DateTimeOffset.UtcNow;
         task.Version++;
     }
+
+    await metrics.RefreshProjectAsync(db, project, cancellationToken);
 
     project.CompletedOn = DateOnly.FromDateTime(DateTime.Today);
     project.PriorityRank = null;
@@ -598,7 +601,7 @@ api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertD
     var desiredPosition = dto.Sequence > 0 ? dto.Sequence : project.Tasks.Count;
     ResequenceTasks(project, task, desiredPosition);
     BumpSequenceVersions(project.Tasks, previousSequences, task.Id);
-    if (ValidateTaskDependency(project, task) is { } dependencyError)
+    if (ValidateProjectDependencies(project) is { } dependencyError)
     {
         return Results.BadRequest(dependencyError);
     }
@@ -668,7 +671,7 @@ api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectT
     task.Version++;
     ResequenceTasks(task.Project, task, dto.Sequence);
     BumpSequenceVersions(task.Project.Tasks, previousSequences, task.Id);
-    if (ValidateTaskDependency(task.Project, task) is { } dependencyError)
+    if (ValidateProjectDependencies(task.Project) is { } dependencyError)
     {
         return Results.BadRequest(dependencyError);
     }
@@ -935,7 +938,7 @@ static ProjectTask ApplyTaskDto(ProjectTask task, TaskUpsertDto dto)
     task.EstimatedDuration = dto.EstimatedDuration;
     task.ActualDuration = dto.ActualDuration;
     task.PercentComplete = Math.Clamp(dto.PercentComplete, 0m, 1m);
-    task.PercentCompleteManual = true;
+    task.PercentCompleteManual = dto.PercentCompleteManual;
     var notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes.Trim();
     if (!string.Equals(task.Notes, notes, StringComparison.Ordinal))
     {
@@ -1135,8 +1138,6 @@ static async Task InitializeDatabaseAsync(WebApplication app)
         {
             await SqliteCompatibility.EnsureBooleanColumnAsync(db, "Tasks", "StartDateLocked", cancellationToken: default);
             await SqliteCompatibility.EnsureBooleanColumnAsync(db, "Tasks", "PercentCompleteManual", cancellationToken: default);
-            await db.Database.ExecuteSqlRawAsync(
-                """UPDATE "Tasks" SET "PercentCompleteManual" = 1 WHERE "PercentCompleteManual" = 0;""");
             await SqliteCompatibility.EnsureNullableIntegerColumnAsync(db, "Tasks", "DependencyTaskId", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Tasks", "NoteUpdatedAt", cancellationToken: default);
             await SqliteCompatibility.EnsureLongColumnAsync(db, "Projects", "Version", cancellationToken: default);
@@ -1154,6 +1155,9 @@ static async Task InitializeDatabaseAsync(WebApplication app)
             await SqliteCompatibility.EnsureBooleanColumnAsync(db, "Projects", "ImportNeedsCompletion", cancellationToken: default);
             await SqliteCompatibility.EnsureBooleanColumnAsync(db, "Users", "IsActive", cancellationToken: default);
             await SqliteCompatibility.EnsureLegacyTablesAsync(db, cancellationToken: default);
+            await SqliteCompatibility.EnsureTextColumnAsync(db, "UserNotifications", "ScheduledDate", cancellationToken: default);
+            await SqliteCompatibility.EnsureTextColumnAsync(db, "UserNotifications", "RespondedAt", cancellationToken: default);
+            await SqliteCompatibility.EnsureOperationScheduleReminderIndexAsync(db, cancellationToken: default);
             await SqliteCompatibility.EnsureAccessControlTablesAsync(db, cancellationToken: default);
             await SqliteCompatibility.EnsureLocalPermissionSeedAsync(db, cancellationToken: default);
         }
@@ -1266,6 +1270,19 @@ static string? FindDeniedProjectPermission(
     return null;
 }
 
+static string? ValidateProjectDependencies(Project project)
+{
+    foreach (var task in project.Tasks.OrderBy(candidate => candidate.Sequence))
+    {
+        if (ValidateTaskDependency(project, task) is { } error)
+        {
+            return $"Operation {task.Sequence} ({task.Title}) has an invalid dependency. {error}";
+        }
+    }
+
+    return null;
+}
+
 static string? FindDeniedTaskPermission(ProjectTask? task, TaskUpsertDto dto, CurrentUserService currentUser)
 {
     if (task is null)
@@ -1284,7 +1301,8 @@ static string? FindDeniedTaskPermission(ProjectTask? task, TaskUpsertDto dto, Cu
     if (task.EstimatedDuration != dto.EstimatedDuration && !currentUser.HasPermission(ApplicationPermissions.TaskEditEstimatedDuration)) return ApplicationPermissions.TaskEditEstimatedDuration;
     if (task.ActualDuration != dto.ActualDuration && !currentUser.HasPermission(ApplicationPermissions.TaskEditActualDuration)) return ApplicationPermissions.TaskEditActualDuration;
     if (task.Sequence != dto.Sequence && !currentUser.HasPermission(ApplicationPermissions.TaskReorder)) return ApplicationPermissions.TaskReorder;
-    if (task.PercentComplete != Math.Clamp(dto.PercentComplete, 0m, 1m) && !currentUser.HasPermission(ApplicationPermissions.TaskEditPercentComplete)) return ApplicationPermissions.TaskEditPercentComplete;
+    if ((task.PercentComplete != Math.Clamp(dto.PercentComplete, 0m, 1m) || task.PercentCompleteManual != dto.PercentCompleteManual)
+        && !currentUser.HasPermission(ApplicationPermissions.TaskEditPercentComplete)) return ApplicationPermissions.TaskEditPercentComplete;
     if (!string.Equals(task.Notes, Clean(dto.Notes), StringComparison.Ordinal) && !currentUser.HasPermission(ApplicationPermissions.TaskEditNotes)) return ApplicationPermissions.TaskEditNotes;
     if (OvertimeDaysChanged(task, dto) && !currentUser.HasPermission(ApplicationPermissions.TaskEditOvertimeDays)) return ApplicationPermissions.TaskEditOvertimeDays;
 

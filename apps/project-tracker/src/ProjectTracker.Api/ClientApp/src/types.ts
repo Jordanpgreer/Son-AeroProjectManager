@@ -1,5 +1,5 @@
 export type ProjectStatus = 'NotStarted' | 'OnTrack' | 'Behind' | 'Complete'
-export type TaskStatus = 'NotStarted' | 'OnTrack' | 'Behind' | 'Complete'
+export type TaskStatus = 'NotStarted' | 'OnTrack' | 'Behind' | 'Complete' | 'CompletedLate'
 export type Screen = 'dashboard' | 'project' | 'calendar' | 'pastProjects'
 export const screens: Screen[] = ['dashboard', 'project', 'calendar', 'pastProjects']
 export type DayOfWeekName = 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday'
@@ -199,6 +199,15 @@ export type TaskForm = {
   percentCompleteManual: boolean
   notes: string
   overtimeDays: TaskOvertimeDay[]
+  placementMode?: 'before' | 'after' | 'position'
+  placementTaskId?: string
+}
+
+export type ProjectMetadataChange = {
+  key: keyof ProjectMetadataDraft
+  label: string
+  previousValue: string
+  nextValue: string
 }
 
 export type ProjectConfirmation = 'complete' | 'delete' | 'reopen'
@@ -282,7 +291,11 @@ export type OperationDependent = {
   title: string
 }
 
-export type MentionNotificationKind = 'ProjectChatMention' | 'OperationNoteMention'
+export type MentionNotificationKind =
+  | 'ProjectChatMention'
+  | 'OperationNoteMention'
+  | 'OperationStartConfirmation'
+  | 'OperationFinishConfirmation'
 
 export type MentionNotification = {
   id: number
@@ -295,6 +308,7 @@ export type MentionNotification = {
   actorDisplayName: string
   title: string
   bodyPreview: string
+  scheduledDate: string | null
   createdAt: string
   readAt: string | null
 }

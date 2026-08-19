@@ -448,6 +448,21 @@ export default function App() {
           <img className="brand-mark" src="/brand/son-aero-mark.png" alt="Son-Aero" />
         </a>
 
+        <button
+          type="button"
+          className="sidebar-rail-toggle"
+          aria-label={sidebarCollapsed ? 'Expand Engineering navigation' : 'Collapse Engineering navigation'}
+          aria-expanded={!sidebarCollapsed}
+          aria-controls="engineering-sidebar"
+          title={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+          onClick={() => setSidebarCollapsed((current) => !current)}
+        >
+          {sidebarCollapsed
+            ? <PanelLeftOpen size={18} aria-hidden="true" />
+            : <PanelLeftClose size={18} aria-hidden="true" />}
+          <span className="sidebar-rail-toggle-label">{sidebarCollapsed ? 'Expand menu' : 'Collapse menu'}</span>
+        </button>
+
         <div className="nav-section">
           <div className="nav-heading">
             <span>Engineering Module</span>
@@ -510,19 +525,6 @@ export default function App() {
         </section>}
         <header className={`topbar ${showingDrawingRecord ? 'drawing-record-topbar' : ''}`.trim()}>
           <div className="topbar-title-area">
-            <button
-              type="button"
-              className="sidebar-toggle"
-              aria-label={sidebarCollapsed ? 'Expand Engineering navigation' : 'Collapse Engineering navigation'}
-              aria-expanded={!sidebarCollapsed}
-              aria-controls="engineering-sidebar"
-              title={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
-              onClick={() => setSidebarCollapsed((current) => !current)}
-            >
-              {sidebarCollapsed
-                ? <PanelLeftOpen size={19} aria-hidden="true" />
-                : <PanelLeftClose size={19} aria-hidden="true" />}
-            </button>
             <div className={`page-title-block ${showingDrawingRecord ? 'drawing-record-page-title' : ''}`.trim()}>
             {showingDrawingRecord ? (
               <>

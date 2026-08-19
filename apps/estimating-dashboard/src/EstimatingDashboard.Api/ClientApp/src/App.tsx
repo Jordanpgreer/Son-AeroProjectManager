@@ -294,6 +294,21 @@ export default function App() {
           <img className="brand-mark" src="/brand/son-aero-mark.png" alt="SON-AERO" />
         </a>
 
+        <button
+          type="button"
+          className="sidebar-rail-toggle"
+          aria-label={sidebarCollapsed ? 'Expand estimating navigation' : 'Collapse estimating navigation'}
+          aria-expanded={!sidebarCollapsed}
+          aria-controls="estimating-sidebar"
+          title={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+          onClick={() => setSidebarCollapsed((current) => !current)}
+        >
+          {sidebarCollapsed
+            ? <PanelLeftOpen size={18} aria-hidden="true" />
+            : <PanelLeftClose size={18} aria-hidden="true" />}
+          <span className="sidebar-rail-toggle-label">{sidebarCollapsed ? 'Expand menu' : 'Collapse menu'}</span>
+        </button>
+
         <section className="nav-section" aria-labelledby="estimating-nav-heading">
           <div className="nav-heading" id="estimating-nav-heading">
             <span>Estimating</span>
@@ -353,19 +368,6 @@ export default function App() {
         </section>}
         <header className="topbar">
           <div className="topbar-title-area">
-            <button
-              type="button"
-              className="icon-button sidebar-toggle"
-              aria-label={sidebarCollapsed ? 'Expand estimating navigation' : 'Collapse estimating navigation'}
-              aria-expanded={!sidebarCollapsed}
-              aria-controls="estimating-sidebar"
-              title={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
-              onClick={() => setSidebarCollapsed((current) => !current)}
-            >
-              {sidebarCollapsed
-                ? <PanelLeftOpen size={19} aria-hidden="true" />
-                : <PanelLeftClose size={19} aria-hidden="true" />}
-            </button>
             <div className="page-title-block">
               <span className="eyebrow">{meta.eyebrow}</span>
               <h1>{meta.title}</h1>

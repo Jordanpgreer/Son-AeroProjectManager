@@ -190,7 +190,7 @@ internal static class PdfReportBuilder
             new PdfMetric("Operations", project.Tasks.Count.ToString(), Ink2, Surface2),
             customerView
                 ? new PdfMetric("Current Operation", project.CurrentTask ?? "Not set", Steel, SteelTint)
-                : new PdfMetric("Behind", project.Tasks.Count(task => task.Status == TaskScheduleStatus.Behind).ToString(), Red, RedTint)
+                : new PdfMetric("Behind", project.Tasks.Count(task => task.Status is TaskScheduleStatus.Behind or TaskScheduleStatus.CompletedLate).ToString(), Red, RedTint)
         });
 
         var sectionY = metricsY + 58;
@@ -351,7 +351,7 @@ internal static class PdfReportBuilder
             {
                 project.ProgramName, project.CustomerName ?? string.Empty, project.ProgramManager ?? string.Empty,
                 project.CurrentTask ?? string.Empty, ReportText.Percent(project.Progress), CompactDate(project.TargetDelivery),
-                ReportText.Status(project.Status), project.Tasks.Count.ToString(), project.Tasks.Count(task => task.Status == TaskScheduleStatus.Behind).ToString()
+                ReportText.Status(project.Status), project.Tasks.Count.ToString(), project.Tasks.Count(task => task.Status is TaskScheduleStatus.Behind or TaskScheduleStatus.CompletedLate).ToString()
             };
             var cellX = x;
             for (var column = 0; column < columns.Length; column++)
@@ -801,6 +801,7 @@ internal static class PdfReportBuilder
     private static XColor StatusColor(TaskScheduleStatus status) => status switch
     {
         TaskScheduleStatus.Behind => Red,
+        TaskScheduleStatus.CompletedLate => Red,
         TaskScheduleStatus.OnTrack => Green,
         TaskScheduleStatus.Complete => Done,
         _ => Idle
@@ -809,6 +810,7 @@ internal static class PdfReportBuilder
     private static XColor StatusTint(TaskScheduleStatus status) => status switch
     {
         TaskScheduleStatus.Behind => RedTint,
+        TaskScheduleStatus.CompletedLate => RedTint,
         TaskScheduleStatus.OnTrack => GreenTint,
         TaskScheduleStatus.Complete => DoneTint,
         _ => IdleTint

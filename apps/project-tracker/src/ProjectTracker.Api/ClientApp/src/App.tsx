@@ -17,6 +17,8 @@ import {
   clearStoredProjectId,
   formFromTask,
   emptyTaskForm,
+  duplicateTaskForm,
+  toOperationTitleCase,
 } from './lib'
 import { persistTheme, readThemePreference } from './theme'
 import { emptyDashboard, defaultScheduleSettings } from './types'
@@ -36,6 +38,7 @@ import type {
   ProjectCreateRequest,
   ProjectVersion,
   ProjectMetadataDraft,
+  ProjectMetadataChange,
   MentionNotification,
 } from './types'
 import {
@@ -117,8 +120,11 @@ function readNotificationDestination(): NotificationDestination | null {
   if (!Number.isSafeInteger(projectId) || projectId <= 0) return null
 
   const kindValue = url.searchParams.get('notificationKind')
-  const kind = kindValue === 'ProjectChatMention' || kindValue === 'OperationNoteMention'
-    ? kindValue
+  const kind: MentionNotification['kind'] | null = kindValue === 'ProjectChatMention'
+    || kindValue === 'OperationNoteMention'
+    || kindValue === 'OperationStartConfirmation'
+    || kindValue === 'OperationFinishConfirmation'
+    ? kindValue as MentionNotification['kind']
     : null
   const taskIdValue = Number(url.searchParams.get('notificationTaskId'))
   const notificationIdValue = Number(url.searchParams.get('notificationId'))
@@ -222,17 +228,28 @@ function App() {
     version: project.version,
   })
 
-  const projectMetadataDirty = useMemo(() => {
-    if (!selectedProject) return false
+  const projectMetadataChanges = useMemo<ProjectMetadataChange[]>(() => {
+    if (!selectedProject) return []
     const saved = projectMetadataFrom(selectedProject)
-    return projectMetadata.programManager !== saved.programManager
-      || projectMetadata.engineer !== saved.engineer
-      || projectMetadata.customerName !== saved.customerName
-      || projectMetadata.salesOrderNumber !== saved.salesOrderNumber
-      || projectMetadata.salesOrderUrl !== saved.salesOrderUrl
-      || projectMetadata.jobNumber !== saved.jobNumber
-      || projectMetadata.jobUrl !== saved.jobUrl
+    const fields: { key: keyof ProjectMetadataDraft; label: string }[] = [
+      { key: 'programManager', label: 'Contact Lead' },
+      { key: 'engineer', label: 'Engineer' },
+      { key: 'customerName', label: 'Customer Name' },
+      { key: 'salesOrderNumber', label: 'Sales Order #' },
+      { key: 'salesOrderUrl', label: 'Sales Order Link' },
+      { key: 'jobNumber', label: 'Job Number' },
+      { key: 'jobUrl', label: 'Job Link' },
+    ]
+    return fields
+      .filter(({ key }) => projectMetadata[key].trim() !== saved[key].trim())
+      .map(({ key, label }) => ({
+        key,
+        label,
+        previousValue: saved[key].trim(),
+        nextValue: projectMetadata[key].trim(),
+      }))
   }, [projectMetadata, selectedProject])
+  const projectMetadataDirty = projectMetadataChanges.length > 0
 
   const selectedProjectMetadataId = selectedProject?.id
   const selectedProjectProgramManager = selectedProject?.programManager ?? ''
@@ -529,7 +546,7 @@ function App() {
         const payload = {
           sequence: form.sequence,
           externalTaskId: form.externalTaskId || null,
-          title: form.title,
+          title: toOperationTitleCase(form.title.trim()),
           phase: form.phase || null,
           workStation: form.workStation || null,
           dependencyTaskId: form.dependencyTaskId ? Number(form.dependencyTaskId) : null,
@@ -541,7 +558,7 @@ function App() {
           estimatedDuration: form.estimatedDuration ? Number(form.estimatedDuration) : null,
           actualDuration: form.actualDuration ? Number(form.actualDuration) : null,
           percentComplete: Number(form.percentComplete || 0) / 100,
-          percentCompleteManual: true,
+          percentCompleteManual: form.percentCompleteManual,
           notes: form.notes || null,
           overtimeDays: form.overtimeDays.map((day) => ({ date: day.date, note: day.note })),
           version: latestTask?.version ?? form.version,
@@ -759,7 +776,9 @@ function App() {
       estimatedDuration: allowed(permissionKeys.taskEditEstimatedDuration) ? task.estimatedDuration : saved.estimatedDuration,
       actualDuration: allowed(permissionKeys.taskEditActualDuration) ? task.actualDuration : saved.actualDuration,
       percentComplete: allowed(permissionKeys.taskEditPercentComplete) ? task.percentComplete : saved.percentComplete,
-      percentCompleteManual: true,
+      percentCompleteManual: allowed(permissionKeys.taskEditPercentComplete)
+        ? task.percentCompleteManual
+        : saved.percentCompleteManual,
       notes: allowed(permissionKeys.taskEditNotes) ? task.notes : saved.notes,
       overtimeDays: allowed(permissionKeys.taskEditOvertimeDays) ? task.overtimeDays : saved.overtimeDays,
     }
@@ -781,7 +800,7 @@ function App() {
       estimatedDuration: task.estimatedDuration,
       actualDuration: task.actualDuration,
       percentComplete: task.percentComplete,
-      percentCompleteManual: true,
+      percentCompleteManual: task.percentCompleteManual,
       notes: task.notes,
       overtimeDays: task.overtimeDays.map((day) => ({ date: day.date, note: day.note })),
       version: task.version,
@@ -1003,6 +1022,8 @@ function App() {
   return (
     <div className={`app-shell project-tracker-app ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
       <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
         screen={screen}
         setScreen={(target) => { void requestNavigation(() => setScreen(target)) }}
         selectedProject={selectedProject}
@@ -1024,8 +1045,6 @@ function App() {
         <PageHeader
           theme={theme}
           onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
-          sidebarCollapsed={sidebarCollapsed}
-          onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
           screen={screen}
           selectedProject={selectedProject}
           canEnterProjectEdit={canEnterProjectEdit}
@@ -1107,13 +1126,12 @@ function App() {
                   editMode={editMode}
                   projectMetadata={projectMetadata}
                   projectMetadataDirty={projectMetadataDirty}
-                  projectMetadataSaving={projectMetadataSaving}
                   projectMetadataError={projectMetadataError}
                   onProjectMetadataChange={setProjectMetadata}
-                  onSaveProjectMetadata={saveProjectMetadata}
                   onSelectProject={(projectId) => requestNavigation(() => openProject(projectId))}
                   onEditTask={(task) => { setTaskFormError(null); setTaskForm(formFromTask(task)) }}
                   onAddTask={() => { setTaskFormError(null); setTaskForm(emptyTaskForm(selectedProject)) }}
+                  onDuplicateTask={(task) => { setTaskFormError(null); setTaskForm(duplicateTaskForm(task)) }}
                   onDeleteTask={requestDeleteTask}
                   onCompleteProject={() => setProjectConfirmation('complete')}
                   onReopenProject={() => setProjectConfirmation('reopen')}
@@ -1185,6 +1203,7 @@ function App() {
       {unsavedProjectDetailsOpen && selectedProject && (
         <UnsavedProjectDetailsDialog
           projectName={selectedProject.programName}
+          changes={projectMetadataChanges}
           saving={projectMetadataSaving}
           onContinueEditing={continueEditingProjectMetadata}
           onDiscard={discardProjectMetadataAndExit}

@@ -124,8 +124,10 @@ public static partial class SqliteCompatibility
                 "ActorDisplayName" TEXT NOT NULL,
                 "Title" TEXT NOT NULL,
                 "BodyPreview" TEXT NOT NULL,
+                "ScheduledDate" TEXT NULL,
                 "CreatedAt" TEXT NOT NULL,
                 "ReadAt" TEXT NULL,
+                "RespondedAt" TEXT NULL,
                 CONSTRAINT "FK_UserNotifications_Users_RecipientUserId" FOREIGN KEY ("RecipientUserId") REFERENCES "Users" ("Id") ON DELETE CASCADE,
                 CONSTRAINT "FK_UserNotifications_Projects_ProjectId" FOREIGN KEY ("ProjectId") REFERENCES "Projects" ("Id") ON DELETE CASCADE,
                 CONSTRAINT "FK_UserNotifications_Tasks_ProjectTaskId" FOREIGN KEY ("ProjectTaskId") REFERENCES "Tasks" ("Id") ON DELETE SET NULL,
@@ -289,6 +291,30 @@ public static partial class SqliteCompatibility
         finally
         {
             await connection.CloseAsync();
+        }
+    }
+
+    public static async Task EnsureOperationScheduleReminderIndexAsync(
+        ProjectTrackerDbContext db,
+        CancellationToken cancellationToken)
+    {
+        const string commandText = """
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_UserNotifications_RecipientUserId_ProjectTaskId_Kind_ScheduledDate"
+                ON "UserNotifications" ("RecipientUserId", "ProjectTaskId", "Kind", "ScheduledDate")
+                WHERE "ScheduledDate" IS NOT NULL;
+            """;
+
+        var connection = db.Database.GetDbConnection();
+        await connection.OpenAsync(cancellationToken);
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = commandText;
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        finally
+        {
+            if (connection.State != ConnectionState.Closed) await connection.CloseAsync();
         }
     }
 

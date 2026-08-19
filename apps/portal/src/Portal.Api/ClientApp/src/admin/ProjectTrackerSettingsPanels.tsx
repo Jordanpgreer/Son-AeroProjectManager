@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import {
   AlertTriangle,
   CalendarDays,
+  ChevronDown,
   CheckCircle2,
   Factory,
   Pencil,
@@ -13,6 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import { toErrorMessage, trackerApi } from './api'
+import { formatHolidayRange, groupConsecutiveHolidays } from './holidayGroups'
 import type {
   DayOfWeekName,
   Holiday,
@@ -245,6 +247,7 @@ export function HolidaysPanel() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const ranges = useMemo(() => groupConsecutiveHolidays(items ?? []), [items])
 
   async function load() {
     try {
@@ -328,19 +331,35 @@ export function HolidaysPanel() {
         <button className="solid-button" disabled={busy}><Plus size={15} /> Add date(s)</button>
       </form>
       {items === null ? <div className="admin-loading">Loading holidays…</div> : (
-        <div className="admin-record-list">
-          {items.map((item) => {
-            const draft = drafts[item.id] ?? { date: item.date, name: item.name }
-            return (
-              <div className="admin-record-row holiday" key={item.id}>
-                <CalendarDays size={17} />
-                <label><span className="sr-only">Holiday date</span><input type="date" value={draft.date} onChange={(event) => setDrafts({ ...drafts, [item.id]: { ...draft, date: event.target.value } })} /></label>
-                <label><span className="sr-only">Holiday name</span><input value={draft.name} onChange={(event) => setDrafts({ ...drafts, [item.id]: { ...draft, name: event.target.value } })} /></label>
-                <button className="admin-icon-button" type="button" aria-label={`Save ${item.name}`} disabled={busy || (draft.date === item.date && draft.name === item.name)} onClick={() => void update(item)}><Save size={15} /></button>
-                <button className="admin-icon-button danger" type="button" aria-label={`Delete ${item.name}`} disabled={busy} onClick={() => void remove(item)}><X size={15} /></button>
+        <div className="admin-holiday-list">
+          {ranges.map((range) => (
+            <details className="admin-holiday-group" key={range.key}>
+              <summary>
+                <span className="admin-holiday-group-icon" aria-hidden="true"><CalendarDays size={17} /></span>
+                <span className="admin-holiday-group-label">
+                  <strong>{range.name}</strong>
+                  <time dateTime={range.startDate}>{formatHolidayRange(range.startDate, range.endDate)}</time>
+                </span>
+                <span className="admin-holiday-group-count">{range.items.length} {range.items.length === 1 ? 'date' : 'consecutive dates'}</span>
+                <ChevronDown size={17} aria-hidden="true" />
+              </summary>
+              <div className="admin-holiday-group-body">
+                <p>Edit or remove individual dates in this holiday{range.items.length > 1 ? ' range' : ''}.</p>
+                {range.items.map((item) => {
+                  const draft = drafts[item.id] ?? { date: item.date, name: item.name }
+                  return (
+                    <div className="admin-record-row holiday" key={item.id}>
+                      <CalendarDays size={17} />
+                      <label><span className="sr-only">Date for {item.name}</span><input type="date" value={draft.date} onChange={(event) => setDrafts({ ...drafts, [item.id]: { ...draft, date: event.target.value } })} /></label>
+                      <label><span className="sr-only">Holiday name for {item.date}</span><input value={draft.name} onChange={(event) => setDrafts({ ...drafts, [item.id]: { ...draft, name: event.target.value } })} /></label>
+                      <button className="admin-icon-button" type="button" aria-label={`Save ${item.name} on ${item.date}`} disabled={busy || (draft.date === item.date && draft.name === item.name)} onClick={() => void update(item)}><Save size={15} /></button>
+                      <button className="admin-icon-button danger" type="button" aria-label={`Delete ${item.name} on ${item.date}`} disabled={busy} onClick={() => void remove(item)}><X size={15} /></button>
+                    </div>
+                  )
+                })}
               </div>
-            )
-          })}
+            </details>
+          ))}
           {!items.length && <p className="admin-empty">No company holidays recorded.</p>}
         </div>
       )}

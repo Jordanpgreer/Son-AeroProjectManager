@@ -128,6 +128,30 @@ export function calculateDuration(startDate: string | null, endDate: string | nu
   return workdaysBetween(dateToMs(startDate), dateToMs(endDate), holidaySet, workingDaySet, overtimeDates)
 }
 
+export function calculateAutoProgressPercent(
+  startDate: string | null,
+  endDate: string | null,
+  throughDate: string,
+  holidaySet: Set<string>,
+  workingDaySet = WORKDAYS,
+  overtimeDates: Set<string> = new Set(),
+) {
+  if (!startDate || !endDate || !throughDate) return null
+
+  const startMs = dateToMs(startDate)
+  const endMs = dateToMs(endDate)
+  const throughMs = dateToMs(throughDate)
+  if (endMs < startMs) return null
+  if (throughMs < startMs) return 0
+
+  const totalWorkdays = workdaysBetween(startMs, endMs, holidaySet, workingDaySet, overtimeDates)
+  if (totalWorkdays <= 0) return null
+
+  const elapsedWorkdays = workdaysBetween(startMs, Math.min(throughMs, endMs), holidaySet, workingDaySet, overtimeDates)
+  // Finishing an operation remains an explicit confirmation, even in automatic mode.
+  return Math.min(99, Math.max(0, Math.round((elapsedWorkdays / totalWorkdays) * 100)))
+}
+
 export function todayIso() {
   return msToIso(startOfTodayMs())
 }
@@ -330,6 +354,7 @@ export function statusLabel(status: ProjectStatus | TaskStatus) {
   if (status === 'Behind') return 'Behind'
   if (status === 'NotStarted') return 'Not Started'
   if (status === 'OnTrack') return 'On Track'
+  if (status === 'CompletedLate') return 'Completed late'
   return status
 }
 
@@ -445,6 +470,10 @@ export function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
 
+export function toOperationTitleCase(value: string) {
+  return value.replace(/\b[a-z]/g, (letter) => letter.toUpperCase())
+}
+
 export function formFromTask(task: ProjectTask): TaskForm {
   return {
     id: task.id,
@@ -463,7 +492,7 @@ export function formFromTask(task: ProjectTask): TaskForm {
     estimatedDuration: task.estimatedDuration?.toString() ?? '',
     actualDuration: task.actualDuration?.toString() ?? '',
     percentComplete: Math.round(task.percentComplete * 100).toString(),
-    percentCompleteManual: true,
+    percentCompleteManual: task.percentCompleteManual,
     notes: task.notes ?? '',
     overtimeDays: task.overtimeDays,
   }
@@ -490,5 +519,31 @@ export function emptyTaskForm(project: ProjectDetail): TaskForm {
     percentCompleteManual: true,
     notes: '',
     overtimeDays: [],
+    placementMode: last ? 'after' : 'position',
+    placementTaskId: last ? String(last.id) : '',
+  }
+}
+
+export function duplicateTaskForm(task: ProjectTask): TaskForm {
+  return {
+    ...formFromTask(task),
+    id: undefined,
+    version: 0,
+    sequence: task.sequence + 1,
+    externalTaskId: '',
+    title: `${task.title} Copy`,
+    dependencyTaskId: String(task.id),
+    startDate: '',
+    startDateLocked: false,
+    originalStartDate: '',
+    endDate: '',
+    originalEndDate: '',
+    actualDuration: '',
+    percentComplete: '0',
+    percentCompleteManual: true,
+    notes: '',
+    overtimeDays: [],
+    placementMode: 'after',
+    placementTaskId: String(task.id),
   }
 }

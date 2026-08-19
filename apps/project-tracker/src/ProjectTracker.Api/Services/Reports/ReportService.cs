@@ -135,6 +135,7 @@ internal static class ReportText
     {
         TaskScheduleStatus.OnTrack => "On Track",
         TaskScheduleStatus.NotStarted => "Not Started",
+        TaskScheduleStatus.CompletedLate => "Completed Late",
         _ => status.ToString()
     };
 

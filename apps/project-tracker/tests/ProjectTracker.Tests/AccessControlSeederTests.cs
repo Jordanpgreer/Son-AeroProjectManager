@@ -42,6 +42,13 @@ public sealed class AccessControlSeederTests
             permission.PermissionKey == ProjectTrackerPermissions.ProjectEditExternalLinks);
         Assert.DoesNotContain(managerGroup.Permissions, permission =>
             permission.PermissionKey == ProjectTrackerPermissions.ArchivedDelete);
+        Assert.Contains(managerGroup.Permissions, permission =>
+            permission.PermissionKey == ProjectTrackerPermissions.OperationScheduleConfirm);
+        var engineeringGroup = await fixture.Db.Groups
+            .Include(group => group.Permissions)
+            .SingleAsync(group => group.Name == ApplicationGroups.Engineering);
+        Assert.Contains(engineeringGroup.Permissions, permission =>
+            permission.PermissionKey == ProjectTrackerPermissions.OperationScheduleConfirm);
     }
 
     [Fact]
@@ -65,10 +72,13 @@ public sealed class AccessControlSeederTests
             permission.PermissionKey == ProjectTrackerPermissions.ProjectEditExternalLinks);
         var removedArchivedDeletePermission = adminGroup.Permissions.Single(permission =>
             permission.PermissionKey == ProjectTrackerPermissions.ArchivedDelete);
+        var removedOperationSchedulePermission = adminGroup.Permissions.Single(permission =>
+            permission.PermissionKey == ProjectTrackerPermissions.OperationScheduleConfirm);
 
         fixture.Db.GroupPermissions.Remove(removedPermission);
         fixture.Db.GroupPermissions.Remove(removedExternalLinksPermission);
         fixture.Db.GroupPermissions.Remove(removedArchivedDeletePermission);
+        fixture.Db.GroupPermissions.Remove(removedOperationSchedulePermission);
         administrator.IsActive = false;
         administrator.GroupMemberships.Clear();
         administrator.GroupMemberships.Add(new AppUserGroupMembership { AppGroupId = viewOnlyGroup.Id });
@@ -95,6 +105,9 @@ public sealed class AccessControlSeederTests
         Assert.False(await fixture.Db.GroupPermissions.AnyAsync(permission =>
             permission.AppGroupId == adminGroup.Id
             && permission.PermissionKey == ProjectTrackerPermissions.ArchivedDelete));
+        Assert.False(await fixture.Db.GroupPermissions.AnyAsync(permission =>
+            permission.AppGroupId == adminGroup.Id
+            && permission.PermissionKey == ProjectTrackerPermissions.OperationScheduleConfirm));
     }
 
     [Fact]
