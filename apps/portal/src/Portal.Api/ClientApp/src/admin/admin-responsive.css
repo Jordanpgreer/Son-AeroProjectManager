@@ -180,6 +180,8 @@
   .admin-import-upload { grid-template-columns: 1fr; }
   .admin-file-picker { width: 100%; }
   .admin-import-upload .solid-button { justify-content: center; }
+  .admin-work-center-import > header { grid-template-columns: 40px minmax(0, 1fr); }
+  .admin-work-center-import .admin-permission-badge { grid-column: 1 / -1; width: fit-content; }
   .admin-import-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-import-review-actions { align-items: stretch; flex-direction: column-reverse; }
   .admin-import-review-actions button,

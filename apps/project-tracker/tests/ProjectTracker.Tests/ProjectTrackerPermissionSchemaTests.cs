@@ -46,6 +46,18 @@ public sealed class ProjectTrackerPermissionSchemaTests
         Assert.Contains(
             ProjectTrackerPermissions.OperationScheduleConfirm,
             ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Engineering));
+        Assert.Contains(ProjectTrackerPermissions.All, permission =>
+            permission.Key == ProjectTrackerPermissions.WorkCentersImport
+            && permission.Label == "Import Work Centers");
+        Assert.Contains(
+            ProjectTrackerPermissions.WorkCentersImport,
+            ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Administrators));
+        Assert.DoesNotContain(
+            ProjectTrackerPermissions.WorkCentersImport,
+            ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Managers));
+        Assert.True(UserEndpoints.CanHoldAdministratorOnlyPermissions(
+            "Custom Work Center Importers",
+            [ApplicationPermissions.ModuleView, ProjectTrackerPermissions.WorkCentersImport]));
     }
 
     [Fact]

@@ -31,24 +31,76 @@ public sealed class AccessControlSeederTests
         var administratorGroup = await fixture.Db.Groups
             .Include(group => group.Permissions)
             .SingleAsync(group => group.Name == ApplicationGroups.Administrators);
+        Assert.True(administratorGroup.IsSystemGroup);
         Assert.Contains(administratorGroup.Permissions, permission =>
             permission.PermissionKey == ProjectTrackerPermissions.ProjectEditExternalLinks);
         Assert.Contains(administratorGroup.Permissions, permission =>
             permission.PermissionKey == ProjectTrackerPermissions.ArchivedDelete);
+        Assert.Contains(administratorGroup.Permissions, permission =>
+            permission.PermissionKey == ProjectTrackerPermissions.WorkCentersImport);
         var managerGroup = await fixture.Db.Groups
             .Include(group => group.Permissions)
             .SingleAsync(group => group.Name == ApplicationGroups.Managers);
+        Assert.False(managerGroup.IsSystemGroup);
         Assert.DoesNotContain(managerGroup.Permissions, permission =>
             permission.PermissionKey == ProjectTrackerPermissions.ProjectEditExternalLinks);
         Assert.DoesNotContain(managerGroup.Permissions, permission =>
             permission.PermissionKey == ProjectTrackerPermissions.ArchivedDelete);
+        Assert.DoesNotContain(managerGroup.Permissions, permission =>
+            permission.PermissionKey == ProjectTrackerPermissions.WorkCentersImport);
         Assert.Contains(managerGroup.Permissions, permission =>
             permission.PermissionKey == ProjectTrackerPermissions.OperationScheduleConfirm);
         var engineeringGroup = await fixture.Db.Groups
             .Include(group => group.Permissions)
             .SingleAsync(group => group.Name == ApplicationGroups.Engineering);
+        Assert.False(engineeringGroup.IsSystemGroup);
         Assert.Contains(engineeringGroup.Permissions, permission =>
             permission.PermissionKey == ProjectTrackerPermissions.OperationScheduleConfirm);
+    }
+
+    [Fact]
+    public async Task Seed_DoesNotRecreateDeletedStarterGroupsOnRestart()
+    {
+        await using var fixture = await AccessFixture.CreateAsync();
+        var seeder = new AccessControlSeeder();
+        await seeder.SeedAsync(fixture.Db, Configuration());
+
+        var removableGroups = await fixture.Db.Groups
+            .Where(group => group.Name != ApplicationGroups.Administrators)
+            .ToListAsync();
+        Assert.NotEmpty(removableGroups);
+        fixture.Db.Groups.RemoveRange(removableGroups);
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.ChangeTracker.Clear();
+
+        await seeder.SeedAsync(
+            fixture.Db,
+            Configuration(("Security:Editors:0", "DOMAIN\\configured.editor")));
+
+        var remainingGroup = Assert.Single(await fixture.Db.Groups.AsNoTracking().ToListAsync());
+        Assert.Equal(ApplicationGroups.Administrators, remainingGroup.Name);
+        Assert.True(remainingGroup.IsSystemGroup);
+        Assert.False(await fixture.Db.Users.AnyAsync(user => user.AccountName == "DOMAIN\\configured.editor"));
+    }
+
+    [Fact]
+    public async Task Seed_PreservesLegacyDefaultSystemFlagsForBinaryRollbackCompatibility()
+    {
+        await using var fixture = await AccessFixture.CreateAsync();
+        var seeder = new AccessControlSeeder();
+        await seeder.SeedAsync(fixture.Db, Configuration());
+
+        var manager = await fixture.Db.Groups.SingleAsync(group => group.Name == ApplicationGroups.Managers);
+        manager.IsSystemGroup = true;
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.ChangeTracker.Clear();
+
+        await seeder.SeedAsync(fixture.Db, Configuration());
+
+        Assert.True((await fixture.Db.Groups.AsNoTracking()
+            .SingleAsync(group => group.Name == ApplicationGroups.Managers)).IsSystemGroup);
+        Assert.True((await fixture.Db.Groups.AsNoTracking()
+            .SingleAsync(group => group.Name == ApplicationGroups.Administrators)).IsSystemGroup);
     }
 
     [Fact]
@@ -74,11 +126,14 @@ public sealed class AccessControlSeederTests
             permission.PermissionKey == ProjectTrackerPermissions.ArchivedDelete);
         var removedOperationSchedulePermission = adminGroup.Permissions.Single(permission =>
             permission.PermissionKey == ProjectTrackerPermissions.OperationScheduleConfirm);
+        var removedWorkCenterImportPermission = adminGroup.Permissions.Single(permission =>
+            permission.PermissionKey == ProjectTrackerPermissions.WorkCentersImport);
 
         fixture.Db.GroupPermissions.Remove(removedPermission);
         fixture.Db.GroupPermissions.Remove(removedExternalLinksPermission);
         fixture.Db.GroupPermissions.Remove(removedArchivedDeletePermission);
         fixture.Db.GroupPermissions.Remove(removedOperationSchedulePermission);
+        fixture.Db.GroupPermissions.Remove(removedWorkCenterImportPermission);
         administrator.IsActive = false;
         administrator.GroupMemberships.Clear();
         administrator.GroupMemberships.Add(new AppUserGroupMembership { AppGroupId = viewOnlyGroup.Id });
@@ -108,6 +163,9 @@ public sealed class AccessControlSeederTests
         Assert.False(await fixture.Db.GroupPermissions.AnyAsync(permission =>
             permission.AppGroupId == adminGroup.Id
             && permission.PermissionKey == ProjectTrackerPermissions.OperationScheduleConfirm));
+        Assert.False(await fixture.Db.GroupPermissions.AnyAsync(permission =>
+            permission.AppGroupId == adminGroup.Id
+            && permission.PermissionKey == ProjectTrackerPermissions.WorkCentersImport));
     }
 
     [Fact]

@@ -389,7 +389,6 @@ nav { display: grid; gap: 3px; }
 }
 .topbar-user-copy { display: grid; min-width: 0; gap: 1px; flex: 1; }
 .topbar-user-copy strong { overflow: hidden; color: var(--ink); font-size: 12px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
-.topbar-user-copy span { color: var(--red-700); font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .topbar-user-avatar {
   display: inline-grid;
   place-items: center;
@@ -1697,7 +1696,8 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
   max-height: clamp(280px, calc(100vh - 390px), 640px);
   min-height: 180px;
   overflow: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
   padding: 6px 18px 18px;
   scrollbar-gutter: stable both-edges;
   touch-action: pan-x pan-y;

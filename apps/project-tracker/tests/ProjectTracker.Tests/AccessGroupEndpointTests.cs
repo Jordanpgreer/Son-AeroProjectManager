@@ -148,6 +148,20 @@ public sealed class AccessGroupEndpointTests
     }
 
     [Fact]
+    public async Task DeleteGroup_AllowsUnusedLegacyDefaultGroupEvenWhenItsSystemFlagIsStale()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync();
+        var group = new AppGroup { Name = ApplicationGroups.Engineering, IsSystemGroup = true };
+        fixture.Db.Groups.Add(group);
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await UserEndpoints.DeleteGroupAsync(group.Id, fixture.Db, CancellationToken.None);
+
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.NoContent>(result);
+        Assert.False(await fixture.Db.Groups.AnyAsync(candidate => candidate.Id == group.Id));
+    }
+
+    [Fact]
     public async Task DeleteGroup_RemovesUnusedCustomGroupAndItsPermissions()
     {
         await using var fixture = await DatabaseFixture.CreateAsync();

@@ -122,6 +122,13 @@ export interface WorkCenter {
   name: string
 }
 
+export interface WorkCenterImportResult {
+  addedCount: number
+  skippedCount: number
+  addedNames: string[]
+  skippedNames: string[]
+}
+
 export interface Holiday {
   id: number
   date: string

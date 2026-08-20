@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   AlertTriangle,
@@ -6,11 +6,14 @@ import {
   ChevronDown,
   CheckCircle2,
   Factory,
+  FileSpreadsheet,
   Pencil,
   Plus,
   Save,
   Search,
+  ShieldCheck,
   Trash2,
+  UploadCloud,
   X,
 } from 'lucide-react'
 import { toErrorMessage, trackerApi } from './api'
@@ -20,6 +23,7 @@ import type {
   Holiday,
   ScheduleSettings,
   WorkCenter,
+  WorkCenterImportResult,
 } from './types'
 
 const DAYS: { value: DayOfWeekName; short: string }[] = [
@@ -122,12 +126,21 @@ export function WorkCalendarPanel() {
   )
 }
 
-export function WorkCentersPanel() {
+export function WorkCentersPanel({
+  canManage,
+  canImport,
+}: {
+  canManage: boolean
+  canImport: boolean
+}) {
+  const importInputRef = useRef<HTMLInputElement>(null)
   const [items, setItems] = useState<WorkCenter[] | null>(null)
   const [drafts, setDrafts] = useState<Record<number, string>>({})
   const [newName, setNewName] = useState('')
   const [search, setSearch] = useState('')
-  const [busyId, setBusyId] = useState<number | 'new' | null>(null)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importResult, setImportResult] = useState<WorkCenterImportResult | null>(null)
+  const [busyId, setBusyId] = useState<number | 'new' | 'import' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
 
@@ -145,10 +158,12 @@ export function WorkCentersPanel() {
 
   const filtered = useMemo(() => (items ?? []).filter((item) =>
     item.name.toLowerCase().includes(search.trim().toLowerCase())), [items, search])
+  const hasUnsavedManualChanges = useMemo(() => (items ?? []).some((item) =>
+    (drafts[item.id] ?? item.name).trim() !== item.name), [drafts, items])
 
   async function add(event: FormEvent) {
     event.preventDefault()
-    if (!newName.trim()) return
+    if (!newName.trim() || busyId !== null) return
     setBusyId('new')
     setError(null)
     try {
@@ -168,7 +183,7 @@ export function WorkCentersPanel() {
 
   async function update(item: WorkCenter) {
     const name = drafts[item.id]?.trim()
-    if (!name || name === item.name) return
+    if (!name || name === item.name || busyId !== null) return
     setBusyId(item.id)
     setError(null)
     try {
@@ -186,12 +201,46 @@ export function WorkCentersPanel() {
   }
 
   async function remove(item: WorkCenter) {
+    if (busyId !== null) return
     if (!window.confirm(`Delete work center “${item.name}”?`)) return
     setBusyId(item.id)
     setError(null)
     try {
       await trackerApi<void>(`/api/work-centers/${item.id}`, { method: 'DELETE' })
       setMessage('Work center deleted.')
+      await load()
+    } catch (cause) {
+      setError(toErrorMessage(cause))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function importWorkbook(event: FormEvent) {
+    event.preventDefault()
+    if (!importFile || busyId !== null) return
+    if (hasUnsavedManualChanges) {
+      setError('Save or discard work-center name edits before importing a workbook.')
+      return
+    }
+    setBusyId('import')
+    setError(null)
+    setMessage(null)
+    setImportResult(null)
+    try {
+      const form = new FormData()
+      form.append('file', importFile)
+      const result = await trackerApi<WorkCenterImportResult>('/api/work-centers/import', {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: form,
+      })
+      setImportResult(result)
+      setMessage(
+        `Import complete: ${result.addedCount} work center${result.addedCount === 1 ? '' : 's'} added and ${result.skippedCount} duplicate${result.skippedCount === 1 ? '' : 's'} skipped.`,
+      )
+      setImportFile(null)
+      if (importInputRef.current) importInputRef.current.value = ''
       await load()
     } catch (cause) {
       setError(toErrorMessage(cause))
@@ -207,18 +256,96 @@ export function WorkCentersPanel() {
         <label className="admin-search"><Search size={16} /><span className="sr-only">Search work centers</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search work centers" /></label>
       </header>
       <Notice error={error} message={message} />
-      <form className="admin-add-row" onSubmit={add}>
-        <label><span>New work center</span><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="CNC Mill" required /></label>
-        <button className="solid-button" disabled={busyId === 'new'}><Plus size={15} /> Add work center</button>
-      </form>
+      {canImport && (
+        <section className="admin-work-center-import" aria-labelledby="work-center-import-heading">
+          <header>
+            <span className="admin-work-center-import-icon"><FileSpreadsheet size={21} aria-hidden="true" /></span>
+            <div>
+              <h3 id="work-center-import-heading">Import from Excel</h3>
+              <p>Choose a workbook containing a <strong>Work Center Name</strong> column. Existing names are safely skipped.</p>
+            </div>
+            <span className="admin-permission-badge"><ShieldCheck size={14} /> Permission controlled</span>
+          </header>
+          <form className="admin-import-upload" onSubmit={importWorkbook}>
+            <label className="admin-file-picker">
+              <UploadCloud size={25} aria-hidden="true" />
+              <span><strong>{importFile?.name || 'Choose a work-center workbook'}</strong><small>.xlsx only · maximum 5 MB · import adds names and never removes existing work centers</small></span>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                disabled={busyId !== null}
+                onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null
+                  if (file && (!file.name.toLowerCase().endsWith('.xlsx') || file.size > 5 * 1024 * 1024)) {
+                    setImportFile(null)
+                    setImportResult(null)
+                    setMessage(null)
+                    setError(file.size > 5 * 1024 * 1024
+                      ? 'The workbook is larger than the 5 MB import limit.'
+                      : 'Choose a supported .xlsx workbook.')
+                    event.target.value = ''
+                    return
+                  }
+                  setImportFile(file)
+                  setImportResult(null)
+                  setError(null)
+                  setMessage(null)
+                }}
+              />
+            </label>
+            <button className="solid-button" type="submit" disabled={!importFile || busyId !== null || hasUnsavedManualChanges}>
+              <UploadCloud size={16} /> {busyId === 'import' ? 'Importing…' : 'Import work centers'}
+            </button>
+          </form>
+          {hasUnsavedManualChanges && <p className="admin-import-safety">Save or discard edited work-center names before importing.</p>}
+          {busyId === 'import' && (
+            <div className="admin-work-center-import-progress" role="status">
+              <progress aria-label="Uploading and importing work centers" />
+              <span>Checking the workbook and adding new names…</span>
+            </div>
+          )}
+          {importResult && (
+            <div className="admin-work-center-import-result" role="status">
+              <div className="admin-import-stats">
+                <span className="is-valid"><strong>{importResult.addedCount}</strong><small>Added</small></span>
+                <span><strong>{importResult.skippedCount}</strong><small>Duplicates skipped</small></span>
+              </div>
+              {importResult.addedNames.length > 0 && (
+                <details>
+                  <summary>View added work centers</summary>
+                  <ul>{importResult.addedNames.map((name) => <li key={name}>{name}</li>)}</ul>
+                </details>
+              )}
+              {importResult.skippedNames.length > 0 && (
+                <details>
+                  <summary>View skipped duplicate rows</summary>
+                  <ul>{importResult.skippedNames.map((name, index) => <li key={`${name}-${index}`}>{name}</li>)}</ul>
+                </details>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+      {canManage && (
+        <form className="admin-add-row" onSubmit={add}>
+          <label><span>New work center</span><input value={newName} disabled={busyId !== null} onChange={(event) => setNewName(event.target.value)} placeholder="CNC Mill" required /></label>
+          <button className="solid-button" disabled={busyId !== null}><Plus size={15} /> Add work center</button>
+        </form>
+      )}
+      {!canManage && <p className="admin-import-safety"><ShieldCheck size={15} /> Your access permits workbook imports; manual renaming and deletion remain disabled.</p>}
       {items === null ? <div className="admin-loading">Loading work centers…</div> : (
         <div className="admin-record-list">
           {filtered.map((item) => (
-            <div className="admin-record-row" key={item.id}>
+            <div className={`admin-record-row${canManage ? '' : ' read-only'}`} key={item.id}>
               <Factory size={17} aria-hidden="true" />
-              <label><span className="sr-only">Work center name</span><input value={drafts[item.id] ?? item.name} onChange={(event) => setDrafts({ ...drafts, [item.id]: event.target.value })} /></label>
-              <button className="admin-icon-button" type="button" title="Save name" aria-label={`Save ${item.name}`} disabled={busyId === item.id || drafts[item.id]?.trim() === item.name} onClick={() => void update(item)}><Pencil size={15} /></button>
-              <button className="admin-icon-button danger" type="button" title="Delete" aria-label={`Delete ${item.name}`} disabled={busyId === item.id} onClick={() => void remove(item)}><Trash2 size={15} /></button>
+              {canManage ? (
+                <>
+                  <label><span className="sr-only">Work center name</span><input value={drafts[item.id] ?? item.name} disabled={busyId !== null} onChange={(event) => setDrafts({ ...drafts, [item.id]: event.target.value })} /></label>
+                  <button className="admin-icon-button" type="button" title="Save name" aria-label={`Save ${item.name}`} disabled={busyId !== null || drafts[item.id]?.trim() === item.name} onClick={() => void update(item)}><Pencil size={15} /></button>
+                  <button className="admin-icon-button danger" type="button" title="Delete" aria-label={`Delete ${item.name}`} disabled={busyId !== null} onClick={() => void remove(item)}><Trash2 size={15} /></button>
+                </>
+              ) : <strong className="admin-record-name">{item.name}</strong>}
             </div>
           ))}
           {!filtered.length && <p className="admin-empty">No work centers match this search.</p>}

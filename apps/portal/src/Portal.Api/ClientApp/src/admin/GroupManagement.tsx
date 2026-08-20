@@ -241,8 +241,9 @@ export function GroupEditor({
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [confirmation, setConfirmation] = useState('')
   const modules = useMemo(() => permissionModules(permissions), [permissions])
-  const deletionReason = group.isSystemGroup
-    ? 'Protected system groups cannot be deleted.'
+  const isAdministratorsGroup = group.name.localeCompare('Administrators', undefined, { sensitivity: 'accent' }) === 0
+  const deletionReason = isAdministratorsGroup
+    ? 'The Administrators group is required and cannot be deleted.'
     : group.userCount > 0
       ? `Move or remove ${group.userCount} assigned ${group.userCount === 1 ? 'user' : 'users'} before deleting this group.`
       : hasPendingUserAssignments
@@ -270,7 +271,7 @@ export function GroupEditor({
         <div className="admin-group-maintenance">
           <div>
             <strong>Group membership and deletion</strong>
-            <small id={`group-delete-note-${group.id}`}>{deletionReason ?? 'This unused custom group can be deleted. This cannot be undone.'}</small>
+            <small id={`group-delete-note-${group.id}`}>{deletionReason ?? 'This unused group can be deleted. This cannot be undone.'}</small>
           </div>
           <button className="ghost-button danger" type="button" disabled={disabled || deleting || Boolean(deletionReason)} aria-describedby={`group-delete-note-${group.id}`} onClick={() => setConfirmingDelete(true)}>
             <Trash2 size={15} aria-hidden="true" /> Delete group

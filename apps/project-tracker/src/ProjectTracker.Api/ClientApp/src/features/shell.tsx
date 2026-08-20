@@ -74,18 +74,20 @@ function scheduleDeclineLabel(notification: MentionNotification) {
 }
 
 function UserProfile({ user }: { user: User | null }) {
-  const accessLabel = user?.isAdmin ? 'Admin' : user?.groups[0] ?? 'User'
   const avatarLabel = user
     ? userInitials(user.displayName).padEnd(2, user.displayName.slice(1, 2).toUpperCase())
     : '...'
 
   return (
-    <div className="topbar-user-chip" aria-live="polite">
+    <div
+      className="topbar-user-chip"
+      aria-label={user ? `Signed in as ${user.displayName}` : 'Checking signed-in user'}
+      aria-live="polite"
+    >
       <div className="topbar-user-copy">
         <strong>{user?.displayName ?? 'Checking access'}</strong>
-        <span>{user ? accessLabel : 'Loading'}</span>
       </div>
-      <span className="topbar-user-avatar" title={user?.accountName}>
+      <span className="topbar-user-avatar" title={user?.accountName} aria-hidden="true">
         {avatarLabel}
       </span>
     </div>

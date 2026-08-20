@@ -51,6 +51,7 @@ const PERMISSIONS = {
   manageGroups: 'access.manageGroups',
   calendar: 'settings.workCalendar.manage',
   workCenters: 'settings.workCenters.manage',
+  workCenterImports: 'settings.workCenters.import',
   holidays: 'settings.holidays.manage',
   imports: 'import.manage',
 } as const
@@ -266,18 +267,39 @@ export default function AdminConsole({
   const canManageGroups = granted.has(PERMISSIONS.manageGroups)
   const canOpenAccess = canManageUsers || canManageGroups
   const canManageQualityRules = granted.has('quality-assurance.rules.manage')
+  const canManageWorkCenters = granted.has(PERMISSIONS.workCenters)
+  const canImportWorkCenters = granted.has(PERMISSIONS.workCenterImports)
   const isAdministrator = trackerUser?.groups.some(
     (group) => group.toLowerCase() === 'administrators',
   ) ?? false
   const canOpenSection = (section: ProjectTrackerAdminSection) => {
     if (section === 'calendar') return granted.has(PERMISSIONS.calendar)
-    if (section === 'work-centers') return granted.has(PERMISSIONS.workCenters)
+    if (section === 'work-centers') return canManageWorkCenters || canImportWorkCenters
     if (section === 'holidays') return granted.has(PERMISSIONS.holidays)
     return isAdministrator && granted.has(PERMISSIONS.imports)
   }
   const selectedTrackerSection = route.section as ProjectTrackerAdminSection
   const selectedSectionAllowed = canOpenSection(selectedTrackerSection)
+  const firstAllowedTrackerSection = permissionsLoading || permissionsError
+    ? undefined
+    : PROJECT_TRACKER_SECTIONS.find((section) => canOpenSection(section.key))?.key
   const Icon = activeModule.icon
+
+  useEffect(() => {
+    if (route.module !== 'project-tracker'
+      || permissionsLoading
+      || permissionsError
+      || selectedSectionAllowed
+      || !firstAllowedTrackerSection) return
+
+    window.location.replace(`#/admin/project-tracker/${firstAllowedTrackerSection}`)
+  }, [
+    firstAllowedTrackerSection,
+    permissionsError,
+    permissionsLoading,
+    route.module,
+    selectedSectionAllowed,
+  ])
 
   function blockUnauthorizedNavigation(
     event: MouseEvent<HTMLAnchorElement>,
@@ -332,7 +354,7 @@ export default function AdminConsole({
                   aria-selected={selected}
                   aria-disabled={!allowed}
                   aria-controls="admin-section-panel"
-                  tabIndex={selected && allowed ? 0 : -1}
+                  tabIndex={allowed && (selected || (!selectedSectionAllowed && section.key === firstAllowedTrackerSection)) ? 0 : -1}
                   className={`${selected ? 'active' : ''} ${allowed ? '' : 'disabled'}`.trim()}
                   href={`#/admin/project-tracker/${section.key}`}
                   onClick={(event) => blockUnauthorizedNavigation(event, allowed)}
@@ -419,7 +441,12 @@ export default function AdminConsole({
           {route.module === 'project-tracker' && !permissionsLoading && !permissionsError && selectedSectionAllowed && (
             <>
               {route.section === 'calendar' && <WorkCalendarPanel />}
-              {route.section === 'work-centers' && <WorkCentersPanel />}
+              {route.section === 'work-centers' && (
+                <WorkCentersPanel
+                  canManage={canManageWorkCenters}
+                  canImport={canImportWorkCenters}
+                />
+              )}
               {route.section === 'holidays' && <HolidaysPanel />}
               {route.section === 'imports' && <ImportsPanel />}
             </>

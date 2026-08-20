@@ -172,6 +172,7 @@ public static class UserEndpoints
                 ApplicationPermissions.SettingsWorkCalendarManage
                 or ApplicationPermissions.SettingsHolidaysManage
                 or ApplicationPermissions.SettingsWorkCentersManage
+                or ProjectTrackerPermissions.WorkCentersImport
                 or ApplicationPermissions.ImportManage
                 or ApplicationPermissions.AccessManageUsers
                 or ApplicationPermissions.AccessManageGroups
@@ -371,12 +372,13 @@ public static class UserEndpoints
         }
 
         var name = dto.Name!.Trim();
-        if (dto.IsSystemGroup != group.IsSystemGroup)
+        var isProtectedGroup = IsProtectedSystemGroup(group.Name);
+        if (isProtectedGroup && !dto.IsSystemGroup)
         {
             return Results.BadRequest("The system-group setting cannot be changed through access administration.");
         }
 
-        if (group.IsSystemGroup && !string.Equals(group.Name, name, StringComparison.Ordinal))
+        if (isProtectedGroup && !string.Equals(group.Name, name, StringComparison.Ordinal))
         {
             return Results.BadRequest("System groups cannot be renamed.");
         }
@@ -402,6 +404,7 @@ public static class UserEndpoints
 
         group.Name = name;
         group.Description = Clean(dto.Description);
+        group.IsSystemGroup = IsProtectedSystemGroup(name);
         group.UpdatedAt = DateTimeOffset.UtcNow;
         ReplacePermissions(group, permissions);
         if (!await HasActiveAccessManagerAsync(db, cancellationToken))
@@ -426,7 +429,7 @@ public static class UserEndpoints
             return Results.NotFound();
         }
 
-        if (group.IsSystemGroup)
+        if (IsProtectedSystemGroup(group.Name))
         {
             return Results.Conflict(new AccessGroupDeleteConflictDto(
                 "SystemGroup",
@@ -532,6 +535,9 @@ public static class UserEndpoints
     }
 
     private static List<int> NormalizeGroupIds(IReadOnlyList<int> groupIds) => groupIds.Distinct().OrderBy(id => id).ToList();
+
+    private static bool IsProtectedSystemGroup(string groupName) =>
+        string.Equals(groupName, ApplicationGroups.Administrators, StringComparison.OrdinalIgnoreCase);
 
     public static bool CanHoldAdministratorOnlyPermissions(
         string groupName,

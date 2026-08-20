@@ -14,6 +14,7 @@ public sealed class AccessControlSeeder
     private const string ProjectExternalLinksPermissionVersion = "project-external-links-permission-v1";
     private const string ArchivedDeletePermissionVersion = "project-archived-delete-permission-v1";
     private const string OperationScheduleConfirmationPermissionVersion = "operation-schedule-confirmation-permission-v1";
+    private const string WorkCenterImportPermissionVersion = "work-center-import-permission-v1";
 
     public async Task SeedAsync(
         ProjectTrackerDbContext db,
@@ -81,13 +82,30 @@ public sealed class AccessControlSeeder
                          ApplicationGroups.Engineering
                      })
             {
+                if (!groupIds.TryGetValue(groupName, out var groupId)) continue;
                 await AddPermissionsToGroupAsync(
                     db,
-                    groupIds[groupName],
+                    groupId,
                     [ProjectTrackerPermissions.OperationScheduleConfirm],
                     cancellationToken);
             }
             await RecordVersionAsync(db, OperationScheduleConfirmationPermissionVersion, cancellationToken);
+        }
+        var addWorkCenterImportPermission = !await HasVersionAsync(
+            db,
+            WorkCenterImportPermissionVersion,
+            cancellationToken);
+        if (addWorkCenterImportPermission)
+        {
+            if (groupIds.TryGetValue(ApplicationGroups.Administrators, out var administratorGroupId))
+            {
+                await AddPermissionsToGroupAsync(
+                    db,
+                    administratorGroupId,
+                    [ProjectTrackerPermissions.WorkCentersImport],
+                    cancellationToken);
+            }
+            await RecordVersionAsync(db, WorkCenterImportPermissionVersion, cancellationToken);
         }
         var existingUsers = await db.Users
             .Include(user => user.GroupMemberships)
@@ -100,7 +118,10 @@ public sealed class AccessControlSeeder
 
         foreach (var account in configuration.GetSection("Security:Editors").Get<string[]>() ?? [])
         {
-            AddConfiguredUserIfMissing(db, existingUsers, account, groupIds[ApplicationGroups.Managers], "Editor");
+            if (groupIds.TryGetValue(ApplicationGroups.Managers, out var managerGroupId))
+            {
+                AddConfiguredUserIfMissing(db, existingUsers, account, managerGroupId, "Editor");
+            }
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -142,33 +163,33 @@ public sealed class AccessControlSeeder
             .PermissionsForModule(ApplicationModules.QualityAssurance)
             .Select(permission => permission.Key)
             .ToArray();
-        var definitions = new (string Name, string Description, bool IsSystem, IReadOnlyList<string> Permissions)[]
+        var definitions = new (string Name, string Description, IReadOnlyList<string> Permissions)[]
         {
-            (ApplicationGroups.Administrators, "Full administrative access across SON-AERO modules.", true, [
+            (ApplicationGroups.Administrators, "Full administrative access across SON-AERO modules.", [
                 .. ApplicationPermissions.DefaultAdministratorPermissions,
                 .. ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Administrators),
                 .. EngineeringPermissions.DefaultsForGroup(ApplicationGroups.Administrators),
                 .. estimatingPermissions,
                 .. qualityPermissions
             ]),
-            (ApplicationGroups.Managers, "Management, review, and project-control access across modules.", true, [
+            (ApplicationGroups.Managers, "Management, review, and project-control access across modules.", [
                 .. ApplicationPermissions.DefaultManagerPermissions,
                 .. ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Managers),
                 .. EngineeringPermissions.DefaultsForGroup(ApplicationGroups.Managers),
                 .. ApplicationModuleCatalog.PermissionsFor(ApplicationModules.Estimating, ApplicationRoles.Editor).Select(permission => permission.Key)
             ]),
-            (ApplicationGroups.Engineering, "Engineering and project-operation access across modules.", true, [
+            (ApplicationGroups.Engineering, "Engineering and project-operation access across modules.", [
                 .. ApplicationPermissions.DefaultEngineeringPermissions,
                 .. ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Engineering),
                 .. EngineeringPermissions.DefaultsForGroup(ApplicationGroups.Engineering),
                 .. ApplicationModuleCatalog.PermissionsFor(ApplicationModules.Estimating, ApplicationRoles.Viewer).Select(permission => permission.Key)
             ]),
-            (ApplicationGroups.Sales, "Commercial and current-controlled-record visibility across modules.", true, [
+            (ApplicationGroups.Sales, "Commercial and current-controlled-record visibility across modules.", [
                 .. ApplicationPermissions.DefaultSalesPermissions,
                 .. ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Sales),
                 .. EngineeringPermissions.DefaultsForGroup(ApplicationGroups.Sales)
             ]),
-            (ProjectTrackerGroups.ViewOnly, "Read-only access to current information across enabled modules.", true, [
+            (ProjectTrackerGroups.ViewOnly, "Read-only access to current information across enabled modules.", [
                 ApplicationPermissions.ModuleView,
                 .. EngineeringPermissions.DefaultsForGroup(ProjectTrackerGroups.ViewOnly)
             ])
@@ -180,13 +201,22 @@ public sealed class AccessControlSeeder
 
         foreach (var definition in definitions)
         {
+            var isProtectedGroup = string.Equals(
+                definition.Name,
+                ApplicationGroups.Administrators,
+                StringComparison.OrdinalIgnoreCase);
             if (!groups.TryGetValue(definition.Name, out var group))
             {
+                // The standard non-administrator groups are starter templates, not
+                // permanent system records. Once initial access migration has run,
+                // an administrator's deletion must survive application restarts.
+                if (!isProtectedGroup && !addSharedModuleDefaults) continue;
+
                 group = new AppGroup
                 {
                     Name = definition.Name,
                     Description = definition.Description,
-                    IsSystemGroup = definition.IsSystem,
+                    IsSystemGroup = isProtectedGroup,
                     Permissions = definition.Permissions
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .Select(permission => new AppGroupPermission { PermissionKey = permission })
@@ -198,7 +228,12 @@ public sealed class AccessControlSeeder
             }
 
             group.Description = definition.Description;
-            group.IsSystemGroup = definition.IsSystem;
+            // Keep legacy non-administrator flags byte-for-byte compatible with
+            // the previous release. The current API protects only Administrators
+            // by name and clears a stale flag when a group is edited, so changing
+            // these flags during startup is unnecessary and would outlive an IIS
+            // binary rollback.
+            if (isProtectedGroup) group.IsSystemGroup = true;
             if (!addSharedModuleDefaults) continue;
 
             foreach (var permission in definition.Permissions

@@ -40,6 +40,7 @@ builder.Services.AddScoped<ProjectMetricsService>();
 builder.Services.AddScoped<ProjectReadService>();
 builder.Services.AddScoped<WorkbookImportService>();
 builder.Services.AddScoped<ControlledWorkbookImportService>();
+builder.Services.AddScoped<WorkCenterWorkbookImportService>();
 builder.Services.AddSingleton<ControlledImportReviewStore>();
 builder.Services.AddScoped<ReportService>();
 builder.Services.AddEndpointsApiExplorer();
@@ -76,6 +77,8 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("ManageCalendar", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.SettingsWorkCalendarManage));
     options.AddPolicy("ManageHolidays", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.SettingsHolidaysManage));
     options.AddPolicy("ManageWorkCenters", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.SettingsWorkCentersManage));
+    options.AddPolicy(WorkCenterImportEndpoints.AuthorizationPolicy, policy =>
+        policy.RequireClaim(ApplicationClaimTypes.Permission, ProjectTrackerPermissions.WorkCentersImport));
     options.AddPolicy("ManageImports", policy => policy
         .RequireClaim(ApplicationClaimTypes.Group, ApplicationGroups.Administrators)
         .RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ImportManage));
@@ -165,6 +168,7 @@ api.MapNotificationEndpoints();
 api.MapPushNotificationEndpoints();
 api.MapReportEndpoints();
 api.MapImportEndpoints();
+api.MapWorkCenterImportEndpoints();
 
 api.MapGet("/projects/{id:int}/messages", async (int id, int? afterId, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
 {
