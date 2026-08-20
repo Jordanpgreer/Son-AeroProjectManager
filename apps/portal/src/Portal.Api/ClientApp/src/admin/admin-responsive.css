@@ -159,6 +159,10 @@
   .admin-holiday-group-count { display: none; }
   .admin-group-card summary { grid-template-columns: 34px minmax(0, 1fr) 18px; }
   .admin-group-counts { grid-column: 2; white-space: normal; }
+  .admin-group-maintenance { align-items: stretch; flex-direction: column; }
+  .admin-group-maintenance .ghost-button { justify-content: center; }
+  .admin-delete-confirmation { grid-template-columns: 1fr; }
+  .admin-delete-confirmation > div:last-child { justify-content: flex-end; }
   .module-role-guide { grid-template-columns: 1fr; }
   .module-access-toolbar { align-items: stretch; flex-direction: column; }
   .module-user-row { grid-template-columns: 38px minmax(0, 1fr); }
@@ -191,6 +195,12 @@
   .admin-user-directory > summary { grid-template-columns: 38px minmax(0, 1fr) 18px; }
   .admin-directory-count { grid-column: 2; }
   .admin-section-tabs { padding-inline: 10px; }
+  .admin-group-wizard-steps strong { display: none; }
+  .admin-group-wizard-steps li { justify-content: center; }
+  .admin-group-review-modules { grid-template-columns: 1fr; }
+  .admin-group-wizard-body > footer { align-items: stretch; flex-direction: column-reverse; }
+  .admin-group-wizard-body > footer button { justify-content: center; }
+  .admin-delete-confirmation > div:last-child { display: grid; grid-template-columns: 1fr; }
   .admin-import-steps { grid-template-columns: 1fr; }
   .admin-import-stats { grid-template-columns: 1fr; }
   .admin-import-confirm > div:last-child { grid-template-columns: 1fr; }

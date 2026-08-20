@@ -227,6 +227,52 @@ If apply reports automatic rollback, rollback verification failure, or omits the
 Do not rerun the transaction, recycle pools, manually repoint IIS, or remove the retained failed
 release. Capture the complete output and diagnose the retained candidate first.
 
+### Later Portal-only application releases
+
+Use `Deploy-PortalRelease.ps1` only when the Portal root is the remaining deployment scope and no
+Engineering, Estimating, Quality, shared production configuration, deployment-topology, or
+cross-module database change must be applied. For a release containing compatible Project Tracker
+and Portal changes, publish one new staging root, complete and verify the Project Tracker targeted
+transaction first, and then run the Portal transaction against that same `PackageRoot` and
+`ReleaseId`.
+
+Run on the SON-IIS2 Remote Desktop in elevated Windows PowerShell 5.1 as an interactive authorized
+`SON4L\...` user:
+
+```powershell
+$repo = 'C:\SonAero\src\SonAeroInternalHub'
+$packageRoot = 'C:\SonAero\staging\project-tracker-<12-character-commit>'
+$releaseId = '<12-character-commit>'
+$portalDeploy = Join-Path $repo 'deployment\Deploy-PortalRelease.ps1'
+
+$preview = @(& $portalDeploy -PackageRoot $packageRoot -ReleaseId $releaseId -WhatIf)
+$preview | ForEach-Object { Write-Host $_ }
+if ($preview -notcontains 'WHATIF_READY_PORTAL_RELEASE') {
+    throw 'Portal preview marker was not returned; IIS was not changed.'
+}
+
+$apply = @(& $portalDeploy -PackageRoot $packageRoot -ReleaseId $releaseId -Confirm:$false)
+$apply | ForEach-Object { Write-Host $_ }
+if ($apply -notcontains 'PORTAL_RELEASE_DEPLOYED_AND_HEALTHY') {
+    throw 'Portal healthy marker was not returned. Stop and inspect rollback output; do not rerun blindly.'
+}
+
+foreach ($uri in @(
+    'https://hub.son4l.local/api/health',
+    'https://hub.son4l.local/project-tracker-api/api/health'
+)) {
+    $response = Invoke-WebRequest -UseBasicParsing -UseDefaultCredentials -Uri $uri -TimeoutSec 30
+    if ($response.StatusCode -ne 200) { throw "$uri returned HTTP $($response.StatusCode)." }
+    Write-Host "HTTP 200 $uri" -ForegroundColor Green
+}
+```
+
+The default immutable Portal destination is
+`C:\SonAero\releases\portal\<release-id>`. The script preserves the active Portal production JSON
+byte-for-byte, never stops the Portal site or Project Tracker gateway pool, never changes the
+gateway physical path or authentication, and retains a failed candidate for diagnosis. Automatic
+rollback output, rollback verification failure, or an absent success marker is a hard stop.
+
 ## 2. Secure and complete the retained pilot rollback surface once
 
 Before any pilot rollback/retirement or permanent binding work, migrate the already-deployed legacy

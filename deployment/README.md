@@ -123,6 +123,21 @@ do not rerun the command, recycle pools, change IIS paths, or delete the retaine
 Capture the complete output and diagnose the retained candidate first. See the Project Tracker-only
 procedure in [production-hostname-https.md](production-hostname-https.md).
 
+When a release changes **only the Portal root**, use `Deploy-PortalRelease.ps1`. It reads only the
+`Portal` folder from a fresh `Publish-Hub.ps1` staging root, preserves the active Portal
+`appsettings.Production.json` byte-for-byte, and switches only the Portal root virtual-directory
+path. The `SonAeroPortal` site and dedicated Project Tracker gateway pool remain started; the
+gateway path and its Anonymous=False/Windows=True authentication boundary are verified unchanged.
+The transaction stops and starts only the Portal root pool and restores the exact prior root path
+if root or gateway verification fails.
+
+For a compatible release containing both Project Tracker and Portal changes, publish once, deploy
+Project Tracker first, and require its healthy marker before deploying the Portal root from the
+same staging package. This leaves the existing Portal compatible if the Project Tracker transaction
+fails and avoids health-gating deferred modules. Require `WHATIF_READY_PORTAL_RELEASE` from the
+Portal preview and `PORTAL_RELEASE_DEPLOYED_AND_HEALTHY` from apply. The same automatic-rollback
+stop rule applies: do not rerun blindly or delete the retained candidate.
+
 The default publish is intentionally topology-neutral: the same immutable frontend bundle resolves
 permanent hostnames to `https://hub.son4l.local`, HTTP endpoints to the 51xx topology, and retained
 HTTPS pilot endpoints to the 61xx topology at runtime. Publish-time Hub/module origin overrides are

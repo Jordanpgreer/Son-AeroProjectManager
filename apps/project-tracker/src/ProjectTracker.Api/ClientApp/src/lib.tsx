@@ -304,7 +304,7 @@ export function screenEyebrow(screen: Screen) {
   if (screen === 'project') return 'Part No.'
   if (screen === 'calendar') return 'Schedule'
   if (screen === 'pastProjects') return 'Archive'
-  return 'Internal Program Control'
+  return ''
 }
 
 export function screenTitle(screen: Screen, project: ProjectDetail | null) {
@@ -318,7 +318,7 @@ export function screenSubtitle(screen: Screen) {
   if (screen === 'project') return ''
   if (screen === 'calendar') return 'Review operation starts, scheduled finishes, work-center load, and scheduling conflicts.'
   if (screen === 'pastProjects') return 'Completed programs with optional access to hidden archived records.'
-  return 'Active development programs, target dates, and schedule risk across the work queue.'
+  return ''
 }
 
 export function readStoredScreen(): Screen {

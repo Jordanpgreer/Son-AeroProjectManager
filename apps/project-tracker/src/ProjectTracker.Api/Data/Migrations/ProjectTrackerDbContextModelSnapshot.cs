@@ -664,6 +664,9 @@ namespace ProjectTracker.Api.Data.Migrations
                     b.Property<DateOnly?>("ScheduledDate")
                         .HasColumnType("date");
 
+                    b.Property<DateOnly?>("SnoozedUntil")
+                        .HasColumnType("date");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(240)

@@ -95,7 +95,10 @@ public sealed class ScheduleCalculator
                 : TaskScheduleStatus.Complete;
         }
 
-        if (durationOverrun == true)
+        var hasStarted = task.PercentComplete > 0m
+            || task.StartDateLocked
+            || task.StartDate is not null && today >= task.StartDate.Value;
+        if (durationOverrun == true && hasStarted)
         {
             return TaskScheduleStatus.Behind;
         }

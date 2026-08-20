@@ -11,6 +11,7 @@ import {
   ChevronDown,
   Check,
   CheckCheck,
+  Clock3,
   FileSpreadsheet,
   FileText,
   History,
@@ -55,8 +56,21 @@ function isScheduleConfirmation(notification: MentionNotification) {
     || notification.kind === 'OperationFinishConfirmation'
 }
 
+function isScheduleResponse(notification: MentionNotification) {
+  return notification.kind === 'OperationStartResponse'
+    || notification.kind === 'OperationFinishResponse'
+}
+
+function isScheduleNotification(notification: MentionNotification) {
+  return isScheduleConfirmation(notification) || isScheduleResponse(notification)
+}
+
 function scheduleConfirmationLabel(notification: MentionNotification) {
   return notification.kind === 'OperationFinishConfirmation' ? 'Yes, it finished' : 'Yes, it started'
+}
+
+function scheduleDeclineLabel(notification: MentionNotification) {
+  return notification.kind === 'OperationFinishConfirmation' ? 'No, not finished' : 'No, not started'
 }
 
 function UserProfile({ user }: { user: User | null }) {
@@ -196,7 +210,7 @@ function NotificationsMenu({
   const [error, setError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionMessage, setActionMessage] = useState<string | null>(null)
-  const [confirmingNotificationId, setConfirmingNotificationId] = useState<number | null>(null)
+  const [scheduleActionNotificationId, setScheduleActionNotificationId] = useState<number | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const knownNotificationIdsRef = useRef<Set<number>>(new Set())
   const notificationsInitializedRef = useRef(false)
@@ -248,7 +262,7 @@ function NotificationsMenu({
     setError(null)
     setActionError(null)
     setActionMessage(null)
-    setConfirmingNotificationId(null)
+    setScheduleActionNotificationId(null)
     setLoading(false)
     notificationRequestGenerationRef.current += 1
     knownNotificationIdsRef.current = new Set()
@@ -303,25 +317,49 @@ function NotificationsMenu({
     }
   }
 
-  const confirmScheduleNotification = async (notification: MentionNotification) => {
-    if (!isScheduleConfirmation(notification) || confirmingNotificationId !== null) return
+  const respondToScheduleNotification = async (notification: MentionNotification, response: 'Yes' | 'No') => {
+    if (!isScheduleConfirmation(notification) || scheduleActionNotificationId !== null) return
     setActionError(null)
     setActionMessage(null)
-    setConfirmingNotificationId(notification.id)
+    setScheduleActionNotificationId(notification.id)
     try {
-      await api<void>(`/api/notifications/${notification.id}/confirm`, { method: 'POST' })
+      await api<void>(`/api/notifications/${notification.id}/respond`, {
+        method: 'POST',
+        body: JSON.stringify({ response }),
+      })
       setNotifications((current) => current.filter((item) => item.id !== notification.id))
       dismissToast(notification.id)
       knownNotificationIdsRef.current.delete(notification.id)
-      setActionMessage(notification.kind === 'OperationFinishConfirmation'
-        ? `${notification.operationName || 'Operation'} was marked complete.`
-        : `${notification.operationName || 'Operation'} will now update progress automatically each workday.`)
+      setActionMessage(response === 'No'
+        ? `${notification.operationName || 'Operation'} was reported as not ${notification.kind === 'OperationFinishConfirmation' ? 'finished' : 'started'}.`
+        : notification.kind === 'OperationFinishConfirmation'
+          ? `${notification.operationName || 'Operation'} was marked complete.`
+          : `${notification.operationName || 'Operation'} will now update progress automatically each workday.`)
       await loadNotifications()
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : 'That schedule confirmation could not be saved. Please try again.')
+      setActionError(cause instanceof Error ? cause.message : 'That response could not be saved. Please try again.')
       await loadNotifications()
     } finally {
-      setConfirmingNotificationId(null)
+      setScheduleActionNotificationId(null)
+    }
+  }
+
+  const snoozeScheduleNotification = async (notification: MentionNotification) => {
+    if (!isScheduleConfirmation(notification) || scheduleActionNotificationId !== null) return
+    setActionError(null)
+    setActionMessage(null)
+    setScheduleActionNotificationId(notification.id)
+    try {
+      await api<void>(`/api/notifications/${notification.id}/snooze`, { method: 'POST' })
+      setNotifications((current) => current.filter((item) => item.id !== notification.id))
+      dismissToast(notification.id)
+      knownNotificationIdsRef.current.delete(notification.id)
+      setActionMessage(`We'll ask about ${notification.operationName || 'this operation'} again tomorrow.`)
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : 'That reminder could not be snoozed. Please try again.')
+      await loadNotifications()
+    } finally {
+      setScheduleActionNotificationId(null)
     }
   }
 
@@ -454,7 +492,7 @@ function NotificationsMenu({
               </div>
             ) : notifications.map((notification) => (
               <div
-                className={`notification-item ${notification.readAt ? '' : 'unread'} ${isScheduleConfirmation(notification) ? 'schedule-confirmation' : ''}`}
+                className={`notification-item ${notification.readAt ? '' : 'unread'} ${isScheduleNotification(notification) ? 'schedule-confirmation' : ''}`}
                 key={notification.id}
               >
                 <button
@@ -462,8 +500,8 @@ function NotificationsMenu({
                   className="notification-item-open"
                   onClick={() => void openNotification(notification)}
                 >
-                  <span className={`notification-source ${isScheduleConfirmation(notification) ? 'schedule' : notification.kind === 'OperationNoteMention' ? 'note' : 'chat'}`}>
-                    {isScheduleConfirmation(notification)
+                  <span className={`notification-source ${isScheduleNotification(notification) ? 'schedule' : notification.kind === 'OperationNoteMention' ? 'note' : 'chat'}`}>
+                    {isScheduleNotification(notification)
                       ? <CalendarCheck2 size={14} />
                       : notification.kind === 'OperationNoteMention' ? <StickyNote size={14} /> : <MessageSquare size={14} />}
                   </span>
@@ -493,11 +531,29 @@ function NotificationsMenu({
                     <button
                       className="button primary"
                       type="button"
-                      onClick={() => void confirmScheduleNotification(notification)}
-                      disabled={confirmingNotificationId !== null}
+                      onClick={() => void respondToScheduleNotification(notification, 'Yes')}
+                      disabled={scheduleActionNotificationId !== null}
                     >
                       <Check size={14} aria-hidden="true" />
-                      {confirmingNotificationId === notification.id ? 'Saving...' : scheduleConfirmationLabel(notification)}
+                      {scheduleActionNotificationId === notification.id ? 'Saving...' : scheduleConfirmationLabel(notification)}
+                    </button>
+                    <button
+                      className="button ghost"
+                      type="button"
+                      onClick={() => void respondToScheduleNotification(notification, 'No')}
+                      disabled={scheduleActionNotificationId !== null}
+                    >
+                      <X size={14} aria-hidden="true" />
+                      {scheduleDeclineLabel(notification)}
+                    </button>
+                    <button
+                      className="button ghost"
+                      type="button"
+                      onClick={() => void snoozeScheduleNotification(notification)}
+                      disabled={scheduleActionNotificationId !== null}
+                    >
+                      <Clock3 size={14} aria-hidden="true" />
+                      Snooze 1 day
                     </button>
                     <button className="button ghost" type="button" onClick={() => void openNotification(notification)}>
                       Review operation
@@ -517,10 +573,13 @@ function NotificationsMenu({
               notification={notification}
               onDismiss={() => dismissToast(notification.id)}
               onOpen={() => void openNotification(notification)}
-              onConfirm={isScheduleConfirmation(notification)
-                ? () => void confirmScheduleNotification(notification)
+              onRespond={isScheduleConfirmation(notification)
+                ? (response) => void respondToScheduleNotification(notification, response)
                 : undefined}
-              confirming={confirmingNotificationId === notification.id}
+              onSnooze={isScheduleConfirmation(notification)
+                ? () => void snoozeScheduleNotification(notification)
+                : undefined}
+              acting={scheduleActionNotificationId === notification.id}
             />
           ))}
         </aside>
@@ -610,14 +669,16 @@ function NotificationToast({
   notification,
   onDismiss,
   onOpen,
-  onConfirm,
-  confirming,
+  onRespond,
+  onSnooze,
+  acting,
 }: {
   notification: MentionNotification
   onDismiss: () => void
   onOpen: () => void
-  onConfirm?: () => void
-  confirming: boolean
+  onRespond?: (response: 'Yes' | 'No') => void
+  onSnooze?: () => void
+  acting: boolean
 }) {
   const dismissRef = useRef(onDismiss)
   dismissRef.current = onDismiss
@@ -627,20 +688,21 @@ function NotificationToast({
   }, [notification.id])
 
   const scheduleConfirmation = isScheduleConfirmation(notification)
-  const destination = (notification.kind === 'OperationNoteMention' || scheduleConfirmation) && notification.operationName
+  const scheduleNotification = isScheduleNotification(notification)
+  const destination = (notification.kind === 'OperationNoteMention' || scheduleNotification) && notification.operationName
     ? `${notification.operationName} in ${notification.projectName}`
     : `project ${notification.projectName}`
 
   return (
-    <article className={`notification-toast ${scheduleConfirmation ? 'schedule-confirmation' : ''}`}>
+    <article className={`notification-toast ${scheduleNotification ? 'schedule-confirmation' : ''}`}>
       <button className="notification-toast-open" type="button" onClick={onOpen}>
-        <span className={`notification-source ${scheduleConfirmation ? 'schedule' : notification.kind === 'OperationNoteMention' ? 'note' : 'chat'}`}>
-          {scheduleConfirmation
+        <span className={`notification-source ${scheduleNotification ? 'schedule' : notification.kind === 'OperationNoteMention' ? 'note' : 'chat'}`}>
+          {scheduleNotification
             ? <CalendarCheck2 size={16} />
             : notification.kind === 'OperationNoteMention' ? <StickyNote size={16} /> : <MessageSquare size={16} />}
         </span>
         <span>
-          <strong>{scheduleConfirmation ? notification.title : `${notification.actorDisplayName} mentioned you`}</strong>
+          <strong>{scheduleNotification ? notification.title : `${notification.actorDisplayName} mentioned you`}</strong>
           <small>{destination}</small>
           {notification.bodyPreview && <span>{notification.bodyPreview}</span>}
         </span>
@@ -648,11 +710,17 @@ function NotificationToast({
       <button className="notification-toast-dismiss" type="button" onClick={onDismiss} aria-label="Dismiss notification">
         <X size={15} />
       </button>
-      {scheduleConfirmation && onConfirm && (
+      {scheduleConfirmation && onRespond && onSnooze && (
         <div className="notification-toast-actions">
-          <button className="button primary" type="button" onClick={onConfirm} disabled={confirming}>
+          <button className="button primary" type="button" onClick={() => onRespond('Yes')} disabled={acting}>
             <Check size={14} aria-hidden="true" />
-            {confirming ? 'Saving...' : scheduleConfirmationLabel(notification)}
+            {acting ? 'Saving...' : scheduleConfirmationLabel(notification)}
+          </button>
+          <button className="button ghost" type="button" onClick={() => onRespond('No')} disabled={acting}>
+            {scheduleDeclineLabel(notification)}
+          </button>
+          <button className="button ghost" type="button" onClick={onSnooze} disabled={acting}>
+            <Clock3 size={14} aria-hidden="true" /> Snooze
           </button>
           <button className="button ghost" type="button" onClick={onOpen}>Review</button>
         </div>
@@ -751,13 +819,14 @@ export function PageHeader({
   const customerPdfHref = `/api/reports/projects/${projectId}/customer.pdf`
   const showExports = screen === 'dashboard' || screen === 'project' || screen === 'pastProjects'
   const showCustomerExport = screen === 'project' && projectId !== undefined
+  const eyebrow = screenEyebrow(screen)
   const subtitle = screenSubtitle(screen)
 
   return (
     <header className="topbar">
       <div className="topbar-title-area">
         <div className="page-title-block">
-          <span className="eyebrow">{screenEyebrow(screen)}</span>
+          {eyebrow && <span className="eyebrow">{eyebrow}</span>}
           <div className="page-title-row">
             <h1 className={screen === 'project' ? 'technical-id' : undefined}>{screenTitle(screen, selectedProject)}</h1>
             {screen === 'project' && selectedProject && hasPermission(user, 'project.activity.view') && (
@@ -770,6 +839,27 @@ export function PageHeader({
         </div>
       </div>
       <div className="topbar-actions">
+        {screen === 'dashboard' && (
+          <label className={`topbar-search topbar-live-filter ${dashboardSearch.trim() ? 'is-active' : ''}`} aria-label="Search and live-filter dashboard projects">
+            <Search size={15} aria-hidden="true" />
+            <input
+              value={dashboardSearch}
+              onChange={(event) => setDashboardSearch(event.target.value)}
+              placeholder="Search part, sales order, or customer"
+            />
+            {dashboardSearch.trim() && <span className="live-filter-indicator" aria-hidden="true">Live</span>}
+          </label>
+        )}
+        {screen === 'pastProjects' && (
+          <label className="topbar-search" aria-label="Search past projects">
+            <Search size={15} aria-hidden="true" />
+            <input
+              value={pastProjectsSearch}
+              onChange={(event) => setPastProjectsSearch(event.target.value)}
+              placeholder="Search completed projects"
+            />
+          </label>
+        )}
         <a
           className="topbar-brand-link"
           href={hubUrl}
@@ -808,29 +898,7 @@ export function PageHeader({
             </div>
           </details>
         )}
-        {screen === 'dashboard' && (
-          <>
-            <label className="topbar-search" aria-label="Search dashboard programs">
-              <Search size={15} />
-              <input
-                value={dashboardSearch}
-                onChange={(event) => setDashboardSearch(event.target.value)}
-                placeholder="Search part, sales order, or customer"
-              />
-            </label>
-            {canCreateProject && <button className="button primary" onClick={onAddProject}><Plus size={15} /> Add Project</button>}
-          </>
-        )}
-        {screen === 'pastProjects' && (
-          <label className="topbar-search" aria-label="Search past projects">
-            <Search size={15} />
-            <input
-              value={pastProjectsSearch}
-              onChange={(event) => setPastProjectsSearch(event.target.value)}
-              placeholder="Search completed projects"
-            />
-          </label>
-        )}
+        {screen === 'dashboard' && canCreateProject && <button className="button primary" onClick={onAddProject}><Plus size={15} /> Add Project</button>}
       </div>
     </header>
   )

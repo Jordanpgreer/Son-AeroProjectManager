@@ -160,6 +160,104 @@ public static class NotificationEndpoints
             };
         });
 
+        api.MapPost("/notifications/{id:int}/respond", async (
+            int id,
+            OperationScheduleResponseDto dto,
+            HttpRequest request,
+            ProjectTrackerDbContext db,
+            CurrentUserService currentUser,
+            OperationScheduleReminderService reminders,
+            CancellationToken cancellationToken) =>
+        {
+            if (!HasMutationJsonContentType(request))
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status415UnsupportedMediaType,
+                    title: "application/json is required.");
+            }
+
+            if (currentUser.IsAccessPreview)
+            {
+                return Results.Forbid();
+            }
+
+            var userId = await CurrentUserIdAsync(db, currentUser, cancellationToken);
+            if (userId is null)
+            {
+                return Results.Forbid();
+            }
+
+            var response = string.Equals(dto.Response, nameof(OperationScheduleResponse.Yes), StringComparison.OrdinalIgnoreCase)
+                ? OperationScheduleResponse.Yes
+                : string.Equals(dto.Response, nameof(OperationScheduleResponse.No), StringComparison.OrdinalIgnoreCase)
+                    ? OperationScheduleResponse.No
+                    : (OperationScheduleResponse?)null;
+            if (response is null)
+            {
+                return Results.BadRequest(new { message = "Response must be Yes or No." });
+            }
+
+            var result = await reminders.RespondAsync(
+                id,
+                userId.Value,
+                currentUser.HasPermission(ProjectTracker.Api.Auth.ProjectTrackerPermissions.OperationScheduleConfirm),
+                currentUser.AccountName,
+                currentUser.DisplayName,
+                response.Value,
+                DateOnly.FromDateTime(DateTime.Today),
+                cancellationToken);
+            return result.Status switch
+            {
+                OperationScheduleConfirmationStatus.Confirmed => Results.NoContent(),
+                OperationScheduleConfirmationStatus.AlreadyConfirmed => Results.NoContent(),
+                OperationScheduleConfirmationStatus.Forbidden => Results.Forbid(),
+                OperationScheduleConfirmationStatus.NotFound => Results.NotFound(),
+                _ => Results.Conflict("This reminder no longer matches the operation schedule. Refresh notifications and try again.")
+            };
+        });
+
+        api.MapPost("/notifications/{id:int}/snooze", async (
+            int id,
+            HttpRequest request,
+            ProjectTrackerDbContext db,
+            CurrentUserService currentUser,
+            OperationScheduleReminderService reminders,
+            CancellationToken cancellationToken) =>
+        {
+            if (!HasMutationJsonContentType(request))
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status415UnsupportedMediaType,
+                    title: "application/json is required.");
+            }
+
+            if (currentUser.IsAccessPreview)
+            {
+                return Results.Forbid();
+            }
+
+            var userId = await CurrentUserIdAsync(db, currentUser, cancellationToken);
+            if (userId is null)
+            {
+                return Results.Forbid();
+            }
+
+            var result = await reminders.SnoozeAsync(
+                id,
+                userId.Value,
+                currentUser.HasPermission(ProjectTracker.Api.Auth.ProjectTrackerPermissions.OperationScheduleConfirm),
+                DateOnly.FromDateTime(DateTime.Today),
+                cancellationToken);
+            return result.Status switch
+            {
+                OperationScheduleConfirmationStatus.Snoozed => Results.NoContent(),
+                OperationScheduleConfirmationStatus.AlreadyConfirmed => Results.NoContent(),
+                OperationScheduleConfirmationStatus.Forbidden => Results.Forbid(),
+                OperationScheduleConfirmationStatus.NotFound => Results.NotFound(),
+                _ => Results.Conflict("This reminder no longer matches the operation schedule. Refresh notifications and try again.")
+            };
+        });
+
         api.MapDelete("/notifications/{id:int}", async (
             int id,
             ProjectTrackerDbContext db,

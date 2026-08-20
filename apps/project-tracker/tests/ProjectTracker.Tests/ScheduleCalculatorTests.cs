@@ -164,6 +164,40 @@ public sealed class ScheduleCalculatorTests
     }
 
     [Fact]
+    public void CalculateTaskStatus_KeepsFutureOverrunOperationNotStarted()
+    {
+        var task = new ProjectTask
+        {
+            Title = "Future long-running build",
+            StartDate = new DateOnly(2026, 8, 24),
+            EstimatedDuration = 5,
+            ActualDuration = 4,
+            PercentComplete = 0m
+        };
+
+        var status = calculator.CalculateTaskStatus(task, ScheduleCalendar.Default, new DateOnly(2026, 8, 20));
+
+        Assert.Equal(TaskScheduleStatus.NotStarted, status);
+    }
+
+    [Fact]
+    public void CalculateTaskStatus_MarksOverrunOperationBehindWhenItsStartDateArrives()
+    {
+        var task = new ProjectTask
+        {
+            Title = "Starting long-running build",
+            StartDate = new DateOnly(2026, 8, 24),
+            EstimatedDuration = 5,
+            ActualDuration = 4,
+            PercentComplete = 0m
+        };
+
+        var status = calculator.CalculateTaskStatus(task, ScheduleCalendar.Default, new DateOnly(2026, 8, 24));
+
+        Assert.Equal(TaskScheduleStatus.Behind, status);
+    }
+
+    [Fact]
     public void CalculateTaskStatus_RetainsCompletedLateWhenOverrunOperationIsComplete()
     {
         var task = new ProjectTask

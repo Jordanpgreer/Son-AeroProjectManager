@@ -15,6 +15,7 @@ import {
   EyeOff,
   LoaderCircle,
   RefreshCw,
+  Search,
   Trash2,
   UserRoundCheck,
 } from 'lucide-react'
@@ -35,6 +36,7 @@ import type {
   User,
 } from '../types'
 import { buildPersonalPriorityRanks, isProjectAssignedToUser } from './dashboard-priority'
+import { HighlightedText } from './highlighted-text'
 import { PermanentDeleteProjectDialog } from './permanent-delete-project-dialog'
 import {
   Kpi,
@@ -74,7 +76,8 @@ export function DashboardView({
   const myProjects = active.filter((project) => isProjectAssignedToUser(project, currentUser))
   const personalPriorityRanks = buildPersonalPriorityRanks(myProjects)
   const scopedProjects = myProjectsOnly ? myProjects : active
-  const query = search.trim().toLowerCase()
+  const normalizedQuery = search.trim()
+  const query = normalizedQuery.toLocaleLowerCase()
   const filtered = query
     ? scopedProjects.filter((project) =>
       project.programName.toLowerCase().includes(query) ||
@@ -156,6 +159,12 @@ export function DashboardView({
             <h2>Development Queue</h2>
           </div>
           <div className="dashboard-head-tools">
+            {normalizedQuery && (
+              <p className="dashboard-filter-status" role="status" aria-live="polite">
+                <Search size={13} aria-hidden="true" />
+                <span>{total} matching project{total === 1 ? '' : 's'} for <mark>{normalizedQuery}</mark></span>
+              </p>
+            )}
             <button
               type="button"
               className={`my-projects-filter ${myProjectsOnly ? 'active' : ''}`}
@@ -190,6 +199,7 @@ export function DashboardView({
             canReorderPriority={canReorderPriority && !myProjectsOnly}
             personalPriorityRanks={myProjectsOnly ? personalPriorityRanks : null}
             sort={sort}
+            query={normalizedQuery}
             onSort={handleSort}
             onOpenProject={onOpenProject}
             onMovePriority={onMovePriority}
@@ -576,6 +586,7 @@ export function PortfolioTable({
   canReorderPriority,
   personalPriorityRanks,
   sort,
+  query,
   onSort,
   onOpenProject,
   onMovePriority,
@@ -585,6 +596,7 @@ export function PortfolioTable({
   canReorderPriority: boolean
   personalPriorityRanks: Map<number, number> | null
   sort: DashboardSort
+  query: string
   onSort: (field: DashboardSortField) => void
   onOpenProject: (projectId: number) => Promise<void>
   onMovePriority: (projectId: number, priorityRank: number) => Promise<void>
@@ -614,7 +626,17 @@ export function PortfolioTable({
                 <PriorityControl rank={project.priorityRank} personalRank={personalPriorityRanks?.get(project.id)} maxPriority={maxPriority} canReorderPriority={canReorderPriority} programName={project.programName} onMove={(rank) => onMovePriority(project.id, rank)} />
               </td>
               <td>
-                <span className="mono-id">{project.programName}</span>
+                <span className="mono-id"><HighlightedText value={project.programName} query={query} /></span>
+                {(project.salesOrderNumber || project.customerName) && (
+                  <span className="dashboard-project-refs">
+                    {project.salesOrderNumber && (
+                      <span><small>SO</small><HighlightedText value={project.salesOrderNumber} query={query} /></span>
+                    )}
+                    {project.customerName && (
+                      <span><HighlightedText value={project.customerName} query={query} /></span>
+                    )}
+                  </span>
+                )}
               </td>
               <td className="cell-op">{project.currentTask ?? '—'}</td>
               <td className="cell-muted">{project.programManager ?? '—'}</td>

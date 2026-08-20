@@ -17,6 +17,7 @@ public sealed class UserNotification
     public string Title { get; set; } = string.Empty;
     public string BodyPreview { get; set; } = string.Empty;
     public DateOnly? ScheduledDate { get; set; }
+    public DateOnly? SnoozedUntil { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? ReadAt { get; set; }
     public DateTimeOffset? RespondedAt { get; set; }

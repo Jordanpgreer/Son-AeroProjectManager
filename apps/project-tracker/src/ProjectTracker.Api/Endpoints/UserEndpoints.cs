@@ -140,76 +140,11 @@ public static class UserEndpoints
             return Results.Ok(await ToRegisteredUserDtoAsync(db, user.Id, cancellationToken));
         }).RequireAuthorization("ManageUsers");
 
-        api.MapPost("/admin/groups", async (AccessGroupUpsertDto dto, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
-        {
-            var name = dto.Name.Trim();
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                return Results.BadRequest("Group name is required.");
-            }
+        api.MapPost("/admin/groups", CreateGroupAsync).RequireAuthorization("ManageGroups");
 
-            if (await db.Groups.AnyAsync(group => group.Name == name, cancellationToken))
-            {
-                return Results.Conflict("A group with that name already exists.");
-            }
+        api.MapPut("/admin/groups/{id:int}", UpdateGroupAsync).RequireAuthorization("ManageGroups");
 
-            var permissions = NormalizePermissions(dto.Permissions);
-            if (!CanHoldAdministratorOnlyPermissions(name, permissions))
-            {
-                return Results.BadRequest("Administrator-only permissions can only be assigned to the Administrators group.");
-            }
-            var group = new AppGroup
-            {
-                Name = name,
-                Description = Clean(dto.Description),
-                IsSystemGroup = dto.IsSystemGroup
-            };
-            foreach (var permission in permissions)
-            {
-                group.Permissions.Add(new AppGroupPermission { PermissionKey = permission });
-            }
-
-            db.Groups.Add(group);
-            await db.SaveChangesAsync(cancellationToken);
-            return Results.Created($"/api/admin/groups/{group.Id}", await ToAccessGroupDtoAsync(db, group.Id, cancellationToken));
-        }).RequireAuthorization("ManageGroups");
-
-        api.MapPut("/admin/groups/{id:int}", async (int id, AccessGroupUpsertDto dto, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
-        {
-            var group = await db.Groups
-                .Include(candidate => candidate.Permissions)
-                .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
-            if (group is null)
-            {
-                return Results.NotFound();
-            }
-
-            if (!string.Equals(group.Name, dto.Name.Trim(), StringComparison.OrdinalIgnoreCase)
-                && await db.Groups.AnyAsync(candidate => candidate.Id != id && candidate.Name == dto.Name.Trim(), cancellationToken))
-            {
-                return Results.Conflict("Another group already uses that name.");
-            }
-
-            var name = dto.Name.Trim();
-            var permissions = NormalizePermissions(dto.Permissions);
-            if (!CanHoldAdministratorOnlyPermissions(name, permissions))
-            {
-                return Results.BadRequest("Administrator-only permissions can only be assigned to the Administrators group.");
-            }
-
-            group.Name = name;
-            group.Description = Clean(dto.Description);
-            group.IsSystemGroup = dto.IsSystemGroup;
-            group.UpdatedAt = DateTimeOffset.UtcNow;
-            ReplacePermissions(group, permissions);
-            if (!await HasActiveAccessManagerAsync(db, cancellationToken))
-            {
-                return Results.BadRequest("At least one active user must retain both user-management and group-management access.");
-            }
-            await db.SaveChangesAsync(cancellationToken);
-            await SyncLegacyRolesForGroupAsync(db, group.Id, cancellationToken);
-            return Results.Ok(await ToAccessGroupDtoAsync(db, group.Id, cancellationToken));
-        }).RequireAuthorization("ManageGroups");
+        api.MapDelete("/admin/groups/{id:int}", DeleteGroupAsync).RequireAuthorization("ManageGroups");
 
         return api;
     }
@@ -369,6 +304,149 @@ public static class UserEndpoints
         return Results.Ok(await ToRegisteredUserDtoAsync(db, user.Id, cancellationToken));
     }
 
+    public static async Task<IResult> CreateGroupAsync(
+        AccessGroupUpsertDto dto,
+        ProjectTrackerDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var validationError = ValidateGroup(dto, creating: true);
+        if (validationError is not null)
+        {
+            return Results.BadRequest(validationError);
+        }
+
+        var name = dto.Name!.Trim();
+        var normalizedName = name.ToUpper();
+        if (await db.Groups.AnyAsync(group => group.Name.ToUpper() == normalizedName, cancellationToken))
+        {
+            return Results.Conflict("A group with that name already exists.");
+        }
+
+        if (!TryNormalizePermissions(dto.Permissions!, out var permissions, out var permissionError))
+        {
+            return Results.BadRequest(permissionError);
+        }
+
+        if (!CanHoldAdministratorOnlyPermissions(name, permissions))
+        {
+            return Results.BadRequest("Administrator-only permissions can only be assigned to the Administrators group.");
+        }
+
+        var group = new AppGroup
+        {
+            Name = name,
+            Description = Clean(dto.Description),
+            IsSystemGroup = false
+        };
+        foreach (var permission in permissions)
+        {
+            group.Permissions.Add(new AppGroupPermission { PermissionKey = permission });
+        }
+
+        db.Groups.Add(group);
+        await db.SaveChangesAsync(cancellationToken);
+        return Results.Created(
+            $"/api/admin/groups/{group.Id}",
+            await ToAccessGroupDtoAsync(db, group.Id, cancellationToken));
+    }
+
+    public static async Task<IResult> UpdateGroupAsync(
+        int id,
+        AccessGroupUpsertDto dto,
+        ProjectTrackerDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var validationError = ValidateGroup(dto, creating: false);
+        if (validationError is not null)
+        {
+            return Results.BadRequest(validationError);
+        }
+
+        var group = await db.Groups
+            .Include(candidate => candidate.Permissions)
+            .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+        if (group is null)
+        {
+            return Results.NotFound();
+        }
+
+        var name = dto.Name!.Trim();
+        if (dto.IsSystemGroup != group.IsSystemGroup)
+        {
+            return Results.BadRequest("The system-group setting cannot be changed through access administration.");
+        }
+
+        if (group.IsSystemGroup && !string.Equals(group.Name, name, StringComparison.Ordinal))
+        {
+            return Results.BadRequest("System groups cannot be renamed.");
+        }
+
+        var normalizedName = name.ToUpper();
+        if (!string.Equals(group.Name, name, StringComparison.OrdinalIgnoreCase)
+            && await db.Groups.AnyAsync(
+                candidate => candidate.Id != id && candidate.Name.ToUpper() == normalizedName,
+                cancellationToken))
+        {
+            return Results.Conflict("Another group already uses that name.");
+        }
+
+        if (!TryNormalizePermissions(dto.Permissions!, out var permissions, out var permissionError))
+        {
+            return Results.BadRequest(permissionError);
+        }
+
+        if (!CanHoldAdministratorOnlyPermissions(name, permissions))
+        {
+            return Results.BadRequest("Administrator-only permissions can only be assigned to the Administrators group.");
+        }
+
+        group.Name = name;
+        group.Description = Clean(dto.Description);
+        group.UpdatedAt = DateTimeOffset.UtcNow;
+        ReplacePermissions(group, permissions);
+        if (!await HasActiveAccessManagerAsync(db, cancellationToken))
+        {
+            return Results.BadRequest("At least one active user must retain both user-management and group-management access.");
+        }
+        await db.SaveChangesAsync(cancellationToken);
+        await SyncLegacyRolesForGroupAsync(db, group.Id, cancellationToken);
+        return Results.Ok(await ToAccessGroupDtoAsync(db, group.Id, cancellationToken));
+    }
+
+    public static async Task<IResult> DeleteGroupAsync(
+        int id,
+        ProjectTrackerDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var group = await db.Groups
+            .Include(candidate => candidate.UserMemberships)
+            .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+        if (group is null)
+        {
+            return Results.NotFound();
+        }
+
+        if (group.IsSystemGroup)
+        {
+            return Results.Conflict(new AccessGroupDeleteConflictDto(
+                "SystemGroup",
+                $"{group.Name} is a protected system group and cannot be deleted.",
+                group.UserMemberships.Count));
+        }
+
+        if (group.UserMemberships.Count > 0)
+        {
+            return Results.Conflict(new AccessGroupDeleteConflictDto(
+                "GroupInUse",
+                "Move or remove every user assigned to this group before deleting it.",
+                group.UserMemberships.Count));
+        }
+
+        db.Groups.Remove(group);
+        await db.SaveChangesAsync(cancellationToken);
+        return Results.NoContent();
+    }
+
     public static async Task TouchLastSeenAsync(
         ProjectTrackerDbContext db,
         int userId,
@@ -462,21 +540,35 @@ public static class UserEndpoints
          && !permissions.Contains(ProjectTrackerPermissions.ArchivedDelete, StringComparer.OrdinalIgnoreCase))
         || string.Equals(groupName, ApplicationGroups.Administrators, StringComparison.OrdinalIgnoreCase);
 
-    private static List<string> NormalizePermissions(IReadOnlyList<string> permissions)
+    private static bool TryNormalizePermissions(
+        IReadOnlyList<string> permissions,
+        out List<string> normalizedPermissions,
+        out string error)
     {
         var validKeys = UnifiedPermissionDefinitions()
             .Select(permission => permission.Key)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(key => key, key => key, StringComparer.OrdinalIgnoreCase);
+        var blankPermission = permissions.Any(string.IsNullOrWhiteSpace);
+        if (blankPermission)
+        {
+            normalizedPermissions = [];
+            error = "Permission keys cannot be blank.";
+            return false;
+        }
+
         var invalid = permissions
-            .Where(permission => !validKeys.Contains(permission))
+            .Where(permission => !validKeys.ContainsKey(permission))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         if (invalid.Count > 0)
         {
-            throw new BadHttpRequestException($"Unknown permission key(s): {string.Join(", ", invalid)}");
+            normalizedPermissions = [];
+            error = $"Unknown permission key(s): {string.Join(", ", invalid)}";
+            return false;
         }
 
         var normalized = permissions
+            .Select(permission => validKeys[permission])
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         normalized.UnionWith(EngineeringPermissions.Expand(
@@ -492,7 +584,20 @@ public static class UserEndpoints
                 normalized.Add("estimating.calculate");
         }
 
-        return normalized.OrderBy(permission => permission, StringComparer.OrdinalIgnoreCase).ToList();
+        normalizedPermissions = normalized.OrderBy(permission => permission, StringComparer.OrdinalIgnoreCase).ToList();
+        error = string.Empty;
+        return true;
+    }
+
+    private static string? ValidateGroup(AccessGroupUpsertDto dto, bool creating)
+    {
+        var name = dto.Name?.Trim() ?? string.Empty;
+        if (name.Length == 0) return "Group name is required.";
+        if (name.Length > 80) return "Group name cannot exceed 80 characters.";
+        if (Clean(dto.Description)?.Length > 240) return "Group description cannot exceed 240 characters.";
+        if (dto.Permissions is null) return "Permissions are required. Use an empty list when the group should have no permissions.";
+        if (creating && dto.IsSystemGroup) return "System groups can only be created by system initialization.";
+        return null;
     }
 
     private static IReadOnlyList<PermissionDefinitionDto> UnifiedPermissionDefinitions()

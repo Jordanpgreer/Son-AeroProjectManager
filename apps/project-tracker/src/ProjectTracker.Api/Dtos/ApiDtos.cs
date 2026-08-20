@@ -92,7 +92,12 @@ public sealed record RegisteredUserUpsertDto(string AccountName, string? Display
 
 public sealed record UserGroupAssignmentDto(IReadOnlyList<int> GroupIds);
 
-public sealed record AccessGroupUpsertDto(string Name, string? Description, bool IsSystemGroup, IReadOnlyList<string> Permissions);
+public sealed record AccessGroupUpsertDto(string? Name, string? Description, bool IsSystemGroup, IReadOnlyList<string>? Permissions);
+
+public sealed record AccessGroupDeleteConflictDto(
+    string Code,
+    string Message,
+    int UserCount);
 
 public sealed record DashboardDto(
     int ActiveProjects,
@@ -305,6 +310,8 @@ public sealed record UserNotificationDto(
     DateTimeOffset? ReadAt);
 
 public sealed record NotificationCountDto(int UnreadCount);
+
+public sealed record OperationScheduleResponseDto(string Response);
 
 public sealed record ProjectAuditChangeDto(string Field, string? OldValue, string? NewValue);
 

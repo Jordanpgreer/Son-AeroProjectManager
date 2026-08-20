@@ -296,6 +296,8 @@ export type MentionNotificationKind =
   | 'OperationNoteMention'
   | 'OperationStartConfirmation'
   | 'OperationFinishConfirmation'
+  | 'OperationStartResponse'
+  | 'OperationFinishResponse'
 
 export type MentionNotification = {
   id: number

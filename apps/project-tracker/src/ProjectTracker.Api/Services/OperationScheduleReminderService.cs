@@ -12,10 +12,17 @@ namespace ProjectTracker.Api.Services;
 public enum OperationScheduleConfirmationStatus
 {
     Confirmed,
+    Snoozed,
     AlreadyConfirmed,
     NotFound,
     Forbidden,
     Stale
+}
+
+public enum OperationScheduleResponse
+{
+    Yes,
+    No
 }
 
 public sealed record OperationScheduleConfirmationResult(
@@ -42,6 +49,7 @@ public sealed class OperationScheduleReminderService(
         bool retryUniqueConflict,
         CancellationToken cancellationToken)
     {
+        var awakened = await WakeDueSnoozesAsync(today, cancellationToken);
         var calendar = await LoadCalendarAsync(cancellationToken);
         var scheduledDate = scheduleCalculator.PreviousWorkingDay(today, calendar);
         var recipientIds = await db.Users
@@ -56,7 +64,7 @@ public sealed class OperationScheduleReminderService(
             .ToListAsync(cancellationToken);
         if (recipientIds.Count == 0)
         {
-            return 0;
+            return awakened;
         }
 
         var tasks = await db.Tasks
@@ -70,7 +78,7 @@ public sealed class OperationScheduleReminderService(
             .ToListAsync(cancellationToken);
         if (tasks.Count == 0)
         {
-            return 0;
+            return awakened;
         }
 
         var taskIds = tasks.Select(task => task.Id).ToArray();
@@ -110,7 +118,7 @@ public sealed class OperationScheduleReminderService(
 
         if (created.Count == 0)
         {
-            return 0;
+            return awakened;
         }
 
         db.UserNotifications.AddRange(created);
@@ -129,7 +137,7 @@ public sealed class OperationScheduleReminderService(
                 db.Entry(notification).State = EntityState.Detached;
             }
 
-            return await EnsureRemindersAsync(today, retryUniqueConflict: false, cancellationToken);
+            return awakened + await EnsureRemindersAsync(today, retryUniqueConflict: false, cancellationToken);
         }
 
         foreach (var notification in created)
@@ -137,7 +145,7 @@ public sealed class OperationScheduleReminderService(
             pushQueue.TryEnqueue(notification.Id);
         }
 
-        return created.Count;
+        return awakened + created.Count;
     }
 
     public async Task<OperationScheduleConfirmationResult> ConfirmAsync(
@@ -146,6 +154,25 @@ public sealed class OperationScheduleReminderService(
         bool hasPermission,
         string actorAccountName,
         string actorDisplayName,
+        DateOnly today,
+        CancellationToken cancellationToken = default)
+        => await RespondAsync(
+            notificationId,
+            recipientUserId,
+            hasPermission,
+            actorAccountName,
+            actorDisplayName,
+            OperationScheduleResponse.Yes,
+            today,
+            cancellationToken);
+
+    public async Task<OperationScheduleConfirmationResult> RespondAsync(
+        int notificationId,
+        int recipientUserId,
+        bool hasPermission,
+        string actorAccountName,
+        string actorDisplayName,
+        OperationScheduleResponse response,
         DateOnly today,
         CancellationToken cancellationToken = default)
     {
@@ -187,9 +214,11 @@ public sealed class OperationScheduleReminderService(
             || task.Project.DeletedAt is not null
             || task.Project.CompletedOn is not null
             || (notification.Kind == NotificationKind.OperationStartConfirmation
-                && task.StartDate != scheduledDate)
+                && (task.StartDate != scheduledDate
+                    || task.PercentComplete > 0m
+                    || !task.PercentCompleteManual))
             || (notification.Kind == NotificationKind.OperationFinishConfirmation
-                && task.EndDate != scheduledDate))
+                && (task.EndDate != scheduledDate || task.PercentComplete >= 1m)))
         {
             return new(OperationScheduleConfirmationStatus.Stale, notification.ProjectId, notification.ProjectTaskId);
         }
@@ -214,47 +243,43 @@ public sealed class OperationScheduleReminderService(
                 notification.ProjectTaskId);
         }
 
+        var isStart = notification.Kind == NotificationKind.OperationStartConfirmation;
         var before = ProjectAuditService.CaptureTask(task);
-        if (notification.Kind == NotificationKind.OperationStartConfirmation)
+        if (response == OperationScheduleResponse.Yes && isStart)
         {
-            if (task.PercentComplete > 0m || !task.PercentCompleteManual)
-            {
-                return new(OperationScheduleConfirmationStatus.Stale, task.ProjectId, task.Id);
-            }
-
             task.StartDateLocked = true;
             task.PercentCompleteManual = false;
         }
-        else
+        else if (response == OperationScheduleResponse.Yes)
         {
-            if (task.PercentComplete >= 1m)
-            {
-                return new(OperationScheduleConfirmationStatus.Stale, task.ProjectId, task.Id);
-            }
-
             task.StartDateLocked = true;
             task.PercentComplete = 1m;
             task.PercentCompleteManual = true;
         }
 
-        task.Version++;
-        task.UpdatedAt = DateTimeOffset.UtcNow;
-        task.Project.Version++;
-        task.Project.UpdatedAt = DateTimeOffset.UtcNow;
-        var calendar = await LoadCalendarAsync(cancellationToken);
-        metrics.RefreshProject(task.Project, calendar, today);
+        if (response == OperationScheduleResponse.Yes)
+        {
+            task.Version++;
+            task.UpdatedAt = DateTimeOffset.UtcNow;
+            task.Project.Version++;
+            task.Project.UpdatedAt = DateTimeOffset.UtcNow;
+            var calendar = await LoadCalendarAsync(cancellationToken);
+            metrics.RefreshProject(task.Project, calendar, today);
+        }
 
         var after = ProjectAuditService.CaptureTask(task);
+        var action = response == OperationScheduleResponse.Yes
+            ? isStart ? "OperationStartConfirmed" : "OperationFinishConfirmed"
+            : isStart ? "OperationStartDeclined" : "OperationFinishDeclined";
+        var outcome = response == OperationScheduleResponse.Yes
+            ? isStart ? "started" : "finished"
+            : isStart ? "did not start" : "did not finish";
         db.ProjectAuditEntries.Add(new ProjectAuditEntry
         {
             Project = task.Project,
             ProjectTaskId = task.Id,
-            Action = notification.Kind == NotificationKind.OperationStartConfirmation
-                ? "OperationStartConfirmed"
-                : "OperationFinishConfirmed",
-            Summary = notification.Kind == NotificationKind.OperationStartConfirmation
-                ? $"Confirmed operation {task.Sequence} started on {scheduledDate:MMM d, yyyy}"
-                : $"Confirmed operation {task.Sequence} finished on {scheduledDate:MMM d, yyyy}",
+            Action = action,
+            Summary = $"Reported operation {task.Sequence} {outcome} on {scheduledDate:MMM d, yyyy}",
             ChangesJson = System.Text.Json.JsonSerializer.Serialize(
                 ProjectAuditService.Diff(before, after),
                 new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)),
@@ -262,10 +287,220 @@ public sealed class OperationScheduleReminderService(
             ChangedByDisplayName = actorDisplayName
         });
 
+        var responseNotifications = await AddResponseNotificationsAsync(
+            task,
+            notification.Kind,
+            response,
+            recipientUserId,
+            actorAccountName,
+            actorDisplayName,
+            scheduledDate.Value,
+            cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        foreach (var responseNotification in responseNotifications)
+        {
+            pushQueue.TryEnqueue(responseNotification.Id);
+        }
+
         return new(OperationScheduleConfirmationStatus.Confirmed, task.ProjectId, task.Id);
     }
+
+    public async Task<OperationScheduleConfirmationResult> SnoozeAsync(
+        int notificationId,
+        int recipientUserId,
+        bool hasPermission,
+        DateOnly today,
+        CancellationToken cancellationToken = default)
+    {
+        if (!hasPermission)
+        {
+            return new(OperationScheduleConfirmationStatus.Forbidden);
+        }
+
+        var notification = await db.UserNotifications
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Include(candidate => candidate.ProjectTask)!
+                .ThenInclude(task => task!.Project)
+            .SingleOrDefaultAsync(candidate =>
+                candidate.Id == notificationId
+                && candidate.RecipientUserId == recipientUserId,
+                cancellationToken);
+        if (notification is null || !IsScheduleConfirmation(notification.Kind))
+        {
+            return new(OperationScheduleConfirmationStatus.NotFound);
+        }
+
+        if (notification.RespondedAt is not null)
+        {
+            return new(
+                OperationScheduleConfirmationStatus.AlreadyConfirmed,
+                notification.ProjectId,
+                notification.ProjectTaskId);
+        }
+
+        var task = notification.ProjectTask;
+        var scheduledDate = notification.ScheduledDate;
+        if (!IsCurrentPrompt(notification, task, scheduledDate))
+        {
+            return new(OperationScheduleConfirmationStatus.Stale, notification.ProjectId, notification.ProjectTaskId);
+        }
+
+        var snoozedUntil = today.AddDays(1);
+        var snoozedAt = DateTimeOffset.UtcNow;
+        var updated = await db.UserNotifications
+            .IgnoreQueryFilters()
+            .Where(candidate =>
+                candidate.Id == notificationId
+                && candidate.RecipientUserId == recipientUserId
+                && candidate.RespondedAt == null)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(candidate => candidate.SnoozedUntil, snoozedUntil)
+                .SetProperty(candidate => candidate.ReadAt, snoozedAt),
+                cancellationToken);
+
+        return updated == 1
+            ? new(OperationScheduleConfirmationStatus.Snoozed, notification.ProjectId, notification.ProjectTaskId)
+            : new(OperationScheduleConfirmationStatus.AlreadyConfirmed, notification.ProjectId, notification.ProjectTaskId);
+    }
+
+    private async Task<IReadOnlyList<UserNotification>> AddResponseNotificationsAsync(
+        ProjectTask task,
+        NotificationKind promptKind,
+        OperationScheduleResponse response,
+        int actorUserId,
+        string actorAccountName,
+        string actorDisplayName,
+        DateOnly scheduledDate,
+        CancellationToken cancellationToken)
+    {
+        var isStart = promptKind == NotificationKind.OperationStartConfirmation;
+        var responseKind = isStart
+            ? NotificationKind.OperationStartResponse
+            : NotificationKind.OperationFinishResponse;
+        var existingRecipientIds = await db.UserNotifications
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(notification =>
+                notification.ProjectTaskId == task.Id
+                && notification.Kind == responseKind
+                && notification.ScheduledDate == scheduledDate)
+            .Select(notification => notification.RecipientUserId)
+            .ToListAsync(cancellationToken);
+        var recipientIds = await EntitledUsers()
+            .Where(user => user.Id != actorUserId && !existingRecipientIds.Contains(user.Id))
+            .Select(user => user.Id)
+            .ToListAsync(cancellationToken);
+        if (recipientIds.Count == 0)
+        {
+            return [];
+        }
+
+        var outcome = response == OperationScheduleResponse.Yes
+            ? isStart ? "started" : "finished"
+            : isStart ? "did not start" : "did not finish";
+        var scheduleLabel = scheduledDate.ToString("dddd, MMMM d", CultureInfo.InvariantCulture);
+        var notifications = recipientIds.Select(recipientUserId => new UserNotification
+        {
+            RecipientUserId = recipientUserId,
+            ProjectId = task.ProjectId,
+            ProjectTaskId = task.Id,
+            Kind = responseKind,
+            ActorAccountName = actorAccountName,
+            ActorDisplayName = actorDisplayName,
+            Title = $"{actorDisplayName} reported {task.Title} {outcome}",
+            BodyPreview = $"{task.Project.ProgramName} · Scheduled {(isStart ? "start" : "finish")}: {scheduleLabel}",
+            ScheduledDate = scheduledDate
+        }).ToList();
+        db.UserNotifications.AddRange(notifications);
+        return notifications;
+    }
+
+    private async Task<int> WakeDueSnoozesAsync(
+        DateOnly today,
+        CancellationToken cancellationToken)
+    {
+        var candidateIds = await db.UserNotifications
+            .AsNoTracking()
+            .Where(notification =>
+                notification.SnoozedUntil != null
+                && notification.SnoozedUntil <= today
+                && notification.RespondedAt == null
+                && (notification.Kind == NotificationKind.OperationStartConfirmation
+                    || notification.Kind == NotificationKind.OperationFinishConfirmation)
+                && notification.ProjectTask != null
+                && notification.Project.CompletedOn == null
+                && notification.RecipientUser.IsActive
+                && notification.RecipientUser.GroupMemberships.Any(membership =>
+                    membership.Group.Permissions.Any(permission =>
+                        permission.PermissionKey == ApplicationPermissions.ModuleView))
+                && notification.RecipientUser.GroupMemberships.Any(membership =>
+                    membership.Group.Permissions.Any(permission =>
+                        permission.PermissionKey == ProjectTrackerPermissions.OperationScheduleConfirm))
+                && ((notification.Kind == NotificationKind.OperationStartConfirmation
+                        && notification.ScheduledDate == notification.ProjectTask.StartDate
+                        && notification.ProjectTask.PercentComplete == 0m
+                        && notification.ProjectTask.PercentCompleteManual)
+                    || (notification.Kind == NotificationKind.OperationFinishConfirmation
+                        && notification.ScheduledDate == notification.ProjectTask.EndDate
+                        && notification.ProjectTask.PercentComplete < 1m)))
+            .Select(notification => notification.Id)
+            .ToListAsync(cancellationToken);
+
+        var awakenedIds = new List<int>(candidateIds.Count);
+        foreach (var notificationId in candidateIds)
+        {
+            var awakenedAt = DateTimeOffset.UtcNow;
+            var claimed = await db.UserNotifications
+                .IgnoreQueryFilters()
+                .Where(notification =>
+                    notification.Id == notificationId
+                    && notification.SnoozedUntil != null
+                    && notification.SnoozedUntil <= today
+                    && notification.RespondedAt == null)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(notification => notification.SnoozedUntil, (DateOnly?)null)
+                    .SetProperty(notification => notification.ReadAt, (DateTimeOffset?)null)
+                    .SetProperty(notification => notification.CreatedAt, awakenedAt),
+                    cancellationToken);
+            if (claimed == 1)
+            {
+                awakenedIds.Add(notificationId);
+            }
+        }
+
+        foreach (var notificationId in awakenedIds)
+        {
+            pushQueue.TryEnqueue(notificationId);
+        }
+
+        return awakenedIds.Count;
+    }
+
+    private IQueryable<AppUser> EntitledUsers() => db.Users
+        .Where(user =>
+            user.IsActive
+            && user.GroupMemberships.Any(membership => membership.Group.Permissions.Any(permission =>
+                permission.PermissionKey == ApplicationPermissions.ModuleView))
+            && user.GroupMemberships.Any(membership => membership.Group.Permissions.Any(permission =>
+                permission.PermissionKey == ProjectTrackerPermissions.OperationScheduleConfirm)));
+
+    private static bool IsCurrentPrompt(
+        UserNotification notification,
+        ProjectTask? task,
+        DateOnly? scheduledDate) =>
+        task is not null
+        && scheduledDate is not null
+        && task.Project.DeletedAt is null
+        && task.Project.CompletedOn is null
+        && ((notification.Kind == NotificationKind.OperationStartConfirmation
+                && task.StartDate == scheduledDate
+                && task.PercentComplete == 0m
+                && task.PercentCompleteManual)
+            || (notification.Kind == NotificationKind.OperationFinishConfirmation
+                && task.EndDate == scheduledDate
+                && task.PercentComplete < 1m));
 
     private async Task<ScheduleCalendar> LoadCalendarAsync(CancellationToken cancellationToken)
     {

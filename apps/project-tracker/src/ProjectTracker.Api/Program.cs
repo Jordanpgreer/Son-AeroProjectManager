@@ -1156,6 +1156,7 @@ static async Task InitializeDatabaseAsync(WebApplication app)
             await SqliteCompatibility.EnsureBooleanColumnAsync(db, "Users", "IsActive", cancellationToken: default);
             await SqliteCompatibility.EnsureLegacyTablesAsync(db, cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "UserNotifications", "ScheduledDate", cancellationToken: default);
+            await SqliteCompatibility.EnsureTextColumnAsync(db, "UserNotifications", "SnoozedUntil", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "UserNotifications", "RespondedAt", cancellationToken: default);
             await SqliteCompatibility.EnsureOperationScheduleReminderIndexAsync(db, cancellationToken: default);
             await SqliteCompatibility.EnsureAccessControlTablesAsync(db, cancellationToken: default);

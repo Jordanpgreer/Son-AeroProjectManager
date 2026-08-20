@@ -11,10 +11,11 @@ import {
   UserRound,
 } from 'lucide-react'
 import { toErrorMessage, trackerApi } from './api'
+import { GroupCreationWizard, GroupEditor } from './GroupManagement'
+import type { NewAccessGroup } from './GroupManagement'
 import type {
   AccessGroup,
   AccessOverview,
-  PermissionDefinition,
   RegisteredUser,
 } from './types'
 
@@ -52,80 +53,6 @@ function formatLastSeen(value: string) {
   }).format(date)
 }
 
-function GroupEditor({
-  group,
-  permissions,
-  draft,
-  disabled,
-  onChange,
-}: {
-  group: AccessGroup
-  permissions: PermissionDefinition[]
-  draft: string[]
-  disabled: boolean
-  onChange: (permissions: string[]) => void
-}) {
-  const modules = [...new Map(permissions.map((permission) => [permission.moduleKey, {
-    key: permission.moduleKey,
-    name: permission.moduleName,
-  }])).values()]
-  return (
-    <details className="admin-group-card">
-      <summary>
-        <span className="admin-group-icon"><ShieldCheck size={17} aria-hidden="true" /></span>
-        <span>
-          <strong>{group.name}</strong>
-          <small>{group.description || 'No description provided'}</small>
-        </span>
-        <span className="admin-group-counts">
-          {group.userCount} {group.userCount === 1 ? 'user' : 'users'} · {draft.length} permissions
-        </span>
-        <ChevronDown size={17} aria-hidden="true" />
-      </summary>
-      <div className="admin-module-permission-list">
-        {modules.map((module) => {
-          const modulePermissions = permissions.filter((permission) => permission.moduleKey === module.key)
-          const categories = [...new Set(modulePermissions.map((permission) => permission.category))]
-          const isAdministratorsGroup = group.name.toLowerCase() === 'administrators'
-          const isAvailable = (permission: PermissionDefinition) => permission.key !== 'import.manage' || isAdministratorsGroup
-          const selectedCount = modulePermissions.filter((permission) => isAvailable(permission) && draft.includes(permission.key)).length
-          return (
-            <section className="admin-module-permission-card" key={module.key}>
-              <header>
-                <span>{module.name.slice(0, 2).toUpperCase()}</span>
-                <div><strong>{module.name}</strong><small>{selectedCount} of {modulePermissions.length} permissions selected</small></div>
-              </header>
-              <div className="admin-permission-groups">
-                {categories.map((category) => (
-                  <fieldset key={category}>
-                    <legend>{category}</legend>
-                    {modulePermissions.filter((permission) => permission.category === category).map((permission) => (
-                      <label className={`admin-check-row ${isAvailable(permission) ? '' : 'permission-restricted'}`.trim()} key={permission.key}>
-                        <input
-                          type="checkbox"
-                          checked={isAvailable(permission) && draft.includes(permission.key)}
-                          disabled={disabled || !isAvailable(permission)}
-                          onChange={() => {
-                            const next = draft.includes(permission.key)
-                              ? draft.filter((key) => key !== permission.key)
-                              : [...draft, permission.key]
-                            onChange(next.sort((a, b) => a.localeCompare(b)))
-                          }}
-                        />
-                        <span><strong>{permission.label}</strong><small>{permission.description}</small></span>
-                      </label>
-                    ))}
-                  </fieldset>
-                ))}
-              </div>
-            </section>
-          )
-        })}
-      </div>
-    </details>
-  )
-}
-
 export default function AccessPanel({
   currentAccountName,
   canManageUsers,
@@ -146,25 +73,31 @@ export default function AccessPanel({
   const [userDrafts, setUserDrafts] = useState<Record<number, UserDraft>>({})
   const [groupDrafts, setGroupDrafts] = useState<Record<number, string[]>>({})
   const [newUser, setNewUser] = useState({ accountName: '', displayName: '' })
-  const [newGroup, setNewGroup] = useState({ name: '', description: '' })
+  const [showGroupWizard, setShowGroupWizard] = useState(false)
+  const [creatingGroup, setCreatingGroup] = useState(false)
+  const [deletingGroupId, setDeletingGroupId] = useState<number | null>(null)
 
-  async function load() {
+  async function load(preserveDrafts = false) {
     setLoading(true)
     setError(null)
     try {
       const next = await trackerApi<AccessOverview>('/api/admin/access')
       setOverview(next)
-      setUserDrafts(Object.fromEntries(next.users.map((user) => [
+      setUserDrafts((current) => Object.fromEntries(next.users.map((user) => [
         user.id,
-        {
-          displayName: user.displayName,
-          groupIds: [...user.groupIds].sort((a, b) => a - b),
-          isActive: user.isActive,
-        },
+        preserveDrafts && current[user.id]
+          ? current[user.id]
+          : {
+              displayName: user.displayName,
+              groupIds: [...user.groupIds].sort((a, b) => a - b),
+              isActive: user.isActive,
+            },
       ])))
-      setGroupDrafts(Object.fromEntries(next.groups.map((group) => [
+      setGroupDrafts((current) => Object.fromEntries(next.groups.map((group) => [
         group.id,
-        [...group.permissions].sort((a, b) => a.localeCompare(b)),
+        preserveDrafts && current[group.id]
+          ? current[group.id]
+          : [...group.permissions].sort((a, b) => a.localeCompare(b)),
       ])))
     } catch (cause) {
       setError(toErrorMessage(cause))
@@ -226,32 +159,56 @@ export default function AccessPanel({
       })
       setNewUser({ accountName: '', displayName: '' })
       setMessage('User registered. Assign shared access groups below.')
-      await load()
+      await load(true)
     } catch (cause) {
       setError(toErrorMessage(cause))
     }
   }
 
-  async function createGroup(event: FormEvent) {
-    event.preventDefault()
+  async function createGroup(group: NewAccessGroup) {
     if (!canManageGroups) return
+    setCreatingGroup(true)
     setError(null)
     setMessage(null)
     try {
       await trackerApi<AccessGroup>('/api/admin/groups', {
         method: 'POST',
         body: JSON.stringify({
-          name: newGroup.name.trim(),
-          description: newGroup.description.trim() || null,
+          name: group.name,
+          description: group.description || null,
           isSystemGroup: false,
-          permissions: [],
+          permissions: group.permissions,
         }),
       })
-      setNewGroup({ name: '', description: '' })
-      setMessage('Group created. Expand it to assign permissions.')
-      await load()
+      setShowGroupWizard(false)
+      setMessage(`${group.name} was created with ${group.permissions.length} permissions. Assign people from the Registered users directory.`)
+      await load(true)
     } catch (cause) {
       setError(toErrorMessage(cause))
+    } finally {
+      setCreatingGroup(false)
+    }
+  }
+
+  async function deleteGroup(group: AccessGroup) {
+    if (!canManageGroups || deletingGroupId !== null) return false
+    if (Object.values(userDrafts).some((draft) => draft.groupIds.includes(group.id))) {
+      setError(`Remove ${group.name} from all pending user assignments and save those changes before deleting the group.`)
+      return false
+    }
+    setDeletingGroupId(group.id)
+    setError(null)
+    setMessage(null)
+    try {
+      await trackerApi<void>(`/api/admin/groups/${group.id}`, { method: 'DELETE' })
+      setMessage(`${group.name} was deleted.`)
+      await load(true)
+      return true
+    } catch (cause) {
+      setError(toErrorMessage(cause))
+      return false
+    } finally {
+      setDeletingGroupId(null)
     }
   }
 
@@ -425,11 +382,18 @@ export default function AccessPanel({
               <ShieldCheck size={19} aria-hidden="true" />
             </div>
             {canManageGroups ? (
-              <form className="admin-create-form" onSubmit={createGroup}>
-                <label><span>Group name</span><input required value={newGroup.name} onChange={(event) => setNewGroup({ ...newGroup, name: event.target.value })} /></label>
-                <label><span>Description</span><input value={newGroup.description} onChange={(event) => setNewGroup({ ...newGroup, description: event.target.value })} /></label>
-                <button className="solid-button" type="submit"><Plus size={15} /> Create</button>
-              </form>
+              showGroupWizard ? (
+                <GroupCreationWizard
+                  permissions={overview.permissions}
+                  creating={creatingGroup}
+                  onCreate={createGroup}
+                  onCancel={() => setShowGroupWizard(false)}
+                />
+              ) : (
+                <button className="solid-button admin-start-group-button" type="button" onClick={() => setShowGroupWizard(true)}>
+                  <Plus size={15} aria-hidden="true" /> Add permission group
+                </button>
+              )
             ) : (
               <p className="admin-readonly-note">Permission editing requires the Manage Groups permission.</p>
             )}
@@ -441,10 +405,13 @@ export default function AccessPanel({
                   permissions={overview.permissions}
                   draft={groupDrafts[group.id] ?? group.permissions}
                   disabled={saving || !canManageGroups}
+                  deleting={deletingGroupId === group.id}
+                  hasPendingUserAssignments={Object.values(userDrafts).some((draft) => draft.groupIds.includes(group.id))}
                   onChange={(permissions) => setGroupDrafts((current) => ({
                     ...current,
                     [group.id]: permissions,
                   }))}
+                  onDelete={() => deleteGroup(group)}
                 />
               ))}
             </div>

@@ -124,6 +124,8 @@ function readNotificationDestination(): NotificationDestination | null {
     || kindValue === 'OperationNoteMention'
     || kindValue === 'OperationStartConfirmation'
     || kindValue === 'OperationFinishConfirmation'
+    || kindValue === 'OperationStartResponse'
+    || kindValue === 'OperationFinishResponse'
     ? kindValue as MentionNotification['kind']
     : null
   const taskIdValue = Number(url.searchParams.get('notificationTaskId'))

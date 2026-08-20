@@ -125,6 +125,7 @@ public static partial class SqliteCompatibility
                 "Title" TEXT NOT NULL,
                 "BodyPreview" TEXT NOT NULL,
                 "ScheduledDate" TEXT NULL,
+                "SnoozedUntil" TEXT NULL,
                 "CreatedAt" TEXT NOT NULL,
                 "ReadAt" TEXT NULL,
                 "RespondedAt" TEXT NULL,

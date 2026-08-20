@@ -61,10 +61,12 @@ export function Gantt({
 
     const handleWheel = (event: WheelEvent) => {
       const maxScrollLeft = element.scrollWidth - element.clientWidth
-      if (maxScrollLeft <= 0) return
+      const maxScrollTop = element.scrollHeight - element.clientHeight
+      const wheelOnlyNeedsHorizontal = maxScrollTop <= 1 && Math.abs(event.deltaY) > Math.abs(event.deltaX)
+      const shiftScrollsTimeline = event.shiftKey && Math.abs(event.deltaY) >= Math.abs(event.deltaX)
+      if (maxScrollLeft <= 0 || (!wheelOnlyNeedsHorizontal && !shiftScrollsTimeline)) return
 
-      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
-      const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, element.scrollLeft + delta))
+      const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, element.scrollLeft + event.deltaY))
       if (nextScrollLeft === element.scrollLeft) return
 
       event.preventDefault()
@@ -173,7 +175,18 @@ export function Gantt({
         </div>
       )}
 
-      <div className="gantt-scroll" ref={ganttScrollRef}>
+      <p className="gantt-scroll-help" id="gantt-scroll-help">
+        Scroll down for more operations. Swipe sideways or hold Shift while scrolling to move through dates.
+      </p>
+
+      <div
+        className="gantt-scroll"
+        ref={ganttScrollRef}
+        role="region"
+        aria-label="Scrollable operation timeline"
+        aria-describedby="gantt-scroll-help"
+        tabIndex={0}
+      >
         <div className="gantt-grid" style={{ ['--track-w' as string]: `${trackWidth}px` }}>
           {/* Axis */}
           <div className="gantt-corner">Operation</div>

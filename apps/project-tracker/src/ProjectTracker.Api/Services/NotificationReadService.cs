@@ -14,6 +14,8 @@ public sealed class NotificationReadService(
     private const string OperationNoteMention = nameof(NotificationKind.OperationNoteMention);
     private const string OperationStartConfirmation = nameof(NotificationKind.OperationStartConfirmation);
     private const string OperationFinishConfirmation = nameof(NotificationKind.OperationFinishConfirmation);
+    private const string OperationStartResponse = nameof(NotificationKind.OperationStartResponse);
+    private const string OperationFinishResponse = nameof(NotificationKind.OperationFinishResponse);
 
     public async Task<IReadOnlyList<UserNotificationDto>> GetAsync(
         int recipientUserId,
@@ -174,6 +176,7 @@ public sealed class NotificationReadService(
                         (notification.[Kind] = {OperationStartConfirmation}
                             AND task.[Id] IS NOT NULL
                             AND notification.[RespondedAt] IS NULL
+                            AND notification.[SnoozedUntil] IS NULL
                             AND notification.[ScheduledDate] = task.[StartDate]
                             AND CAST(task.[PercentComplete] AS REAL) = 0
                             AND task.[PercentCompleteManual] = 1)
@@ -181,8 +184,13 @@ public sealed class NotificationReadService(
                         (notification.[Kind] = {OperationFinishConfirmation}
                             AND task.[Id] IS NOT NULL
                             AND notification.[RespondedAt] IS NULL
+                            AND notification.[SnoozedUntil] IS NULL
                             AND notification.[ScheduledDate] = task.[EndDate]
                             AND CAST(task.[PercentComplete] AS REAL) < 1)
+                        OR
+                        (notification.[Kind] = {OperationStartResponse} AND task.[Id] IS NOT NULL)
+                        OR
+                        (notification.[Kind] = {OperationFinishResponse} AND task.[Id] IS NOT NULL)
                     )
                 """).ToListAsync(cancellationToken);
         }
@@ -203,6 +211,8 @@ public sealed class NotificationReadService(
             OperationNoteMention => NotificationKind.OperationNoteMention,
             OperationStartConfirmation => NotificationKind.OperationStartConfirmation,
             OperationFinishConfirmation => NotificationKind.OperationFinishConfirmation,
+            OperationStartResponse => NotificationKind.OperationStartResponse,
+            OperationFinishResponse => NotificationKind.OperationFinishResponse,
             _ => NotificationKind.ProjectChatMention
         },
         row.ProjectId,
@@ -218,7 +228,10 @@ public sealed class NotificationReadService(
         row.ReadAt);
 
     private static bool IsScheduleConfirmation(string kind) =>
-        kind is OperationStartConfirmation or OperationFinishConfirmation;
+        kind is OperationStartConfirmation
+            or OperationFinishConfirmation
+            or OperationStartResponse
+            or OperationFinishResponse;
 
     private sealed class NotificationReadRow
     {

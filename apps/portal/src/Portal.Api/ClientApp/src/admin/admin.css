@@ -273,6 +273,7 @@
 .admin-section-tabs a:focus-visible,
 .admin-back-link:focus-visible,
 .admin-icon-button:focus-visible,
+.admin-wizard-module-tabs button:focus-visible,
 .admin-group-card summary:focus-visible,
 .admin-user-directory > summary:focus-visible,
 .admin-user-card > summary:focus-visible {
@@ -516,6 +517,111 @@
 .admin-module-permission-card > header small { color: var(--muted); font-size: 9.5px; }
 .admin-permission-groups { display: grid; gap: 10px; padding: 12px; border-top: 1px solid var(--line); }
 .admin-permission-groups fieldset { display: grid; gap: 6px; margin: 0; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-sm); }
+.admin-check-row.permission-restricted { opacity: 0.7; background: var(--surface-2); }
+.admin-start-group-button { width: 100%; justify-content: center; margin-bottom: 12px; }
+.admin-group-wizard {
+  margin-bottom: 12px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--steel);
+  border-radius: var(--r-md);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--steel) 9%, transparent);
+}
+.admin-group-wizard > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  background: linear-gradient(120deg, var(--steel-tint), var(--surface));
+  border-bottom: 1px solid var(--line);
+}
+.admin-group-wizard > header h4 { margin: 3px 0 0; color: var(--ink); font-size: 15px; outline: none; }
+.admin-group-wizard-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.admin-group-wizard-steps li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 9px 10px;
+  color: var(--muted);
+  background: var(--surface);
+}
+.admin-group-wizard-steps li > span {
+  display: grid;
+  flex: none;
+  width: 23px;
+  height: 23px;
+  place-items: center;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  border-radius: 50%;
+  font-size: 9px;
+  font-weight: 800;
+}
+.admin-group-wizard-steps strong { overflow: hidden; font-size: 9.5px; text-overflow: ellipsis; }
+.admin-group-wizard-steps li.active { color: var(--steel-700); }
+.admin-group-wizard-steps li.active > span { color: #fff; background: var(--steel-700); border-color: var(--steel-700); }
+.admin-group-wizard-steps li.complete > span { color: var(--ok-700); background: var(--ok-tint); border-color: var(--ok); }
+.admin-group-wizard-body { display: grid; gap: 12px; padding: 14px; }
+.admin-group-wizard-body > p { margin: 0; color: var(--muted); font-size: 10.5px; line-height: 1.45; }
+.admin-group-wizard-body > label { display: grid; gap: 5px; color: var(--ink-2); font-size: 10px; font-weight: 700; }
+.admin-group-wizard-body > label small { color: var(--muted); font-size: 9px; font-weight: 400; }
+.admin-group-wizard-body > footer { display: flex; justify-content: space-between; gap: 8px; padding-top: 2px; }
+.admin-group-wizard-body > footer:has(> :only-child) { justify-content: flex-end; }
+.admin-wizard-module-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 2px 2px 5px;
+  overflow-x: auto;
+}
+.admin-wizard-module-tabs button {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 2px;
+  min-width: 112px;
+  padding: 8px 10px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  text-align: left;
+}
+.admin-wizard-module-tabs button[aria-pressed='true'] { color: var(--steel-700); background: var(--steel-tint); border-color: var(--steel); }
+.admin-wizard-module-tabs span { color: var(--ink); font-size: 10px; font-weight: 750; }
+.admin-wizard-module-tabs small { font-size: 8.5px; }
+.admin-group-review { display: grid; gap: 1px; margin: 0; overflow: hidden; background: var(--line); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.admin-group-review > div { display: grid; grid-template-columns: 95px minmax(0, 1fr); gap: 10px; padding: 9px 10px; background: var(--surface); }
+.admin-group-review dt { color: var(--muted); font-size: 9px; font-weight: 750; text-transform: uppercase; }
+.admin-group-review dd { margin: 0; overflow-wrap: anywhere; color: var(--ink); font-size: 10.5px; }
+.admin-group-review-modules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.admin-group-review-modules > span { display: grid; gap: 2px; padding: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.admin-group-review-modules strong { color: var(--ink); font-size: 9.5px; }
+.admin-group-review-modules small { color: var(--muted); font-size: 8.5px; }
+.admin-wizard-warning { padding: 9px 10px; color: #7a4a00 !important; background: #fff8e6; border: 1px solid #e9c46a; border-radius: var(--r-sm); }
+.admin-group-maintenance { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.admin-group-maintenance > div { display: grid; gap: 2px; }
+.admin-group-maintenance strong { color: var(--ink); font-size: 10.5px; }
+.admin-group-maintenance small { color: var(--muted); font-size: 9px; line-height: 1.4; }
+.admin-protected-note { display: flex; align-items: center; gap: 6px; margin: -5px 0 0; color: var(--muted); font-size: 9.5px; }
+.admin-delete-confirmation { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(150px, 0.7fr) auto; align-items: end; gap: 9px; padding: 11px; background: var(--risk-tint); border: 1px solid var(--red-tint-2); border-radius: var(--r-sm); }
+.admin-delete-confirmation > div:first-child { display: grid; gap: 3px; }
+.admin-delete-confirmation strong { color: var(--risk-700); font-size: 10.5px; }
+.admin-delete-confirmation small { color: var(--muted); font-size: 9px; }
+.admin-delete-confirmation input { width: 100%; }
+.admin-delete-confirmation > div:last-child { display: flex; gap: 7px; }
+.solid-button.danger { background: var(--risk-700); border-color: var(--risk-700); }
 .engineering-admin-group-fields { display: grid; grid-template-columns: minmax(150px, 0.7fr) minmax(220px, 1.3fr); gap: 8px; }
 .engineering-admin-group-fields label { display: grid; gap: 5px; color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 

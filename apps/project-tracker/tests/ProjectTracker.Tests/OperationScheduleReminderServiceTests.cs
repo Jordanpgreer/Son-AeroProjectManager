@@ -61,7 +61,7 @@ public sealed class OperationScheduleReminderServiceTests
     {
         await using var fixture = await ReminderFixture.CreateAsync();
         var firstUser = fixture.AddUser("First", includeReminderPermission: true);
-        fixture.AddUser("Second", includeReminderPermission: true);
+        var secondUser = fixture.AddUser("Second", includeReminderPermission: true);
         var project = fixture.AddProject(new ProjectTask
         {
             Sequence = 1,
@@ -92,6 +92,11 @@ public sealed class OperationScheduleReminderServiceTests
         Assert.True(task.StartDateLocked);
         Assert.Equal(0.5m, task.PercentComplete);
         Assert.Equal(2, await fixture.Db.UserNotifications.CountAsync(notification => notification.RespondedAt != null));
+        var response = await fixture.Db.UserNotifications.SingleAsync(notification =>
+            notification.Kind == NotificationKind.OperationStartResponse);
+        Assert.Equal(secondUser.Id, response.RecipientUserId);
+        Assert.Equal("First reported Build started", response.Title);
+        Assert.Equal(3, fixture.Queue.Ids.Count);
         Assert.Contains(await fixture.Db.ProjectAuditEntries.ToListAsync(), entry => entry.Action == "OperationStartConfirmed");
     }
 
@@ -135,6 +140,101 @@ public sealed class OperationScheduleReminderServiceTests
         Assert.Equal(OperationScheduleConfirmationStatus.Confirmed, first.Status);
         Assert.Equal(OperationScheduleConfirmationStatus.AlreadyConfirmed, second.Status);
         Assert.Equal(1, await fixture.Db.ProjectAuditEntries.CountAsync(entry => entry.Action == "OperationStartConfirmed"));
+    }
+
+    [Fact]
+    public async Task SnoozeAsync_HidesOnlyTheRecipientsPromptAndPushesItAgainTheNextDay()
+    {
+        await using var fixture = await ReminderFixture.CreateAsync();
+        var firstUser = fixture.AddUser("Snoozer", includeReminderPermission: true);
+        var secondUser = fixture.AddUser("Still active", includeReminderPermission: true);
+        fixture.AddProject(new ProjectTask
+        {
+            Sequence = 1,
+            Title = "Build",
+            StartDate = new DateOnly(2026, 8, 13),
+            EndDate = new DateOnly(2026, 8, 19),
+            EstimatedDuration = 4,
+            PercentCompleteManual = true
+        });
+        await fixture.Db.SaveChangesAsync();
+        await fixture.Service.EnsureRemindersAsync(new DateOnly(2026, 8, 17));
+        var reminder = await fixture.Db.UserNotifications.SingleAsync(notification =>
+            notification.RecipientUserId == firstUser.Id);
+
+        var result = await fixture.Service.SnoozeAsync(
+            reminder.Id,
+            firstUser.Id,
+            hasPermission: true,
+            new DateOnly(2026, 8, 17));
+
+        Assert.Equal(OperationScheduleConfirmationStatus.Snoozed, result.Status);
+        fixture.Db.ChangeTracker.Clear();
+        var snoozed = await fixture.Db.UserNotifications.SingleAsync(notification => notification.Id == reminder.Id);
+        Assert.Equal(new DateOnly(2026, 8, 18), snoozed.SnoozedUntil);
+        Assert.NotNull(snoozed.ReadAt);
+        var readService = new NotificationReadService(fixture.Db);
+        Assert.Empty(await readService.GetAsync(firstUser.Id, firstUser.AccountName, false, 20));
+        Assert.Single(await readService.GetAsync(secondUser.Id, secondUser.AccountName, false, 20));
+
+        Assert.Equal(0, await fixture.Service.EnsureRemindersAsync(new DateOnly(2026, 8, 17)));
+        Assert.Equal(1, await fixture.Service.EnsureRemindersAsync(new DateOnly(2026, 8, 18)));
+        Assert.Equal(0, await fixture.Service.EnsureRemindersAsync(new DateOnly(2026, 8, 18)));
+        fixture.Db.ChangeTracker.Clear();
+        var awakened = await fixture.Db.UserNotifications.SingleAsync(notification => notification.Id == reminder.Id);
+        Assert.Null(awakened.SnoozedUntil);
+        Assert.Null(awakened.ReadAt);
+        Assert.Equal(3, fixture.Queue.Ids.Count);
+        Assert.Equal(2, fixture.Queue.Ids.Count(id => id == reminder.Id));
+    }
+
+    [Fact]
+    public async Task RespondAsync_NoResolvesEveryPromptAndNotifiesOtherCurrentlyEntitledUsers()
+    {
+        await using var fixture = await ReminderFixture.CreateAsync();
+        var reporter = fixture.AddUser("Reporter", includeReminderPermission: true);
+        var colleague = fixture.AddUser("Colleague", includeReminderPermission: true);
+        var restricted = fixture.AddUser("Restricted", includeReminderPermission: false);
+        var project = fixture.AddProject(new ProjectTask
+        {
+            Sequence = 1,
+            Title = "Build",
+            StartDate = new DateOnly(2026, 8, 13),
+            EndDate = new DateOnly(2026, 8, 19),
+            EstimatedDuration = 4,
+            PercentCompleteManual = true
+        });
+        await fixture.Db.SaveChangesAsync();
+        await fixture.Service.EnsureRemindersAsync(new DateOnly(2026, 8, 17));
+        var reminder = await fixture.Db.UserNotifications.SingleAsync(notification =>
+            notification.RecipientUserId == reporter.Id);
+
+        var result = await fixture.Service.RespondAsync(
+            reminder.Id,
+            reporter.Id,
+            hasPermission: true,
+            reporter.AccountName,
+            reporter.DisplayName,
+            OperationScheduleResponse.No,
+            new DateOnly(2026, 8, 17));
+
+        Assert.Equal(OperationScheduleConfirmationStatus.Confirmed, result.Status);
+        fixture.Db.ChangeTracker.Clear();
+        var savedTask = await fixture.Db.Tasks.SingleAsync(candidate => candidate.ProjectId == project.Id);
+        Assert.Equal(0m, savedTask.PercentComplete);
+        Assert.True(savedTask.PercentCompleteManual);
+        Assert.Equal(2, await fixture.Db.UserNotifications.CountAsync(notification => notification.RespondedAt != null));
+        var response = await fixture.Db.UserNotifications.SingleAsync(notification =>
+            notification.Kind == NotificationKind.OperationStartResponse);
+        Assert.Equal(colleague.Id, response.RecipientUserId);
+        Assert.NotEqual(reporter.Id, response.RecipientUserId);
+        Assert.NotEqual(restricted.Id, response.RecipientUserId);
+        Assert.Equal("Reporter reported Build did not start", response.Title);
+        Assert.Contains(project.ProgramName, response.BodyPreview);
+        Assert.Contains(await fixture.Db.ProjectAuditEntries.ToListAsync(), entry =>
+            entry.Action == "OperationStartDeclined"
+            && entry.ChangedByAccountName == reporter.AccountName);
+        Assert.Equal(3, fixture.Queue.Ids.Count);
     }
 
     [Fact]

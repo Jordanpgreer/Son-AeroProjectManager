@@ -289,12 +289,40 @@ public sealed class NotificationReadServiceTests
         Assert.Single(await service.GetAsync(user.Id, user.AccountName, false, 20, includeScheduleConfirmations: true));
         Assert.False(await service.DeleteAsync(reminder.Id, user.Id));
 
+        reminder.SnoozedUntil = new DateOnly(2026, 8, 14);
+        reminder.ReadAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync();
+        Assert.Empty(await service.GetAsync(user.Id, user.AccountName, false, 20, includeScheduleConfirmations: true));
+
+        reminder.SnoozedUntil = null;
+        reminder.ReadAt = null;
+        await db.SaveChangesAsync();
+
         reminder.RespondedAt = DateTimeOffset.UtcNow;
         reminder.ReadAt = reminder.RespondedAt;
         await db.SaveChangesAsync();
 
         Assert.Empty(await service.GetAsync(user.Id, user.AccountName, false, 20, includeScheduleConfirmations: true));
         Assert.True(await service.DeleteAsync(reminder.Id, user.Id));
+
+        db.UserNotifications.Add(new UserNotification
+        {
+            RecipientUserId = user.Id,
+            ProjectId = project.Id,
+            ProjectTaskId = task.Id,
+            Kind = NotificationKind.OperationStartResponse,
+            ActorAccountName = @"TEST\Reporter",
+            ActorDisplayName = "Reporter",
+            Title = "Reporter reported Build did not start",
+            BodyPreview = "REMINDER-READ · Scheduled start",
+            ScheduledDate = new DateOnly(2026, 8, 13)
+        });
+        await db.SaveChangesAsync();
+
+        Assert.Empty(await service.GetAsync(user.Id, user.AccountName, false, 20, includeScheduleConfirmations: false));
+        Assert.Equal(
+            NotificationKind.OperationStartResponse,
+            Assert.Single(await service.GetAsync(user.Id, user.AccountName, false, 20, includeScheduleConfirmations: true)).Kind);
     }
 
     private static ProjectTrackerDbContext CreateDb()
