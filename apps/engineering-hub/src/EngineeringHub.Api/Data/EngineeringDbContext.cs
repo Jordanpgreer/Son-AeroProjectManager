@@ -19,6 +19,13 @@ public sealed class EngineeringDbContext(DbContextOptions<EngineeringDbContext> 
     public DbSet<DrawingMylar> DrawingMylars => Set<DrawingMylar>();
     public DbSet<MylarTransaction> MylarTransactions => Set<MylarTransaction>();
     public DbSet<DrawingAuditEntry> DrawingAuditEntries => Set<DrawingAuditEntry>();
+    public DbSet<ToolRecord> Tools => Set<ToolRecord>();
+    public DbSet<ToolLocation> ToolLocations => Set<ToolLocation>();
+    public DbSet<ToolHomeLocation> ToolHomeLocations => Set<ToolHomeLocation>();
+    public DbSet<ToolMovement> ToolMovements => Set<ToolMovement>();
+    public DbSet<ToolDocument> ToolDocuments => Set<ToolDocument>();
+    public DbSet<ToolPartNumber> ToolPartNumbers => Set<ToolPartNumber>();
+    public DbSet<ToolAuditEntry> ToolAuditEntries => Set<ToolAuditEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -63,6 +70,47 @@ public sealed class EngineeringDbContext(DbContextOptions<EngineeringDbContext> 
             entity.HasOne(x => x.Mylar).WithMany(x => x.Transactions).HasForeignKey(x => x.DrawingMylarId).OnDelete(DeleteBehavior.Restrict);
         });
         modelBuilder.Entity<DrawingAuditEntry>().HasOne(x => x.Drawing).WithMany(x => x.AuditEntries).HasForeignKey(x => x.DrawingId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<ToolLocation>(entity =>
+        {
+            entity.HasIndex(x => x.NormalizedCode).IsUnique();
+            entity.Property(x => x.Code).HasMaxLength(60);
+            entity.Property(x => x.NormalizedCode).HasMaxLength(60);
+        });
+        modelBuilder.Entity<ToolRecord>(entity =>
+        {
+            entity.HasIndex(x => x.NormalizedToolNumber).IsUnique();
+            entity.Property(x => x.ToolNumber).HasMaxLength(100);
+            entity.Property(x => x.NormalizedToolNumber).HasMaxLength(100);
+            entity.Property(x => x.CustodyStatus).HasConversion<string>().HasMaxLength(32);
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.CurrentLocation).WithMany(x => x.Tools).HasForeignKey(x => x.CurrentLocationId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<ToolHomeLocation>(entity =>
+        {
+            entity.HasKey(x => x.ToolRecordId);
+            entity.HasOne(x => x.Tool).WithOne(x => x.HomeLocationAssignment).HasForeignKey<ToolHomeLocation>(x => x.ToolRecordId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.Location).WithMany(x => x.HomeAssignments).HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<ToolMovement>(entity =>
+        {
+            entity.Property(x => x.Type).HasConversion<string>().HasMaxLength(32);
+            entity.HasOne(x => x.Tool).WithMany(x => x.Movements).HasForeignKey(x => x.ToolRecordId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.Location).WithMany(x => x.Movements).HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<ToolDocument>(entity =>
+        {
+            entity.Property(x => x.Kind).HasConversion<string>().HasMaxLength(24);
+            entity.HasOne(x => x.Tool).WithMany(x => x.Documents).HasForeignKey(x => x.ToolRecordId).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<ToolPartNumber>(entity =>
+        {
+            entity.HasKey(x => new { x.ToolRecordId, x.NormalizedPartNumber });
+            entity.Property(x => x.PartNumber).HasMaxLength(100);
+            entity.Property(x => x.NormalizedPartNumber).HasMaxLength(100);
+            entity.HasOne(x => x.Tool).WithMany(x => x.PartNumbers).HasForeignKey(x => x.ToolRecordId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<ToolAuditEntry>()
+            .HasOne(x => x.Tool).WithMany(x => x.AuditEntries).HasForeignKey(x => x.ToolRecordId).OnDelete(DeleteBehavior.Restrict);
     }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
@@ -131,5 +179,12 @@ public sealed class EngineeringDbContext(DbContextOptions<EngineeringDbContext> 
         if (!AllowLegacyMylarBackfill &&
             ChangeTracker.Entries<MylarTransaction>().Any(x => x.State is EntityState.Modified or EntityState.Deleted))
             throw new InvalidOperationException("Mylar custody history is append-only.");
+
+        if (ChangeTracker.Entries<ToolMovement>().Any(x => x.State is EntityState.Modified or EntityState.Deleted))
+            throw new InvalidOperationException("Tool custody history is append-only.");
+        if (ChangeTracker.Entries<ToolDocument>().Any(x => x.State is EntityState.Modified or EntityState.Deleted))
+            throw new InvalidOperationException("Tool document history is append-only.");
+        if (ChangeTracker.Entries<ToolAuditEntry>().Any(x => x.State is EntityState.Modified or EntityState.Deleted))
+            throw new InvalidOperationException("Tool audit history is append-only.");
     }
 }

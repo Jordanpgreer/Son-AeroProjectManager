@@ -19,8 +19,12 @@ builder.Services.AddScoped<EngineeringAccessSchemaInitializer>();
 builder.Services.AddScoped<EngineeringAccessSeeder>();
 builder.Services.AddScoped<EngineeringSearchService>();
 builder.Services.AddScoped<EngineeringDemoDataSeeder>();
+builder.Services.AddScoped<ToolingDemoDataSeeder>();
+builder.Services.AddSingleton<ToolCatalogReviewStore>();
+builder.Services.AddScoped<ToolCatalogWorkbookService>();
 builder.Services.AddScoped<MylarCustodyService>();
 builder.Services.AddScoped<EngineeringSchemaInitializer>();
+builder.Services.AddScoped<ToolingSchemaInitializer>();
 builder.Services.Configure<DrawingStorageOptions>(builder.Configuration.GetSection(DrawingStorageOptions.SectionName));
 builder.Services.AddScoped<IDrawingFileStore, DrawingFileStore>();
 builder.Services.AddDbContext<EngineeringDbContext>((serviceProvider, options) =>
@@ -85,8 +89,12 @@ using (var scope = app.Services.CreateScope())
 {
     await scope.ServiceProvider.GetRequiredService<EngineeringAccessSeeder>().SeedAsync(CancellationToken.None);
     await scope.ServiceProvider.GetRequiredService<EngineeringSchemaInitializer>().InitializeAsync(CancellationToken.None);
+    await scope.ServiceProvider.GetRequiredService<ToolingSchemaInitializer>().InitializeAsync(CancellationToken.None);
     if (app.Environment.IsDevelopment() && builder.Configuration.GetValue("Engineering:SeedDemoData", true))
+    {
         await scope.ServiceProvider.GetRequiredService<EngineeringDemoDataSeeder>().SeedAsync(CancellationToken.None);
+        await scope.ServiceProvider.GetRequiredService<ToolingDemoDataSeeder>().SeedAsync(CancellationToken.None);
+    }
     try
     {
         var db = scope.ServiceProvider.GetRequiredService<EngineeringDbContext>();
@@ -225,6 +233,7 @@ var api = app.MapGroup("/api")
     .RequireAuthorization(EngineeringAuthorization.ReadPolicy);
 api.MapDrawingEndpoints();
 api.MapDrawingOperationalEndpoints();
+api.MapToolingEndpoints();
 api.MapEngineeringAccessEndpoints();
 
 api.MapGet("/me", async (EngineeringUserService users, HttpContext httpContext, CancellationToken cancellationToken) =>

@@ -234,15 +234,26 @@ public sealed class EngineeringSearchService(EngineeringDbContext db)
             canViewPending,
             canViewSpecifications,
             canViewMylar)).ToList();
+        var tools = canViewTooling
+            ? await db.Tools.AsNoTracking()
+                .Include(tool => tool.CurrentLocation)
+                .Include(tool => tool.HomeLocationAssignment).ThenInclude(assignment => assignment!.Location)
+                .Include(tool => tool.Documents)
+                .Include(tool => tool.PartNumbers)
+                .OrderBy(tool => tool.ToolNumber)
+                .ToListAsync(cancellationToken)
+            : [];
+        var toolRecords = tools.Select(ToToolSearchRecord);
         var catalogRecords = Records
             .Where(x => x.Category != "drawings")
+            .Where(x => x.Category != "tools")
             .Where(record => canViewSpecifications || record.Category != "specifications")
             .Where(record => canViewSupportingDocuments || record.Category != "documents")
             .Where(record => canViewTooling || record.Category != "tools")
             .Where(record => canViewCompoundData || record.Category is not ("compounds" or "test-reports"))
             .Select(record => canViewSpecifications ? record : record with { SpecificationNumber = null })
             .Select(record => record with { DrawingId = ResolveDrawingLink(record, drawings) });
-        var records = catalogRecords.Concat(liveRecords).ToList();
+        var records = catalogRecords.Concat(liveRecords).Concat(toolRecords).ToList();
         var normalized = query?.Trim();
         var filtered = records.AsEnumerable();
         if (!string.IsNullOrWhiteSpace(normalized))
@@ -386,6 +397,40 @@ public sealed class EngineeringSearchService(EngineeringDbContext db)
                 link.Location ?? drawing.Notes ?? $"Linked to {drawing.Title}.",
                 drawing.Id);
         }
+    }
+
+    private static EngineeringSearchResultDto ToToolSearchRecord(ToolRecord tool)
+    {
+        var destination = tool.CustodyStatus switch
+        {
+            ToolCustodyStatus.OutsideProcessing => $"Outside processing at {tool.CurrentVendor ?? "unspecified vendor"}",
+            ToolCustodyStatus.CheckedOut => $"Checked out to {tool.CurrentLocation?.Code ?? tool.CurrentHolder ?? "unspecified location"}",
+            _ => $"Stored at {tool.CurrentLocation?.Code ?? "unassigned location"}"
+        };
+        var documentTerms = tool.Documents.SelectMany(document => new[]
+        {
+            document.DocumentNumber ?? string.Empty,
+            document.OriginalFileName,
+            document.Notes ?? string.Empty
+        });
+        return new EngineeringSearchResultDto(
+            $"tool-{tool.Id}",
+            "tools",
+            "Tools",
+            tool.Name,
+            tool.ToolNumber,
+            $"{tool.ToolType}. {destination}. Default check-in location {tool.HomeLocationAssignment?.Location.Code ?? "not assigned"}.",
+            tool.Owner,
+            null,
+            null,
+            null,
+            ["Tool number", tool.ToolType, tool.CustodyStatus.ToString(), tool.Owner,
+                .. tool.PartNumbers.Select(part => part.PartNumber),
+                tool.HomeLocationAssignment?.Location.Code ?? string.Empty, tool.HomeLocationAssignment?.Location.Description ?? string.Empty,
+                tool.CurrentLocation?.Code ?? string.Empty, tool.CurrentLocation?.Description ?? string.Empty,
+                .. documentTerms],
+            tool.Notes ?? tool.Description ?? "No tooling notes recorded.",
+            ToolId: tool.Id);
     }
 
     private static IReadOnlyList<string> BuildAttentionReasons(Drawing drawing)

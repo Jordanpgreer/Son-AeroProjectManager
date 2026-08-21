@@ -42,7 +42,9 @@ public sealed class EngineeringAccessSeeder(
                 groups.Add(group);
             }
 
-            if (!created) continue;
+            // The system Administrators group is always full-access. Other existing groups remain
+            // administrator-configurable so deployments do not silently regain removed permissions.
+            if (!created && !string.Equals(group.Name, "Administrators", StringComparison.OrdinalIgnoreCase)) continue;
 
             var expectedPermissions = EngineeringPermissions.DefaultsForGroup(group.Name);
             foreach (var permission in expectedPermissions.Where(permission =>

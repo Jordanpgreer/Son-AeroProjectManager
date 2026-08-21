@@ -28,6 +28,11 @@ public static class EngineeringPermissions
     public const string ValidationsManage = "engineering.validations.manage";
     public const string AuditView = "engineering.audit.view";
     public const string ToolingView = "engineering.tooling.view";
+    public const string ToolingRecordsManage = "engineering.tooling.records.manage";
+    public const string ToolingCustodyManage = "engineering.tooling.custody.manage";
+    public const string ToolingDocumentsManage = "engineering.tooling.documents.manage";
+    public const string ToolingLocationsManage = "engineering.tooling.locations.manage";
+    public const string ToolingAuditImport = "engineering.tooling.audit.import";
     public const string CompoundDataView = "engineering.compound-data.view";
     public const string SettingsView = "engineering.settings.view";
     public const string SettingsManageUsers = "engineering.settings.users.manage";
@@ -62,6 +67,11 @@ public static class EngineeringPermissions
         Permission(ValidationsManage, "Manage validation records", "Add validation and inspection records.", "Quality records"),
         Permission(AuditView, "View drawing audit history", "View permanent drawing and revision audit events.", "Quality records"),
         Permission(ToolingView, "View tooling management", "Open tooling records and tooling search results.", "Other engineering areas"),
+        Permission(ToolingRecordsManage, "Manage tool records", "Create and update tool identity, ownership, notes, and archive status.", "Tooling control"),
+        Permission(ToolingCustodyManage, "Manage tool custody", "Check tools in or out and record required inspection sign-off.", "Tooling control"),
+        Permission(ToolingDocumentsManage, "Manage tool documents", "Upload receiving and shipping documents to permanent tool history.", "Tooling control"),
+        Permission(ToolingLocationsManage, "Manage tool locations", "Create and activate physical tooling bin locations.", "Tooling control"),
+        Permission(ToolingAuditImport, "Import tooling audit dates", "Mass update last-audit dates from a controlled CSV import.", "Tooling control"),
         Permission(CompoundDataView, "View compound and test data", "Open compound, certification, and test-data records.", "Other engineering areas"),
         Permission(SettingsView, "View Engineering settings", "Open Engineering module settings.", "Administration"),
         Permission(SettingsManageStorage, "Manage Engineering file storage", "Set the controlled drawing root and create approved design-authority folders.", "Administration")
@@ -96,6 +106,11 @@ public static class EngineeringPermissions
         AddDependency(expanded, SupportingDocumentsManage, PendingRevisionsView);
         AddDependency(expanded, MylarManage, MylarView);
         AddDependency(expanded, ValidationsManage, ValidationsView);
+        AddDependency(expanded, ToolingRecordsManage, ToolingView);
+        AddDependency(expanded, ToolingCustodyManage, ToolingView);
+        AddDependency(expanded, ToolingDocumentsManage, ToolingView);
+        AddDependency(expanded, ToolingLocationsManage, ToolingView);
+        AddDependency(expanded, ToolingAuditImport, ToolingView);
         foreach (var drawingDetailPermission in new[]
                  {
                      SpecificationsView, SupportingDocumentsView, MylarView, ValidationsView
@@ -168,7 +183,10 @@ public static class EngineeringPermissions
         SpecificationsEdit,
         SupportingDocumentsManage,
         MylarManage,
-        ValidationsManage
+        ValidationsManage,
+        ToolingRecordsManage,
+        ToolingCustodyManage,
+        ToolingDocumentsManage
     ];
 
     private static PermissionDefinition Permission(string key, string label, string description, string category) =>
@@ -186,5 +204,6 @@ public static class EngineeringPermissions
         || permission.EndsWith(".approve", StringComparison.OrdinalIgnoreCase)
         || permission.EndsWith(".archive", StringComparison.OrdinalIgnoreCase)
         || permission.EndsWith(".delete", StringComparison.OrdinalIgnoreCase)
-        || permission.EndsWith(".submit", StringComparison.OrdinalIgnoreCase);
+        || permission.EndsWith(".submit", StringComparison.OrdinalIgnoreCase)
+        || permission.EndsWith(".import", StringComparison.OrdinalIgnoreCase);
 }

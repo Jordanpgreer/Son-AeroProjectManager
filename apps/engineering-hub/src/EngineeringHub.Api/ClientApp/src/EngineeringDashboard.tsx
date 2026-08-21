@@ -6,7 +6,7 @@ interface SearchCategory { id: string; title: string; count: number }
 export interface EngineeringSearchResult {
   id: string; category: string; categoryLabel: string; title: string; identifier: string; subtitle: string
   customer: string | null; specificationNumber: string | null; workOrder: string | null; reportNumber: string | null
-  tags: string[]; note: string; drawingId: number | null; attentionReasons?: string[] | null
+  tags: string[]; note: string; drawingId: number | null; attentionReasons?: string[] | null; toolId?: number | null
 }
 interface DashboardData {
   searchHint: string

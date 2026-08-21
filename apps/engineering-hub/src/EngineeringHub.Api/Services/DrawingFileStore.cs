@@ -20,6 +20,7 @@ public sealed record StoredRevisionFiles(
     string? SourceRelativePath);
 
 public sealed record StoredSupplementalFile(string RelativePath, string Hash);
+public sealed record StoredToolDocument(string RelativePath, string Hash);
 
 public sealed record DrawingStorageStatus(
     bool Configured,
@@ -42,6 +43,13 @@ public interface IDrawingFileStore
         int drawingId,
         string customer,
         string drawingNumber,
+        IFormFile document,
+        CancellationToken cancellationToken);
+
+    Task<StoredToolDocument> StoreToolDocumentAsync(
+        int toolId,
+        string toolNumber,
+        string documentKind,
         IFormFile document,
         CancellationToken cancellationToken);
 
@@ -147,6 +155,37 @@ public sealed class DrawingFileStore : IDrawingFileStore
             var path = Path.Combine(folder, "document" + SafeExtension(document.FileName));
             var hash = await WriteNewAndHashAsync(document, path, cancellationToken);
             return new StoredSupplementalFile(Path.GetRelativePath(root, path), hash);
+        }
+        catch
+        {
+            if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
+            throw;
+        }
+    }
+
+    public async Task<StoredToolDocument> StoreToolDocumentAsync(
+        int toolId,
+        string toolNumber,
+        string documentKind,
+        IFormFile document,
+        CancellationToken cancellationToken)
+    {
+        var root = (await GetRootsAsync(cancellationToken)).Active;
+        Directory.CreateDirectory(root);
+        var packageId = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}";
+        var relativeFolder = Path.Combine(
+            ".tooling",
+            $"{SafeSegment(toolNumber)}-{toolId}",
+            SafeSegment(documentKind),
+            packageId);
+        var folder = ResolvePathUnderRoot(root, relativeFolder);
+        Directory.CreateDirectory(folder);
+
+        try
+        {
+            var path = Path.Combine(folder, "document" + SafeExtension(document.FileName));
+            var hash = await WriteNewAndHashAsync(document, path, cancellationToken);
+            return new StoredToolDocument(Path.GetRelativePath(root, path), hash);
         }
         catch
         {

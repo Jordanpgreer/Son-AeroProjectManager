@@ -58,6 +58,7 @@ public sealed record EngineeringSearchResultDto(
     IReadOnlyList<string> Tags,
     string Note,
     int? DrawingId = null,
-    IReadOnlyList<string>? AttentionReasons = null);
+    IReadOnlyList<string>? AttentionReasons = null,
+    int? ToolId = null);
 
 public sealed record ErrorDto(string Code, string Message);

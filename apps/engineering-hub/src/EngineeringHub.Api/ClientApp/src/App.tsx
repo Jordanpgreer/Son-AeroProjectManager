@@ -26,6 +26,7 @@ import DrawingDashboard from './DrawingDashboard'
 import DrawingWorkspace from './DrawingWorkspace'
 import type { DrawingRecordHeader } from './DrawingWorkspace'
 import EngineeringDashboard from './EngineeringDashboard'
+import ToolingManagement from './ToolingManagement'
 import type { EngineeringSearchResult } from './EngineeringDashboard'
 import { engineeringPermissionKeys, hasEngineeringPermission } from './permissions'
 
@@ -220,6 +221,7 @@ export default function App() {
   const [drawingEditRequest, setDrawingEditRequest] = useState(0)
   const [drawingArchiveRequest, setDrawingArchiveRequest] = useState(0)
   const [drawingAuditRequest, setDrawingAuditRequest] = useState(0)
+  const [toolingRecordId, setToolingRecordId] = useState<number | null>(null)
   const [selectedModuleRecord, setSelectedModuleRecord] = useState<EngineeringSearchResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -274,6 +276,17 @@ export default function App() {
   useEffect(() => {
     const applyDrawingRoute = () => {
       const route = window.location.hash.replace(/^#\/?/, '')
+      const toolingMatch = route.match(/^tooling-record\/(\d+)$/)
+      if (toolingMatch) {
+        setActiveSectionId('tooling-management')
+        setToolingRecordId(Number(toolingMatch[1]))
+        return
+      }
+      if (route === 'tooling-dashboard') {
+        setActiveSectionId('tooling-management')
+        setToolingRecordId(null)
+        return
+      }
       if (route === 'drawing-record/new') {
         setDrawingHeader(null)
         setDrawingEditRequest(0)
@@ -420,9 +433,10 @@ export default function App() {
     }
 
     setSelectedModuleRecord(result)
-    if (result.category === 'tools') {
+    if (result.category === 'tools' && result.toolId) {
       setActiveSectionId('tooling-management')
-      window.location.hash = `tooling-record/${result.id}`
+      setToolingRecordId(result.toolId)
+      window.location.hash = `tooling-record/${result.toolId}`
     } else if (result.category === 'compounds' || result.category === 'test-reports') {
       setActiveSectionId('compound-test-data-management')
       window.location.hash = `compound-record/${result.id}`
@@ -481,6 +495,12 @@ export default function App() {
                   title={section.title}
                   onClick={() => {
                     if (section.id === 'drawing-document-control') openDrawingDashboard()
+                    else if (section.id === 'tooling-management') {
+                      setSelectedModuleRecord(null)
+                      setActiveSectionId(section.id)
+                      setToolingRecordId(null)
+                      window.location.hash = 'tooling-dashboard'
+                    }
                     else {
                       setSelectedModuleRecord(null)
                       setActiveSectionId(section.id)
@@ -566,11 +586,17 @@ export default function App() {
               </>
             ) : (
               <>
-                <span className="eyebrow">{showingDrawingRegister ? 'Drawing and document control' : 'Standalone workspace'}</span>
-                <h1>{showingDrawingRegister ? 'Drawing Register' : moduleData?.name ?? 'Engineering Module'}</h1>
+                <span className="eyebrow">{showingDrawingRegister
+                  ? 'Drawing and document control'
+                  : activeSection?.id === 'tooling-management' ? 'Engineering controlled assets' : 'Standalone workspace'}</span>
+                <h1>{showingDrawingRegister
+                  ? 'Drawing Register'
+                  : activeSection?.id === 'tooling-management' ? 'Tooling Management' : moduleData?.name ?? 'Engineering Module'}</h1>
                 <p>{showingDrawingRegister
                   ? 'Search controlled drawings, review release status, and open complete revision records.'
-                  : moduleData?.summary ?? 'Loading module overview...'}</p>
+                  : activeSection?.id === 'tooling-management'
+                    ? 'Search tool inventory, control physical custody, and retain receiving and shipping history.'
+                    : moduleData?.summary ?? 'Loading module overview...'}</p>
               </>
             )}
             </div>
@@ -634,7 +660,7 @@ export default function App() {
               </section>
             ) : activeSection ? (
               <>
-                {!showingDrawingRecord && activeSection.id !== 'dashboard' && activeSection.id !== 'drawing-document-control' && <section className="panel engineering-hero">
+                {!showingDrawingRecord && activeSection.id !== 'dashboard' && activeSection.id !== 'drawing-document-control' && activeSection.id !== 'tooling-management' && <section className="panel engineering-hero">
                   <div className="panel-head">
                     <div className="panel-head-text">
                       <span className="eyebrow">{moduleData?.accessNotice}</span>
@@ -670,6 +696,20 @@ export default function App() {
                 ) : activeSection.id === 'dashboard' ? (
                   <EngineeringDashboard
                     onOpenResult={openEngineeringResult}
+                  />
+                ) : activeSection.id === 'tooling-management' ? (
+                  <ToolingManagement
+                    toolId={toolingRecordId}
+                    actorName={me?.accountName || me?.displayName || 'Signed-in user'}
+                    permissions={permissions}
+                    onOpenTool={(id) => {
+                      setToolingRecordId(id)
+                      window.location.hash = `tooling-record/${id}`
+                    }}
+                    onBack={() => {
+                      setToolingRecordId(null)
+                      window.location.hash = 'tooling-dashboard'
+                    }}
                   />
                 ) : (
                   <>
