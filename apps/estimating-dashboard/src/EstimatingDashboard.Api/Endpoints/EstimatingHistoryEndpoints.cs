@@ -64,6 +64,17 @@ public static class EstimatingHistoryEndpoints
             EstimatingHistoryQueryService service,
             CancellationToken cancellationToken) => Results.Ok(await service.GetDashboardAsync(cancellationToken)));
 
+        history.MapGet("/{quoteHistoryId:int}/audit", async (
+            int quoteHistoryId,
+            EstimatingHistoryQueryService service,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await service.GetAuditHistoryAsync(quoteHistoryId, cancellationToken);
+            return result is null
+                ? Results.NotFound(new ErrorDto("QuoteHistoryNotFound", "The quote record was not found."))
+                : Results.Ok(result);
+        });
+
         history.MapPost("/import/validate", async (
             HttpContext context,
             IFormFile file,

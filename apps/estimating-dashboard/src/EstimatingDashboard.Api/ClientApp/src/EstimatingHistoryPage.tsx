@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  ArrowRight,
   BarChart3,
   CalendarCheck,
   CheckCircle2,
@@ -9,6 +10,7 @@ import {
   DollarSign,
   FileSpreadsheet,
   Filter,
+  History,
   RefreshCw,
   Search,
   Upload,
@@ -108,6 +110,27 @@ interface ImportValidation {
   canApply: boolean
 }
 
+interface AuditChange {
+  fieldName: string
+  oldValue: string | null
+  newValue: string | null
+}
+
+interface AuditEvent {
+  importBatchId: string
+  action: 'Created' | 'Updated'
+  changedBy: string
+  changedAt: string
+  changes: AuditChange[]
+}
+
+interface AuditHistory {
+  quoteHistoryId: number
+  quoteNumber: number
+  customer: string
+  events: AuditEvent[]
+}
+
 interface Filters {
   search: string
   estimator: string
@@ -173,8 +196,20 @@ function date(value: string | null) {
   }).format(new Date(value))
 }
 
+function dateTime(value: string) {
+  return new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value))
+}
+
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, { credentials: 'include', ...init })
+  let response: Response
+  try {
+    response = await fetch(url, { credentials: 'include', ...init })
+  } catch {
+    throw new Error('Could not reach the Estimating service. Confirm the local application is running, then try again.')
+  }
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { message?: string } | null
     throw new Error(payload?.message ?? `Request failed with status ${response.status}.`)
@@ -244,6 +279,10 @@ export default function EstimatingHistoryPage({ canImport }: { canImport: boolea
   const [importBusy, setImportBusy] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
   const [forceConfirm, setForceConfirm] = useState(false)
+  const [auditRecord, setAuditRecord] = useState<HistoryRecord | null>(null)
+  const [auditHistory, setAuditHistory] = useState<AuditHistory | null>(null)
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditError, setAuditError] = useState<string | null>(null)
   const [revision, setRevision] = useState(0)
   const deferredSearch = useDeferredValue(filters.search)
 
@@ -320,6 +359,27 @@ export default function EstimatingHistoryPage({ canImport }: { canImport: boolea
     setValidation(null)
     setImportError(null)
     setForceConfirm(false)
+  }
+
+  const openAudit = async (record: HistoryRecord) => {
+    setAuditRecord(record)
+    setAuditHistory(null)
+    setAuditError(null)
+    setAuditLoading(true)
+    try {
+      setAuditHistory(await api<AuditHistory>(`/api/quote-history/${record.id}/audit`))
+    } catch (cause) {
+      setAuditError(cause instanceof Error ? cause.message : 'Unable to load the quote audit history.')
+    } finally {
+      setAuditLoading(false)
+    }
+  }
+
+  const closeAudit = () => {
+    setAuditRecord(null)
+    setAuditHistory(null)
+    setAuditError(null)
+    setAuditLoading(false)
   }
 
   const validateImport = async () => {
@@ -525,7 +585,12 @@ export default function EstimatingHistoryPage({ canImport }: { canImport: boolea
                 <th>Estimating status</th>
               </tr></thead>
               <tbody>{pageData.records.map((record) => <tr key={record.id}>
-                <th scope="row"><strong>{record.quoteNumber}</strong></th>
+                <th scope="row">
+                  <strong>{record.quoteNumber}</strong>
+                  <button type="button" className="history-audit-link" onClick={() => void openAudit(record)}>
+                    <History size={12} aria-hidden="true" /> Audit
+                  </button>
+                </th>
                 <td>{record.customer}</td>
                 <td>{record.customerContact ?? '—'}</td>
                 <td>{record.salesPerson}</td>
@@ -557,7 +622,13 @@ export default function EstimatingHistoryPage({ canImport }: { canImport: boolea
                 <th>On time</th>
               </tr></thead>
               <tbody>{pageData.records.map((record) => <tr key={record.id}>
-                <th scope="row"><strong>{record.quoteNumber}</strong><small>{record.rfqReferenceNumber ?? record.sourceId}</small></th>
+                <th scope="row">
+                  <strong>{record.quoteNumber}</strong>
+                  <small>{record.rfqReferenceNumber ?? record.sourceId}</small>
+                  <button type="button" className="history-audit-link" onClick={() => void openAudit(record)}>
+                    <History size={12} aria-hidden="true" /> Audit
+                  </button>
+                </th>
                 <td>{record.customer}<small>{record.customerContact ?? 'No contact data'}</small></td>
                 <td>{record.salesPerson}</td>
                 <td>{record.estimatingRep}</td>
@@ -584,6 +655,59 @@ export default function EstimatingHistoryPage({ canImport }: { canImport: boolea
           </div>
         </div>
       </section>
+
+      {auditRecord && <div className="history-audit-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) closeAudit() }}>
+        <aside className="history-audit-drawer" role="dialog" aria-modal="true" aria-labelledby="quote-audit-title">
+          <header>
+            <div>
+              <span className="section-kicker">Controlled record history</span>
+              <h2 id="quote-audit-title">Quote #{auditRecord.quoteNumber}</h2>
+              <p>{auditRecord.customer}</p>
+            </div>
+            <button type="button" aria-label="Close quote audit history" onClick={closeAudit}>
+              <X size={18} aria-hidden="true" />
+            </button>
+          </header>
+          <div className="history-audit-summary">
+            <span><b>{auditRecord.quoteStatus}</b> quote status</span>
+            <span><b>{auditRecord.estimatingRep}</b> estimator</span>
+            <span><b>{auditRecord.rfqReferenceNumber ?? 'No RFQ reference'}</b> reference</span>
+          </div>
+          <div className="history-audit-content">
+            {auditLoading && <div className="history-audit-empty">
+              <RefreshCw size={22} aria-hidden="true" />
+              <strong>Loading record history…</strong>
+            </div>}
+            {auditError && <div className="history-import-error" role="alert">
+              <AlertTriangle size={16} aria-hidden="true" /> {auditError}
+            </div>}
+            {!auditLoading && !auditError && auditHistory?.events.length === 0 && <div className="history-audit-empty">
+              <History size={25} aria-hidden="true" />
+              <strong>No audit events yet</strong>
+              <span>This record predates controlled quote auditing. Its next imported change will appear here.</span>
+            </div>}
+            {!auditLoading && !auditError && auditHistory?.events.map((event) => <article className="history-audit-event" key={`${event.importBatchId}-${event.changedAt}`}>
+              <div className="history-audit-event-heading">
+                <span className={`history-status ${event.action === 'Created' ? 'ontime' : 'neutral'}`}>{event.action}</span>
+                <time dateTime={event.changedAt}>{dateTime(event.changedAt)}</time>
+              </div>
+              <p>By <strong>{event.changedBy}</strong> · Batch {event.importBatchId.slice(0, 8)}</p>
+              <div className="history-audit-changes">
+                {event.changes.map((change) => <div key={change.fieldName}>
+                  <strong>{change.fieldName}</strong>
+                  {event.action === 'Created'
+                    ? <span>{change.newValue ?? 'Created'}</span>
+                    : <span className="history-audit-values">
+                      <del>{change.oldValue ?? 'Blank'}</del>
+                      <ArrowRight size={13} aria-hidden="true" />
+                      <ins>{change.newValue ?? 'Blank'}</ins>
+                    </span>}
+                </div>)}
+              </div>
+            </article>)}
+          </div>
+        </aside>
+      </div>}
 
       {importOpen && <div className="history-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) closeImport() }}>
         <section className="history-modal" role="dialog" aria-modal="true" aria-labelledby="history-import-title">

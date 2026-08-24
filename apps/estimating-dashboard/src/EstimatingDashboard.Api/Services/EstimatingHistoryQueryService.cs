@@ -133,6 +133,48 @@ public sealed class EstimatingHistoryQueryService(EstimatingAccessDbContext db)
         return new EstimatingHistoryDashboardDto(DateTimeOffset.Now, department, users);
     }
 
+    public async Task<EstimatingQuoteAuditHistoryDto?> GetAuditHistoryAsync(
+        int quoteHistoryId,
+        CancellationToken cancellationToken)
+    {
+        var quote = await db.QuoteHistory
+            .AsNoTracking()
+            .Where(record => record.Id == quoteHistoryId)
+            .Select(record => new { record.Id, record.QuoteNumber, record.Customer })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (quote is null) return null;
+
+        var rows = await db.QuoteHistoryAudits
+            .AsNoTracking()
+            .Where(audit => audit.QuoteHistoryId == quoteHistoryId)
+            .ToListAsync(cancellationToken);
+        var events = rows
+            .OrderByDescending(audit => audit.ChangedAt)
+            .ThenBy(audit => audit.Id)
+            .GroupBy(audit => new
+            {
+                audit.ImportBatchId,
+                audit.Action,
+                audit.ChangedBy,
+                audit.ChangedAt
+            })
+            .Select(group => new EstimatingQuoteAuditEventDto(
+                group.Key.ImportBatchId,
+                group.Key.Action,
+                group.Key.ChangedBy,
+                group.Key.ChangedAt,
+                group.Select(audit => new EstimatingQuoteAuditChangeDto(
+                    audit.FieldName,
+                    audit.OldValue,
+                    audit.NewValue)).ToList()))
+            .ToList();
+        return new EstimatingQuoteAuditHistoryDto(
+            quote.Id,
+            quote.QuoteNumber,
+            quote.Customer,
+            events);
+    }
+
     private static EstimatingHistoryUserStatsDto UserStats(
         string estimator,
         IEnumerable<EstimatingQuoteHistoryRecord> source,

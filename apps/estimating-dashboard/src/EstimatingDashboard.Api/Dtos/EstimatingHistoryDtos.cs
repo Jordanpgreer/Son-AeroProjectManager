@@ -104,3 +104,21 @@ public sealed record EstimatingHistoryImportApplyResultDto(
     int UpdatedRecords,
     int UnchangedRecords,
     int SkippedRows);
+
+public sealed record EstimatingQuoteAuditChangeDto(
+    string FieldName,
+    string? OldValue,
+    string? NewValue);
+
+public sealed record EstimatingQuoteAuditEventDto(
+    Guid ImportBatchId,
+    string Action,
+    string ChangedBy,
+    DateTimeOffset ChangedAt,
+    IReadOnlyList<EstimatingQuoteAuditChangeDto> Changes);
+
+public sealed record EstimatingQuoteAuditHistoryDto(
+    int QuoteHistoryId,
+    int QuoteNumber,
+    string Customer,
+    IReadOnlyList<EstimatingQuoteAuditEventDto> Events);

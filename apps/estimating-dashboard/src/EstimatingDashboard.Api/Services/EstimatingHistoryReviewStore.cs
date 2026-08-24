@@ -47,7 +47,7 @@ internal sealed record EstimatingHistoryImportReview(
     IReadOnlyList<EstimatingHistoryImportChangeDto> Changes,
     IReadOnlyList<EstimatingHistoryImportRow> Rows,
     IReadOnlySet<int> InvalidRows,
-    IReadOnlyDictionary<string, int> ExpectedVersions);
+    IReadOnlyDictionary<int, int> ExpectedVersions);
 
 internal sealed record EstimatingHistoryImportRow(
     int RowNumber,

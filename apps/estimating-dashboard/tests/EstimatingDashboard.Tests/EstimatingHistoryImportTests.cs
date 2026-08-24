@@ -44,6 +44,11 @@ public sealed class EstimatingHistoryImportTests
         Assert.Equal(2, applied.NewRecords);
         var records = await fixture.Db.QuoteHistory.OrderBy(record => record.QuoteNumber).ToListAsync();
         Assert.Equal(2, records.Count);
+        var creationAudits = await fixture.Db.QuoteHistoryAudits
+            .Where(audit => audit.Action == EstimatingQuoteAuditActions.Created)
+            .ToListAsync();
+        Assert.Equal(2, creationAudits.Count);
+        Assert.All(creationAudits, audit => Assert.Equal("TEST\\admin", audit.ChangedBy));
         Assert.Equal(4, records[0].Workdays);
         Assert.Equal(EstimatingOnTimeStatuses.OnTime, records[0].OnTimeStatus);
         Assert.Equal(1m, records[0].OnTimeRatio);
@@ -70,7 +75,7 @@ public sealed class EstimatingHistoryImportTests
         await fixture.Importer.ApplyAsync(first.ReviewId, "TEST\\admin", false, default);
 
         await using var update = Workbook([
-            ["source-1", 1001, "Customer One", "Sales", 950m, "Sent", null, new DateTime(2026, 8, 20), "None", "C (Low)", 1, "Reviewed Quote", "Darlene", null]
+            ["replacement-source", 1001, "Customer One", "Sales", 950m, "Sent", null, new DateTime(2026, 8, 20), "None", "C (Low)", 1, "Reviewed Quote", "Darlene", null]
         ]);
         var validation = await fixture.Importer.ValidateAsync(update, "update.xlsx", "TEST\\admin", default);
         Assert.Equal(1, validation.UpdatedRecords);
@@ -79,12 +84,38 @@ public sealed class EstimatingHistoryImportTests
 
         var records = await fixture.Db.QuoteHistory.OrderBy(record => record.QuoteNumber).ToListAsync();
         Assert.Equal(2, records.Count);
+        Assert.Equal("replacement-source", records[0].SourceId);
         Assert.Equal(950m, records[0].TotalValue);
         Assert.Equal("Reviewed Quote", records[0].EstimatingStatus);
         Assert.Equal(200m, records[1].TotalValue);
 
+        var updateAudits = await fixture.Db.QuoteHistoryAudits
+            .Where(audit => audit.QuoteHistoryId == records[0].Id
+                && audit.Action == EstimatingQuoteAuditActions.Updated)
+            .ToListAsync();
+        Assert.Contains(updateAudits, audit =>
+            audit.FieldName == "Fulcrum source ID"
+            && audit.OldValue == "source-1"
+            && audit.NewValue == "replacement-source");
+        Assert.Contains(updateAudits, audit =>
+            audit.FieldName == "Total quote value"
+            && audit.OldValue == "100.00"
+            && audit.NewValue == "950.00");
+        Assert.Contains(updateAudits, audit =>
+            audit.FieldName == "Estimating status"
+            && audit.OldValue == "Quote Assigned"
+            && audit.NewValue == "Reviewed Quote");
+        Assert.All(updateAudits, audit => Assert.Equal("TEST\\admin", audit.ChangedBy));
+
+        var auditHistory = await fixture.Queries.GetAuditHistoryAsync(records[0].Id, default);
+        Assert.NotNull(auditHistory);
+        Assert.Equal(1001, auditHistory.QuoteNumber);
+        Assert.Equal(2, auditHistory.Events.Count);
+        Assert.Equal(EstimatingQuoteAuditActions.Updated, auditHistory.Events[0].Action);
+        Assert.Equal(EstimatingQuoteAuditActions.Created, auditHistory.Events[1].Action);
+
         await using var unchanged = Workbook([
-            ["source-1", 1001, "Customer One", "Sales", 950m, "Sent", null, new DateTime(2026, 8, 20), "None", "C (Low)", 1, "Reviewed Quote", "Darlene", null]
+            ["replacement-source", 1001, "Customer One", "Sales", 950m, "Sent", null, new DateTime(2026, 8, 20), "None", "C (Low)", 1, "Reviewed Quote", "Darlene", null]
         ]);
         var unchangedValidation = await fixture.Importer.ValidateAsync(unchanged, "unchanged.xlsx", "TEST\\admin", default);
         Assert.Equal(1, unchangedValidation.UnchangedRecords);
@@ -106,6 +137,24 @@ public sealed class EstimatingHistoryImportTests
         var duplicateResult = await fixture.Importer.ValidateAsync(duplicates, "duplicate.xlsx", "TEST\\admin", default);
         Assert.Equal(2, duplicateResult.ErrorRows);
         Assert.Equal(0, duplicateResult.NewRecords);
+    }
+
+    [Fact]
+    public async Task ValidationRejectsDuplicateQuoteNumbersWithinOneWorkbook()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await using var duplicates = Workbook([
+            ["source-1", 1001, "One", "Sales", 100m, "Draft", null, null, "None", "C (Low)", 1, null, "Abel", null],
+            ["source-2", 1001, "Two", "Sales", 200m, "Draft", null, null, "None", "C (Low)", 1, null, "Abel", null]
+        ]);
+
+        var result = await fixture.Importer.ValidateAsync(duplicates, "duplicate-number.xlsx", "TEST\\admin", default);
+
+        Assert.Equal(2, result.ErrorRows);
+        Assert.Equal(0, result.NewRecords);
+        Assert.Contains(result.Errors, error =>
+            error.Column == "Number"
+            && error.Message.Contains("more than once", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

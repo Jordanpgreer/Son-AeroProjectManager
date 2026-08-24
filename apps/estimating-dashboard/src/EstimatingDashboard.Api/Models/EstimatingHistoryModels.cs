@@ -36,6 +36,22 @@ public sealed class EstimatingQuoteHistoryRecord
     public DateTimeOffset UpdatedAt { get; set; }
     public string UpdatedBy { get; set; } = string.Empty;
     public int Version { get; set; }
+    public ICollection<EstimatingQuoteHistoryAuditRecord> AuditHistory { get; set; } = [];
+}
+
+public sealed class EstimatingQuoteHistoryAuditRecord
+{
+    public long Id { get; set; }
+    public int QuoteHistoryId { get; set; }
+    public EstimatingQuoteHistoryRecord QuoteHistory { get; set; } = null!;
+    public int QuoteNumber { get; set; }
+    public Guid ImportBatchId { get; set; }
+    public string Action { get; set; } = string.Empty;
+    public string FieldName { get; set; } = string.Empty;
+    public string? OldValue { get; set; }
+    public string? NewValue { get; set; }
+    public string ChangedBy { get; set; } = string.Empty;
+    public DateTimeOffset ChangedAt { get; set; }
 }
 
 public sealed class EstimatingHistoryImportBatch
@@ -58,4 +74,10 @@ public static class EstimatingOnTimeStatuses
     public const string OnTime = "OnTime";
     public const string Late = "Late";
     public const string NoData = "NoData";
+}
+
+public static class EstimatingQuoteAuditActions
+{
+    public const string Created = "Created";
+    public const string Updated = "Updated";
 }

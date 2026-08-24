@@ -16,6 +16,7 @@ public sealed class EstimatingAccessDbContext(
     public DbSet<AccessPreviewSessionRecord> AccessPreviewSessions =>
         Set<AccessPreviewSessionRecord>();
     public DbSet<EstimatingQuoteHistoryRecord> QuoteHistory => Set<EstimatingQuoteHistoryRecord>();
+    public DbSet<EstimatingQuoteHistoryAuditRecord> QuoteHistoryAudits => Set<EstimatingQuoteHistoryAuditRecord>();
     public DbSet<EstimatingHistoryImportBatch> QuoteHistoryImportBatches => Set<EstimatingHistoryImportBatch>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -85,7 +86,7 @@ public sealed class EstimatingAccessDbContext(
             entity.ToTable("EstimatingQuoteHistory");
             entity.HasKey(record => record.Id);
             entity.HasIndex(record => record.SourceId).IsUnique();
-            entity.HasIndex(record => record.QuoteNumber);
+            entity.HasIndex(record => record.QuoteNumber).IsUnique();
             entity.HasIndex(record => record.EstimatingRep);
             entity.HasIndex(record => record.EstimatingCompletionDate);
             entity.HasIndex(record => record.IsCompleted);
@@ -106,6 +107,23 @@ public sealed class EstimatingAccessDbContext(
             entity.Property(record => record.CompletedMonth).HasMaxLength(16);
             entity.Property(record => record.CompletedMonthAndWeek).HasMaxLength(40);
             entity.Property(record => record.UpdatedBy).HasMaxLength(160);
+        });
+
+        modelBuilder.Entity<EstimatingQuoteHistoryAuditRecord>(entity =>
+        {
+            entity.ToTable("EstimatingQuoteHistoryAudits");
+            entity.HasKey(audit => audit.Id);
+            entity.HasIndex(audit => new { audit.QuoteHistoryId, audit.ChangedAt });
+            entity.HasIndex(audit => audit.ImportBatchId);
+            entity.Property(audit => audit.Action).HasMaxLength(24);
+            entity.Property(audit => audit.FieldName).HasMaxLength(120);
+            entity.Property(audit => audit.OldValue).HasMaxLength(1000);
+            entity.Property(audit => audit.NewValue).HasMaxLength(1000);
+            entity.Property(audit => audit.ChangedBy).HasMaxLength(160);
+            entity.HasOne(audit => audit.QuoteHistory)
+                .WithMany(record => record.AuditHistory)
+                .HasForeignKey(audit => audit.QuoteHistoryId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<EstimatingHistoryImportBatch>(entity =>

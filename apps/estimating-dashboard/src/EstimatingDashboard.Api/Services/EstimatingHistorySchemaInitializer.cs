@@ -74,7 +74,7 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
         );
         CREATE UNIQUE INDEX IF NOT EXISTS "IX_EstimatingQuoteHistory_SourceId"
             ON "EstimatingQuoteHistory" ("SourceId");
-        CREATE INDEX IF NOT EXISTS "IX_EstimatingQuoteHistory_QuoteNumber"
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_EstimatingQuoteHistory_QuoteNumber"
             ON "EstimatingQuoteHistory" ("QuoteNumber");
         CREATE INDEX IF NOT EXISTS "IX_EstimatingQuoteHistory_EstimatingRep"
             ON "EstimatingQuoteHistory" ("EstimatingRep");
@@ -82,6 +82,25 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
             ON "EstimatingQuoteHistory" ("EstimatingCompletionDate");
         CREATE INDEX IF NOT EXISTS "IX_EstimatingQuoteHistory_IsCompleted"
             ON "EstimatingQuoteHistory" ("IsCompleted");
+
+        CREATE TABLE IF NOT EXISTS "EstimatingQuoteHistoryAudits" (
+            "Id" INTEGER NOT NULL CONSTRAINT "PK_EstimatingQuoteHistoryAudits" PRIMARY KEY AUTOINCREMENT,
+            "QuoteHistoryId" INTEGER NOT NULL,
+            "QuoteNumber" INTEGER NOT NULL,
+            "ImportBatchId" TEXT NOT NULL,
+            "Action" TEXT NOT NULL,
+            "FieldName" TEXT NOT NULL,
+            "OldValue" TEXT NULL,
+            "NewValue" TEXT NULL,
+            "ChangedBy" TEXT NOT NULL,
+            "ChangedAt" TEXT NOT NULL,
+            CONSTRAINT "FK_EstimatingQuoteHistoryAudits_EstimatingQuoteHistory_QuoteHistoryId"
+                FOREIGN KEY ("QuoteHistoryId") REFERENCES "EstimatingQuoteHistory" ("Id") ON DELETE RESTRICT
+        );
+        CREATE INDEX IF NOT EXISTS "IX_EstimatingQuoteHistoryAudits_QuoteHistoryId_ChangedAt"
+            ON "EstimatingQuoteHistoryAudits" ("QuoteHistoryId", "ChangedAt");
+        CREATE INDEX IF NOT EXISTS "IX_EstimatingQuoteHistoryAudits_ImportBatchId"
+            ON "EstimatingQuoteHistoryAudits" ("ImportBatchId");
 
         INSERT OR IGNORE INTO "GroupPermissions" ("AppGroupId", "PermissionKey", "CreatedAt")
         SELECT DISTINCT source."AppGroupId", 'estimating.history.view', CURRENT_TIMESTAMP
@@ -158,7 +177,7 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
             );
             CREATE UNIQUE INDEX [IX_EstimatingQuoteHistory_SourceId]
                 ON [EstimatingQuoteHistory] ([SourceId]);
-            CREATE INDEX [IX_EstimatingQuoteHistory_QuoteNumber]
+            CREATE UNIQUE INDEX [IX_EstimatingQuoteHistory_QuoteNumber]
                 ON [EstimatingQuoteHistory] ([QuoteNumber]);
             CREATE INDEX [IX_EstimatingQuoteHistory_EstimatingRep]
                 ON [EstimatingQuoteHistory] ([EstimatingRep]);
@@ -174,6 +193,44 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
             ALTER TABLE [EstimatingQuoteHistory] ADD [RfqReferenceNumber] nvarchar(500) NULL;
         IF COL_LENGTH(N'EstimatingQuoteHistory', N'QuoteOnTrack') IS NULL
             ALTER TABLE [EstimatingQuoteHistory] ADD [QuoteOnTrack] nvarchar(40) NULL;
+
+        IF EXISTS (
+            SELECT 1 FROM sys.indexes
+            WHERE [object_id] = OBJECT_ID(N'[EstimatingQuoteHistory]')
+              AND [name] = N'IX_EstimatingQuoteHistory_QuoteNumber'
+              AND [is_unique] = 0)
+          AND NOT EXISTS (
+            SELECT [QuoteNumber]
+            FROM [EstimatingQuoteHistory]
+            GROUP BY [QuoteNumber]
+            HAVING COUNT(*) > 1)
+        BEGIN
+            DROP INDEX [IX_EstimatingQuoteHistory_QuoteNumber] ON [EstimatingQuoteHistory];
+            CREATE UNIQUE INDEX [IX_EstimatingQuoteHistory_QuoteNumber]
+                ON [EstimatingQuoteHistory] ([QuoteNumber]);
+        END;
+
+        IF OBJECT_ID(N'[EstimatingQuoteHistoryAudits]', N'U') IS NULL
+        BEGIN
+            CREATE TABLE [EstimatingQuoteHistoryAudits] (
+                [Id] bigint IDENTITY(1,1) NOT NULL CONSTRAINT [PK_EstimatingQuoteHistoryAudits] PRIMARY KEY,
+                [QuoteHistoryId] int NOT NULL,
+                [QuoteNumber] int NOT NULL,
+                [ImportBatchId] uniqueidentifier NOT NULL,
+                [Action] nvarchar(24) NOT NULL,
+                [FieldName] nvarchar(120) NOT NULL,
+                [OldValue] nvarchar(1000) NULL,
+                [NewValue] nvarchar(1000) NULL,
+                [ChangedBy] nvarchar(160) NOT NULL,
+                [ChangedAt] datetimeoffset NOT NULL,
+                CONSTRAINT [FK_EstimatingQuoteHistoryAudits_EstimatingQuoteHistory_QuoteHistoryId]
+                    FOREIGN KEY ([QuoteHistoryId]) REFERENCES [EstimatingQuoteHistory] ([Id]) ON DELETE NO ACTION
+            );
+            CREATE INDEX [IX_EstimatingQuoteHistoryAudits_QuoteHistoryId_ChangedAt]
+                ON [EstimatingQuoteHistoryAudits] ([QuoteHistoryId], [ChangedAt]);
+            CREATE INDEX [IX_EstimatingQuoteHistoryAudits_ImportBatchId]
+                ON [EstimatingQuoteHistoryAudits] ([ImportBatchId]);
+        END;
 
         INSERT INTO [GroupPermissions] ([AppGroupId], [PermissionKey], [CreatedAt])
         SELECT DISTINCT source.[AppGroupId], 'estimating.history.view', SYSDATETIMEOFFSET()
@@ -222,6 +279,27 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
                 await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"RfqReferenceNumber\" TEXT NULL", cancellationToken);
             if (!columns.Contains("QuoteOnTrack"))
                 await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"QuoteOnTrack\" TEXT NULL", cancellationToken);
+
+            await using var duplicateCommand = connection.CreateCommand();
+            duplicateCommand.CommandText = """
+                SELECT COUNT(*)
+                FROM (
+                    SELECT "QuoteNumber"
+                    FROM "EstimatingQuoteHistory"
+                    GROUP BY "QuoteNumber"
+                    HAVING COUNT(*) > 1
+                )
+                """;
+            var duplicateCount = Convert.ToInt32(await duplicateCommand.ExecuteScalarAsync(cancellationToken));
+            if (duplicateCount == 0)
+            {
+                await db.Database.ExecuteSqlRawAsync(
+                    "DROP INDEX IF EXISTS \"IX_EstimatingQuoteHistory_QuoteNumber\"",
+                    cancellationToken);
+                await db.Database.ExecuteSqlRawAsync(
+                    "CREATE UNIQUE INDEX \"IX_EstimatingQuoteHistory_QuoteNumber\" ON \"EstimatingQuoteHistory\" (\"QuoteNumber\")",
+                    cancellationToken);
+            }
         }
         finally
         {

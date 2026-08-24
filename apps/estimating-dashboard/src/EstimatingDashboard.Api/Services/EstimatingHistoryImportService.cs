@@ -51,24 +51,69 @@ public sealed class EstimatingHistoryImportService(
         var errors = new List<EstimatingHistoryImportIssueDto>();
         var rows = Parse(bytes, errors);
 
-        var duplicates = rows
+        var duplicateSourceIds = rows
             .Where(row => !string.IsNullOrWhiteSpace(row.SourceId))
             .GroupBy(row => row.SourceId, StringComparer.OrdinalIgnoreCase)
             .Where(group => group.Count() > 1)
             .ToList();
-        foreach (var duplicate in duplicates)
+        foreach (var duplicate in duplicateSourceIds)
         {
             foreach (var row in duplicate)
                 errors.Add(new EstimatingHistoryImportIssueDto(row.RowNumber, "Id", $"Source Id '{duplicate.Key}' appears more than once in this workbook."));
         }
 
-        var invalidRows = errors.Select(error => error.Row).ToHashSet();
-        var validRows = rows.Where(row => !invalidRows.Contains(row.RowNumber)).ToList();
-        var sourceIds = validRows.Select(row => row.SourceId).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var existing = await db.QuoteHistory
+        var duplicateQuoteNumbers = rows
+            .Where(row => row.QuoteNumber > 0)
+            .GroupBy(row => row.QuoteNumber)
+            .Where(group => group.Count() > 1)
+            .ToList();
+        foreach (var duplicate in duplicateQuoteNumbers)
+        {
+            foreach (var row in duplicate)
+                errors.Add(new EstimatingHistoryImportIssueDto(row.RowNumber, "Number", $"Quote number '{duplicate.Key}' appears more than once in this workbook."));
+        }
+
+        var candidateRows = rows
+            .Where(row => !errors.Any(error => error.Row == row.RowNumber))
+            .ToList();
+        var quoteNumbers = candidateRows.Select(row => row.QuoteNumber).Distinct().ToList();
+        var existingRecords = await db.QuoteHistory
+            .AsNoTracking()
+            .Where(record => quoteNumbers.Contains(record.QuoteNumber))
+            .ToListAsync(cancellationToken);
+        var duplicateStoredQuotes = existingRecords
+            .GroupBy(record => record.QuoteNumber)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToHashSet();
+        foreach (var row in candidateRows.Where(row => duplicateStoredQuotes.Contains(row.QuoteNumber)))
+            errors.Add(new EstimatingHistoryImportIssueDto(row.RowNumber, "Number", $"Quote number '{row.QuoteNumber}' already has multiple records in the system and must be corrected before importing."));
+
+        var sourceIds = candidateRows.Select(row => row.SourceId).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var existingSourceIds = await db.QuoteHistory
             .AsNoTracking()
             .Where(record => sourceIds.Contains(record.SourceId))
-            .ToDictionaryAsync(record => record.SourceId, StringComparer.OrdinalIgnoreCase, cancellationToken);
+            .Select(record => new { record.SourceId, record.QuoteNumber })
+            .ToListAsync(cancellationToken);
+        var sourceOwners = existingSourceIds.ToDictionary(
+            record => record.SourceId,
+            record => record.QuoteNumber,
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var row in candidateRows)
+        {
+            if (sourceOwners.TryGetValue(row.SourceId, out var ownerQuoteNumber)
+                && ownerQuoteNumber != row.QuoteNumber)
+                errors.Add(new EstimatingHistoryImportIssueDto(
+                    row.RowNumber,
+                    "Id",
+                    $"Source Id '{row.SourceId}' is already assigned to quote {ownerQuoteNumber}."));
+        }
+
+        var invalidRows = errors.Select(error => error.Row).ToHashSet();
+        var validRows = rows.Where(row => !invalidRows.Contains(row.RowNumber)).ToList();
+        var existing = existingRecords
+            .Where(record => !duplicateStoredQuotes.Contains(record.QuoteNumber))
+            .ToDictionary(record => record.QuoteNumber);
 
         var changes = new List<EstimatingHistoryImportChangeDto>();
         var newRecords = 0;
@@ -76,7 +121,7 @@ public sealed class EstimatingHistoryImportService(
         var unchangedRecords = 0;
         foreach (var row in validRows)
         {
-            if (!existing.TryGetValue(row.SourceId, out var current))
+            if (!existing.TryGetValue(row.QuoteNumber, out var current))
             {
                 newRecords++;
                 if (changes.Count < 250)
@@ -109,7 +154,7 @@ public sealed class EstimatingHistoryImportService(
             changes,
             rows,
             invalidRows,
-            existing.ToDictionary(pair => pair.Key, pair => pair.Value.Version, StringComparer.OrdinalIgnoreCase)));
+            existing.ToDictionary(pair => pair.Key, pair => pair.Value.Version)));
         return ToDto(review);
     }
 
@@ -126,13 +171,16 @@ public sealed class EstimatingHistoryImportService(
             throw new EstimatingHistoryImportValidationException("The workbook does not contain any new or changed quote records.");
 
         var validRows = review.Rows.Where(row => !review.InvalidRows.Contains(row.RowNumber)).ToList();
-        var sourceIds = validRows.Select(row => row.SourceId).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var existing = await db.QuoteHistory
-            .Where(record => sourceIds.Contains(record.SourceId))
-            .ToDictionaryAsync(record => record.SourceId, StringComparer.OrdinalIgnoreCase, cancellationToken);
+        var quoteNumbers = validRows.Select(row => row.QuoteNumber).Distinct().ToList();
+        var existingRecords = await db.QuoteHistory
+            .Where(record => quoteNumbers.Contains(record.QuoteNumber))
+            .ToListAsync(cancellationToken);
+        if (existingRecords.GroupBy(record => record.QuoteNumber).Any(group => group.Count() > 1))
+            throw new EstimatingHistoryImportConflictException("One or more quote numbers have duplicate system records. Correct the duplicates and validate the workbook again.");
+        var existing = existingRecords.ToDictionary(record => record.QuoteNumber);
         foreach (var current in existing.Values)
         {
-            if (!review.ExpectedVersions.TryGetValue(current.SourceId, out var expected)
+            if (!review.ExpectedVersions.TryGetValue(current.QuoteNumber, out var expected)
                 || current.Version != expected)
                 throw new EstimatingHistoryImportConflictException($"Quote {current.QuoteNumber} changed after validation. Validate the workbook again before applying it.");
         }
@@ -145,17 +193,17 @@ public sealed class EstimatingHistoryImportService(
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         foreach (var row in validRows)
         {
-            if (!existing.TryGetValue(row.SourceId, out var record))
+            if (!existing.TryGetValue(row.QuoteNumber, out var record))
             {
                 record = new EstimatingQuoteHistoryRecord
                 {
-                    SourceId = row.SourceId,
                     FirstImportedAt = now,
                     Version = 0
                 };
                 Apply(record, row, batchId, actor, now);
                 db.QuoteHistory.Add(record);
-                existing[row.SourceId] = record;
+                db.QuoteHistoryAudits.Add(CreatedAudit(record, row, batchId, actor, now));
+                existing[row.QuoteNumber] = record;
                 added++;
             }
             else if (Equivalent(record, row))
@@ -164,6 +212,8 @@ public sealed class EstimatingHistoryImportService(
             }
             else
             {
+                foreach (var change in ChangedFields(record, row))
+                    db.QuoteHistoryAudits.Add(UpdatedAudit(record, row, change, batchId, actor, now));
                 Apply(record, row, batchId, actor, now);
                 record.Version++;
                 updated++;
@@ -184,7 +234,15 @@ public sealed class EstimatingHistoryImportService(
             SkippedRows = review.InvalidRows.Count(row => row > 1),
             ErrorRows = review.Errors.Select(error => error.Row).Distinct().Count()
         });
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            throw new EstimatingHistoryImportConflictException(
+                "A quote changed or was imported by another user while this upload was being applied. Validate the workbook again.");
+        }
         await transaction.CommitAsync(cancellationToken);
         reviews.Remove(reviewId);
         return new EstimatingHistoryImportApplyResultDto(
@@ -590,6 +648,7 @@ public sealed class EstimatingHistoryImportService(
         string actor,
         DateTimeOffset now)
     {
+        record.SourceId = row.SourceId;
         record.QuoteNumber = row.QuoteNumber;
         record.Customer = row.Customer;
         record.CustomerContact = row.CustomerContact;
@@ -623,22 +682,94 @@ public sealed class EstimatingHistoryImportService(
     }
 
     private static bool Equivalent(EstimatingQuoteHistoryRecord record, EstimatingHistoryImportRow row) =>
-        record.QuoteNumber == row.QuoteNumber
-        && Same(record.Customer, row.Customer)
-        && Same(record.CustomerContact, row.CustomerContact)
-        && Same(record.SalesPerson, row.SalesPerson)
-        && Same(record.QuoteStatus, row.QuoteStatus)
-        && Same(record.RfqReferenceNumber, row.RfqReferenceNumber)
-        && Same(record.EstimatingRep, row.EstimatingRep)
-        && record.TotalValue == row.TotalValue
-        && record.RfqDueDate?.Date == row.RfqDueDate?.Date
-        && record.DateToEstimating?.Date == row.DateToEstimating?.Date
-        && Same(record.Issues, row.Issues)
-        && Same(record.QuoteOnTrack, row.QuoteOnTrack)
-        && Same(record.QuoteComplexity, row.QuoteComplexity)
-        && record.NumberOfParts == row.NumberOfParts
-        && Same(record.EstimatingStatus, row.EstimatingStatus)
-        && record.EstimatingCompletionDate?.Date == row.EstimatingCompletionDate?.Date;
+        ChangedFields(record, row).Count == 0;
+
+    private static IReadOnlyList<QuoteFieldChange> ChangedFields(
+        EstimatingQuoteHistoryRecord record,
+        EstimatingHistoryImportRow row)
+    {
+        var changes = new List<QuoteFieldChange>();
+        AddChange(changes, "Fulcrum source ID", record.SourceId, row.SourceId);
+        AddChange(changes, "Customer", record.Customer, row.Customer);
+        AddChange(changes, "Customer contact", record.CustomerContact, row.CustomerContact);
+        AddChange(changes, "Sales person", record.SalesPerson, row.SalesPerson);
+        AddChange(changes, "Quote status", record.QuoteStatus, row.QuoteStatus);
+        AddChange(changes, "RFQ / reference number", record.RfqReferenceNumber, row.RfqReferenceNumber);
+        AddChange(changes, "Estimating representative", record.EstimatingRep, row.EstimatingRep);
+        AddChange(
+            changes,
+            "Total quote value",
+            record.TotalValue.ToString("0.00", CultureInfo.InvariantCulture),
+            row.TotalValue.ToString("0.00", CultureInfo.InvariantCulture));
+        AddChange(changes, "RFQ due date", AuditDate(record.RfqDueDate), AuditDate(row.RfqDueDate));
+        AddChange(changes, "Date to estimating", AuditDate(record.DateToEstimating), AuditDate(row.DateToEstimating));
+        AddChange(changes, "Issues", record.Issues, row.Issues);
+        AddChange(changes, "Quote on track", record.QuoteOnTrack, row.QuoteOnTrack);
+        AddChange(changes, "Quote complexity", record.QuoteComplexity, row.QuoteComplexity);
+        AddChange(
+            changes,
+            "Number of parts",
+            record.NumberOfParts.ToString(CultureInfo.InvariantCulture),
+            row.NumberOfParts.ToString(CultureInfo.InvariantCulture));
+        AddChange(changes, "Estimating status", record.EstimatingStatus, row.EstimatingStatus);
+        AddChange(
+            changes,
+            "Estimating completion date",
+            AuditDate(record.EstimatingCompletionDate),
+            AuditDate(row.EstimatingCompletionDate));
+        return changes;
+    }
+
+    private static void AddChange(
+        ICollection<QuoteFieldChange> changes,
+        string fieldName,
+        string? oldValue,
+        string? newValue)
+    {
+        oldValue = Clean(oldValue);
+        newValue = Clean(newValue);
+        if (!string.Equals(oldValue, newValue, StringComparison.Ordinal))
+            changes.Add(new QuoteFieldChange(fieldName, oldValue, newValue));
+    }
+
+    private static string? AuditDate(DateTime? value) =>
+        value?.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private static EstimatingQuoteHistoryAuditRecord CreatedAudit(
+        EstimatingQuoteHistoryRecord record,
+        EstimatingHistoryImportRow row,
+        Guid batchId,
+        string actor,
+        DateTimeOffset now) => new()
+        {
+            QuoteHistory = record,
+            QuoteNumber = row.QuoteNumber,
+            ImportBatchId = batchId,
+            Action = EstimatingQuoteAuditActions.Created,
+            FieldName = "Record",
+            NewValue = "Quote created from Excel import",
+            ChangedBy = actor,
+            ChangedAt = now
+        };
+
+    private static EstimatingQuoteHistoryAuditRecord UpdatedAudit(
+        EstimatingQuoteHistoryRecord record,
+        EstimatingHistoryImportRow row,
+        QuoteFieldChange change,
+        Guid batchId,
+        string actor,
+        DateTimeOffset now) => new()
+        {
+            QuoteHistory = record,
+            QuoteNumber = row.QuoteNumber,
+            ImportBatchId = batchId,
+            Action = EstimatingQuoteAuditActions.Updated,
+            FieldName = change.FieldName,
+            OldValue = change.OldValue,
+            NewValue = change.NewValue,
+            ChangedBy = actor,
+            ChangedAt = now
+        };
 
     private static EstimatingHistoryImportChangeDto Change(EstimatingHistoryImportRow row, string type) =>
         new(row.RowNumber, row.SourceId, row.QuoteNumber, row.Customer, type);
@@ -659,6 +790,8 @@ public sealed class EstimatingHistoryImportService(
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static string NormalizeHeader(string value) => string.Concat(value.ToUpperInvariant().Where(char.IsLetterOrDigit));
     private static bool Same(string? left, string? right) => string.Equals(Clean(left), Clean(right), StringComparison.Ordinal);
+
+    private sealed record QuoteFieldChange(string FieldName, string? OldValue, string? NewValue);
 
     private sealed record QuoteMetrics(
         string OnTimeStatus,
