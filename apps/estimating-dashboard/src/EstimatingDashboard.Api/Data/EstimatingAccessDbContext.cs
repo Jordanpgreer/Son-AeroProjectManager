@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using EstimatingDashboard.Api.Models;
 using SonAero.Platform.Security;
 
 namespace EstimatingDashboard.Api.Data;
@@ -14,6 +15,8 @@ public sealed class EstimatingAccessDbContext(
     public DbSet<EstimatingGroupPermissionRecord> GroupPermissions => Set<EstimatingGroupPermissionRecord>();
     public DbSet<AccessPreviewSessionRecord> AccessPreviewSessions =>
         Set<AccessPreviewSessionRecord>();
+    public DbSet<EstimatingQuoteHistoryRecord> QuoteHistory => Set<EstimatingQuoteHistoryRecord>();
+    public DbSet<EstimatingHistoryImportBatch> QuoteHistoryImportBatches => Set<EstimatingHistoryImportBatch>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -75,6 +78,44 @@ public sealed class EstimatingAccessDbContext(
             entity.Property(session => session.AdministratorAccountName).HasMaxLength(160);
             entity.Property(session => session.TargetKey).HasMaxLength(96);
             entity.Property(session => session.ApplicationId).HasMaxLength(64);
+        });
+
+        modelBuilder.Entity<EstimatingQuoteHistoryRecord>(entity =>
+        {
+            entity.ToTable("EstimatingQuoteHistory");
+            entity.HasKey(record => record.Id);
+            entity.HasIndex(record => record.SourceId).IsUnique();
+            entity.HasIndex(record => record.QuoteNumber);
+            entity.HasIndex(record => record.EstimatingRep);
+            entity.HasIndex(record => record.EstimatingCompletionDate);
+            entity.HasIndex(record => record.IsCompleted);
+            entity.Property(record => record.SourceId).HasMaxLength(80);
+            entity.Property(record => record.Customer).HasMaxLength(240);
+            entity.Property(record => record.CustomerContact).HasMaxLength(240);
+            entity.Property(record => record.SalesPerson).HasMaxLength(160);
+            entity.Property(record => record.QuoteStatus).HasMaxLength(80);
+            entity.Property(record => record.RfqReferenceNumber).HasMaxLength(500);
+            entity.Property(record => record.EstimatingRep).HasMaxLength(160);
+            entity.Property(record => record.TotalValue).HasPrecision(18, 2);
+            entity.Property(record => record.Issues).HasMaxLength(240);
+            entity.Property(record => record.QuoteOnTrack).HasMaxLength(40);
+            entity.Property(record => record.QuoteComplexity).HasMaxLength(80);
+            entity.Property(record => record.EstimatingStatus).HasMaxLength(160);
+            entity.Property(record => record.OnTimeStatus).HasMaxLength(24);
+            entity.Property(record => record.OnTimeRatio).HasPrecision(8, 4);
+            entity.Property(record => record.CompletedMonth).HasMaxLength(16);
+            entity.Property(record => record.CompletedMonthAndWeek).HasMaxLength(40);
+            entity.Property(record => record.UpdatedBy).HasMaxLength(160);
+        });
+
+        modelBuilder.Entity<EstimatingHistoryImportBatch>(entity =>
+        {
+            entity.ToTable("EstimatingHistoryImportBatches");
+            entity.HasKey(batch => batch.Id);
+            entity.HasIndex(batch => batch.ImportedAt);
+            entity.Property(batch => batch.FileName).HasMaxLength(240);
+            entity.Property(batch => batch.FileHash).HasMaxLength(64);
+            entity.Property(batch => batch.ImportedBy).HasMaxLength(160);
         });
     }
 }

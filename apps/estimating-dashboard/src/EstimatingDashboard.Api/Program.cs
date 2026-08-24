@@ -5,6 +5,7 @@ using System.Text.Json;
 using EstimatingDashboard.Api.Auth;
 using EstimatingDashboard.Api.Data;
 using EstimatingDashboard.Api.Dtos;
+using EstimatingDashboard.Api.Endpoints;
 using EstimatingDashboard.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -12,6 +13,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddScoped<EstimatingUserService>();
 builder.Services.AddScoped<EstimatingAccessPreviewService>();
 builder.Services.AddScoped<IEstimatingAccessStore, EstimatingAccessStore>();
+builder.Services.AddScoped<EstimatingHistorySchemaInitializer>();
+builder.Services.AddScoped<EstimatingHistoryQueryService>();
+builder.Services.AddScoped<EstimatingHistoryImportService>();
+builder.Services.AddSingleton<EstimatingHistoryReviewStore>();
 builder.Services.AddDbContext<EstimatingAccessDbContext>((serviceProvider, options) =>
 {
     var configuration = serviceProvider.GetRequiredService<IConfiguration>();
@@ -85,9 +90,26 @@ builder.Services.AddAuthorization(options =>
         policy => policy.RequireClaim(
             EstimatingPolicies.PermissionClaim,
             EstimatingPermissions.AdministerRates));
+    options.AddPolicy(
+        EstimatingPolicies.ViewHistory,
+        policy => policy.RequireClaim(
+            EstimatingPolicies.PermissionClaim,
+            EstimatingPermissions.ViewHistory));
+    options.AddPolicy(
+        EstimatingPolicies.ImportHistory,
+        policy => policy.RequireClaim(
+            EstimatingPolicies.PermissionClaim,
+            EstimatingPermissions.ImportHistory));
 });
 
 var app = builder.Build();
+
+await using (var scope = app.Services.CreateAsyncScope())
+{
+    await scope.ServiceProvider
+        .GetRequiredService<EstimatingHistorySchemaInitializer>()
+        .InitializeAsync();
+}
 
 app.Use(async (context, next) =>
 {
@@ -219,6 +241,7 @@ api.MapGet("/me", (HttpContext context) =>
         ? Results.Forbid()
         : Results.Ok(EstimatingUserService.Current(access));
 }).RequireAuthorization(EstimatingPolicies.Viewer);
+api.MapEstimatingHistoryEndpoints();
 
 app.MapFallback("/api/{**path}", async context =>
 {

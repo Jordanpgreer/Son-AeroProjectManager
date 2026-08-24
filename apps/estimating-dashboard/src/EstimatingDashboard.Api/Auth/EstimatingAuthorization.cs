@@ -30,18 +30,22 @@ public static class EstimatingPermissions
     public const string ManageInputs = "estimating.inputs.manage";
     public const string AdministerRates = "estimating.rates.admin";
     public const string AdministerSettings = "estimating.settings.admin";
+    public const string ViewHistory = "estimating.history.view";
+    public const string ImportHistory = "estimating.history.import";
 
     private static readonly IReadOnlyList<string> ViewerPermissions =
     [
         View,
-        Calculate
+        Calculate,
+        ViewHistory
     ];
 
     private static readonly IReadOnlyList<string> EditorPermissions =
     [
         .. ViewerPermissions,
         ManageQuotes,
-        ManageInputs
+        ManageInputs,
+        ImportHistory
     ];
 
     private static readonly IReadOnlyList<string> AdminPermissions =
@@ -68,6 +72,8 @@ public static class EstimatingPolicies
     public const string Calculate = "EstimatingCalculate";
     public const string ManageInputs = "EstimatingManageInputs";
     public const string AdministerRates = "EstimatingAdministerRates";
+    public const string ViewHistory = "EstimatingViewHistory";
+    public const string ImportHistory = "EstimatingImportHistory";
     public const string PermissionClaim = "sonaero.permission";
     public const string AccessItem = "EstimatingAccess";
 

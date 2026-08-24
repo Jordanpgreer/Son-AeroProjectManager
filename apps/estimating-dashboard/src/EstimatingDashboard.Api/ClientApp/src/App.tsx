@@ -4,6 +4,7 @@ import {
   BookOpen,
   Calculator,
   LayoutDashboard,
+  History,
   LockKeyhole,
   PanelLeftClose,
   PanelLeftOpen,
@@ -11,6 +12,7 @@ import {
 } from 'lucide-react'
 import EstimateCalculatorPage from './EstimateCalculatorPage'
 import EstimatingRatesPage from './EstimatingRatesPage'
+import EstimatingHistoryPage from './EstimatingHistoryPage'
 import QuotesDashboardPage from './QuotesDashboardPage'
 import {
   estimatingPermissions,
@@ -20,7 +22,7 @@ import type { EstimatingMe } from './authorization'
 import { persistTheme, readThemePreference } from './theme'
 import type { AppTheme } from './theme'
 
-type EstimatingPage = 'quotes' | 'calculator' | 'rates'
+type EstimatingPage = 'quotes' | 'calculator' | 'history' | 'rates'
 
 function defaultHubUrl() {
   const hostname = window.location.hostname.toLowerCase()
@@ -61,6 +63,11 @@ const PAGE_META: Record<EstimatingPage, {
     title: 'Estimate Calculator',
     subtitle: 'Build standard and rubber estimates across controlled quantity tiers.',
   },
+  history: {
+    eyebrow: 'Controlled quote intelligence',
+    title: 'Estimating Logs',
+    subtitle: 'Search imported Fulcrum history and monitor estimator throughput and queue health.',
+  },
   rates: {
     eyebrow: 'Controlled reference',
     title: 'Estimating Rates',
@@ -73,7 +80,7 @@ function pageFromHash(): EstimatingPage | null {
     .replace(/^#\/?/, '')
     .split('?')[0]
     .toLowerCase()
-  if (route === 'quotes' || route === 'calculator' || route === 'rates') return route
+  if (route === 'quotes' || route === 'calculator' || route === 'history' || route === 'rates') return route
   return null
 }
 
@@ -254,6 +261,11 @@ export default function App() {
     me,
     estimatingPermissions.administerRates,
   ) && !me?.isPreview
+  const canViewHistory = hasEstimatingPermission(me, estimatingPermissions.viewHistory)
+  const canImportHistory = hasEstimatingPermission(
+    me,
+    estimatingPermissions.importHistory,
+  ) && !me?.isPreview
 
   if (accessLoading || !me) {
     return (
@@ -333,6 +345,15 @@ export default function App() {
               <span className="nav-icon"><Calculator size={17} aria-hidden="true" /></span>
               <span className="nav-link-label">Estimate Calculator</span>
             </a>
+            {canViewHistory && <a
+              className={`nav-link ${page === 'history' ? 'active' : ''}`}
+              href="#/history"
+              aria-current={page === 'history' ? 'page' : undefined}
+              title="Estimating Logs"
+            >
+              <span className="nav-icon"><History size={17} aria-hidden="true" /></span>
+              <span className="nav-link-label">Estimating Logs</span>
+            </a>}
             <a
               className={`nav-link ${page === 'rates' ? 'active' : ''}`}
               href="#/rates"
@@ -402,6 +423,10 @@ export default function App() {
             <BookOpen size={16} aria-hidden="true" />
             Rates
           </a>
+          {canViewHistory && <a href="#/history" aria-current={page === 'history' ? 'page' : undefined}>
+            <History size={16} aria-hidden="true" />
+            Logs
+          </a>}
         </nav>
 
         <div className="main-scroll">
@@ -422,6 +447,9 @@ export default function App() {
             )}
             {page === 'rates' && (
               <EstimatingRatesPage canAdministerRates={canAdministerRates} />
+            )}
+            {page === 'history' && canViewHistory && (
+              <EstimatingHistoryPage canImport={canImportHistory} />
             )}
           </div>
         </div>

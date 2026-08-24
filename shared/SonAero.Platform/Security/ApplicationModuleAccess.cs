@@ -155,6 +155,16 @@ public static class ApplicationModuleCatalog
             "Administer estimating settings",
             "Manage Estimating module configuration.",
             category);
+        var viewHistory = new PermissionDefinition(
+            "estimating.history.view",
+            "View estimating history",
+            "View imported quote history, filters, and estimator performance statistics.",
+            category);
+        var importHistory = new PermissionDefinition(
+            "estimating.history.import",
+            "Import estimating history",
+            "Validate and import controlled Fulcrum quote-history workbooks.",
+            category);
 
         return new ApplicationModuleDefinition(
             ApplicationModules.Estimating,
@@ -162,13 +172,13 @@ public static class ApplicationModuleCatalog
             [
                 new ApplicationModuleRoleDefinition(
                     ApplicationRoles.Viewer,
-                    [view, calculate]),
+                    [view, calculate, viewHistory]),
                 new ApplicationModuleRoleDefinition(
                     ApplicationRoles.Editor,
-                    [view, calculate, manageQuotes, manageInputs]),
+                    [view, calculate, manageQuotes, manageInputs, viewHistory, importHistory]),
                 new ApplicationModuleRoleDefinition(
                     ApplicationRoles.Admin,
-                    [view, calculate, manageQuotes, manageInputs, administerRates, administerSettings])
+                    [view, calculate, manageQuotes, manageInputs, viewHistory, importHistory, administerRates, administerSettings])
             ]);
     }
 
