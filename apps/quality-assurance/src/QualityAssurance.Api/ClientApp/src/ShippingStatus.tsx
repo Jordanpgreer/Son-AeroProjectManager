@@ -6,7 +6,9 @@ import {
   ClipboardList,
   Clock3,
   Columns3,
+  FileSpreadsheet,
   FileClock,
+  FileUp,
   PackageCheck,
   Pencil,
   Plus,
@@ -32,6 +34,7 @@ import type {
 
 const PERMISSIONS = {
   create: 'quality-assurance.shipments.create',
+  import: 'quality-assurance.shipments.import',
   assignmentView: 'quality-assurance.assignments.view',
   assignmentGroup: 'quality-assurance.assignments.group',
   assignmentUser: 'quality-assurance.assignments.user',
@@ -68,6 +71,14 @@ interface ShipmentDraft {
   sourceRequestedDate: string
   nextAction: string
   comments: string
+}
+
+interface ShippingImportResult {
+  rowsRead: number
+  createdRecords: number
+  skippedDuplicates: number
+  reconciledAssignments: number
+  worksheet: string
 }
 
 const FIELD_KEYS: (keyof ShipmentDraft)[] = [
@@ -107,6 +118,66 @@ function Highlight({ value, query }: { value: string; query: string }) {
   const index = value.toLowerCase().indexOf(search.toLowerCase())
   if (index < 0) return value
   return <>{value.slice(0, index)}<mark>{value.slice(index, index + search.length)}</mark>{value.slice(index + search.length)}</>
+}
+
+function ShippingImportDialog({
+  onClose,
+  onImported,
+}: {
+  onClose: () => void
+  onImported: () => void
+}) {
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<ShippingImportResult | null>(null)
+
+  async function importWorkbook() {
+    if (!file) return
+    setBusy(true)
+    setError(null)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const next = await qualityApi<ShippingImportResult>('/api/shipments/import', {
+        method: 'POST',
+        body: form,
+      })
+      setResult(next)
+      onImported()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The Shipping Status workbook could not be imported.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal shipping-import-modal" role="dialog" aria-modal="true" aria-labelledby="shipping-import-title">
+        <header>
+          <div><span className="eyebrow">Controlled bulk entry</span><h2 id="shipping-import-title">Import Shipping Status</h2><p>Only the <b>Complete List</b> worksheet is read. Existing exact records are skipped.</p></div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close"><X size={18} /></button>
+        </header>
+        <div className="shipping-import-body">
+          {!result && <label className="shipping-file-picker">
+            <FileSpreadsheet size={24} aria-hidden="true" />
+            <span><strong>{file?.name ?? 'Choose an Excel workbook'}</strong><small>Accepted format: .xlsx, up to 25 MB</small></span>
+            <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { setFile(event.currentTarget.files?.[0] ?? null); setError(null) }} />
+          </label>}
+          {result && <div className="shipping-import-result">
+            <FileSpreadsheet size={28} aria-hidden="true" />
+            <div><strong>Import complete</strong><p>{result.createdRecords} records created, {result.skippedDuplicates} exact duplicates skipped, and {result.reconciledAssignments} legacy assignments corrected from {result.rowsRead} rows in <b>{result.worksheet}</b>.</p></div>
+          </div>}
+          {error && <p className="notice error"><AlertTriangle size={16} />{error}</p>}
+        </div>
+        <footer>
+          <button className="button ghost" type="button" onClick={onClose}>{result ? 'Close' : 'Cancel'}</button>
+          {!result && <button className="button primary" type="button" disabled={!file || busy} onClick={() => void importWorkbook()}><FileUp size={15} />{busy ? 'Importing...' : 'Import workbook'}</button>}
+        </footer>
+      </section>
+    </div>
+  )
 }
 
 function ShipmentForm({
@@ -237,7 +308,7 @@ function AssignmentDialog({
         <form onSubmit={submit}>
           {error && <p className="notice error"><AlertTriangle size={16} />{error}</p>}
           {!options ? <div className="loading-panel compact">Loading shared groups and users...</div> : <div className="assignment-fields">
-            <label><span>Responsible group</span><select disabled={!canMoveGroup} value={groupId} onChange={(event) => { setGroupId(event.target.value); setUserId('') }}><option value="">Unassigned</option>{options.groups.map((group) => <option value={group.id} key={group.id}>{group.name} ({group.activeUserCount})</option>)}</select><small>Moving work between departments requires Assign Groups permission.</small></label>
+            <label><span>Responsible group</span><select disabled={!canMoveGroup} value={groupId} onChange={(event) => { setGroupId(event.target.value); setUserId('') }}><option value="">Unassigned - manager review</option>{options.groups.map((group) => <option value={group.id} key={group.id}>{group.name} ({group.activeUserCount})</option>)}</select><small>Moving work between departments requires Assign Groups permission.</small></label>
             <label><span>Individual owner</span><select disabled={!canAssignUser || !groupId} value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Group queue / unassigned</option>{users.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.displayName}</option>)}</select><small>Group leads can assign active members of their permitted group.</small></label>
           </div>}
           <footer><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary" disabled={!options || saving} type="submit">{saving ? 'Assigning...' : 'Save assignment'}</button></footer>
@@ -308,7 +379,7 @@ function DetailDrawer({
             <span className={`due-pill ${shipment.dueState.toLowerCase().replaceAll(' ', '-')}`}><span />{shipment.dueState}</span>
             <span className="age-badge"><Clock3 size={13} /> {ageInDays(shipment.createdAt)} days in queue</span>
           </section>
-          {user.permissions.includes(PERMISSIONS.assignmentView) && <section className="detail-section"><h3>Ownership</h3><dl><div><dt>Group</dt><dd>{shipment.assignedGroupName ?? 'Unassigned'}</dd></div><div><dt>Owner</dt><dd>{shipment.assignedDisplayName ?? 'Group queue'}</dd></div></dl></section>}
+          {user.permissions.includes(PERMISSIONS.assignmentView) && <section className="detail-section"><h3>Ownership</h3><dl><div><dt>Group</dt><dd>{shipment.assignedGroupName ?? 'Unassigned'}</dd></div><div><dt>Owner</dt><dd>{shipment.assignedDisplayName ?? (shipment.assignedGroupName ? 'Group queue' : 'Unassigned')}</dd></div></dl></section>}
           <section className="detail-section"><h3>Shipment details</h3><dl>
             {visible('qaArrivalDate') && <div><dt>QA arrival</dt><dd>{formatDate(shipment.qaArrivalDate)}</dd></div>}
             {visible('shipDate') && <div><dt>Ship date</dt><dd>{formatDate(shipment.shipDate)}</dd></div>}
@@ -345,6 +416,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   const [editing, setEditing] = useState(false)
   const [assigning, setAssigning] = useState(false)
   const [customizing, setCustomizing] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [layout, setLayout] = useState<ShippingLayout | null>(null)
   const [refresh, setRefresh] = useState(0)
 
@@ -381,6 +453,8 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   const canTeam = user.permissions.includes(PERMISSIONS.teamView) || user.permissions.includes(PERMISSIONS.viewAll)
   const canAll = user.permissions.includes(PERMISSIONS.viewAll)
   const canCreate = user.permissions.includes(PERMISSIONS.create)
+  const canImport = user.permissions.includes(PERMISSIONS.import)
+  const canReviewUnassigned = user.permissions.includes(PERMISSIONS.assignmentGroup)
   const availableColumns = useMemo(() => {
     const available = new Set<ShippingLayoutColumnKey>(
       fields.filter((field) => field.canView).map((field) => field.key),
@@ -410,7 +484,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
       case 'nextAction': return <td className="long-cell" key={key}><Highlight value={shipment.nextAction ?? ''} query={deferredSearch} /></td>
       case 'lastWorkedAt': return <td key={key}>{formatDate(shipment.lastWorkedAt)}</td>
       case 'comments': return <td className="long-cell" key={key}><Highlight value={shipment.comments ?? ''} query={deferredSearch} /></td>
-      case 'assignment': return <td key={key}><strong>{shipment.assignedDisplayName ?? 'Group queue'}</strong><small>{shipment.assignedGroupName ?? 'Unassigned'}</small></td>
+      case 'assignment': return <td key={key}><strong>{shipment.assignedDisplayName ?? (shipment.assignedGroupName ? 'Group queue' : 'Unassigned')}</strong><small>{shipment.assignedGroupName ?? 'Needs manager assignment'}</small></td>
       case 'queueAge': return <td key={key}><span className="queue-days">{ageInDays(shipment.createdAt)}d</span></td>
     }
   }
@@ -426,11 +500,11 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   return (
     <div className="view shipping-view">
       <section className="shipping-toolbar panel">
-        <div className="toolbar-top"><div><span className="eyebrow">Controlled register</span><h2>Shipping Status</h2><p>{data ? `${data.total} ${status === 'open' ? 'open' : status === 'shipped' ? 'past' : 'total'} shipments in this view` : 'Loading shipment register...'}</p></div><div className="toolbar-actions-inline"><button className="button ghost" type="button" disabled={!layout} onClick={() => setCustomizing(true)}><Columns3 size={15} /> Customize layout</button>{canCreate && <button className="button primary" type="button" onClick={() => setCreating(true)}><Plus size={15} /> Add shipment</button>}</div></div>
+        <div className="toolbar-top"><div><span className="eyebrow">Controlled register</span><h2>Shipping Status</h2><p>{data ? `${data.total} ${status === 'open' ? 'open' : status === 'shipped' ? 'past' : 'total'} shipments in this view` : 'Loading shipment register...'}</p></div><div className="toolbar-actions-inline">{canImport && <button className="button ghost" type="button" onClick={() => setImportOpen(true)}><FileUp size={15} /> Import Excel</button>}<button className="button ghost" type="button" disabled={!layout} onClick={() => setCustomizing(true)}><Columns3 size={15} /> Customize layout</button>{canCreate && <button className="button primary" type="button" onClick={() => setCreating(true)}><Plus size={15} /> Add shipment</button>}</div></div>
         <div className="filter-row">
           <div className="segmented" aria-label="Shipment status"><button className={status === 'open' ? 'active' : ''} type="button" onClick={() => setStatus('open')}>Open</button><button className={status === 'shipped' ? 'active' : ''} type="button" onClick={() => setStatus('shipped')}>Past shipments</button>{canAll && <button className={status === 'all' ? 'active' : ''} type="button" onClick={() => setStatus('all')}>All</button>}</div>
           <label className="search-box"><Search size={16} /><span className="sr-only">Search shipments</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order, part, customer, action..." />{search && <button type="button" onClick={() => setSearch('')} aria-label="Clear search"><X size={14} /></button>}</label>
-          <label className="compact-select"><SlidersHorizontal size={15} /><span className="sr-only">Queue scope</span><select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)}><option value="mine">My queue</option>{canTeam && <option value="team">My groups</option>}{canAll && <option value="all">All shipments</option>}</select></label>
+          <label className="compact-select"><SlidersHorizontal size={15} /><span className="sr-only">Queue scope</span><select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)}><option value="mine">{canReviewUnassigned ? 'My queue + unassigned' : 'My queue'}</option>{canTeam && <option value="team">My groups</option>}{canAll && <option value="all">All shipments</option>}</select></label>
           <label className="compact-select"><ArrowRightLeft size={15} /><span className="sr-only">Sort order</span><select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="oldest">Oldest first</option><option value="ship-date">Ship date</option></select></label>
         </div>
         {deferredSearch.trim() && <p className="filter-summary"><Search size={13} /> Highlighting matches for <mark>{deferredSearch.trim()}</mark></p>}
@@ -460,6 +534,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
       {editing && selected && <ShipmentForm shipment={selected} fields={fields} onClose={() => setEditing(false)} onSaved={accepted} />}
       {assigning && selected && <AssignmentDialog shipment={selected} user={user} onClose={() => setAssigning(false)} onSaved={accepted} />}
       {customizing && layout && <ShippingLayoutEditor layout={layout} available={availableColumns} onClose={() => setCustomizing(false)} onSaved={setLayout} />}
+      {importOpen && <ShippingImportDialog onClose={() => setImportOpen(false)} onImported={() => setRefresh((value) => value + 1)} />}
     </div>
   )
 }

@@ -109,4 +109,5 @@ public sealed class QualityAssuranceGroupPermissionRecord
     public int AppGroupId { get; set; }
     public QualityAssuranceAccessGroupRecord Group { get; set; } = null!;
     public string PermissionKey { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

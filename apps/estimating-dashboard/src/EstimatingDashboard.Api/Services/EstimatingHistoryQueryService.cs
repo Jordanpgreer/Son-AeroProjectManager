@@ -10,6 +10,9 @@ public sealed class EstimatingHistoryQueryService(
     EstimatingAccessDbContext db,
     EstimatingEstimatorSettingsService estimatorSettings)
 {
+    private const int QueuePageSizeLimit = 50;
+    private const int HistoryPageSizeLimit = 200;
+
     public async Task<EstimatingHistoryPageDto> GetPageAsync(
         string? search,
         string? estimator,
@@ -104,7 +107,10 @@ public sealed class EstimatingHistoryQueryService(
 
         var total = await query.CountAsync(cancellationToken);
         query = Order(query, sort, direction);
-        var safePageSize = Math.Clamp(pageSize, 10, 200);
+        var pageSizeLimit = string.Equals(view, "live", StringComparison.OrdinalIgnoreCase)
+            ? QueuePageSizeLimit
+            : HistoryPageSizeLimit;
+        var safePageSize = Math.Clamp(pageSize, 10, pageSizeLimit);
         var safePage = Math.Max(1, page);
         var records = await query
             .Skip((safePage - 1) * safePageSize)

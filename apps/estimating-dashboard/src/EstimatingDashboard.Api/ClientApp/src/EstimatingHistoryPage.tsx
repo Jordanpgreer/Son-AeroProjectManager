@@ -169,6 +169,7 @@ const emptyOptions: FilterOptions = {
 
 type StatsPeriod = 'week' | 'month' | 'all'
 type SummaryPreset = 'queue' | 'completed' | 'onTime' | 'late' | null
+const historyPageSize = 50
 
 function currency(value: number) {
   return value.toLocaleString('en-US', {
@@ -357,7 +358,7 @@ export default function EstimatingHistoryPage({
   onImportOpenChange: (open: boolean) => void
 }) {
   const [dashboard, setDashboard] = useState<HistoryDashboard | null>(null)
-  const [pageData, setPageData] = useState<HistoryPage>({ records: [], total: 0, page: 1, pageSize: 50 })
+  const [pageData, setPageData] = useState<HistoryPage>({ records: [], total: 0, page: 1, pageSize: historyPageSize })
   const [options, setOptions] = useState<FilterOptions>(emptyOptions)
   const [filters, setFilters] = useState<Filters>(emptyFilters)
   const [page, setPage] = useState(1)
@@ -366,6 +367,7 @@ export default function EstimatingHistoryPage({
   const [summaryPreset, setSummaryPreset] = useState<SummaryPreset>('queue')
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [reportBusy, setReportBusy] = useState(false)
+  const [summaryExportBusy, setSummaryExportBusy] = useState(false)
   const [reportError, setReportError] = useState<string | null>(null)
   const [sort, setSort] = useState('due')
   const [direction, setDirection] = useState('asc')
@@ -405,7 +407,7 @@ export default function EstimatingHistoryPage({
     const requestSearch = deferredSearch.trim()
     const params = historyQueryParams({
       page,
-      pageSize: 50,
+      pageSize: historyPageSize,
       view,
       sort,
       direction,
@@ -602,6 +604,35 @@ export default function EstimatingHistoryPage({
     }
   }
 
+  const downloadEstimatorSummary = async () => {
+    setSummaryExportBusy(true)
+    setReportError(null)
+    try {
+      const response = await fetch(`/api/quote-history/estimator-summary?period=${statsPeriod}`, {
+        credentials: 'include',
+      })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { message?: string } | null
+        throw new Error(payload?.message ?? 'Unable to export estimator statistics.')
+      }
+      const disposition = response.headers.get('content-disposition') ?? ''
+      const fileName = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)/i)?.[1]
+        ?? `estimator-summary-${statsPeriod}-${new Date().toISOString().slice(0, 10)}.pdf`
+      const url = URL.createObjectURL(await response.blob())
+      const link = document.createElement('a')
+      link.href = url
+      link.download = decodeURIComponent(fileName)
+      document.body.append(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (cause) {
+      setReportError(cause instanceof Error ? cause.message : 'Unable to export estimator statistics.')
+    } finally {
+      setSummaryExportBusy(false)
+    }
+  }
+
   const department = dashboard?.department
   const totalPages = Math.max(1, Math.ceil(pageData.total / pageData.pageSize))
   const searchPending = filters.search.trim().toLocaleLowerCase() !== appliedSearch.toLocaleLowerCase()
@@ -667,9 +698,20 @@ export default function EstimatingHistoryPage({
         <div className="history-card-heading">
           <div>
             <span className="section-kicker">{dashboard?.isTeamView ? 'Team performance' : 'Personal performance'}</span>
-            <h2 id="estimator-stats-heading">{dashboard?.isTeamView ? 'Estimator statistics' : 'Your estimating statistics'}</h2>
+            <h2 id="estimator-stats-heading">{dashboard?.isTeamView ? 'Estimator Statistics' : 'Your Estimating Statistics'}</h2>
           </div>
-          <span className="history-updated"><Users size={15} aria-hidden="true" /> {dashboard?.isTeamView ? `${dashboard.users.length} estimators` : 'Private view'}</span>
+          <div className="estimator-stats-actions">
+            <span className="history-updated"><Users size={15} aria-hidden="true" /> {dashboard?.isTeamView ? `${dashboard.users.length} estimators` : 'Private view'}</span>
+            <button
+              type="button"
+              className="history-export-button estimator-summary-export"
+              disabled={summaryExportBusy || !dashboard}
+              onClick={() => void downloadEstimatorSummary()}
+            >
+              <Download size={16} aria-hidden="true" />
+              {summaryExportBusy ? 'Exporting…' : 'Export estimator stats'}
+            </button>
+          </div>
         </div>
         {dashboard?.users.length ? (
           <div className="estimator-stat-grid">
@@ -706,7 +748,7 @@ export default function EstimatingHistoryPage({
           <div className="history-register-title">
             <div>
               <span className="section-kicker">{view === 'live' ? 'Daily quote log' : 'Normalized history'}</span>
-              <h2 id="history-register-heading">{view === 'live' ? 'Live estimating queue' : 'Quote history'}</h2>
+              <h2 id="history-register-heading">{view === 'live' ? 'Live Estimating Queue' : 'Quote History'}</h2>
             </div>
             <div className="history-register-tabs" role="tablist" aria-label="Quote register view">
               <button type="button" role="tab" aria-selected={view === 'live'} onClick={() => updateView('live')}>Active quotes</button>
@@ -922,7 +964,7 @@ export default function EstimatingHistoryPage({
       {canImport && importOpen && <div className="history-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) closeImport() }}>
         <section className="history-modal" role="dialog" aria-modal="true" aria-labelledby="history-import-title">
           <header>
-            <div><span className="section-kicker">Controlled workbook import</span><h2 id="history-import-title">Import estimating history</h2></div>
+            <div><span className="section-kicker">Controlled workbook import</span><h2 id="history-import-title">Import Estimating History</h2></div>
             <button type="button" aria-label="Close import" disabled={importBusy} onClick={closeImport}><X size={18} aria-hidden="true" /></button>
           </header>
           <div className="history-import-steps">
@@ -939,7 +981,7 @@ export default function EstimatingHistoryPage({
           </div>
           {importError && <div className="history-import-error" role="alert"><AlertTriangle size={16} aria-hidden="true" /> {importError}</div>}
           {validation && <section className={`history-import-review ${validation.errorRows > 0 ? 'has-errors' : ''}`}>
-            <div className="history-review-heading"><div><span className="section-kicker">Upload comparison</span><h3>{validation.errorRows > 0 ? 'Review required' : 'Ready to apply'}</h3></div><span>{validation.errorRows > 0 ? `${validation.errorRows} error rows` : 'No errors'}</span></div>
+            <div className="history-review-heading"><div><span className="section-kicker">Upload comparison</span><h3>{validation.errorRows > 0 ? 'Review Required' : 'Ready To Apply'}</h3></div><span>{validation.errorRows > 0 ? `${validation.errorRows} error rows` : 'No errors'}</span></div>
             <div className="history-review-metrics">
               <div><span>New quotes</span><strong>{validation.newRecords}</strong></div>
               <div><span>Updates</span><strong>{validation.updatedRecords}</strong></div>
@@ -966,7 +1008,7 @@ export default function EstimatingHistoryPage({
         <section className="history-warning-modal" role="alertdialog" aria-modal="true" aria-labelledby="history-warning-title">
           <span className="warning-icon"><AlertTriangle size={24} aria-hidden="true" /></span>
           <span className="section-kicker">Errors remain</span>
-          <h2 id="history-warning-title">Continue without invalid rows?</h2>
+          <h2 id="history-warning-title">Continue Without Invalid Rows?</h2>
           <p>{validation.errorRows} rows contain errors and will be skipped. Valid new and changed records will be saved, and quotes omitted from the workbook will remain unchanged.</p>
           <div><button type="button" disabled={importBusy} onClick={() => setForceConfirm(false)}>Return to review</button><button type="button" className="confirm-warning" disabled={importBusy} onClick={() => void applyImport(true)}>Confirm and continue</button></div>
         </section>

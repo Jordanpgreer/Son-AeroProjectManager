@@ -19,6 +19,7 @@ builder.Services.AddScoped<EstimatingEstimatorSettingsService>();
 builder.Services.AddScoped<EstimatingHistoryImportService>();
 builder.Services.AddScoped<EstimatingHistoryReportService>();
 builder.Services.AddScoped<EstimatingHistoryGridExportService>();
+builder.Services.AddScoped<EstimatorSummaryReportService>();
 builder.Services.AddSingleton<EstimatingHistoryReviewStore>();
 builder.Services.AddDbContext<EstimatingAccessDbContext>((serviceProvider, options) =>
 {

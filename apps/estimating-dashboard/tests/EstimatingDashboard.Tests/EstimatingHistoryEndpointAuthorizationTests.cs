@@ -19,6 +19,7 @@ public sealed class EstimatingHistoryEndpointAuthorizationTests
         builder.Services.AddScoped<EstimatingHistoryImportService>();
         builder.Services.AddScoped<EstimatingHistoryReportService>();
         builder.Services.AddScoped<EstimatingHistoryGridExportService>();
+        builder.Services.AddScoped<EstimatorSummaryReportService>();
         var app = builder.Build();
         app.MapGroup("/api").MapEstimatingHistoryEndpoints();
 

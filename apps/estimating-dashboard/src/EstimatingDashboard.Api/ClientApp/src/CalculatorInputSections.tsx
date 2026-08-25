@@ -185,7 +185,7 @@ export function EstimateContextFields({
       <summary className="calc-section-heading">
         <div>
           <span className="section-kicker">Quote record</span>
-          <h2 id="estimate-context-heading">Estimate context</h2>
+          <h2 id="estimate-context-heading">Estimate Context</h2>
         </div>
         <span className="context-summary-actions">
           <span className="controlled-badge">Controlled input</span>

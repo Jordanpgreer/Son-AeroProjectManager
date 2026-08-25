@@ -124,7 +124,7 @@ export function ImportsPanel() {
 
       <ol className="admin-import-steps" aria-label="Import workflow">
         <li><span>1</span><strong>Download</strong><small>Current projects and operations</small></li>
-        <li><span>2</span><strong>Edit</strong><small>Keep IDs and sheet structure intact</small></li>
+        <li><span>2</span><strong>Edit</strong><small>Update priorities and business fields; system IDs stay protected</small></li>
         <li><span>3</span><strong>Validate</strong><small>Compare without saving</small></li>
         <li><span>4</span><strong>Confirm</strong><small>Apply the reviewed changes</small></li>
       </ol>
@@ -132,7 +132,7 @@ export function ImportsPanel() {
       <div className="admin-import-template">
         <div>
           <FileSpreadsheet size={22} aria-hidden="true" />
-          <span><strong>Controlled Project Tracker template</strong><small>Includes a Projects tab, an Operations tab, required-field guidance, and all current data for mass edits.</small></span>
+          <span><strong>Controlled Project Tracker template</strong><small>Includes all current data for mass edits, including priority numbers. Existing IDs are protected and operation IDs are handled automatically.</small></span>
         </div>
         <button className="ghost-button" type="button" disabled={busy} onClick={() => void download('/api/import/template', 'template')}>
           <Download size={16} /> {action === 'template' ? 'Preparing…' : 'Download template'}

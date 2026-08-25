@@ -42,7 +42,22 @@ public sealed class ControlledWorkbookImportServiceTests
                 workbook.Worksheets.Select(sheet => sheet.Name).ToArray());
             Assert.Equal("Project ID (Required)", workbook.Worksheet("Projects").Cell(1, 1).GetString());
             Assert.Equal("PN-100", workbook.Worksheet("Projects").Cell(2, 2).GetString());
-            Assert.Equal("Operation ID (Required)", workbook.Worksheet("Operations").Cell(1, 2).GetString());
+            Assert.Equal("Operation ID (System)", workbook.Worksheet("Operations").Cell(1, 2).GetString());
+
+            var projects = workbook.Worksheet("Projects");
+            Assert.True(projects.Protection.IsProtected);
+            Assert.True(projects.Cell(2, 1).Style.Protection.Locked);
+            Assert.False(projects.Cell(2, 8).Style.Protection.Locked);
+            Assert.False(projects.Cell(3, 1).Style.Protection.Locked);
+
+            var operations = workbook.Worksheet("Operations");
+            Assert.True(operations.Protection.IsProtected);
+            Assert.True(operations.Column(2).IsHidden);
+            Assert.True(operations.Cell(2, 1).Style.Protection.Locked);
+            Assert.True(operations.Cell(2, 2).Style.Protection.Locked);
+            Assert.False(operations.Cell(2, 3).Style.Protection.Locked);
+            Assert.False(operations.Cell(4, 1).Style.Protection.Locked);
+            Assert.True(operations.Cell(4, 2).Style.Protection.Locked);
         }
 
         var review = await service.ValidateAsync(db, workbookBytes, "round-trip.xlsx", AccountName);
@@ -110,6 +125,199 @@ public sealed class ControlledWorkbookImportServiceTests
         Assert.Equal("New Customer", created.CustomerName);
         Assert.Single(created.Tasks);
         Assert.Equal("Contract Review", created.Tasks[0].Title);
+    }
+
+    [Fact]
+    public async Task ValidateAndApply_AllowsBlankSystemOperationIds()
+    {
+        await using var connection = await OpenConnectionAsync();
+        await using var db = await CreateSeededDbAsync(connection);
+        var service = CreateService();
+        var workbookBytes = await service.ExportTemplateAsync(db);
+
+        using var workbook = OpenWorkbook(workbookBytes);
+        var operations = workbook.Worksheet("Operations");
+        operations.Cell(2, 2).Clear();
+        operations.Cell(2, 16).Value = "Matched without a visible operation ID";
+        operations.Cell(4, 1).Value = await db.Projects.Select(project => project.Id).SingleAsync();
+        operations.Cell(4, 3).Value = 3;
+        operations.Cell(4, 4).Value = "New operation without an ID";
+        operations.Cell(4, 6).Value = "Engineering";
+
+        var review = await service.ValidateAsync(db, SaveWorkbook(workbook), "automatic-operation-ids.xlsx", AccountName);
+
+        Assert.Empty(review.Errors);
+        Assert.Equal(1, review.OperationsAdded);
+        Assert.Equal(1, review.OperationsUpdated);
+
+        await service.ApplyAsync(db, review.ReviewId, AccountName);
+
+        var tasks = await db.Tasks.OrderBy(task => task.Sequence).ToListAsync();
+        Assert.Equal(3, tasks.Count);
+        Assert.Equal("Matched without a visible operation ID", tasks[0].Notes);
+        Assert.Equal("New operation without an ID", tasks[2].Title);
+        Assert.True(tasks[2].Id > 0);
+    }
+
+    [Fact]
+    public async Task ValidateAndApply_BulkUpdatesProjectPriorities()
+    {
+        await using var connection = await OpenConnectionAsync();
+        await using var db = await CreateSeededDbAsync(connection);
+        db.Projects.Add(new Project
+        {
+            ProgramName = "PN-200",
+            CustomerName = "Second Customer"
+        });
+        await db.SaveChangesAsync();
+        var service = CreateService();
+        var workbookBytes = await service.ExportTemplateAsync(db);
+
+        using var workbook = OpenWorkbook(workbookBytes);
+        var projects = workbook.Worksheet("Projects");
+        projects.Cell(2, 8).Value = 2;
+        projects.Cell(3, 8).Value = 1;
+
+        var review = await service.ValidateAsync(db, SaveWorkbook(workbook), "priority-update.xlsx", AccountName);
+
+        Assert.Empty(review.Errors);
+        Assert.Equal(2, review.ProjectsUpdated);
+        Assert.Contains(review.Changes, change => change.Field == "Priority");
+
+        await service.ApplyAsync(db, review.ReviewId, AccountName);
+
+        Assert.Equal(2, await db.Projects.Where(project => project.ProgramName == "PN-100").Select(project => project.PriorityRank).SingleAsync());
+        Assert.Equal(1, await db.Projects.Where(project => project.ProgramName == "PN-200").Select(project => project.PriorityRank).SingleAsync());
+    }
+
+    [Fact]
+    public async Task Validate_AcceptsLegacyRequiredOperationIdHeader()
+    {
+        await using var connection = await OpenConnectionAsync();
+        await using var db = await CreateSeededDbAsync(connection);
+        var service = CreateService();
+        var workbookBytes = await service.ExportTemplateAsync(db);
+
+        using var workbook = OpenWorkbook(workbookBytes);
+        workbook.Worksheet("Operations").Cell(1, 2).Value = "Operation ID (Required)";
+        var review = await service.ValidateAsync(db, SaveWorkbook(workbook), "legacy-header.xlsx", AccountName);
+
+        Assert.DoesNotContain(review.Errors, issue => issue.Row == 1 && issue.Column == "Operation ID (System)");
+    }
+
+    [Fact]
+    public async Task ValidateAndApply_CreatesProjectsForUnknownNumericIds()
+    {
+        await using var connection = await OpenConnectionAsync();
+        await using var db = await CreateSeededDbAsync(connection);
+        var service = CreateService();
+        using var templateStream = typeof(ControlledWorkbookImportService).Assembly
+            .GetManifestResourceStream(ControlledWorkbookImportService.PackagedTemplateResourceName);
+        Assert.NotNull(templateStream);
+        using var workbook = new XLWorkbook(templateStream);
+
+        var projects = workbook.Worksheet("Projects");
+        projects.Cell(2, 1).Value = 500;
+        projects.Cell(2, 2).Value = "PORTABLE-500";
+        projects.Cell(2, 3).Value = "Portable Customer";
+        projects.Cell(3, 1).Value = 501;
+        projects.Cell(3, 2).Value = "PORTABLE-501";
+        projects.Cell(3, 3).Value = "Portable Customer";
+
+        var operations = workbook.Worksheet("Operations");
+        operations.Cell(2, 1).Value = 500;
+        operations.Cell(2, 2).Value = 900;
+        operations.Cell(2, 3).Value = 1;
+        operations.Cell(2, 4).Value = "First routing step";
+        operations.Cell(2, 6).Value = "External Center";
+        operations.Cell(3, 1).Value = 500;
+        operations.Cell(3, 2).Value = 901;
+        operations.Cell(3, 3).Value = 1;
+        operations.Cell(3, 4).Value = "Second routing step";
+        operations.Cell(3, 6).Value = "External Center";
+        operations.Cell(4, 1).Value = 501;
+        operations.Cell(4, 2).Value = 902;
+        operations.Cell(4, 3).Value = 1;
+        operations.Cell(4, 4).Value = "Other project step";
+
+        var review = await service.ValidateAsync(db, SaveWorkbook(workbook), "portable.xlsx", AccountName);
+
+        Assert.Empty(review.Errors);
+        Assert.True(review.CanConfirm);
+        Assert.Equal(2, review.ProjectsAdded);
+        Assert.Equal(3, review.OperationsAdded);
+        Assert.Contains("new numeric project IDs", review.WorkbookFormat, StringComparison.OrdinalIgnoreCase);
+
+        await service.ApplyAsync(db, review.ReviewId, AccountName);
+
+        var imported = await db.Projects
+            .Include(project => project.Tasks)
+            .SingleAsync(project => project.ProgramName == "PORTABLE-500");
+        Assert.Equal([1, 2], imported.Tasks.OrderBy(task => task.Sequence).Select(task => task.Sequence).ToArray());
+        Assert.All(imported.Tasks, task => Assert.Equal("External Center", task.WorkStation));
+    }
+
+    [Fact]
+    public async Task ValidateAndApply_CreatesProjectForAnIsolatedUnknownNumericId()
+    {
+        await using var connection = await OpenConnectionAsync();
+        await using var db = await CreateSeededDbAsync(connection);
+        var service = CreateService();
+        var workbookBytes = await service.ExportTemplateAsync(db);
+
+        using var workbook = OpenWorkbook(workbookBytes);
+        workbook.Worksheet("Projects").Cell(2, 1).Value = 999;
+        workbook.Worksheet("Projects").Cell(2, 2).Value = "PN-999";
+        workbook.Worksheet("Operations").Cell(2, 1).Value = 999;
+        workbook.Worksheet("Operations").Cell(3, 1).Value = 999;
+        var review = await service.ValidateAsync(db, SaveWorkbook(workbook), "stale-id.xlsx", AccountName);
+
+        Assert.Empty(review.Errors);
+        Assert.Equal(1, review.ProjectsAdded);
+        Assert.Equal(2, review.OperationsAdded);
+
+        await service.ApplyAsync(db, review.ReviewId, AccountName);
+
+        var imported = await db.Projects
+            .Include(project => project.Tasks)
+            .SingleAsync(project => project.ProgramName == "PN-999");
+        Assert.Equal(2, imported.Tasks.Count);
+    }
+
+    [Fact]
+    public async Task ValidateAndApply_ResolvesKnownAndUnknownProjectIdsIndependently()
+    {
+        await using var connection = await OpenConnectionAsync();
+        await using var db = await CreateSeededDbAsync(connection);
+        var existingProjectId = await db.Projects.Select(project => project.Id).SingleAsync();
+        var service = CreateService();
+        var workbookBytes = await service.ExportTemplateAsync(db);
+
+        using var workbook = OpenWorkbook(workbookBytes);
+        var projects = workbook.Worksheet("Projects");
+        projects.Cell(3, 1).Value = 999;
+        projects.Cell(3, 2).Value = "PN-999";
+        projects.Cell(3, 3).Value = "New Customer";
+        var operations = workbook.Worksheet("Operations");
+        operations.Cell(4, 1).Value = 999;
+        operations.Cell(4, 2).Value = 999;
+        operations.Cell(4, 3).Value = 1;
+        operations.Cell(4, 4).Value = "New project operation";
+
+        var review = await service.ValidateAsync(db, SaveWorkbook(workbook), "mixed-ids.xlsx", AccountName);
+
+        Assert.Empty(review.Errors);
+        Assert.Equal(1, review.ProjectsAdded);
+        Assert.Equal(1, review.OperationsAdded);
+
+        await service.ApplyAsync(db, review.ReviewId, AccountName);
+
+        Assert.NotNull(await db.Projects.FindAsync(existingProjectId));
+        var imported = await db.Projects
+            .Include(project => project.Tasks)
+            .SingleAsync(project => project.ProgramName == "PN-999");
+        Assert.Single(imported.Tasks);
+        Assert.Equal("New project operation", imported.Tasks[0].Title);
     }
 
     [Fact]

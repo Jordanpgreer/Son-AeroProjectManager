@@ -129,6 +129,48 @@ public sealed class QualityShipmentWorkflowTests
             result.Items.Select(item => item.SalesOrderNumber));
     }
 
+    [Fact]
+    public async Task AssignmentManagerCanReviewUnassignedWorkFromDashboardAndMineQueue()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        fixture.Db.Shipments.Add(new QualityShipment
+        {
+            SalesOrderNumber = "SO-UNASSIGNED",
+            PartNumber = "PN-REVIEW",
+            Customer = "Customer",
+            TaskType = "General",
+            CreatedByAccountName = "TEST\\admin",
+            CreatedByDisplayName = "Admin",
+            UpdatedByAccountName = "TEST\\admin",
+            UpdatedByDisplayName = "Admin",
+        });
+        await fixture.Db.SaveChangesAsync();
+        var manager = new QualityAssuranceAccessProfile(
+            50,
+            "TEST\\manager",
+            "Quality Manager",
+            ApplicationRoles.Editor,
+            [
+                QualityAssurancePermissions.ModuleView,
+                QualityAssurancePermissions.ShipmentsView,
+                QualityAssurancePermissions.TeamDashboardView,
+                QualityAssurancePermissions.AssignmentView,
+                QualityAssurancePermissions.AssignmentGroup,
+                QualityAssurancePermissions.AssignmentUser,
+                QualityAssurancePermissions.SalesOrderView,
+                QualityAssurancePermissions.PartNumberView,
+                QualityAssurancePermissions.CustomerView,
+                QualityAssurancePermissions.TaskTypeView,
+            ],
+            [new QualityAssuranceAccessGroup(10, "Quality")]);
+
+        var dashboard = await fixture.Shipments.DashboardAsync(manager, default);
+        var mine = await fixture.Shipments.ListAsync(manager, "open", "mine", "oldest", null, default);
+
+        Assert.Contains(dashboard.Queue, shipment => shipment.SalesOrderNumber == "SO-UNASSIGNED");
+        Assert.Contains(mine.Items, shipment => shipment.SalesOrderNumber == "SO-UNASSIGNED");
+    }
+
     private static QualityShipment Shipment(
         string salesOrderNumber,
         DateOnly? qaArrivalDate,

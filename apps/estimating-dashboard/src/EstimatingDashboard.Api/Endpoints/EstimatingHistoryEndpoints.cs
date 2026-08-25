@@ -124,6 +124,20 @@ public static class EstimatingHistoryEndpoints
                 Access(context),
                 cancellationToken)));
 
+        history.MapGet("/estimator-summary", async (
+            HttpContext context,
+            string? period,
+            EstimatorSummaryReportService service,
+            CancellationToken cancellationToken) =>
+        {
+            if (!EstimatingHistoryPeriods.IsValidDashboardPeriod(period))
+                return Results.BadRequest(new ErrorDto(
+                    "InvalidSummaryPeriod",
+                    "Choose this week, this month, or all time for the estimator summary."));
+            var report = await service.CreateAsync(period!, Access(context), cancellationToken);
+            return Results.File(report.Content, "application/pdf", report.FileName);
+        });
+
         history.MapGet("/report", async (
             string? period,
             string? estimator,

@@ -97,7 +97,7 @@ export default function EstimatingRatesPage() {
             <LockKeyhole size={14} aria-hidden="true" />
             Read-only reference
           </span>
-          <h2 id="rates-reference-title">Annual estimating rate matrix</h2>
+          <h2 id="rates-reference-title">Annual Estimating Rate Matrix</h2>
           <p>
             Review workbook-aligned labor rates and pricing assumptions. Values on this page
             cannot be edited.
@@ -202,7 +202,7 @@ export default function EstimatingRatesPage() {
           <div>
             <span className="rates-section-icon"><BookOpenCheck size={18} aria-hidden="true" /></span>
             <div>
-              <h3 id="annual-rates-heading">Labor rates by operation</h3>
+              <h3 id="annual-rates-heading">Labor Rates By Operation</h3>
               <p>USD per minute · hover or focus a value for its hourly equivalent</p>
             </div>
           </div>
@@ -281,7 +281,7 @@ export default function EstimatingRatesPage() {
       <aside className="rates-provenance" aria-labelledby="rates-source-heading">
         <Database size={20} aria-hidden="true" />
         <div>
-          <h3 id="rates-source-heading">Source provenance</h3>
+          <h3 id="rates-source-heading">Source Provenance</h3>
           <p>
             The authoritative 2023–2029 matrix is{' '}
             <code>Estimating Rates.xlsx · Sheet1!P5:V75</code>. The dashboard uses the

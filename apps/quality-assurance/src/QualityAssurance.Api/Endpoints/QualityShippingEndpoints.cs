@@ -60,6 +60,27 @@ public static class QualityShippingEndpoints
             return Results.Created($"/api/shipments/{created.Id}", created);
         }).RequireAuthorization(QualityAssurancePermissions.ShipmentCreate);
 
+        api.MapPost("/shipments/import", async (
+            IFormFile file,
+            HttpContext context,
+            QualityShipmentImportService importer,
+            CancellationToken cancellationToken) =>
+        {
+            if (file.Length == 0)
+                return Results.BadRequest(new ErrorDto("EmptyWorkbook", "Choose a non-empty Excel workbook."));
+            if (file.Length > 25 * 1024 * 1024)
+                return Results.BadRequest(new ErrorDto("WorkbookTooLarge", "The workbook cannot exceed 25 MB."));
+            if (!string.Equals(Path.GetExtension(file.FileName), ".xlsx", StringComparison.OrdinalIgnoreCase))
+                return Results.BadRequest(new ErrorDto("InvalidWorkbookType", "Upload an .xlsx Shipping Status workbook."));
+
+            await using var stream = file.OpenReadStream();
+            return Results.Ok(await importer.ImportAsync(
+                stream,
+                Path.GetFileName(file.FileName),
+                Access(context),
+                cancellationToken));
+        }).DisableAntiforgery().RequireAuthorization(QualityAssurancePermissions.ShipmentImport);
+
         api.MapPatch("/shipments/{id:int}", async (
             int id,
             QualityShipmentPatchDto dto,

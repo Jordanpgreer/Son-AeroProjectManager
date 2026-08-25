@@ -19,6 +19,7 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
 
   if (error) return <section className="panel error-panel"><AlertTriangle size={20} /><div><h2>Dashboard unavailable</h2><p>{error}</p></div></section>
   if (!data) return <div className="loading-panel" role="status">Loading your shipping queue...</div>
+  const includesUnassigned = data.queue.some((shipment) => !shipment.assignedGroupId && !shipment.assignedUserId)
 
   return (
     <div className="view dashboard-view">
@@ -32,7 +33,7 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
       <section className="dashboard-layout">
         <article className="panel queue-panel">
           <header className="panel-head">
-            <div><span className="eyebrow">My work</span><h2>Queue priority</h2><p>Ordered oldest first, with ship-date risk visible alongside age.</p></div>
+            <div><span className="eyebrow">{includesUnassigned ? 'My work + manager review' : 'My work'}</span><h2>Queue priority</h2><p>{includesUnassigned ? 'Unassigned records are included for ownership review.' : 'Ordered oldest first, with ship-date risk visible alongside age.'}</p></div>
             <a className="button ghost" href="#/shipping-status">Open Shipping Status <ArrowRight size={15} /></a>
           </header>
           {data.queue.length ? (
@@ -41,7 +42,7 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
                 <a className="queue-item" href={`#/shipping-status?shipment=${shipment.id}`} key={shipment.id}>
                   <span className="queue-rank">{String(index + 1).padStart(2, '0')}</span>
                   <span className="queue-primary"><strong>{shipment.salesOrderNumber || `Shipment ${shipment.id}`}</strong><small>{shipment.customer || 'Customer hidden'} · {shipment.partNumber || 'Part hidden'}</small></span>
-                  <span className="queue-type">{shipment.taskType || 'Task type hidden'}</span>
+                  <span className="queue-type">{!shipment.assignedGroupId && !shipment.assignedUserId ? 'Unassigned review' : shipment.taskType || 'Task type hidden'}</span>
                   <span className="queue-age"><strong>{ageInDays(shipment.createdAt)}d</strong><small>in queue</small></span>
                   <span className={`due-pill ${shipment.dueState.toLowerCase().replaceAll(' ', '-')}`}><span />{shipment.dueState === 'Hidden' ? 'Due date hidden' : `${shipment.dueState} · ${formatDate(shipment.shipDate)}`}</span>
                 </a>

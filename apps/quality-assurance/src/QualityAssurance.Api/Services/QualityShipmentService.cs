@@ -65,18 +65,25 @@ public sealed class QualityShipmentService(
     {
         var canViewTeam = access.HasPermission(QualityAssurancePermissions.TeamDashboardView)
             || access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll);
+        var canReviewUnassigned = access.HasPermission(QualityAssurancePermissions.AssignmentGroup);
         var groupIds = access.Groups.Select(group => group.Id).ToList();
         var dashboardQuery = db.Shipments.AsNoTracking();
         if (!access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll))
         {
             dashboardQuery = canViewTeam
                 ? dashboardQuery.Where(shipment => shipment.AssignedUserId == access.UserId
-                    || (shipment.AssignedGroupId.HasValue && groupIds.Contains(shipment.AssignedGroupId.Value)))
-                : dashboardQuery.Where(shipment => shipment.AssignedUserId == access.UserId);
+                    || (shipment.AssignedGroupId.HasValue && groupIds.Contains(shipment.AssignedGroupId.Value))
+                    || (canReviewUnassigned && !shipment.AssignedGroupId.HasValue && !shipment.AssignedUserId.HasValue))
+                : dashboardQuery.Where(shipment => shipment.AssignedUserId == access.UserId
+                    || (canReviewUnassigned && !shipment.AssignedGroupId.HasValue && !shipment.AssignedUserId.HasValue));
         }
         var all = await dashboardQuery.ToListAsync(cancellationToken);
         var mine = all.Where(shipment => shipment.AssignedUserId == access.UserId).ToList();
-        var queue = mine.Where(shipment => !shipment.IsShipped)
+        var reviewQueue = canReviewUnassigned
+            ? all.Where(shipment => shipment.AssignedUserId == access.UserId
+                || (!shipment.AssignedGroupId.HasValue && !shipment.AssignedUserId.HasValue))
+            : mine;
+        var queue = reviewQueue.Where(shipment => !shipment.IsShipped)
             .OrderBy(shipment => shipment.QaArrivalDate ?? DateOnly.MaxValue)
             .ThenBy(shipment => shipment.CreatedAt)
             .ThenBy(shipment => shipment.ShipDate ?? DateOnly.MaxValue)
@@ -327,8 +334,14 @@ public sealed class QualityShipmentService(
             return access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll)
                 ? query
                 : query.Where(shipment => shipment.AssignedUserId == access.UserId
-                    || (shipment.AssignedGroupId.HasValue && groupIds.Contains(shipment.AssignedGroupId.Value)));
+                    || (shipment.AssignedGroupId.HasValue && groupIds.Contains(shipment.AssignedGroupId.Value))
+                    || (access.HasPermission(QualityAssurancePermissions.AssignmentGroup)
+                        && !shipment.AssignedGroupId.HasValue
+                        && !shipment.AssignedUserId.HasValue));
         }
+        if (access.HasPermission(QualityAssurancePermissions.AssignmentGroup))
+            return query.Where(shipment => shipment.AssignedUserId == access.UserId
+                || (!shipment.AssignedGroupId.HasValue && !shipment.AssignedUserId.HasValue));
         return query.Where(shipment => shipment.AssignedUserId == access.UserId);
     }
 
@@ -370,6 +383,9 @@ public sealed class QualityShipmentService(
     {
         if (access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll)) return;
         if (shipment.AssignedUserId == access.UserId) return;
+        if (!shipment.AssignedGroupId.HasValue
+            && !shipment.AssignedUserId.HasValue
+            && access.HasPermission(QualityAssurancePermissions.AssignmentGroup)) return;
         if (access.HasPermission(QualityAssurancePermissions.TeamDashboardView)
             && shipment.AssignedGroupId.HasValue
             && access.Groups.Any(group => group.Id == shipment.AssignedGroupId.Value)) return;

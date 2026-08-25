@@ -83,7 +83,8 @@ public sealed record ControlledImportReview(
 public sealed record ControlledImportPayload(
     IReadOnlyList<ControlledProjectRow> Projects,
     IReadOnlyList<ControlledOperationRow> Operations,
-    string SourceFormat = "Controlled Project Tracker template");
+    string SourceFormat = "Controlled Project Tracker template",
+    bool UsesPortableIdentifiers = false);
 
 public sealed record ControlledProjectRow(
     int Row,

@@ -270,7 +270,7 @@ export default function App() {
             : <LockKeyhole size={30} aria-hidden="true" />}
         </span>
         <span className="eyebrow">Estimating access</span>
-        <h1>{accessLoading ? 'Checking module access' : 'Access unavailable'}</h1>
+        <h1>{accessLoading ? 'Checking Module Access' : 'Access Unavailable'}</h1>
         <p>{accessLoading
           ? 'Verifying your enabled Estimating role...'
           : accessError ?? 'Your account does not have enabled access to Estimating.'}</p>

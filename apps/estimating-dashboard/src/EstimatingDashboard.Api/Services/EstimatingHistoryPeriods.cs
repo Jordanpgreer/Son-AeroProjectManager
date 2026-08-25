@@ -31,6 +31,9 @@ public static class EstimatingHistoryPeriods
     public static bool IsValidReportPeriod(string? value) =>
         Normalize(value) is "week" or "month" or "year";
 
+    public static bool IsValidDashboardPeriod(string? value) =>
+        Normalize(value) is "week" or "month" or "all";
+
     public static bool Includes(Models.EstimatingQuoteHistoryRecord record, EstimatingHistoryPeriod period) =>
         record.IsCompleted
         && (!period.Start.HasValue || record.EstimatingCompletionDate >= period.Start.Value)

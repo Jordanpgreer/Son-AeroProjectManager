@@ -5,6 +5,7 @@ using EstimatingDashboard.Api.Models;
 using EstimatingDashboard.Api.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using PdfSharp.Pdf.IO;
 
 namespace EstimatingDashboard.Tests;
 
@@ -222,6 +223,46 @@ public sealed class EstimatingHistoryImportTests
     }
 
     [Fact]
+    public async Task LiveQueueCapsEveryPageAtFiftyRecords()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var now = DateTimeOffset.UtcNow;
+        fixture.Db.QuoteHistory.AddRange(Enumerable.Range(1, 55).Select(index =>
+            new EstimatingQuoteHistoryRecord
+            {
+                SourceId = $"queue-{index}",
+                QuoteNumber = 3000 + index,
+                Customer = $"Customer {index}",
+                SalesPerson = "Sales",
+                QuoteStatus = "Needs Approval",
+                EstimatingRep = "Bethany",
+                TotalValue = index * 100m,
+                NumberOfParts = 1,
+                OnTimeStatus = EstimatingOnTimeStatuses.NoData,
+                LastImportBatchId = Guid.NewGuid(),
+                FirstImportedAt = now,
+                UpdatedAt = now,
+                UpdatedBy = "TEST\\admin",
+                Version = 1
+            }));
+        await fixture.Db.SaveChangesAsync();
+
+        var firstPage = await fixture.Queries.GetPageAsync(
+            null, null, null, null, null, null, null, null, null, "live", null, null,
+            null, null, null, null, null, null, "number", "asc", 1, 200, default);
+        var secondPage = await fixture.Queries.GetPageAsync(
+            null, null, null, null, null, null, null, null, null, "live", null, null,
+            null, null, null, null, null, null, "number", "asc", 2, 200, default);
+
+        Assert.Equal(55, firstPage.Total);
+        Assert.Equal(50, firstPage.PageSize);
+        Assert.Equal(50, firstPage.Records.Count);
+        Assert.Equal(5, secondPage.Records.Count);
+        Assert.Equal(3001, firstPage.Records[0].QuoteNumber);
+        Assert.Equal(3051, secondPage.Records[0].QuoteNumber);
+    }
+
+    [Fact]
     public async Task DashboardScopesEstimatorsAndExcludesFormerEmployeeAbel()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -276,6 +317,44 @@ public sealed class EstimatingHistoryImportTests
         var abelValues = abelWorkbook.Worksheet("Estimator Statistics").Column(1).CellsUsed().Select(cell => cell.GetString()).ToList();
         Assert.Contains("Abel", abelValues);
         Assert.DoesNotContain("Bethany", abelValues);
+    }
+
+    [Fact]
+    public async Task EstimatorSummaryCreatesOnePdfPagePerVisibleEstimatorAndScopesPrivateUsers()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var monthStart = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+        var priorMonthCompletion = monthStart.AddDays(-4);
+        var currentMonthCompletion = monthStart.AddDays(3);
+        await using var workbook = Workbook([
+            ["bethany-prior", 2151, "One", "Sales", 100m, "Sent", priorMonthCompletion, priorMonthCompletion.AddDays(-2), "None", "C (Low)", 1, "Assembled Estimate", "Bethany", priorMonthCompletion],
+            ["bethany-current", 2152, "Two", "Sales", 200m, "Sent", currentMonthCompletion.AddDays(-2), currentMonthCompletion.AddDays(-4), "None", "B (Medium)", 2, "Assembled Estimate", "Bethany", currentMonthCompletion],
+            ["darlene-current", 2153, "Three", "Sales", 300m, "Sent", currentMonthCompletion, currentMonthCompletion.AddDays(-1), "None", "C (Low)", 1, "Assembled Estimate", "Darlene", currentMonthCompletion],
+            ["abel-current", 2154, "Four", "Sales", 400m, "Sent", currentMonthCompletion, currentMonthCompletion.AddDays(-1), "None", "C (Low)", 1, "Assembled Estimate", "Abel", currentMonthCompletion]
+        ]);
+        var validation = await fixture.Importer.ValidateAsync(workbook, "summary.xlsx", "TEST\\admin", default);
+        await fixture.Importer.ApplyAsync(validation.ReviewId, "TEST\\admin", false, default);
+        var reporter = new EstimatorSummaryReportService(fixture.Db, fixture.Queries);
+
+        var teamReport = await reporter.CreateAsync("all", ManagerAccess(), default);
+        using var teamDocument = PdfReader.Open(new MemoryStream(teamReport.Content), PdfDocumentOpenMode.Import);
+        Assert.Equal(2, teamDocument.PageCount);
+        Assert.Contains("estimator-summary-all", teamReport.FileName);
+
+        var privateReport = await reporter.CreateAsync("month", EstimatorAccess("Bethany R."), default);
+        using var privateDocument = PdfReader.Open(new MemoryStream(privateReport.Content), PdfDocumentOpenMode.Import);
+        Assert.Equal(1, privateDocument.PageCount);
+        Assert.Contains("estimator-summary-month", privateReport.FileName);
+        Assert.True(privateReport.Content.Length > 1_000);
+    }
+
+    [Theory]
+    [InlineData("week")]
+    [InlineData("month")]
+    [InlineData("all")]
+    public void DashboardReportPeriodsAcceptEveryStatisticsSelection(string period)
+    {
+        Assert.True(EstimatingHistoryPeriods.IsValidDashboardPeriod(period));
     }
 
     [Fact]

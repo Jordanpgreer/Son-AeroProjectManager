@@ -261,6 +261,17 @@
   font-weight: 700;
 }
 
+.estimator-stats-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 11px;
+}
+
+.estimator-summary-export {
+  min-height: 36px;
+}
+
 .estimator-stat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -1425,6 +1436,16 @@
   }
 
   .history-stats-toolbar .history-import-button {
+    width: 100%;
+  }
+
+  .estimator-stats-card .history-card-heading,
+  .estimator-stats-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .estimator-summary-export {
     width: 100%;
   }
 

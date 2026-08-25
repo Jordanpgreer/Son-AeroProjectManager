@@ -104,7 +104,7 @@ export default function QuotesDashboardPage({
       <section className="quote-dashboard-intro">
         <div>
           <span className="section-kicker">Quote workspace</span>
-          <h2>Estimating pipeline</h2>
+          <h2>Estimating Pipeline</h2>
           <p>Continue drafts, track current quotes, and retain completed quote history.</p>
         </div>
         <button

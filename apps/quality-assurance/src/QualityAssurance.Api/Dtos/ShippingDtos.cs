@@ -71,6 +71,13 @@ public sealed record QualityShipmentAssignmentDto(
 
 public sealed record QualityShipmentVersionDto(long Version);
 
+public sealed record QualityShippingImportResultDto(
+    int RowsRead,
+    int CreatedRecords,
+    int SkippedDuplicates,
+    int ReconciledAssignments,
+    string Worksheet);
+
 public sealed record QualityShipmentAuditDto(
     long Id,
     string EventType,

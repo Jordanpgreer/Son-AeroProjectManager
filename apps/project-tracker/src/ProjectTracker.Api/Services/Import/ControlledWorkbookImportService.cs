@@ -18,6 +18,7 @@ public sealed class ControlledWorkbookImportService(
     public const string PackagedTemplateFileName = "Project-Tracker-Controlled-Import-Template.xlsx";
     public const string PackagedTemplateResourceName =
         "ProjectTracker.Api.Assets.Templates.Project-Tracker-Controlled-Import-Template.xlsx";
+    private const int EditableTemplateRowLimit = 10_000;
 
     internal static readonly string[] ProjectHeaders =
     [
@@ -40,7 +41,7 @@ public sealed class ControlledWorkbookImportService(
     internal static readonly string[] OperationHeaders =
     [
         "Project ID (Required)",
-        "Operation ID (Required)",
+        "Operation ID (System)",
         "Sequence (Required)",
         "Operation Name (Required)",
         "Phase",
@@ -123,8 +124,8 @@ public sealed class ControlledWorkbookImportService(
             }
         }
 
-        FinishSheet(projectSheet, ProjectHeaders.Length, Math.Max(projectRow - 1, 2));
-        FinishSheet(operationSheet, OperationHeaders.Length, Math.Max(operationRow - 1, 2));
+        FinishProjectSheet(projectSheet, projectRow - 1);
+        FinishOperationSheet(operationSheet, operationRow - 1);
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
@@ -183,6 +184,8 @@ public sealed class ControlledWorkbookImportService(
             .Select(workCenter => workCenter.Name)
             .ToListAsync(cancellationToken);
         var workCenters = workCenterNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        payload = ResolveImportedIdentifiers(payload, currentProjects);
 
         var changes = CompareAndValidate(payload, currentProjects, workCenters, errors);
         var projectVersions = currentProjects
@@ -446,6 +449,98 @@ public sealed class ControlledWorkbookImportService(
             workbookBytes);
     }
 
+    private static ControlledImportPayload ResolveImportedIdentifiers(
+        ControlledImportPayload payload,
+        IReadOnlyList<Project> currentProjects)
+    {
+        var currentProjectsById = currentProjects.ToDictionary(project => project.Id);
+        var containsNewNumericProjectIds = payload.Projects.Any(row =>
+            row.ExistingId is not null
+            && !currentProjectsById.ContainsKey(row.ExistingId.Value));
+        var projects = payload.Projects
+            .Select(row => row.ExistingId is not null
+                && !currentProjectsById.ContainsKey(row.ExistingId.Value)
+                    ? row with { ExistingId = null }
+                    : row)
+            .ToList();
+        var projectRowsByKey = projects.ToDictionary(row => row.Key, StringComparer.Ordinal);
+        var currentOperationsById = currentProjects
+            .SelectMany(project => project.Tasks)
+            .ToDictionary(operation => operation.Id);
+        var operations = payload.Operations
+            .Select(row =>
+            {
+                if (!projectRowsByKey.TryGetValue(row.ProjectKey, out var projectRow)
+                    || projectRow.ExistingId is null
+                    || !currentProjectsById.TryGetValue(projectRow.ExistingId.Value, out var project))
+                {
+                    return row with { ExistingId = null };
+                }
+
+                if (row.ExistingId is not null
+                    && currentOperationsById.TryGetValue(row.ExistingId.Value, out var operation)
+                    && operation.ProjectId == projectRow.ExistingId.Value)
+                {
+                    return row;
+                }
+
+                var matches = project.Tasks
+                    .Where(operation => operation.Sequence == row.Sequence
+                        && string.Equals(operation.Title, row.Title, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                return matches.Count == 1
+                    ? row with { ExistingId = matches[0].Id }
+                    : row with { ExistingId = null };
+            })
+            .ToList();
+
+        foreach (var projectRow in projects)
+        {
+            var uploaded = operations
+                .Where(row => string.Equals(row.ProjectKey, projectRow.Key, StringComparison.Ordinal))
+                .OrderBy(row => row.Row)
+                .ToList();
+            if (uploaded.Count == 0) continue;
+
+            var uploadedExistingIds = uploaded
+                .Where(row => row.ExistingId is not null)
+                .Select(row => row.ExistingId!.Value)
+                .ToHashSet();
+            var reservedSequences = projectRow.ExistingId is not null
+                && currentProjectsById.TryGetValue(projectRow.ExistingId.Value, out var currentProject)
+                    ? currentProject.Tasks
+                        .Where(operation => !uploadedExistingIds.Contains(operation.Id))
+                        .Select(operation => operation.Sequence)
+                        .ToHashSet()
+                    : [];
+            var desiredSequences = reservedSequences
+                .Concat(uploaded.Select(row => row.Sequence))
+                .ToList();
+            if (desiredSequences.Distinct().Count() == desiredSequences.Count) continue;
+
+            var usedSequences = reservedSequences.ToHashSet();
+            var nextSequence = 1;
+            foreach (var row in uploaded)
+            {
+                while (usedSequences.Contains(nextSequence)) nextSequence++;
+                var index = operations.IndexOf(row);
+                operations[index] = row with { Sequence = nextSequence };
+                usedSequences.Add(nextSequence);
+                nextSequence++;
+            }
+        }
+
+        return payload with
+        {
+            Projects = projects,
+            Operations = operations,
+            SourceFormat = containsNewNumericProjectIds
+                ? $"{payload.SourceFormat} (new numeric project IDs)"
+                : payload.SourceFormat,
+            UsesPortableIdentifiers = containsNewNumericProjectIds
+        };
+    }
+
     private static List<ControlledProjectRow> ParseProjects(IXLWorksheet sheet, List<ImportIssueDto> errors)
     {
         var rows = new List<ControlledProjectRow>();
@@ -487,10 +582,13 @@ public sealed class ControlledWorkbookImportService(
             if (IsBlankRow(sheet, row, OperationHeaders.Length)) continue;
             RejectFormulas(sheet, row, OperationHeaders.Length, errors);
             var projectKey = RequiredText(sheet, row, 1, OperationHeaders[0], errors);
-            var key = RequiredText(sheet, row, 2, OperationHeaders[1], errors);
+            var uploadedKey = OptionalText(sheet.Cell(row, 2));
+            var key = string.IsNullOrWhiteSpace(uploadedKey) ? $"AUTO-ROW-{row}" : uploadedKey;
             var sequence = ParseRequiredPositiveInteger(sheet.Cell(row, 3), OperationsSheet, row, OperationHeaders[2], errors);
             var title = RequiredText(sheet, row, 4, OperationHeaders[3], errors);
-            var existingId = ParseRecordKey(key, OperationsSheet, row, OperationHeaders[1], errors);
+            var existingId = string.IsNullOrWhiteSpace(uploadedKey)
+                ? null
+                : ParseRecordKey(uploadedKey, OperationsSheet, row, OperationHeaders[1], errors);
             var locked = ParseBoolean(sheet.Cell(row, 8), OperationsSheet, row, OperationHeaders[7], errors);
             var start = ParseDate(sheet.Cell(row, 9), OperationsSheet, row, OperationHeaders[8], errors);
             var originalStart = ParseDate(sheet.Cell(row, 10), OperationsSheet, row, OperationHeaders[9], errors);
@@ -499,7 +597,7 @@ public sealed class ControlledWorkbookImportService(
             var estimatedDuration = ParseOptionalPositiveInteger(sheet.Cell(row, 13), OperationsSheet, row, OperationHeaders[12], errors);
             var actualDuration = ParseOptionalPositiveInteger(sheet.Cell(row, 14), OperationsSheet, row, OperationHeaders[13], errors);
             var completion = ParsePercent(sheet.Cell(row, 15), OperationsSheet, row, OperationHeaders[14], errors);
-            if (projectKey is null || key is null || sequence is null || title is null) continue;
+            if (projectKey is null || sequence is null || title is null) continue;
 
             rows.Add(new ControlledOperationRow(
                 row,
@@ -580,7 +678,9 @@ public sealed class ControlledWorkbookImportService(
                 errors.Add(new ImportIssueDto(OperationsSheet, row.Row, OperationHeaders[1], $"Operation ID '{row.Key}' is duplicated for Project ID '{row.ProjectKey}'."));
             if (row.ExistingId is not null && !seenExistingOperationIds.Add(row.ExistingId.Value))
                 errors.Add(new ImportIssueDto(OperationsSheet, row.Row, OperationHeaders[1], $"Operation {row.ExistingId} is represented more than once."));
-            if (!string.IsNullOrWhiteSpace(row.WorkStation) && !workCenters.Contains(row.WorkStation))
+            if (!payload.UsesPortableIdentifiers
+                && !string.IsNullOrWhiteSpace(row.WorkStation)
+                && !workCenters.Contains(row.WorkStation))
                 errors.Add(new ImportIssueDto(OperationsSheet, row.Row, OperationHeaders[5], $"Work Station '{row.WorkStation}' is not an approved Project Tracker work center."));
 
             if (row.ExistingId is null)
@@ -894,7 +994,11 @@ public sealed class ControlledWorkbookImportService(
         for (var column = 1; column <= headers.Count; column++)
         {
             var actual = sheet.Cell(1, column).GetString().Trim();
-            if (string.Equals(actual, headers[column - 1], StringComparison.Ordinal)) continue;
+            if (string.Equals(actual, headers[column - 1], StringComparison.Ordinal)
+                || sheet.Name == OperationsSheet
+                && column == 2
+                && string.Equals(actual, "Operation ID (Required)", StringComparison.Ordinal))
+                continue;
             errors.Add(new ImportIssueDto(
                 sheet.Name,
                 1,
@@ -914,14 +1018,53 @@ public sealed class ControlledWorkbookImportService(
         cell.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
     }
 
-    private static void FinishSheet(IXLWorksheet sheet, int columnCount, int lastRow)
+    private static void FinishProjectSheet(IXLWorksheet sheet, int lastExistingRow)
+    {
+        FinishSheet(sheet, ProjectHeaders.Length, lastExistingRow);
+        sheet.Range(2, 1, EditableTemplateRowLimit, ProjectHeaders.Length).Style.Protection.Locked = true;
+        if (lastExistingRow >= 2)
+            sheet.Range(2, 2, lastExistingRow, 9).Style.Protection.Locked = false;
+        var firstNewRow = Math.Max(2, lastExistingRow + 1);
+        sheet.Range(firstNewRow, 1, EditableTemplateRowLimit, 9).Style.Protection.Locked = false;
+        ProtectForDataEntry(sheet);
+    }
+
+    private static void FinishOperationSheet(IXLWorksheet sheet, int lastExistingRow)
+    {
+        FinishSheet(sheet, OperationHeaders.Length, lastExistingRow);
+        sheet.Range(2, 1, EditableTemplateRowLimit, OperationHeaders.Length).Style.Protection.Locked = true;
+        if (lastExistingRow >= 2)
+        {
+            sheet.Range(2, 3, lastExistingRow, 16).Style.Protection.Locked = false;
+            sheet.Range(2, 18, lastExistingRow, 18).Style.Protection.Locked = false;
+        }
+        var firstNewRow = Math.Max(2, lastExistingRow + 1);
+        sheet.Range(firstNewRow, 1, EditableTemplateRowLimit, 16).Style.Protection.Locked = false;
+        sheet.Range(firstNewRow, 18, EditableTemplateRowLimit, 18).Style.Protection.Locked = false;
+        sheet.Range(firstNewRow, 2, EditableTemplateRowLimit, 2).Style.Protection.Locked = true;
+        sheet.Range(firstNewRow, 17, EditableTemplateRowLimit, 17).Style.Protection.Locked = true;
+        sheet.Column(2).Hide();
+        ProtectForDataEntry(sheet);
+    }
+
+    private static void FinishSheet(IXLWorksheet sheet, int columnCount, int lastExistingRow)
     {
         sheet.SheetView.FreezeRows(1);
-        sheet.Range(1, 1, lastRow, columnCount).SetAutoFilter();
+        sheet.Range(1, 1, Math.Max(lastExistingRow, 2), columnCount).SetAutoFilter();
         sheet.Columns(1, columnCount).AdjustToContents();
         foreach (var column in sheet.Columns(1, columnCount))
             column.Width = Math.Clamp(column.Width, 11, 36);
         sheet.Column(columnCount).Width = Math.Min(60, Math.Max(sheet.Column(columnCount).Width, 24));
+    }
+
+    private static void ProtectForDataEntry(IXLWorksheet sheet)
+    {
+        sheet.Protect()
+            .AllowElement(XLSheetProtectionElements.AutoFilter)
+            .AllowElement(XLSheetProtectionElements.Sort)
+            .AllowElement(XLSheetProtectionElements.InsertRows)
+            .AllowElement(XLSheetProtectionElements.SelectLockedCells)
+            .AllowElement(XLSheetProtectionElements.SelectUnlockedCells);
     }
 
     private static string? RequiredText(

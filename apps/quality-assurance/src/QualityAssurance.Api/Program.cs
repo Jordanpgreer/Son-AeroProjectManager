@@ -15,6 +15,7 @@ builder.Services.AddScoped<QualityAssuranceUserService>();
 builder.Services.AddScoped<IQualityAssuranceAccessStore, QualityAssuranceAccessStore>();
 builder.Services.AddScoped<QualityAssignmentService>();
 builder.Services.AddScoped<QualityShipmentService>();
+builder.Services.AddScoped<QualityShipmentImportService>();
 builder.Services.AddScoped<QualityShippingLayoutService>();
 builder.Services.AddScoped<QualityPermissionSeeder>();
 builder.Services.AddDbContext<QualityAssuranceAccessDbContext>((serviceProvider, options) =>

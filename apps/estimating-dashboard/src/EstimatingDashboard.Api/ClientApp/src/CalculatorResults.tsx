@@ -76,7 +76,7 @@ function FailurePanel({ result }: { result: Extract<EstimateCalculationResult, {
         <div className="calculation-error-heading">
           <div>
             <span className="section-kicker">Operation validation</span>
-            <h2>Pricing needs attention</h2>
+            <h2>Pricing Needs Attention</h2>
           </div>
           <span className="calculation-error-count">
             {result.errors.length} {result.errors.length === 1 ? 'row' : 'rows'}
@@ -310,7 +310,7 @@ export default function CalculatorResults({
       <div className="calc-section-heading pricing-heading">
         <div>
           <span className="section-kicker">Live workbook output</span>
-          <h2 id="pricing-heading">Pricing matrix</h2>
+          <h2 id="pricing-heading">Pricing Matrix</h2>
         </div>
         <div className="pricing-heading-actions">
           <span className="live-status"><CheckCircle2 size={14} aria-hidden="true" /> Calculated</span>

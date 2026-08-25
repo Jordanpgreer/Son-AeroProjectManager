@@ -330,7 +330,7 @@ export function FacilitiesSection({
             {isSubassembly ? 'Optional child-cost adjustment' : 'Optional price adjustment'}
           </span>
           <h2 id={headingId}>
-            {isSubassembly ? 'Subassembly facilities adjustment' : 'Facilities adjustment'}
+            {isSubassembly ? 'Subassembly Facilities Adjustment' : 'Facilities Adjustment'}
           </h2>
         </div>
         <span className="facilities-impact-badge">

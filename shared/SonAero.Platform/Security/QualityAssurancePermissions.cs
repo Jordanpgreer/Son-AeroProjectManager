@@ -7,6 +7,7 @@ public static class QualityAssurancePermissions
     public const string ShipmentsViewAll = "quality-assurance.shipments.view-all";
     public const string TeamDashboardView = "quality-assurance.dashboard.team-view";
     public const string ShipmentCreate = "quality-assurance.shipments.create";
+    public const string ShipmentImport = "quality-assurance.shipments.import";
     public const string AssignmentView = "quality-assurance.assignments.view";
     public const string AssignmentGroup = "quality-assurance.assignments.group";
     public const string AssignmentUser = "quality-assurance.assignments.user";
@@ -88,6 +89,7 @@ public static class QualityAssurancePermissions
         Permission(ShipmentsViewAll, "View all shipments", "View open and past shipments across all groups and users.", "Shipping workflow"),
         Permission(TeamDashboardView, "View team queue statistics", "View queue volume and completion statistics for other users.", "Shipping workflow"),
         Permission(ShipmentCreate, "Create shipments", "Add new Shipping Status records.", "Shipping workflow"),
+        Permission(ShipmentImport, "Import shipping status", "Import controlled Shipping Status records from the Complete List worksheet in an Excel workbook.", "Shipping workflow"),
         Permission(AssignmentView, "View assignments", "View assigned groups and individual owners.", "Assignments"),
         Permission(AssignmentGroup, "Assign groups", "Move shipments between shared groups such as Quality, Customer Service, or Sales.", "Assignments"),
         Permission(AssignmentUser, "Assign individual users", "Assign shipments to active users within the selected group.", "Assignments"),
