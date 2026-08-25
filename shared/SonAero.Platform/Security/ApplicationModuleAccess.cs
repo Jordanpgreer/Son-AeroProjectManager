@@ -165,6 +165,11 @@ public static class ApplicationModuleCatalog
             "Import estimating history",
             "Validate and import controlled Fulcrum quote-history workbooks.",
             category);
+        var manageHistory = new PermissionDefinition(
+            "estimating.history.manage",
+            "Manage estimating history",
+            "View team statistics and audits, and download estimating performance reports.",
+            category);
 
         return new ApplicationModuleDefinition(
             ApplicationModules.Estimating,
@@ -178,7 +183,7 @@ public static class ApplicationModuleCatalog
                     [view, calculate, manageQuotes, manageInputs, viewHistory, importHistory]),
                 new ApplicationModuleRoleDefinition(
                     ApplicationRoles.Admin,
-                    [view, calculate, manageQuotes, manageInputs, viewHistory, importHistory, administerRates, administerSettings])
+                    [view, calculate, manageQuotes, manageInputs, viewHistory, importHistory, manageHistory, administerRates, administerSettings])
             ]);
     }
 

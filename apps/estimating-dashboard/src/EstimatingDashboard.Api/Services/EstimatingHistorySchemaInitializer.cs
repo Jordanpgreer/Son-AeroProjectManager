@@ -115,6 +115,11 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
             'estimating.inputs.manage',
             'estimating.rates.admin',
             'estimating.settings.admin');
+
+        INSERT OR IGNORE INTO "GroupPermissions" ("AppGroupId", "PermissionKey", "CreatedAt")
+        SELECT "Id", 'estimating.history.manage', CURRENT_TIMESTAMP
+        FROM "Groups"
+        WHERE UPPER("Name") IN ('MANAGERS', 'ADMINISTRATORS');
         """;
 
     private const string SqlServerSchema = """
@@ -253,6 +258,15 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
               SELECT 1 FROM [GroupPermissions] existing
               WHERE existing.[AppGroupId] = source.[AppGroupId]
                 AND existing.[PermissionKey] = 'estimating.history.import');
+
+        INSERT INTO [GroupPermissions] ([AppGroupId], [PermissionKey], [CreatedAt])
+        SELECT [Id], 'estimating.history.manage', SYSDATETIMEOFFSET()
+        FROM [Groups] source
+        WHERE UPPER([Name]) IN ('MANAGERS', 'ADMINISTRATORS')
+          AND NOT EXISTS (
+              SELECT 1 FROM [GroupPermissions] existing
+              WHERE existing.[AppGroupId] = source.[Id]
+                AND existing.[PermissionKey] = 'estimating.history.manage');
         """;
 
     private async Task EnsureSqliteHistoryColumnsAsync(CancellationToken cancellationToken)

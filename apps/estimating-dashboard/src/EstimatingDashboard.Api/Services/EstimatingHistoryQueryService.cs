@@ -1,3 +1,4 @@
+using EstimatingDashboard.Api.Auth;
 using EstimatingDashboard.Api.Data;
 using EstimatingDashboard.Api.Dtos;
 using EstimatingDashboard.Api.Models;
@@ -20,6 +21,8 @@ public sealed class EstimatingHistoryQueryService(EstimatingAccessDbContext db)
         string? view,
         string? completion,
         string? onTime,
+        DateTime? dueFrom,
+        DateTime? dueTo,
         DateTime? completedFrom,
         DateTime? completedTo,
         decimal? minimumValue,
@@ -34,17 +37,27 @@ public sealed class EstimatingHistoryQueryService(EstimatingAccessDbContext db)
         var term = Clean(search);
         if (term is not null)
         {
+            var hasSearchDate = DateTime.TryParse(term, out var searchDate);
+            var searchDateEnd = searchDate.Date.AddDays(1);
             query = query.Where(record =>
                 record.SourceId.Contains(term)
                 || record.QuoteNumber.ToString().Contains(term)
                 || record.Customer.Contains(term)
                 || (record.CustomerContact != null && record.CustomerContact.Contains(term))
                 || record.SalesPerson.Contains(term)
+                || record.QuoteStatus.Contains(term)
                 || record.EstimatingRep.Contains(term)
                 || (record.RfqReferenceNumber != null && record.RfqReferenceNumber.Contains(term))
                 || (record.Issues != null && record.Issues.Contains(term))
                 || (record.QuoteOnTrack != null && record.QuoteOnTrack.Contains(term))
-                || (record.EstimatingStatus != null && record.EstimatingStatus.Contains(term)));
+                || (record.QuoteComplexity != null && record.QuoteComplexity.Contains(term))
+                || record.NumberOfParts.ToString().Contains(term)
+                || (record.EstimatingStatus != null && record.EstimatingStatus.Contains(term))
+                || record.OnTimeStatus.Contains(term)
+                || (record.Workdays != null && record.Workdays.Value.ToString().Contains(term))
+                || (hasSearchDate && (
+                    (record.RfqDueDate >= searchDate.Date && record.RfqDueDate < searchDateEnd)
+                    || (record.DateToEstimating >= searchDate.Date && record.DateToEstimating < searchDateEnd))));
         }
 
         query = Exact(query, estimator, record => record.EstimatingRep);
@@ -67,6 +80,13 @@ public sealed class EstimatingHistoryQueryService(EstimatingAccessDbContext db)
         var onTimeValue = Clean(onTime);
         if (onTimeValue is not null)
             query = query.Where(record => record.OnTimeStatus == onTimeValue);
+        if (dueFrom.HasValue)
+            query = query.Where(record => record.RfqDueDate >= dueFrom.Value.Date);
+        if (dueTo.HasValue)
+        {
+            var exclusiveEnd = dueTo.Value.Date.AddDays(1);
+            query = query.Where(record => record.RfqDueDate < exclusiveEnd);
+        }
         if (completedFrom.HasValue)
             query = query.Where(record => record.EstimatingCompletionDate >= completedFrom.Value.Date);
         if (completedTo.HasValue)
@@ -96,41 +116,66 @@ public sealed class EstimatingHistoryQueryService(EstimatingAccessDbContext db)
         var records = db.QuoteHistory.AsNoTracking();
         return new EstimatingHistoryFilterOptionsDto(
             await Values(records.Select(record => record.EstimatingRep), cancellationToken),
-            await Values(records.Select(record => record.SalesPerson), cancellationToken),
             await Values(records.Select(record => record.Customer), cancellationToken),
-            await Values(records.Select(record => record.QuoteStatus), cancellationToken),
-            await Values(records.Where(record => record.EstimatingStatus != null).Select(record => record.EstimatingStatus!), cancellationToken),
-            await Values(records.Where(record => record.QuoteComplexity != null).Select(record => record.QuoteComplexity!), cancellationToken),
-            await Values(records.Where(record => record.Issues != null).Select(record => record.Issues!), cancellationToken),
-            await Values(records.Where(record => record.QuoteOnTrack != null).Select(record => record.QuoteOnTrack!), cancellationToken));
+            await Values(records.Select(record => record.QuoteStatus), cancellationToken));
     }
 
-    public async Task<EstimatingHistoryDashboardDto> GetDashboardAsync(CancellationToken cancellationToken)
+    public async Task<EstimatingHistoryDashboardDto> GetDashboardAsync(
+        string? periodValue,
+        EstimatingAccessProfile access,
+        CancellationToken cancellationToken)
     {
         var records = await db.QuoteHistory.AsNoTracking().ToListAsync(cancellationToken);
-        var tracked = records.Where(record => IsTrackedEstimator(record.EstimatingRep)).ToList();
+        var currentEmployeeRecords = records
+            .Where(record => !IsFormerEstimator(record.EstimatingRep))
+            .ToList();
+        var tracked = currentEmployeeRecords
+            .Where(record => IsTrackedEstimator(record.EstimatingRep))
+            .ToList();
+        var isTeamView = access.Permissions.Contains(
+            EstimatingPermissions.ManageHistory,
+            StringComparer.OrdinalIgnoreCase);
+        if (!isTeamView)
+            tracked = tracked.Where(record => IsCurrentEstimator(record.EstimatingRep, access)).ToList();
+        var departmentRecords = isTeamView ? currentEmployeeRecords : tracked;
+
         var today = DateTime.Today;
         var weekStart = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
         var weekEnd = weekStart.AddDays(7);
         var monthStart = new DateTime(today.Year, today.Month, 1);
         var monthEnd = monthStart.AddMonths(1);
+        var period = EstimatingHistoryPeriods.Dashboard(periodValue, today);
 
         var users = tracked
             .GroupBy(record => record.EstimatingRep, StringComparer.OrdinalIgnoreCase)
-            .Select(group => UserStats(group.Key, group, weekStart, weekEnd, monthStart, monthEnd))
+            .Select(group => UserStats(group.Key, group, weekStart, weekEnd, monthStart, monthEnd, period))
             .OrderByDescending(user => user.InQueue)
             .ThenBy(user => user.Estimator, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        var departmentCompletedInPeriod = CompletedInPeriod(departmentRecords, period);
         var department = new EstimatingHistoryDepartmentStatsDto(
-            tracked.Count(IsInQueue),
-            CompletedBetween(tracked, weekStart, weekEnd),
-            CompletedBetween(tracked, monthStart, monthEnd),
-            tracked.Count(record => record.IsCompleted),
-            tracked.Sum(record => record.TotalValue),
-            tracked.Where(record => record.IsCompleted).Sum(record => record.TotalValue),
-            AverageWorkdays(tracked));
-        return new EstimatingHistoryDashboardDto(DateTimeOffset.Now, department, users);
+            departmentRecords.Count(IsInQueue),
+            CompletedBetween(departmentRecords, weekStart, weekEnd),
+            CompletedBetween(departmentRecords, monthStart, monthEnd),
+            departmentRecords.Count(record => record.IsCompleted),
+            departmentRecords.Sum(record => record.TotalValue),
+            departmentRecords.Where(record => record.IsCompleted).Sum(record => record.TotalValue),
+            AverageWorkdays(departmentRecords),
+            departmentCompletedInPeriod.Count,
+            departmentCompletedInPeriod.Sum(record => record.TotalValue),
+            departmentCompletedInPeriod.Count(record => record.OnTimeStatus == EstimatingOnTimeStatuses.OnTime),
+            departmentCompletedInPeriod.Count(record => record.OnTimeStatus == EstimatingOnTimeStatuses.Late),
+            AverageWorkdays(departmentCompletedInPeriod));
+        return new EstimatingHistoryDashboardDto(
+            DateTimeOffset.Now,
+            period.Key,
+            period.Label,
+            period.Start,
+            period.End,
+            isTeamView,
+            department,
+            users);
     }
 
     public async Task<EstimatingQuoteAuditHistoryDto?> GetAuditHistoryAsync(
@@ -181,9 +226,11 @@ public sealed class EstimatingHistoryQueryService(EstimatingAccessDbContext db)
         DateTime weekStart,
         DateTime weekEnd,
         DateTime monthStart,
-        DateTime monthEnd)
+        DateTime monthEnd,
+        EstimatingHistoryPeriod period)
     {
         var records = source.ToList();
+        var completedInPeriod = CompletedInPeriod(records, period);
         return new EstimatingHistoryUserStatsDto(
             estimator,
             records.Count(IsInQueue),
@@ -192,8 +239,19 @@ public sealed class EstimatingHistoryQueryService(EstimatingAccessDbContext db)
             records.Count(record => record.IsCompleted),
             records.Sum(record => record.TotalValue),
             records.Where(record => record.IsCompleted).Sum(record => record.TotalValue),
-            AverageWorkdays(records));
+            AverageWorkdays(records),
+            completedInPeriod.Count,
+            completedInPeriod.Sum(record => record.TotalValue),
+            completedInPeriod.Count(record => record.OnTimeStatus == EstimatingOnTimeStatuses.OnTime),
+            completedInPeriod.Count(record => record.OnTimeStatus == EstimatingOnTimeStatuses.Late),
+            AverageWorkdays(completedInPeriod));
     }
+
+    private static List<EstimatingQuoteHistoryRecord> CompletedInPeriod(
+        IEnumerable<EstimatingQuoteHistoryRecord> records,
+        EstimatingHistoryPeriod period) => records
+            .Where(record => EstimatingHistoryPeriods.Includes(record, period))
+            .ToList();
 
     private static int CompletedBetween(
         IEnumerable<EstimatingQuoteHistoryRecord> records,
@@ -215,6 +273,25 @@ public sealed class EstimatingHistoryQueryService(EstimatingAccessDbContext db)
         !string.IsNullOrWhiteSpace(value)
         && !string.Equals(value, "Unassigned", StringComparison.OrdinalIgnoreCase)
         && !string.Equals(value, "Sales", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsFormerEstimator(string value) =>
+        string.Equals(value.Trim(), "Abel", StringComparison.OrdinalIgnoreCase)
+        || value.Trim().StartsWith("Abel ", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsCurrentEstimator(string estimator, EstimatingAccessProfile access)
+    {
+        var normalizedEstimator = estimator.Trim();
+        var displayName = access.DisplayName.Trim();
+        var accountName = access.AccountName.Split('\\').Last().Split('@').First();
+        if (string.Equals(normalizedEstimator, displayName, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(normalizedEstimator, accountName, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var displayFirstName = displayName.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        var estimatorFirstName = normalizedEstimator.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        return displayFirstName is not null
+            && string.Equals(estimatorFirstName, displayFirstName, StringComparison.OrdinalIgnoreCase);
+    }
 
     private static bool IsInQueue(EstimatingQuoteHistoryRecord record) =>
         string.Equals(record.QuoteStatus, "Needs Approval", StringComparison.OrdinalIgnoreCase);
@@ -264,6 +341,8 @@ public sealed class EstimatingHistoryQueryService(EstimatingAccessDbContext db)
             ("value", true) => query.OrderByDescending(record => (double)record.TotalValue),
             ("due", false) => query.OrderBy(record => record.RfqDueDate == null).ThenBy(record => record.RfqDueDate),
             ("due", true) => query.OrderByDescending(record => record.RfqDueDate),
+            ("assigned", false) => query.OrderBy(record => record.DateToEstimating),
+            ("assigned", true) => query.OrderByDescending(record => record.DateToEstimating),
             ("completed", false) => query.OrderBy(record => record.EstimatingCompletionDate),
             ("completed", true) => query.OrderByDescending(record => record.EstimatingCompletionDate),
             ("workdays", false) => query.OrderBy(record => record.Workdays),

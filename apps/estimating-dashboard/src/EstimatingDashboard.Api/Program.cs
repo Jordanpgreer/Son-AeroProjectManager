@@ -16,6 +16,7 @@ builder.Services.AddScoped<IEstimatingAccessStore, EstimatingAccessStore>();
 builder.Services.AddScoped<EstimatingHistorySchemaInitializer>();
 builder.Services.AddScoped<EstimatingHistoryQueryService>();
 builder.Services.AddScoped<EstimatingHistoryImportService>();
+builder.Services.AddScoped<EstimatingHistoryReportService>();
 builder.Services.AddSingleton<EstimatingHistoryReviewStore>();
 builder.Services.AddDbContext<EstimatingAccessDbContext>((serviceProvider, options) =>
 {
@@ -100,6 +101,11 @@ builder.Services.AddAuthorization(options =>
         policy => policy.RequireClaim(
             EstimatingPolicies.PermissionClaim,
             EstimatingPermissions.ImportHistory));
+    options.AddPolicy(
+        EstimatingPolicies.ManageHistory,
+        policy => policy.RequireClaim(
+            EstimatingPolicies.PermissionClaim,
+            EstimatingPermissions.ManageHistory));
 });
 
 var app = builder.Build();

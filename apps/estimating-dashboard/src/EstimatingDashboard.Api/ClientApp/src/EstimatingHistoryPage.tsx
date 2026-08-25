@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Download,
   DollarSign,
   FileSpreadsheet,
   Filter,
@@ -61,25 +62,30 @@ interface UserStats {
   totalQuoteValue: number
   completedQuoteValue: number
   averageCompletionWorkdays: number | null
+  completedInPeriod: number
+  completedValueInPeriod: number
+  onTimeInPeriod: number
+  lateInPeriod: number
+  averageCompletionWorkdaysInPeriod: number | null
 }
 
 interface DepartmentStats extends Omit<UserStats, 'estimator'> {}
 
 interface HistoryDashboard {
   generatedAt: string
+  period: 'week' | 'month' | 'all'
+  periodLabel: string
+  periodStart: string | null
+  periodEnd: string | null
+  isTeamView: boolean
   department: DepartmentStats
   users: UserStats[]
 }
 
 interface FilterOptions {
   estimators: string[]
-  salesPeople: string[]
   customers: string[]
   quoteStatuses: string[]
-  estimatingStatuses: string[]
-  complexities: string[]
-  issues: string[]
-  quoteOnTrackStatuses: string[]
 }
 
 interface ImportIssue {
@@ -134,49 +140,32 @@ interface AuditHistory {
 interface Filters {
   search: string
   estimator: string
-  salesPerson: string
   customer: string
   quoteStatus: string
-  estimatingStatus: string
-  complexity: string
-  issues: string
-  quoteOnTrack: string
-  completion: string
   onTime: string
-  completedFrom: string
-  completedTo: string
-  minimumValue: string
-  maximumValue: string
+  dueFrom: string
+  dueTo: string
 }
 
 const emptyFilters: Filters = {
   search: '',
   estimator: '',
-  salesPerson: '',
   customer: '',
   quoteStatus: '',
-  estimatingStatus: '',
-  complexity: '',
-  issues: '',
-  quoteOnTrack: '',
-  completion: '',
   onTime: '',
-  completedFrom: '',
-  completedTo: '',
-  minimumValue: '',
-  maximumValue: '',
+  dueFrom: '',
+  dueTo: '',
 }
 
 const emptyOptions: FilterOptions = {
   estimators: [],
-  salesPeople: [],
   customers: [],
   quoteStatuses: [],
-  estimatingStatuses: [],
-  complexities: [],
-  issues: [],
-  quoteOnTrackStatuses: [],
 }
+
+type StatsPeriod = 'week' | 'month' | 'all'
+type ReportPeriod = 'week' | 'month' | 'year'
+type SummaryPreset = 'queue' | 'completed' | 'onTime' | 'late' | 'value' | 'average' | null
 
 function currency(value: number) {
   return value.toLocaleString('en-US', {
@@ -201,6 +190,14 @@ function dateTime(value: string) {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(value))
+}
+
+function inclusivePeriodEnd(value: string | null) {
+  if (!value) return null
+  const [year, month, day] = value.slice(0, 10).split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  date.setUTCDate(date.getUTCDate() - 1)
+  return date.toISOString().slice(0, 10)
 }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -262,13 +259,25 @@ function SortButton({
   )
 }
 
-export default function EstimatingHistoryPage({ canImport }: { canImport: boolean }) {
+export default function EstimatingHistoryPage({
+  canImport,
+  canManageHistory,
+}: {
+  canImport: boolean
+  canManageHistory: boolean
+}) {
   const [dashboard, setDashboard] = useState<HistoryDashboard | null>(null)
   const [pageData, setPageData] = useState<HistoryPage>({ records: [], total: 0, page: 1, pageSize: 50 })
   const [options, setOptions] = useState<FilterOptions>(emptyOptions)
   const [filters, setFilters] = useState<Filters>(emptyFilters)
   const [page, setPage] = useState(1)
   const [view, setView] = useState<'live' | 'history'>('live')
+  const [statsPeriod, setStatsPeriod] = useState<StatsPeriod>('week')
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('week')
+  const [summaryPreset, setSummaryPreset] = useState<SummaryPreset>('queue')
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [reportBusy, setReportBusy] = useState(false)
+  const [reportError, setReportError] = useState<string | null>(null)
   const [sort, setSort] = useState('due')
   const [direction, setDirection] = useState('asc')
   const [loading, setLoading] = useState(true)
@@ -289,7 +298,7 @@ export default function EstimatingHistoryPage({ canImport }: { canImport: boolea
   useEffect(() => {
     let active = true
     void Promise.all([
-      api<HistoryDashboard>('/api/quote-history/dashboard'),
+      api<HistoryDashboard>(`/api/quote-history/dashboard?period=${statsPeriod}`),
       api<FilterOptions>('/api/quote-history/filters'),
     ]).then(([nextDashboard, nextOptions]) => {
       if (!active) return
@@ -300,7 +309,7 @@ export default function EstimatingHistoryPage({ canImport }: { canImport: boolea
       if (active) setError(cause instanceof Error ? cause.message : 'Unable to load estimating history.')
     })
     return () => { active = false }
-  }, [revision])
+  }, [revision, statsPeriod])
 
   useEffect(() => {
     let active = true
@@ -314,6 +323,14 @@ export default function EstimatingHistoryPage({ canImport }: { canImport: boolea
     const values: Record<string, string> = { ...filters, search: deferredSearch }
     for (const [key, value] of Object.entries(values)) {
       if (value.trim()) params.set(key, value.trim())
+    }
+    if (summaryPreset && summaryPreset !== 'queue') {
+      params.set('completion', 'completed')
+      if (dashboard?.periodStart) params.set('completedFrom', dashboard.periodStart.slice(0, 10))
+      const completedTo = inclusivePeriodEnd(dashboard?.periodEnd ?? null)
+      if (completedTo) params.set('completedTo', completedTo)
+      if (summaryPreset === 'onTime') params.set('onTime', 'OnTime')
+      if (summaryPreset === 'late') params.set('onTime', 'Late')
     }
     setLoading(true)
     void api<HistoryPage>(`/api/quote-history?${params.toString()}`)
@@ -329,7 +346,7 @@ export default function EstimatingHistoryPage({ canImport }: { canImport: boolea
         if (active) setLoading(false)
       })
     return () => { active = false }
-  }, [deferredSearch, direction, filters, page, revision, sort, view])
+  }, [dashboard?.periodEnd, dashboard?.periodStart, deferredSearch, direction, filters, page, revision, sort, summaryPreset, view])
 
   const updateFilter = (key: keyof Filters, value: string) => {
     setFilters((current) => ({ ...current, [key]: value }))
@@ -347,8 +364,23 @@ export default function EstimatingHistoryPage({ canImport }: { canImport: boolea
 
   const updateView = (nextView: 'live' | 'history') => {
     setView(nextView)
+    setSummaryPreset(nextView === 'live' ? 'queue' : null)
     setSort(nextView === 'live' ? 'due' : 'number')
     setDirection(nextView === 'live' ? 'asc' : 'desc')
+    setPage(1)
+  }
+
+  const applySummaryPreset = (preset: Exclude<SummaryPreset, null>) => {
+    setSummaryPreset(preset)
+    if (preset === 'queue') {
+      setView('live')
+      setSort('due')
+      setDirection('asc')
+    } else {
+      setView('history')
+      setSort('completed')
+      setDirection('desc')
+    }
     setPage(1)
   }
 
@@ -420,9 +452,42 @@ export default function EstimatingHistoryPage({ canImport }: { canImport: boolea
     }
   }
 
+  const downloadReport = async () => {
+    setReportBusy(true)
+    setReportError(null)
+    try {
+      const params = new URLSearchParams({ period: reportPeriod })
+      if (filters.estimator) params.set('estimator', filters.estimator)
+      const response = await fetch(`/api/quote-history/report?${params.toString()}`, {
+        credentials: 'include',
+      })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { message?: string } | null
+        throw new Error(payload?.message ?? 'Unable to create the statistics report.')
+      }
+      const disposition = response.headers.get('content-disposition') ?? ''
+      const fileName = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)/i)?.[1]
+        ?? `estimating-statistics-${reportPeriod}.xlsx`
+      const url = URL.createObjectURL(await response.blob())
+      const link = document.createElement('a')
+      link.href = url
+      link.download = decodeURIComponent(fileName)
+      document.body.append(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (cause) {
+      setReportError(cause instanceof Error ? cause.message : 'Unable to download the report.')
+    } finally {
+      setReportBusy(false)
+    }
+  }
+
   const department = dashboard?.department
   const totalPages = Math.max(1, Math.ceil(pageData.total / pageData.pageSize))
-  const activeFilterCount = Object.values(filters).filter((value) => value.trim()).length
+  const activeFilterCount = [filters.estimator, filters.customer, filters.quoteStatus, filters.onTime]
+    .filter((value) => value.trim())
+    .length + (filters.dueFrom || filters.dueTo ? 1 : 0)
 
   return (
     <div className="history-page">
@@ -443,46 +508,75 @@ export default function EstimatingHistoryPage({ canImport }: { canImport: boolea
         {error}
       </div>}
 
-      <section className="history-kpis" aria-label="Estimating department history statistics">
-        <article>
-          <span><Clock3 size={17} aria-hidden="true" /> In queue</span>
+      <section className="history-stats-toolbar" aria-label="Statistics controls">
+        <div>
+          <span className="section-kicker">{dashboard?.isTeamView ? 'Department statistics' : 'Your statistics'}</span>
+          <strong>{dashboard?.periodLabel ?? 'This week'}</strong>
+        </div>
+        <div className="history-period-tabs" role="group" aria-label="Statistics time period">
+          {([['week', 'This week'], ['month', 'This month'], ['all', 'All time']] as const).map(([period, label]) => (
+            <button key={period} type="button" aria-pressed={statsPeriod === period} onClick={() => setStatsPeriod(period)}>{label}</button>
+          ))}
+        </div>
+        {canManageHistory && <div className="history-report-controls">
+          <label>
+            <span>Report period</span>
+            <select value={reportPeriod} onChange={(event) => setReportPeriod(event.currentTarget.value as ReportPeriod)}>
+              <option value="week">This week</option>
+              <option value="month">This month</option>
+              <option value="year">This year</option>
+            </select>
+          </label>
+          <button type="button" disabled={reportBusy} onClick={() => void downloadReport()}>
+            <Download size={15} aria-hidden="true" /> {reportBusy ? 'Preparing…' : 'Download report'}
+          </button>
+        </div>}
+      </section>
+
+      {reportError && <div className="history-error" role="alert">
+        <AlertTriangle size={17} aria-hidden="true" /> {reportError}
+      </div>}
+
+      <section className="history-kpis" aria-label="Estimating history statistics">
+        <button type="button" className={summaryPreset === 'queue' ? 'selected' : ''} aria-pressed={summaryPreset === 'queue'} onClick={() => applySummaryPreset('queue')}>
+          <span><Clock3 size={17} aria-hidden="true" /> Active quotes</span>
           <strong>{department?.inQueue ?? 0}</strong>
-          <small>Fulcrum status: Needs Approval</small>
-        </article>
-        <article>
-          <span><CalendarCheck size={17} aria-hidden="true" /> This week</span>
-          <strong>{department?.completedThisWeek ?? 0}</strong>
-          <small>Completed since Monday</small>
-        </article>
-        <article>
-          <span><BarChart3 size={17} aria-hidden="true" /> This month</span>
-          <strong>{department?.completedThisMonth ?? 0}</strong>
-          <small>Completed this calendar month</small>
-        </article>
-        <article>
-          <span><CheckCircle2 size={17} aria-hidden="true" /> All time</span>
-          <strong>{department?.completedAllTime ?? 0}</strong>
-          <small>Completed imported quotes</small>
-        </article>
-        <article>
-          <span><DollarSign size={17} aria-hidden="true" /> Total value</span>
-          <strong>{currency(department?.totalQuoteValue ?? 0)}</strong>
-          <small>Value assigned to estimators</small>
-        </article>
-        <article>
+          <small>Needs Approval</small>
+        </button>
+        <button type="button" className={summaryPreset === 'completed' ? 'selected' : ''} aria-pressed={summaryPreset === 'completed'} onClick={() => applySummaryPreset('completed')}>
+          <span><CheckCircle2 size={17} aria-hidden="true" /> Completed</span>
+          <strong>{department?.completedInPeriod ?? 0}</strong>
+          <small>{dashboard?.periodLabel ?? 'This week'}</small>
+        </button>
+        <button type="button" className={summaryPreset === 'onTime' ? 'selected' : ''} aria-pressed={summaryPreset === 'onTime'} onClick={() => applySummaryPreset('onTime')}>
+          <span><CalendarCheck size={17} aria-hidden="true" /> On time</span>
+          <strong>{department?.onTimeInPeriod ?? 0}</strong>
+          <small>Completed within target</small>
+        </button>
+        <button type="button" className={summaryPreset === 'late' ? 'selected' : ''} aria-pressed={summaryPreset === 'late'} onClick={() => applySummaryPreset('late')}>
+          <span><BarChart3 size={17} aria-hidden="true" /> Late</span>
+          <strong>{department?.lateInPeriod ?? 0}</strong>
+          <small>Completed after due date</small>
+        </button>
+        <button type="button" className={summaryPreset === 'value' ? 'selected' : ''} aria-pressed={summaryPreset === 'value'} onClick={() => applySummaryPreset('value')}>
+          <span><DollarSign size={17} aria-hidden="true" /> Completed value</span>
+          <strong>{currency(department?.completedValueInPeriod ?? 0)}</strong>
+          <small>{dashboard?.periodLabel ?? 'This week'}</small>
+        </button>
+        <button type="button" className={summaryPreset === 'average' ? 'selected' : ''} aria-pressed={summaryPreset === 'average'} onClick={() => applySummaryPreset('average')}>
           <span><Clock3 size={17} aria-hidden="true" /> Avg. completion</span>
-          <strong>{department?.averageCompletionWorkdays == null ? '—' : `${department.averageCompletionWorkdays}d`}</strong>
+          <strong>{department?.averageCompletionWorkdaysInPeriod == null ? '—' : `${department.averageCompletionWorkdaysInPeriod}d`}</strong>
           <small>Inclusive business days</small>
-        </article>
+        </button>
       </section>
 
       <section className="estimator-stats-card" aria-labelledby="estimator-stats-heading">
         <div className="history-card-heading">
           <div>
-            <span className="section-kicker">Team performance</span>
-            <h2 id="estimator-stats-heading">Estimator statistics</h2>
+            <span className="section-kicker">{dashboard?.isTeamView ? 'Team performance' : 'Personal performance'}</span>
+            <h2 id="estimator-stats-heading">{dashboard?.isTeamView ? 'Estimator statistics' : 'Your estimating statistics'}</h2>
           </div>
-          <span className="history-updated"><Users size={15} aria-hidden="true" /> {dashboard?.users.length ?? 0} estimators</span>
+          <span className="history-updated"><Users size={15} aria-hidden="true" /> {dashboard?.isTeamView ? `${dashboard.users.length} estimators` : 'Private view'}</span>
         </div>
         {dashboard?.users.length ? (
           <div className="estimator-stat-grid">
@@ -493,11 +587,11 @@ export default function EstimatingHistoryPage({ canImport }: { canImport: boolea
               </div>
               <dl>
                 <div><dt>Queue</dt><dd>{user.inQueue}</dd></div>
-                <div><dt>Week</dt><dd>{user.completedThisWeek}</dd></div>
-                <div><dt>Month</dt><dd>{user.completedThisMonth}</dd></div>
-                <div><dt>All time</dt><dd>{user.completedAllTime}</dd></div>
-                <div><dt>Total value</dt><dd>{currency(user.totalQuoteValue)}</dd></div>
-                <div><dt>Avg. time</dt><dd>{user.averageCompletionWorkdays == null ? '—' : `${user.averageCompletionWorkdays} days`}</dd></div>
+                <div><dt>Completed</dt><dd>{user.completedInPeriod}</dd></div>
+                <div><dt>On time</dt><dd>{user.onTimeInPeriod}</dd></div>
+                <div><dt>Late</dt><dd>{user.lateInPeriod}</dd></div>
+                <div><dt>Completed value</dt><dd>{currency(user.completedValueInPeriod)}</dd></div>
+                <div><dt>Avg. time</dt><dd>{user.averageCompletionWorkdaysInPeriod == null ? '—' : `${user.averageCompletionWorkdaysInPeriod} days`}</dd></div>
               </dl>
             </article>)}
           </div>
@@ -516,44 +610,48 @@ export default function EstimatingHistoryPage({ canImport }: { canImport: boolea
               <h2 id="history-register-heading">{view === 'live' ? 'Live estimating queue' : 'Quote history'}</h2>
             </div>
             <div className="history-register-tabs" role="tablist" aria-label="Quote register view">
-              <button type="button" role="tab" aria-selected={view === 'live'} onClick={() => updateView('live')}>Live queue</button>
-              <button type="button" role="tab" aria-selected={view === 'history'} onClick={() => updateView('history')}>Full history</button>
+              <button type="button" role="tab" aria-selected={view === 'live'} onClick={() => updateView('live')}>Active quotes</button>
+              <button type="button" role="tab" aria-selected={view === 'history'} onClick={() => updateView('history')}>All quotes</button>
             </div>
           </div>
-          <label className="history-search">
-            <Search size={16} aria-hidden="true" />
-            <input
-              type="search"
-              value={filters.search}
-              placeholder="Search quote, RFQ, contact, estimator, issue…"
-              aria-label="Search estimating quotes"
-              onChange={(event) => updateFilter('search', event.currentTarget.value)}
-            />
-          </label>
+          <div className="history-register-tools">
+            <label className="history-search">
+              <Search size={16} aria-hidden="true" />
+              <input
+                type="search"
+                value={filters.search}
+                placeholder="Search every quote field except value and completion date…"
+                aria-label="Search estimating quotes"
+                onChange={(event) => updateFilter('search', event.currentTarget.value)}
+              />
+            </label>
+            <button type="button" className="history-filter-toggle" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((current) => !current)}>
+              <Filter size={15} aria-hidden="true" /> Filters {activeFilterCount > 0 && <b>{activeFilterCount}</b>}
+            </button>
+          </div>
         </div>
 
-        <div className="history-filter-panel">
+        {filtersOpen && <div className="history-filter-panel">
           <div className="history-filter-title">
-            <span><Filter size={15} aria-hidden="true" /> Column filters {activeFilterCount > 0 && `· ${activeFilterCount} active`}</span>
+            <span><Filter size={15} aria-hidden="true" /> Refine quote results</span>
             <button type="button" disabled={activeFilterCount === 0} onClick={() => { setFilters(emptyFilters); setPage(1) }}>Clear filters</button>
           </div>
           <div className="history-filter-grid">
             <SelectFilter label="Estimator" value={filters.estimator} options={options.estimators} onChange={(value) => updateFilter('estimator', value)} />
-            <SelectFilter label="Sales person" value={filters.salesPerson} options={options.salesPeople} onChange={(value) => updateFilter('salesPerson', value)} />
             <SelectFilter label="Customer" value={filters.customer} options={options.customers} onChange={(value) => updateFilter('customer', value)} />
             <SelectFilter label="Quote status" value={filters.quoteStatus} options={options.quoteStatuses} onChange={(value) => updateFilter('quoteStatus', value)} />
-            <SelectFilter label="Estimating status" value={filters.estimatingStatus} options={options.estimatingStatuses} onChange={(value) => updateFilter('estimatingStatus', value)} />
-            <SelectFilter label="Complexity" value={filters.complexity} options={options.complexities} onChange={(value) => updateFilter('complexity', value)} />
-            <SelectFilter label="Issue" value={filters.issues} options={options.issues} onChange={(value) => updateFilter('issues', value)} />
-            <SelectFilter label="On track" value={filters.quoteOnTrack} options={options.quoteOnTrackStatuses} onChange={(value) => updateFilter('quoteOnTrack', value)} />
-            <label><span>Completion</span><select value={filters.completion} onChange={(event) => updateFilter('completion', event.currentTarget.value)}><option value="">All</option><option value="queue">Not completed</option><option value="completed">Completed</option></select></label>
             <label><span>On time</span><select value={filters.onTime} onChange={(event) => updateFilter('onTime', event.currentTarget.value)}><option value="">All</option><option value="OnTime">On time</option><option value="Late">Late</option><option value="NoData">No data</option></select></label>
-            <label><span>Completed from</span><input type="date" value={filters.completedFrom} onChange={(event) => updateFilter('completedFrom', event.currentTarget.value)} /></label>
-            <label><span>Completed through</span><input type="date" value={filters.completedTo} onChange={(event) => updateFilter('completedTo', event.currentTarget.value)} /></label>
-            <label><span>Minimum value</span><input type="number" min="0" step="100" value={filters.minimumValue} placeholder="$0" onChange={(event) => updateFilter('minimumValue', event.currentTarget.value)} /></label>
-            <label><span>Maximum value</span><input type="number" min="0" step="100" value={filters.maximumValue} placeholder="No maximum" onChange={(event) => updateFilter('maximumValue', event.currentTarget.value)} /></label>
+            <label className="history-date-range"><span>RFQ due date range</span><span className="history-date-inputs"><input aria-label="RFQ due from" type="date" value={filters.dueFrom} onChange={(event) => updateFilter('dueFrom', event.currentTarget.value)} /><i>to</i><input aria-label="RFQ due through" type="date" value={filters.dueTo} onChange={(event) => updateFilter('dueTo', event.currentTarget.value)} /></span></label>
           </div>
-        </div>
+        </div>}
+
+        {activeFilterCount > 0 && <div className="history-filter-chips" aria-label="Active quote filters">
+          {filters.estimator && <button type="button" onClick={() => updateFilter('estimator', '')}>Estimator: {filters.estimator}<X size={12} aria-hidden="true" /></button>}
+          {filters.customer && <button type="button" onClick={() => updateFilter('customer', '')}>Customer: {filters.customer}<X size={12} aria-hidden="true" /></button>}
+          {filters.quoteStatus && <button type="button" onClick={() => updateFilter('quoteStatus', '')}>Status: {filters.quoteStatus}<X size={12} aria-hidden="true" /></button>}
+          {filters.onTime && <button type="button" onClick={() => updateFilter('onTime', '')}>On time: {filters.onTime}<X size={12} aria-hidden="true" /></button>}
+          {(filters.dueFrom || filters.dueTo) && <button type="button" onClick={() => { setFilters((current) => ({ ...current, dueFrom: '', dueTo: '' })); setPage(1) }}>Due: {filters.dueFrom || 'Any'} – {filters.dueTo || 'Any'}<X size={12} aria-hidden="true" /></button>}
+        </div>}
 
         <div className="history-result-summary">
           <span>{loading ? 'Updating records…' : `${pageData.total.toLocaleString()} matching ${view === 'live' ? 'queue' : 'history'} quotes`}</span>
@@ -583,13 +681,11 @@ export default function EstimatingHistoryPage({ canImport }: { canImport: boolea
                 <th>Complexity</th>
                 <th>Parts</th>
                 <th>Estimating status</th>
+                {canManageHistory && <th className="history-audit-column">Audit</th>}
               </tr></thead>
               <tbody>{pageData.records.map((record) => <tr key={record.id}>
                 <th scope="row">
                   <strong>{record.quoteNumber}</strong>
-                  <button type="button" className="history-audit-link" onClick={() => void openAudit(record)}>
-                    <History size={12} aria-hidden="true" /> Audit
-                  </button>
                 </th>
                 <td>{record.customer}</td>
                 <td>{record.customerContact ?? '—'}</td>
@@ -603,6 +699,7 @@ export default function EstimatingHistoryPage({ canImport }: { canImport: boolea
                 <td>{record.quoteComplexity ?? '—'}</td>
                 <td>{record.numberOfParts}</td>
                 <td>{record.estimatingStatus ?? '—'}</td>
+                {canManageHistory && <td className="history-audit-column"><button type="button" className="history-audit-link" aria-label={`Open audit for quote ${record.quoteNumber}`} onClick={() => void openAudit(record)}><History size={14} aria-hidden="true" /><span>Audit</span></button></td>}
               </tr>)}</tbody>
             </> : <>
               <thead><tr>
@@ -616,18 +713,16 @@ export default function EstimatingHistoryPage({ canImport }: { canImport: boolea
                 <th>Parts</th>
                 <th><SortButton label="Value" field="value" sort={sort} direction={direction} onSort={updateSort} /></th>
                 <th><SortButton label="RFQ due" field="due" sort={sort} direction={direction} onSort={updateSort} /></th>
-                <th>Assigned</th>
+                <th><SortButton label="Assigned" field="assigned" sort={sort} direction={direction} onSort={updateSort} /></th>
                 <th><SortButton label="Completed" field="completed" sort={sort} direction={direction} onSort={updateSort} /></th>
                 <th><SortButton label="Workdays" field="workdays" sort={sort} direction={direction} onSort={updateSort} /></th>
                 <th>On time</th>
+                {canManageHistory && <th className="history-audit-column">Audit</th>}
               </tr></thead>
               <tbody>{pageData.records.map((record) => <tr key={record.id}>
                 <th scope="row">
                   <strong>{record.quoteNumber}</strong>
                   <small>{record.rfqReferenceNumber ?? record.sourceId}</small>
-                  <button type="button" className="history-audit-link" onClick={() => void openAudit(record)}>
-                    <History size={12} aria-hidden="true" /> Audit
-                  </button>
                 </th>
                 <td>{record.customer}<small>{record.customerContact ?? 'No contact data'}</small></td>
                 <td>{record.salesPerson}</td>
@@ -642,6 +737,7 @@ export default function EstimatingHistoryPage({ canImport }: { canImport: boolea
                 <td>{date(record.estimatingCompletionDate)}</td>
                 <td className="numeric">{record.workdays == null ? '—' : record.workdays}</td>
                 <td><span className={`history-status ${record.onTimeStatus.toLowerCase()}`}>{record.onTimeStatus === 'OnTime' ? 'On time' : record.onTimeStatus === 'NoData' ? 'No data' : `${record.daysLate}d late`}</span></td>
+                {canManageHistory && <td className="history-audit-column"><button type="button" className="history-audit-link" aria-label={`Open audit for quote ${record.quoteNumber}`} onClick={() => void openAudit(record)}><History size={14} aria-hidden="true" /><span>Audit</span></button></td>}
               </tr>)}</tbody>
             </>}
           </table>

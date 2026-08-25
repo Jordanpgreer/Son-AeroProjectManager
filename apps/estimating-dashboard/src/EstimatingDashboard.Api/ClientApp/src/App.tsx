@@ -266,6 +266,10 @@ export default function App() {
     me,
     estimatingPermissions.importHistory,
   ) && !me?.isPreview
+  const canManageHistory = hasEstimatingPermission(
+    me,
+    estimatingPermissions.manageHistory,
+  ) && !me?.isPreview
 
   if (accessLoading || !me) {
     return (
@@ -449,7 +453,10 @@ export default function App() {
               <EstimatingRatesPage canAdministerRates={canAdministerRates} />
             )}
             {page === 'history' && canViewHistory && (
-              <EstimatingHistoryPage canImport={canImportHistory} />
+              <EstimatingHistoryPage
+                canImport={canImportHistory}
+                canManageHistory={canManageHistory}
+              />
             )}
           </div>
         </div>

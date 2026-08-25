@@ -39,13 +39,8 @@ public sealed record EstimatingHistoryPageDto(
 
 public sealed record EstimatingHistoryFilterOptionsDto(
     IReadOnlyList<string> Estimators,
-    IReadOnlyList<string> SalesPeople,
     IReadOnlyList<string> Customers,
-    IReadOnlyList<string> QuoteStatuses,
-    IReadOnlyList<string> EstimatingStatuses,
-    IReadOnlyList<string> Complexities,
-    IReadOnlyList<string> Issues,
-    IReadOnlyList<string> QuoteOnTrackStatuses);
+    IReadOnlyList<string> QuoteStatuses);
 
 public sealed record EstimatingHistoryUserStatsDto(
     string Estimator,
@@ -55,7 +50,12 @@ public sealed record EstimatingHistoryUserStatsDto(
     int CompletedAllTime,
     decimal TotalQuoteValue,
     decimal CompletedQuoteValue,
-    double? AverageCompletionWorkdays);
+    double? AverageCompletionWorkdays,
+    int CompletedInPeriod,
+    decimal CompletedValueInPeriod,
+    int OnTimeInPeriod,
+    int LateInPeriod,
+    double? AverageCompletionWorkdaysInPeriod);
 
 public sealed record EstimatingHistoryDepartmentStatsDto(
     int InQueue,
@@ -64,10 +64,20 @@ public sealed record EstimatingHistoryDepartmentStatsDto(
     int CompletedAllTime,
     decimal TotalQuoteValue,
     decimal CompletedQuoteValue,
-    double? AverageCompletionWorkdays);
+    double? AverageCompletionWorkdays,
+    int CompletedInPeriod,
+    decimal CompletedValueInPeriod,
+    int OnTimeInPeriod,
+    int LateInPeriod,
+    double? AverageCompletionWorkdaysInPeriod);
 
 public sealed record EstimatingHistoryDashboardDto(
     DateTimeOffset GeneratedAt,
+    string Period,
+    string PeriodLabel,
+    DateTime? PeriodStart,
+    DateTime? PeriodEnd,
+    bool IsTeamView,
     EstimatingHistoryDepartmentStatsDto Department,
     IReadOnlyList<EstimatingHistoryUserStatsDto> Users);
 

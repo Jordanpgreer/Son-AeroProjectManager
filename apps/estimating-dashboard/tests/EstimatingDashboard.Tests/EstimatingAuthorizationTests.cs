@@ -8,7 +8,7 @@ public sealed class EstimatingAuthorizationTests
     [Theory]
     [InlineData(EstimatingRoles.Viewer, 3)]
     [InlineData(EstimatingRoles.Editor, 6)]
-    [InlineData(EstimatingRoles.Admin, 8)]
+    [InlineData(EstimatingRoles.Admin, 9)]
     public void PermissionsAreCumulativeByRole(string role, int expectedCount)
     {
         var permissions = EstimatingPermissions.ForRole(role);
@@ -28,6 +28,7 @@ public sealed class EstimatingAuthorizationTests
         Assert.DoesNotContain(EstimatingPermissions.ManageInputs, permissions);
         Assert.DoesNotContain(EstimatingPermissions.AdministerRates, permissions);
         Assert.DoesNotContain(EstimatingPermissions.ImportHistory, permissions);
+        Assert.DoesNotContain(EstimatingPermissions.ManageHistory, permissions);
     }
 
     [Fact]
@@ -40,6 +41,15 @@ public sealed class EstimatingAuthorizationTests
         Assert.Contains(EstimatingPermissions.AdministerRates, permissions);
         Assert.Contains(EstimatingPermissions.AdministerSettings, permissions);
         Assert.Contains(EstimatingPermissions.ImportHistory, permissions);
+        Assert.Contains(EstimatingPermissions.ManageHistory, permissions);
+    }
+
+    [Fact]
+    public void EditorCannotViewTeamStatisticsReportsOrAuditHistory()
+    {
+        var permissions = EstimatingPermissions.ForRole(EstimatingRoles.Editor);
+
+        Assert.DoesNotContain(EstimatingPermissions.ManageHistory, permissions);
     }
 
     [Fact]

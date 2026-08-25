@@ -21,6 +21,7 @@ export const estimatingPermissions = {
   administerSettings: 'estimating.settings.admin',
   viewHistory: 'estimating.history.view',
   importHistory: 'estimating.history.import',
+  manageHistory: 'estimating.history.manage',
 } as const
 
 export function hasEstimatingPermission(

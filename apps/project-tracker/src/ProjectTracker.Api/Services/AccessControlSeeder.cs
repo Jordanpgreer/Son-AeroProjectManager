@@ -176,7 +176,8 @@ public sealed class AccessControlSeeder
                 .. ApplicationPermissions.DefaultManagerPermissions,
                 .. ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Managers),
                 .. EngineeringPermissions.DefaultsForGroup(ApplicationGroups.Managers),
-                .. ApplicationModuleCatalog.PermissionsFor(ApplicationModules.Estimating, ApplicationRoles.Editor).Select(permission => permission.Key)
+                .. ApplicationModuleCatalog.PermissionsFor(ApplicationModules.Estimating, ApplicationRoles.Editor).Select(permission => permission.Key),
+                "estimating.history.manage"
             ]),
             (ApplicationGroups.Engineering, "Engineering and project-operation access across modules.", [
                 .. ApplicationPermissions.DefaultEngineeringPermissions,

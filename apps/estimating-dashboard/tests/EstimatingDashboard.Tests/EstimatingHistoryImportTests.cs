@@ -1,4 +1,5 @@
 using ClosedXML.Excel;
+using EstimatingDashboard.Api.Auth;
 using EstimatingDashboard.Api.Data;
 using EstimatingDashboard.Api.Models;
 using EstimatingDashboard.Api.Services;
@@ -55,7 +56,7 @@ public sealed class EstimatingHistoryImportTests
         Assert.True(records[0].IsCompleted);
         Assert.False(records[1].IsCompleted);
 
-        var dashboard = await fixture.Queries.GetDashboardAsync(default);
+        var dashboard = await fixture.Queries.GetDashboardAsync("all", ManagerAccess(), default);
         var bethany = Assert.Single(dashboard.Users);
         Assert.Equal(1, bethany.InQueue);
         Assert.Equal(1, bethany.CompletedAllTime);
@@ -170,7 +171,7 @@ public sealed class EstimatingHistoryImportTests
 
         var page = await fixture.Queries.GetPageAsync(
             null, "Abel", null, null, null, null, null, null, null, null, "queue", null,
-            null, null, 400m, 600m, "value", "desc", 1, 50, default);
+            null, null, null, null, 400m, 600m, "value", "desc", 1, 50, default);
         var record = Assert.Single(page.Records);
         Assert.Equal(1001, record.QuoteNumber);
     }
@@ -215,10 +216,104 @@ public sealed class EstimatingHistoryImportTests
 
         var queue = await fixture.Queries.GetPageAsync(
             null, null, null, null, null, null, null, null, null, "live", null, null,
-            null, null, null, null, "due", "asc", 1, 50, default);
+            null, null, null, null, null, null, "due", "asc", 1, 50, default);
         var queued = Assert.Single(queue.Records);
         Assert.Equal(1001, queued.QuoteNumber);
     }
+
+    [Fact]
+    public async Task DashboardScopesEstimatorsAndExcludesFormerEmployeeAbel()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var today = DateTime.Today;
+        await using var workbook = Workbook([
+            ["bethany-complete", 2001, "One", "Sales", 100m, "Sent", today, today, "None", "C (Low)", 1, "Assembled Estimate", "Bethany", today],
+            ["darlene-queue", 2002, "Two", "Sales", 200m, "Needs Approval", today, today, "None", "B (Medium)", 1, "Quote Assigned", "Darlene", null],
+            ["abel-complete", 2003, "Three", "Sales", 300m, "Sent", today, today, "None", "C (Low)", 1, "Assembled Estimate", "Abel", today],
+            ["unassigned-queue", 2004, "Four", "Sales", 400m, "Needs Approval", today, today, "None", "C (Low)", 1, "Quote Assigned", "Unassigned", null]
+        ]);
+        var validation = await fixture.Importer.ValidateAsync(workbook, "stats.xlsx", "TEST\\admin", default);
+        await fixture.Importer.ApplyAsync(validation.ReviewId, "TEST\\admin", false, default);
+
+        var manager = await fixture.Queries.GetDashboardAsync("week", ManagerAccess(), default);
+        Assert.True(manager.IsTeamView);
+        Assert.Equal(2, manager.Users.Count);
+        Assert.DoesNotContain(manager.Users, user => user.Estimator == "Abel");
+        Assert.Equal(2, manager.Department.InQueue);
+        Assert.Equal(1, manager.Department.CompletedInPeriod);
+
+        var estimator = await fixture.Queries.GetDashboardAsync("week", EstimatorAccess("Bethany R."), default);
+        Assert.False(estimator.IsTeamView);
+        var bethany = Assert.Single(estimator.Users);
+        Assert.Equal("Bethany", bethany.Estimator);
+        Assert.Equal(1, bethany.CompletedInPeriod);
+        Assert.Equal(0, estimator.Department.InQueue);
+    }
+
+    [Fact]
+    public async Task ReportExcludesAbelByDefaultButAllowsExplicitFormerEstimatorFilter()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var today = DateTime.Today;
+        await using var workbook = Workbook([
+            ["bethany", 2101, "One", "Sales", 100m, "Sent", today, today, "None", "C (Low)", 1, "Assembled Estimate", "Bethany", today],
+            ["abel", 2102, "Two", "Sales", 200m, "Sent", today, today, "None", "C (Low)", 1, "Assembled Estimate", "Abel", today]
+        ]);
+        var validation = await fixture.Importer.ValidateAsync(workbook, "report.xlsx", "TEST\\admin", default);
+        await fixture.Importer.ApplyAsync(validation.ReviewId, "TEST\\admin", false, default);
+        var reporter = new EstimatingHistoryReportService(fixture.Db);
+
+        var teamReport = await reporter.CreateAsync("week", null, default);
+        using var teamStream = new MemoryStream(teamReport.Content);
+        using var teamWorkbook = new XLWorkbook(teamStream);
+        var teamValues = teamWorkbook.Worksheet("Estimator Statistics").Column(1).CellsUsed().Select(cell => cell.GetString()).ToList();
+        Assert.Contains("Bethany", teamValues);
+        Assert.DoesNotContain("Abel", teamValues);
+
+        var abelReport = await reporter.CreateAsync("week", "Abel", default);
+        using var abelStream = new MemoryStream(abelReport.Content);
+        using var abelWorkbook = new XLWorkbook(abelStream);
+        var abelValues = abelWorkbook.Worksheet("Estimator Statistics").Column(1).CellsUsed().Select(cell => cell.GetString()).ToList();
+        Assert.Contains("Abel", abelValues);
+        Assert.DoesNotContain("Bethany", abelValues);
+    }
+
+    [Fact]
+    public async Task SearchIncludesDisplayedColumnsButExcludesValueAndCompletionDate()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var dueDate = new DateTime(2026, 9, 14);
+        await using var workbook = Workbook([
+            ["searchable", 2201, "Search Customer", "Sales", 987654m, "Needs Approval", dueDate, dueDate.AddDays(-2), "Capacity Constraint", "A (High)", 17, "Reviewed Quote", "Darlene", new DateTime(2026, 9, 18)]
+        ]);
+        var validation = await fixture.Importer.ValidateAsync(workbook, "search.xlsx", "TEST\\admin", default);
+        await fixture.Importer.ApplyAsync(validation.ReviewId, "TEST\\admin", false, default);
+
+        async Task<int> Count(string search) => (await fixture.Queries.GetPageAsync(
+            search, null, null, null, null, null, null, null, null, "history", null, null,
+            null, null, null, null, null, null, "number", "desc", 1, 50, default)).Total;
+
+        Assert.Equal(1, await Count("Needs Approval"));
+        Assert.Equal(1, await Count("A (High)"));
+        Assert.Equal(1, await Count("17"));
+        Assert.Equal(1, await Count("2026-09-14"));
+        Assert.Equal(0, await Count("987654"));
+        Assert.Equal(0, await Count("2026-09-18"));
+    }
+
+    private static EstimatingAccessProfile ManagerAccess() => new(
+        1,
+        "TEST\\manager",
+        "Estimating Manager",
+        EstimatingRoles.Admin,
+        true);
+
+    private static EstimatingAccessProfile EstimatorAccess(string displayName) => new(
+        2,
+        $"TEST\\{displayName.Split(' ')[0]}",
+        displayName,
+        EstimatingRoles.Viewer,
+        true);
 
     private static MemoryStream Workbook(IReadOnlyList<object?[]> rows, string[]? headers = null)
     {

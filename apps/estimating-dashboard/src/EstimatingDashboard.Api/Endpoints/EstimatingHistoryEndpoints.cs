@@ -25,6 +25,8 @@ public static class EstimatingHistoryEndpoints
             string? view,
             string? completion,
             string? onTime,
+            DateTime? dueFrom,
+            DateTime? dueTo,
             DateTime? completedFrom,
             DateTime? completedTo,
             decimal? minimumValue,
@@ -46,6 +48,8 @@ public static class EstimatingHistoryEndpoints
                 view,
                 completion,
                 onTime,
+                dueFrom,
+                dueTo,
                 completedFrom,
                 completedTo,
                 minimumValue,
@@ -61,8 +65,30 @@ public static class EstimatingHistoryEndpoints
             CancellationToken cancellationToken) => Results.Ok(await service.GetFiltersAsync(cancellationToken)));
 
         history.MapGet("/dashboard", async (
+            HttpContext context,
             EstimatingHistoryQueryService service,
-            CancellationToken cancellationToken) => Results.Ok(await service.GetDashboardAsync(cancellationToken)));
+            string? period,
+            CancellationToken cancellationToken) => Results.Ok(await service.GetDashboardAsync(
+                period,
+                Access(context),
+                cancellationToken)));
+
+        history.MapGet("/report", async (
+            string? period,
+            string? estimator,
+            EstimatingHistoryReportService service,
+            CancellationToken cancellationToken) =>
+        {
+            if (!EstimatingHistoryPeriods.IsValidReportPeriod(period))
+                return Results.BadRequest(new ErrorDto(
+                    "InvalidReportPeriod",
+                    "Choose week, month, or year for the statistics report."));
+            var report = await service.CreateAsync(period!, estimator, cancellationToken);
+            return Results.File(
+                report.Content,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                report.FileName);
+        }).RequireAuthorization(EstimatingPolicies.ManageHistory);
 
         history.MapGet("/{quoteHistoryId:int}/audit", async (
             int quoteHistoryId,
@@ -73,7 +99,7 @@ public static class EstimatingHistoryEndpoints
             return result is null
                 ? Results.NotFound(new ErrorDto("QuoteHistoryNotFound", "The quote record was not found."))
                 : Results.Ok(result);
-        });
+        }).RequireAuthorization(EstimatingPolicies.ManageHistory);
 
         history.MapPost("/import/validate", async (
             HttpContext context,
@@ -130,4 +156,8 @@ public static class EstimatingHistoryEndpoints
         (context.Items[EstimatingPolicies.AccessItem] as EstimatingAccessProfile)?.AccountName
         ?? context.User.Identity?.Name
         ?? "Unknown user";
+
+    private static EstimatingAccessProfile Access(HttpContext context) =>
+        (context.Items[EstimatingPolicies.AccessItem] as EstimatingAccessProfile)
+        ?? throw new InvalidOperationException("Estimating access was not resolved for this request.");
 }
