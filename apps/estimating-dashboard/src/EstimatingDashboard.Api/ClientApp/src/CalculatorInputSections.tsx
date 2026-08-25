@@ -142,22 +142,27 @@ interface EstimateContextFieldsProps {
   ) => void
 }
 
-const METADATA_FIELDS: readonly {
+type MetadataFieldDefinition = {
   field: keyof EstimateMetadata
   label: string
   type?: 'date'
   wide?: boolean
-}[] = [
+}
+
+const PRIMARY_METADATA_FIELDS: readonly MetadataFieldDefinition[] = [
   { field: 'customer', label: 'Customer' },
   { field: 'partNumber', label: 'Part number' },
   { field: 'revision', label: 'Revision' },
-  { field: 'nsn', label: 'NSN' },
   { field: 'quoteLogNumber', label: 'Quote log number' },
-  { field: 'solicitationNumber', label: 'Solicitation number' },
-  { field: 'rfqNumber', label: 'RFQ number' },
   { field: 'quoteDate', label: 'Quote date', type: 'date' },
   { field: 'estimator', label: 'Estimator' },
   { field: 'comments', label: 'Comments', wide: true },
+]
+
+const OPTIONAL_METADATA_FIELDS: readonly MetadataFieldDefinition[] = [
+  { field: 'nsn', label: 'NSN' },
+  { field: 'solicitationNumber', label: 'Solicitation number' },
+  { field: 'rfqNumber', label: 'RFQ number' },
 ]
 
 export function EstimateContextFields({
@@ -167,6 +172,14 @@ export function EstimateContextFields({
   onSalesMarkupChange,
   onRubberFieldChange,
 }: EstimateContextFieldsProps) {
+  const optionalMetadataPanelId = useId()
+  const populatedOptionalFields = OPTIONAL_METADATA_FIELDS.filter(
+    ({ field }) => estimate.metadata[field].trim() !== '',
+  )
+  const [optionalMetadataOpen, setOptionalMetadataOpen] = useState(
+    () => populatedOptionalFields.length > 0,
+  )
+
   return (
     <details className="calc-card context-card" open>
       <summary className="calc-section-heading">
@@ -182,27 +195,64 @@ export function EstimateContextFields({
 
       <div className="context-card-content">
         <div className="metadata-grid">
-        {METADATA_FIELDS.map(({ field, label, type, wide }) => (
-          <label className={wide ? 'field-wide' : undefined} key={field}>
-            <span>{label}</span>
-            {field === 'comments' ? (
-              <textarea
-                rows={2}
-                value={estimate.metadata[field]}
-                data-testid={`metadata-${field}`}
-                onChange={(event) => onMetadataChange(field, event.currentTarget.value)}
-              />
-            ) : (
-              <input
-                type={type ?? 'text'}
-                value={estimate.metadata[field]}
-                data-testid={`metadata-${field}`}
-                onChange={(event) => onMetadataChange(field, event.currentTarget.value)}
-              />
-            )}
-          </label>
-        ))}
+          {PRIMARY_METADATA_FIELDS.map(({ field, label, type, wide }) => (
+            <label className={wide ? 'field-wide' : undefined} key={field}>
+              <span>{label}</span>
+              {field === 'comments' ? (
+                <textarea
+                  rows={2}
+                  value={estimate.metadata[field]}
+                  data-testid={`metadata-${field}`}
+                  onChange={(event) => onMetadataChange(field, event.currentTarget.value)}
+                />
+              ) : (
+                <input
+                  type={type ?? 'text'}
+                  value={estimate.metadata[field]}
+                  data-testid={`metadata-${field}`}
+                  onChange={(event) => onMetadataChange(field, event.currentTarget.value)}
+                />
+              )}
+            </label>
+          ))}
         </div>
+
+        <details
+          className="additional-metadata"
+          open={optionalMetadataOpen}
+          onToggle={(event) => setOptionalMetadataOpen(event.currentTarget.open)}
+        >
+          <summary
+            aria-controls={optionalMetadataPanelId}
+            aria-expanded={optionalMetadataOpen}
+          >
+            <span className="additional-metadata-copy">
+              <strong>Additional identifiers</strong>
+              <small>NSN, solicitation, and RFQ numbers</small>
+            </span>
+            <span className="additional-metadata-actions">
+              <span className={`additional-metadata-status${populatedOptionalFields.length > 0 ? ' has-values' : ''}`}>
+                {populatedOptionalFields.length > 0
+                  ? `${populatedOptionalFields.length} added`
+                  : 'Optional'}
+              </span>
+              <ChevronDown className="additional-metadata-chevron" size={17} aria-hidden="true" />
+            </span>
+          </summary>
+          <div className="additional-metadata-fields" id={optionalMetadataPanelId}>
+            {OPTIONAL_METADATA_FIELDS.map(({ field, label }) => (
+              <label key={field}>
+                <span>{label}</span>
+                <input
+                  type="text"
+                  value={estimate.metadata[field]}
+                  data-testid={`metadata-${field}`}
+                  onChange={(event) => onMetadataChange(field, event.currentTarget.value)}
+                />
+              </label>
+            ))}
+          </div>
+        </details>
 
         <div className="commercial-inputs">
         <label>
@@ -302,6 +352,9 @@ export function EstimateContextFields({
 interface OperationsSectionProps {
   operations: EstimateOperationInput[]
   audits: OperationCostAudit[]
+  idPrefix?: string
+  title?: string
+  kicker?: string
   onChange: (id: string, patch: Partial<EstimateOperationInput>) => void
   onAdd: () => void
   onRemove: (id: string) => void
@@ -310,6 +363,9 @@ interface OperationsSectionProps {
 export function OperationsSection({
   operations,
   audits,
+  idPrefix = '',
+  title = 'Operations',
+  kicker = 'Labor routing',
   onChange,
   onAdd,
   onRemove,
@@ -322,11 +378,11 @@ export function OperationsSection({
   }
 
   return (
-    <section className="calc-card" aria-labelledby="operations-heading">
+    <section className="calc-card" aria-labelledby={`${idPrefix}operations-heading`}>
       <div className="calc-section-heading">
         <div>
-          <span className="section-kicker">Labor routing</span>
-          <h2 id="operations-heading">Operations</h2>
+          <span className="section-kicker">{kicker}</span>
+          <h2 id={`${idPrefix}operations-heading`}>{title}</h2>
         </div>
         <div className="section-heading-actions">
           <span className="section-count">{operations.length} rows</span>
@@ -363,7 +419,7 @@ export function OperationsSection({
                         label={`Operation ${index + 1}`}
                         options={CONTROLLED_OPERATION_OPTIONS}
                         value={operation.name}
-                        testId={`operation-name-${index}`}
+                        testId={`${idPrefix}operation-name-${index}`}
                         onChange={(name) => onChange(operation.id, { name })}
                       />
                     ) : (
@@ -374,7 +430,7 @@ export function OperationsSection({
                             <input
                               type="checkbox"
                               checked={operation.amortizeNre}
-                              data-testid={`operation-amortize-${index}`}
+                              data-testid={`${idPrefix}operation-amortize-${index}`}
                               onChange={(event) => onChange(operation.id, { amortizeNre: event.currentTarget.checked })}
                             />
                             Include tooling
@@ -390,7 +446,7 @@ export function OperationsSection({
                       value={operation.setupMinutes}
                       onValueChange={(value) => onChange(operation.id, { setupMinutes: value })}
                       label={`${operation.name} setup minutes`}
-                      testId={`operation-setup-${index}`}
+                      testId={`${idPrefix}operation-setup-${index}`}
                       allowExpression
                     />
                   </td>
@@ -399,7 +455,7 @@ export function OperationsSection({
                       value={operation.runMinutes}
                       onValueChange={(value) => onChange(operation.id, { runMinutes: value })}
                       label={`${operation.name} run minutes`}
-                      testId={`operation-run-${index}`}
+                      testId={`${idPrefix}operation-run-${index}`}
                       allowExpression
                     />
                   </td>

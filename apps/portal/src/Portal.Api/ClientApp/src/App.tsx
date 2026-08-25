@@ -207,7 +207,7 @@ export default function App() {
   const adminRoute = isAdminHash(locationHash)
 
   useEffect(() => {
-    if (!adminRoute) document.title = 'Applications - SON-AERO'
+    if (!adminRoute) document.title = 'Arda · Applications'
   }, [adminRoute])
 
   useEffect(() => {
@@ -269,6 +269,30 @@ export default function App() {
     window.location.hash = '#/'
   }
 
+  async function startWalkthroughPreview(target: AdminAccessPreviewTarget) {
+    setPreviewLaunchError(null)
+    const response = await fetch(
+      `/api/admin/access-previews/${encodeURIComponent(target.key)}/walkthrough`,
+      { method: 'POST', credentials: 'include' },
+    )
+    if (!response.ok) {
+      const problem = await response.json().catch(() => null) as { detail?: string } | null
+      const message = problem?.detail ?? `Walkthrough preview launch failed (${response.status}).`
+      throw new Error(message)
+    }
+    const launch = await response.json() as AdminAccessPreviewLaunch
+    const form = document.createElement('form')
+    form.method = 'POST'
+    form.action = launch.actionUrl
+    const token = document.createElement('input')
+    token.type = 'hidden'
+    token.name = 'token'
+    token.value = launch.token
+    form.append(token)
+    document.body.append(form)
+    form.submit()
+  }
+
   function returnToAdmin() {
     setAccessPreview(null)
     setPreviewLaunchError(null)
@@ -278,11 +302,37 @@ export default function App() {
   return (
     <div className={`portal ${adminRoute ? 'admin-portal' : 'catalog-portal'} ${launchingAppId ? 'is-launching' : ''}`.trim()}>
       <header className="portal-top">
-        <div className="brand">
-          <img src="/brand/son-aero-mark.png" alt="SON-AERO" />
-          <span className="brand-word">SON-AERO</span>
-          <span className="brand-divider" aria-hidden="true" />
-          <span className="brand-kicker">Internal Hub</span>
+        <div className="brand arda-brand">
+          <span className="arda-logo-surface">
+            <img
+              className="arda-logo arda-logo-lockup arda-logo-standard"
+              src="/brand/arda-lockup.png"
+              alt="Arda"
+              width="1825"
+              height="862"
+            />
+            <img
+              className="arda-logo arda-logo-lockup arda-logo-reversed"
+              src="/brand/arda-lockup-reversed.png"
+              alt="Arda"
+              width="1825"
+              height="862"
+            />
+            <img
+              className="arda-logo arda-logo-mark arda-logo-standard"
+              src="/brand/arda-mark.png"
+              alt="Arda"
+              width="1254"
+              height="1254"
+            />
+            <img
+              className="arda-logo arda-logo-mark arda-logo-reversed"
+              src="/brand/arda-mark-reversed.png"
+              alt="Arda"
+              width="1254"
+              height="1254"
+            />
+          </span>
         </div>
         <div className="portal-user-actions">
           <ThemeSwitch
@@ -327,12 +377,17 @@ export default function App() {
       )}
 
       {adminRoute ? (
-        <AdminConsole currentAccountName={me?.accountName ?? null} currentPortalRole={me?.role ?? null} onPreviewAccess={startAccessPreview} />
+        <AdminConsole
+          currentAccountName={me?.accountName ?? null}
+          currentPortalRole={me?.role ?? null}
+          onPreviewAccess={startAccessPreview}
+          onPreviewWalkthrough={startWalkthroughPreview}
+        />
       ) : (
         <main className="portal-main catalog-main">
         <section className="catalog-intro" aria-labelledby="catalog-title">
           <div className="catalog-intro-copy">
-            <span className="kicker">SON-AERO Internal Systems</span>
+            <span className="kicker">Arda Internal Systems</span>
             <h1 id="catalog-title">{accessPreview ? `Access for ${accessPreview.title}` : 'Applications'}</h1>
             <p>{accessPreview ? 'This is a read-only view of the application cards available to this target.' : 'Choose an internal workspace for your account.'}</p>
           </div>
@@ -401,9 +456,9 @@ export default function App() {
       )}
 
       <footer className="portal-foot">
-        <span className="foot-mark">SON-AERO</span>
+        <span className="foot-mark">ARDA</span>
         <span className="foot-sep" aria-hidden="true" />
-        <span>Sonfarrel Aerospace · Internal Systems</span>
+        <span>Internal Operations Platform</span>
       </footer>
       {launchingAppId && <div className="catalog-launch-veil" aria-hidden="true" />}
     </div>

@@ -294,11 +294,78 @@ public sealed class EstimatingHistoryImportTests
             null, null, null, null, null, null, "number", "desc", 1, 50, default)).Total;
 
         Assert.Equal(1, await Count("Needs Approval"));
+        Assert.Equal(1, await Count("needs approval"));
+        Assert.Equal(1, await Count("SEARCH CUSTOMER"));
+        Assert.Equal(1, await Count("capacity constraint"));
         Assert.Equal(1, await Count("A (High)"));
         Assert.Equal(1, await Count("17"));
         Assert.Equal(1, await Count("2026-09-14"));
         Assert.Equal(0, await Count("987654"));
         Assert.Equal(0, await Count("2026-09-18"));
+    }
+
+    [Fact]
+    public async Task FiltersIncludeDistinctSalespeople()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var today = DateTime.Today;
+        await using var workbook = Workbook([
+            ["sales-a", 2301, "Customer A", "Jordan", 100m, "Sent", today, today, "None", "C (Low)", 1, "Complete", "Bethany", today],
+            ["sales-b", 2302, "Customer B", "Alex", 200m, "Sent", today, today, "None", "C (Low)", 1, "Complete", "Darlene", today],
+            ["sales-c", 2303, "Customer C", "Jordan", 300m, "Sent", today, today, "None", "C (Low)", 1, "Complete", "Bethany", today]
+        ]);
+        var validation = await fixture.Importer.ValidateAsync(workbook, "salespeople.xlsx", "TEST\\admin", default);
+        await fixture.Importer.ApplyAsync(validation.ReviewId, "TEST\\admin", false, default);
+
+        var options = await fixture.Queries.GetFiltersAsync(default);
+
+        Assert.Equal(["Alex", "Jordan"], options.SalesPersons);
+    }
+
+    [Fact]
+    public async Task GridExportContainsOnlyCurrentSearchAndFilterResults()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var today = DateTime.Today;
+        await using var workbook = Workbook([
+            ["export-a", 2401, "Northstar Aerospace", "Jordan", 100m, "Sent", today, today, "None", "C (Low)", 1, "Complete", "Bethany", today],
+            ["export-b", 2402, "Northstar Tooling", "Alex", 200m, "Sent", today, today, "None", "C (Low)", 1, "Complete", "Darlene", today],
+            ["export-c", 2403, "Other Customer", "Jordan", 300m, "Sent", today, today, "None", "C (Low)", 1, "Complete", "Bethany", today]
+        ]);
+        var validation = await fixture.Importer.ValidateAsync(workbook, "export.xlsx", "TEST\\admin", default);
+        await fixture.Importer.ApplyAsync(validation.ReviewId, "TEST\\admin", false, default);
+        var exporter = new EstimatingHistoryGridExportService(fixture.Queries);
+
+        var file = await exporter.CreateAsync(new EstimatingHistoryGridExportRequest(
+            Search: "NORTHSTAR",
+            Estimator: null,
+            SalesPerson: "Jordan",
+            Customer: null,
+            QuoteStatus: null,
+            EstimatingStatus: null,
+            Complexity: null,
+            Issues: null,
+            QuoteOnTrack: null,
+            View: "history",
+            Completion: null,
+            OnTime: null,
+            DueFrom: null,
+            DueTo: null,
+            CompletedFrom: null,
+            CompletedTo: null,
+            MinimumValue: null,
+            MaximumValue: null,
+            Sort: "number",
+            Direction: "asc"), default);
+
+        using var stream = new MemoryStream(file.Content);
+        using var exported = new XLWorkbook(stream);
+        var sheet = exported.Worksheet("Grid Results");
+        Assert.Equal("Quote", sheet.Cell(1, 1).GetString());
+        Assert.Equal(2401, sheet.Cell(2, 1).GetValue<int>());
+        Assert.Equal("Northstar Aerospace", sheet.Cell(2, 2).GetString());
+        Assert.Equal("Jordan", sheet.Cell(2, 4).GetString());
+        Assert.Equal(string.Empty, sheet.Cell(3, 1).GetString());
     }
 
     private static EstimatingAccessProfile ManagerAccess() => new(
@@ -394,7 +461,9 @@ public sealed class EstimatingHistoryImportTests
             Db = db;
             var reviews = new EstimatingHistoryReviewStore();
             Importer = new EstimatingHistoryImportService(db, reviews);
-            Queries = new EstimatingHistoryQueryService(db);
+            Queries = new EstimatingHistoryQueryService(
+                db,
+                new EstimatingEstimatorSettingsService(db));
         }
 
         public static async Task<Fixture> CreateAsync()

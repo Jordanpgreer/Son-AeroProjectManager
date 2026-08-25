@@ -1,4 +1,5 @@
 export const permissionKeys = {
+  moduleView: 'module.view',
   projectCreate: 'project.create',
   projectEditProgramName: 'project.edit.programName',
   projectEditProgramManager: 'project.edit.programManager',
@@ -11,6 +12,8 @@ export const permissionKeys = {
   projectComplete: 'project.complete',
   projectReopen: 'project.reopen',
   projectArchive: 'project.archive',
+  projectActivityView: 'project.activity.view',
+  operationScheduleConfirm: 'notifications.operationSchedule.confirm',
   archivedRestore: 'archived.restore',
   archivedDelete: 'archived.delete',
   taskCreate: 'task.create',
@@ -29,7 +32,16 @@ export const permissionKeys = {
   taskEditNotes: 'task.edit.notes',
   taskEditOvertimeDays: 'task.edit.overtimeDays',
   taskReorder: 'task.edit.sequence',
+  settingsWorkCalendarManage: 'settings.workCalendar.manage',
+  settingsHolidaysManage: 'settings.holidays.manage',
+  settingsWorkCentersManage: 'settings.workCenters.manage',
+  settingsWorkCentersImport: 'settings.workCenters.import',
+  importManage: 'import.manage',
+  accessManageUsers: 'access.manageUsers',
+  accessManageGroups: 'access.manageGroups',
 } as const
+
+export const allProjectTrackerPermissionKeys = Object.values(permissionKeys)
 
 export const projectMetadataEditPermissions = [
   permissionKeys.projectEditProgramName,

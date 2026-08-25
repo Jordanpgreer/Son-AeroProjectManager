@@ -19,13 +19,6 @@
   --line: #22303d;
   --line-2: #314355;
   --line-3: #455b70;
-  --grid-line: rgba(151, 165, 180, 0.055);
-
-  --red: #d23a2b;
-  --red-600: #b92f24;
-  --red-700: #ffb5ac;
-  --red-tint: #331d1a;
-  --red-tint-2: #512a25;
 
   --steel: #64a4d7;
   --steel-700: #b4d9f5;
@@ -37,9 +30,9 @@
   --warn: #d6a84e;
   --warn-700: #f5d38c;
   --warn-tint: #322715;
-  --risk: #f06a5b;
-  --risk-700: #ffb5ac;
-  --risk-tint: #331d1a;
+  --risk: #d6a84e;
+  --risk-700: #f5d38c;
+  --risk-tint: #322715;
   --done: #36a46a;
   --done-700: #b9e9cb;
   --done-tint: #152e22;
@@ -65,20 +58,20 @@
 
 :root[data-theme='dark'] .portal-top {
   background:
-    radial-gradient(90% 180% at 0% 0%, rgba(210, 58, 43, 0.10), transparent 56%),
+    radial-gradient(90% 180% at 0% 0%, rgba(100, 164, 215, 0.10), transparent 56%),
     var(--nav-1);
-  border-bottom-color: var(--red);
+  border-bottom-color: var(--arda-red, #ef5c4d);
   box-shadow: 0 10px 28px -24px rgba(0, 0, 0, 0.9);
 }
 
 :root[data-theme='dark'] .portal-user-role {
-  color: var(--red-700);
+  color: var(--steel-700);
 }
 
 :root[data-theme='dark'] .portal-avatar {
-  color: var(--red-700);
-  background: var(--red-tint);
-  border-color: var(--red-tint-2);
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border-color: var(--steel-tint-2);
 }
 
 :root[data-theme='dark'] :where(
@@ -114,8 +107,8 @@
 
 :root[data-theme='dark'] .chip.is-active {
   color: #fff;
-  background: var(--red);
-  border-color: var(--red);
+  background: var(--steel-action);
+  border-color: var(--steel-action);
 }
 
 :root[data-theme='dark'] .ghost-button {
@@ -158,20 +151,20 @@
 }
 
 :root[data-theme='dark'] .app-icon {
-  color: var(--red-700);
-  background: var(--red-tint);
-  border-color: var(--red-tint-2);
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border-color: var(--steel-tint-2);
 }
 
 :root[data-theme='dark'] .app-open {
   color: #fff;
-  background: var(--red);
-  border-color: var(--red);
+  background: var(--steel-action);
+  border-color: var(--steel-action);
 }
 
 :root[data-theme='dark'] .app-open:hover {
-  background: var(--red-600);
-  border-color: var(--red-600);
+  background: var(--steel-action-hover);
+  border-color: var(--steel-action-hover);
 }
 
 :root[data-theme='dark'] .status-badge.ok {

@@ -95,11 +95,12 @@
 
 .operation-details-toggle {
   display: inline-flex;
+  align-self: center;
   align-items: center;
   justify-content: center;
   gap: 5px;
   min-width: 78px;
-  min-height: 34px;
+  min-height: 40px;
   padding: 7px 9px;
   border: 1px solid var(--line-2);
   border-radius: var(--r-sm);
@@ -139,6 +140,10 @@
   display: grid;
   grid-template-columns: minmax(128px, 1fr) minmax(128px, 1fr) minmax(110px, 0.78fr);
   gap: 8px;
+}
+
+.operation-schedule-error {
+  grid-column: 1 / -1;
 }
 
 .operation-progress-primary {

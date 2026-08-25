@@ -19,6 +19,7 @@ import {
   emptyTaskForm,
   duplicateTaskForm,
   toOperationTitleCase,
+  screenTitle,
 } from './lib'
 import { persistTheme, readThemePreference } from './theme'
 import { emptyDashboard, defaultScheduleSettings } from './types'
@@ -77,6 +78,17 @@ import {
   TaskModal,
 } from './features/task-modal'
 import {
+  BennyAssistant,
+  revealBennyTarget,
+} from './features/benny-assistant'
+import type {
+  BennyCommandResult,
+} from './features/benny-assistant'
+import type { BennySafeCommand } from './demo/benny-rules'
+import { PageTourPrompt } from './demo/PageTourPrompt'
+import { pageTourPromptKey, pageTourUrl } from './demo/page-tours'
+import { saveTrainingProfile } from './demo/training-profile'
+import {
   hasAnyPermission,
   hasPermission,
   permissionKeys,
@@ -85,6 +97,7 @@ import {
 } from './permissions'
 
 const emptyProjectMetadata: ProjectMetadataDraft = {
+  programName: '',
   programManager: '',
   engineer: '',
   customerName: '',
@@ -97,6 +110,7 @@ const emptyProjectMetadata: ProjectMetadataDraft = {
 function projectMetadataFrom(project: ProjectDetail | null): ProjectMetadataDraft {
   if (!project) return emptyProjectMetadata
   return {
+    programName: project.programName,
     programManager: project.programManager ?? '',
     engineer: project.engineer ?? '',
     customerName: project.customerName ?? '',
@@ -193,6 +207,7 @@ function App() {
   const [overtimeTask, setOvertimeTask] = useState<ProjectTask | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
   const [activityOpen, setActivityOpen] = useState(false)
+  const [tourPromptScreen, setTourPromptScreen] = useState<Screen | null>(null)
   const [notificationTaskId, setNotificationTaskId] = useState<number | null>(null)
   const [concurrencyConflict, setConcurrencyConflict] = useState<ConcurrencyConflict | null>(null)
   const [projectChangeNotice, setProjectChangeNotice] = useState<ProjectVersion | null>(null)
@@ -234,6 +249,7 @@ function App() {
     if (!selectedProject) return []
     const saved = projectMetadataFrom(selectedProject)
     const fields: { key: keyof ProjectMetadataDraft; label: string }[] = [
+      { key: 'programName', label: 'Part Number' },
       { key: 'programManager', label: 'Contact Lead' },
       { key: 'engineer', label: 'Engineer' },
       { key: 'customerName', label: 'Customer Name' },
@@ -254,6 +270,7 @@ function App() {
   const projectMetadataDirty = projectMetadataChanges.length > 0
 
   const selectedProjectMetadataId = selectedProject?.id
+  const selectedProjectProgramName = selectedProject?.programName ?? ''
   const selectedProjectProgramManager = selectedProject?.programManager ?? ''
   const selectedProjectEngineer = selectedProject?.engineer ?? ''
   const selectedProjectCustomerName = selectedProject?.customerName ?? ''
@@ -276,6 +293,7 @@ function App() {
 
   useEffect(() => {
     setProjectMetadata({
+      programName: selectedProjectProgramName,
       programManager: selectedProjectProgramManager,
       engineer: selectedProjectEngineer,
       customerName: selectedProjectCustomerName,
@@ -287,6 +305,7 @@ function App() {
     setProjectMetadataError(null)
   }, [
     selectedProjectMetadataId,
+    selectedProjectProgramName,
     selectedProjectProgramManager,
     selectedProjectEngineer,
     selectedProjectCustomerName,
@@ -650,6 +669,7 @@ function App() {
     setProjectMetadataSaving(true)
     setProjectMetadataError(null)
     const normalized = {
+      programName: projectMetadata.programName.trim(),
       programManager: projectMetadata.programManager.trim(),
       engineer: projectMetadata.engineer.trim(),
       customerName: projectMetadata.customerName.trim(),
@@ -660,6 +680,7 @@ function App() {
     }
     try {
       await updateProject({
+        programName: normalized.programName,
         programManager: normalized.programManager || null,
         engineer: normalized.engineer || null,
         customerName: normalized.customerName || null,
@@ -1006,6 +1027,12 @@ function App() {
     && hasPermission(mutationPermissions, permissionKeys.archivedDelete)
   const canViewActivity = Boolean(userPermissions.includes('project.activity.view'))
   const isProjectScreen = screen === 'project'
+  const pageToursEnabled = Boolean(
+    user?.walkthroughEnabled
+    && hasPermission(userPermissions, permissionKeys.moduleView)
+    && !user.preview
+  )
+  const pageTourInvitationEnabled = pageToursEnabled && !isPortalEmbedded
   const holidaySet = useMemo(() => new Set(holidays.map((holiday) => holiday.date)), [holidays])
   const workingDaySet = useMemo(() => new Set(scheduleSettings.workingDays.map(dayNameToIndex)), [scheduleSettings.workingDays])
   const knownWorkStations = useMemo(() => workCenters.map((workCenter) => workCenter.name), [workCenters])
@@ -1016,10 +1043,138 @@ function App() {
   }, [canViewActivity])
 
   useEffect(() => {
+    if (!pageTourInvitationEnabled || loading || screenDataLoading || projectLoading || (screen === 'project' && !selectedProjectMetadataId)) {
+      setTourPromptScreen(null)
+      return
+    }
+
+    try {
+      setTourPromptScreen(window.sessionStorage.getItem(pageTourPromptKey(screen)) ? null : screen)
+    } catch {
+      setTourPromptScreen(screen)
+    }
+  }, [pageTourInvitationEnabled, loading, screenDataLoading, projectLoading, screen, selectedProjectMetadataId])
+
+  function dismissPageTourPrompt(target: Screen) {
+    try {
+      window.sessionStorage.setItem(pageTourPromptKey(target), 'dismissed')
+    } catch {
+      // The invitation remains dismissible even when session storage is unavailable.
+    }
+    setTourPromptScreen((current) => current === target ? null : current)
+  }
+
+  function startPageTour(target: Screen) {
+    if (!user || !pageToursEnabled) return
+    dismissPageTourPrompt(target)
+    void requestNavigation(() => {
+      saveTrainingProfile(user)
+      window.location.assign(pageTourUrl(window.location.href, target))
+    })
+  }
+
+  useEffect(() => {
     if (!notificationTaskId) return
     const timeout = window.setTimeout(() => setNotificationTaskId(null), 5_000)
     return () => window.clearTimeout(timeout)
   }, [notificationTaskId])
+
+  async function handleBennyCommand(command: BennySafeCommand): Promise<BennyCommandResult> {
+    const navigationPending = editMode && projectMetadataDirty
+    const pendingMessage = 'Review the unsaved project details prompt first; your destination is queued.'
+
+    if (command.kind === 'screen') {
+      await requestNavigation(command.screen === 'project' ? openActiveProjectWorkspace : () => setScreen(command.screen))
+      if (navigationPending) return { ok: true, message: pendingMessage }
+      return { ok: true, message: `${screenTitle(command.screen, selectedProject)} is open.` }
+    }
+
+    if (command.kind === 'filter') {
+      if (command.filter === 'behind') {
+        const behindCount = dashboard.projects.filter((project) => project.status === 'Behind').length
+        await requestNavigation(() => {
+          setScreen('dashboard')
+          setDashboardSearch('Behind')
+        })
+        if (navigationPending) return { ok: true, message: pendingMessage }
+        const ok = await revealBennyTarget('dashboard-projects')
+        return {
+          ok,
+          message: behindCount === 0
+            ? 'No active projects are currently behind schedule.'
+            : `Showing ${behindCount} active ${behindCount === 1 ? 'project' : 'projects'} behind schedule.`,
+        }
+      }
+
+      if (command.filter === 'mine') {
+        await requestNavigation(() => setScreen('dashboard'))
+        if (navigationPending) return { ok: true, message: pendingMessage }
+        const ok = await revealBennyTarget('my-projects', true)
+        return { ok, message: ok ? 'The dashboard is showing projects assigned to you.' : undefined }
+      }
+
+      await requestNavigation(() => {
+        setScreen(command.screen)
+        if (command.screen === 'dashboard') setDashboardSearch(command.value ?? '')
+        else setPastProjectsSearch(command.value ?? '')
+      })
+      if (navigationPending) return { ok: true, message: pendingMessage }
+      const ok = await revealBennyTarget(command.screen === 'dashboard' ? 'project-search' : 'past-search')
+      return { ok, message: ok ? `Filtered ${command.screen === 'dashboard' ? 'active' : 'past'} projects for “${command.value ?? ''}”.` : undefined }
+    }
+
+    if (command.kind === 'open-project') {
+      await requestNavigation(() => openProject(command.projectId))
+      if (navigationPending) return { ok: true, message: pendingMessage }
+      return { ok: await revealBennyTarget('project-summary'), message: 'The matching project is open.' }
+    }
+
+    if (command.kind === 'focus-operation') {
+      await requestNavigation(async () => {
+        await openProject(command.projectId)
+        setNotificationTaskId(command.operationId)
+      })
+      if (navigationPending) return { ok: true, message: pendingMessage }
+      const ok = await revealBennyTarget(`operation:${command.operationId}`)
+      return { ok, message: ok ? 'The matching operation is open and highlighted.' : undefined }
+    }
+
+    if (command.kind === 'open-gantt') {
+      const projectId = command.projectId ?? selectedProject?.id ?? dashboard.projects.find((project) => project.status !== 'Complete')?.id
+      if (!projectId) return { ok: false, message: 'There is no active project available for a Gantt schedule.' }
+      await requestNavigation(async () => {
+        if (selectedProject?.id !== projectId || screen !== 'project') await openProject(projectId)
+      })
+      if (navigationPending) return { ok: true, message: pendingMessage }
+      const ok = await revealBennyTarget('gantt', true)
+      return { ok, message: ok ? 'The project Gantt schedule is open and highlighted.' : undefined }
+    }
+
+    if (command.kind === 'focus-ui') {
+      if (command.screen) {
+        await requestNavigation(command.screen === 'project' ? openActiveProjectWorkspace : () => setScreen(command.screen!))
+        if (navigationPending) return { ok: true, message: pendingMessage }
+      }
+      if (command.targetId === 'project-activity') {
+        if (!canViewActivity) return { ok: false }
+        setChatOpen(false)
+        setActivityOpen(true)
+        return { ok: true, message: 'Project activity is open.' }
+      }
+      const activate = command.targetId === 'notifications-button' || command.targetId === 'export-menu'
+      const ok = await revealBennyTarget(command.targetId, activate)
+      return { ok, message: ok ? 'The matching control is highlighted.' : undefined }
+    }
+
+    if (command.messageKey === 'project-status') {
+      return {
+        ok: true,
+        message: 'On Track is meeting its schedule. Behind needs attention. Projected dates are calculated from operation dates, dependencies, workdays, holidays, and approved overtime.',
+      }
+    }
+
+    return { ok: false }
+  }
 
   return (
     <div className={`app-shell project-tracker-app ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
@@ -1066,6 +1221,7 @@ function App() {
             setChatOpen(false)
             setActivityOpen(true)
           }}
+          onStartTour={() => startPageTour(screen)}
         />
 
         <div className="main-scroll">
@@ -1245,6 +1401,34 @@ function App() {
       {activityOpen && selectedProject && canViewActivity && (
         <ProjectActivityDrawer project={selectedProject} onClose={() => setActivityOpen(false)} />
       )}
+      {tourPromptScreen === screen
+        && !editMode
+        && !taskForm
+        && !projectWizardOpen
+        && !projectConfirmation
+        && !taskDeleteTarget
+        && !unsavedProjectDetailsOpen
+        && !importCompletionOpen
+        && !concurrencyConflict
+        && !chatOpen
+        && !activityOpen
+        && (
+          <PageTourPrompt
+            screen={screen}
+            onDismiss={() => dismissPageTourPrompt(screen)}
+            onStart={() => startPageTour(screen)}
+          />
+        )}
+      <BennyAssistant
+        enabled={Boolean(user?.assistantEnabled && userPermissions.includes(permissionKeys.moduleView))}
+        draggable
+        name={user?.assistantName ?? 'Benny'}
+        permissions={userPermissions}
+        projects={dashboard.projects}
+        selectedProject={selectedProject}
+        currentScreen={screen}
+        onCommand={handleBennyCommand}
+      />
     </div>
   )
 }

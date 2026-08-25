@@ -1,0 +1,220 @@
+.benny-assistant {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 170;
+  font-family: var(--font-sans);
+}
+
+.benny-assistant.is-draggable .benny-trigger {
+  touch-action: none;
+  user-select: none;
+}
+
+.benny-assistant.is-dragging .benny-trigger {
+  cursor: grabbing;
+  transform: none;
+}
+
+.benny-trigger {
+  display: grid;
+  width: 56px;
+  height: 56px;
+  align-items: center;
+  justify-items: center;
+  padding: 0;
+  color: #fff;
+  background: var(--red-action);
+  border: 1px solid var(--red-700);
+  border-radius: 999px;
+  box-shadow: 0 12px 30px rgba(35, 42, 52, .22);
+  cursor: pointer;
+}
+
+.benny-trigger:hover { background: var(--red-600); transform: translateY(-1px); }
+.benny-assistant.is-draggable:not(.is-dragging) .benny-trigger { cursor: grab; }
+.benny-trigger:focus-visible,
+.benny-icon-button:focus-visible,
+.benny-suggestions button:focus-visible,
+.benny-matches button:focus-visible,
+.benny-command button:focus-visible,
+.benny-command input:focus-visible {
+  outline: 3px solid rgba(105, 164, 214, .42);
+  outline-offset: 2px;
+}
+
+.benny-trigger > span {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  overflow: hidden;
+  background: rgba(255, 255, 255, .14);
+  border-radius: 50%;
+}
+
+.benny-trigger img {
+  width: 58px;
+  height: 58px;
+  object-fit: contain;
+  filter: hue-rotate(208deg) saturate(.78);
+}
+
+.benny-panel {
+  position: absolute;
+  right: 0;
+  bottom: 64px;
+  display: flex;
+  width: min(420px, calc(100vw - 28px));
+  max-height: min(650px, calc(100vh - 110px));
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 22px 60px rgba(30, 37, 48, .25);
+}
+
+.benny-assistant.opens-right .benny-panel {
+  right: auto;
+  left: 0;
+}
+
+.benny-assistant.opens-down .benny-panel {
+  top: 64px;
+  bottom: auto;
+}
+
+.benny-panel__header {
+  display: grid;
+  grid-template-columns: 62px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 82px;
+  padding: 10px 12px;
+  background: var(--red-tint);
+  border-bottom: 1px solid var(--line);
+}
+
+.benny-panel__avatar {
+  display: grid;
+  width: 60px;
+  height: 60px;
+  place-items: center;
+  overflow: hidden;
+  background: var(--red);
+  border-radius: 18px;
+}
+
+.benny-panel__avatar img {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  filter: hue-rotate(208deg) saturate(.78);
+}
+.benny-panel__header h2 { margin: 0; overflow: hidden; font-size: 19px; text-overflow: ellipsis; white-space: nowrap; }
+
+.benny-icon-button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.benny-icon-button:hover { color: var(--ink); background: var(--surface-2); }
+
+.benny-transcript {
+  display: flex;
+  min-height: 120px;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding: 14px;
+  overscroll-behavior: contain;
+}
+
+.benny-message { max-width: 88%; }
+.benny-message > span { display: block; margin: 0 0 3px 3px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.benny-message p { margin: 0; padding: 10px 12px; font-size: 13px; line-height: 1.5; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px 12px 12px 4px; }
+.benny-message.is-user { align-self: flex-end; }
+.benny-message.is-user > span { text-align: right; }
+.benny-message.is-user p { color: #fff; background: #334155; border-color: #334155; border-radius: 12px 12px 4px; }
+
+.benny-matches,
+.benny-suggestions { display: flex; gap: 6px; padding: 0 14px 10px; }
+.benny-matches { flex-direction: column; }
+.benny-suggestions { flex-wrap: wrap; }
+
+.benny-matches button,
+.benny-suggestions button {
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-2, var(--line));
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.benny-suggestions button { padding: 7px 10px; font-size: 12px; font-weight: 700; }
+.benny-suggestions button:hover { color: var(--red-700); background: var(--red-tint); border-color: var(--red-tint-2); }
+
+.benny-matches button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  text-align: left;
+}
+
+.benny-command { padding: 12px 14px 13px; background: var(--surface-2); border-top: 1px solid var(--line); }
+.benny-command > label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.benny-command > div { display: grid; grid-template-columns: 1fr 38px; overflow: hidden; background: var(--surface); border: 1px solid var(--line-2, var(--line)); border-radius: 11px; }
+.benny-command input { min-width: 0; height: 42px; padding: 0 11px; color: var(--ink); background: transparent; border: 0; outline: 0; font-size: 13px; }
+.benny-command button { display: grid; place-items: center; color: #fff; background: var(--red-action); border: 0; cursor: pointer; }
+.benny-command button:disabled,
+.benny-suggestions button:disabled { cursor: not-allowed; opacity: .48; }
+.benny-command small { display: block; margin-top: 6px; color: var(--muted); font-size: 11px; }
+
+.benny-assistant-highlight {
+  position: relative;
+  z-index: 2;
+  outline: 4px solid rgba(105, 164, 214, .92) !important;
+  outline-offset: 4px;
+  box-shadow: 0 0 0 9px rgba(105, 164, 214, .18) !important;
+  scroll-margin: 110px;
+}
+
+:root[data-theme='dark'] .benny-message.is-user p { background: #475569; border-color: #475569; }
+
+@media (max-width: 640px) {
+  .benny-assistant { right: 14px; bottom: 14px; }
+  .benny-panel {
+    position: fixed;
+    right: 14px !important;
+    left: 14px !important;
+    width: auto;
+  }
+  .benny-assistant.opens-up .benny-panel { top: auto; bottom: 78px; }
+  .benny-assistant.opens-down .benny-panel { top: 78px; bottom: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .benny-trigger { transition: none; }
+  .benny-trigger:hover { transform: none; }
+  .benny-assistant-highlight { scroll-behavior: auto; }
+}
+
+@media (forced-colors: active) {
+  .benny-trigger,
+  .benny-command button { border: 2px solid ButtonText; }
+  .benny-assistant-highlight { outline: 4px solid Highlight !important; box-shadow: none !important; }
+}

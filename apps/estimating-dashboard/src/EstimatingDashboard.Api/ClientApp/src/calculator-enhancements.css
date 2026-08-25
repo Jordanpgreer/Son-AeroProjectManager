@@ -22,8 +22,8 @@
   min-height: 38px;
   padding: 7px 11px;
   color: #fff;
-  background: var(--steel-700);
-  border: 1px solid var(--steel-700);
+  background: var(--steel-action);
+  border: 1px solid var(--steel-action);
   border-radius: var(--r-sm);
   font: inherit;
   font-size: 11px;
@@ -32,8 +32,8 @@
 
 .add-row-button:hover,
 .save-quote-button:hover {
-  background: var(--steel);
-  border-color: var(--steel);
+  background: var(--steel-action-hover);
+  border-color: var(--steel-action-hover);
 }
 
 .quote-save-controls {
@@ -80,16 +80,16 @@
   width: 36px;
   height: 36px;
   padding: 0;
-  color: var(--muted);
-  background: var(--surface-2);
-  border: 1px solid var(--line-2);
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border: 1px solid color-mix(in srgb, var(--steel) 30%, var(--line));
   border-radius: var(--r-sm);
 }
 
 .remove-row-button:hover {
-  color: var(--risk);
-  background: var(--risk-tint);
-  border-color: color-mix(in srgb, var(--risk) 30%, var(--line));
+  color: #fff;
+  background: var(--steel-action);
+  border-color: var(--steel-action);
 }
 
 .row-actions-heading,
@@ -248,8 +248,8 @@
 }
 .operation-combobox-control > button:disabled { opacity: .35; cursor: default; }
 .operation-combobox-control > .operation-combobox-clear:hover:not(:disabled) {
-  color: var(--risk);
-  background: var(--risk-tint);
+  color: #fff;
+  background: var(--steel-action);
 }
 .operation-combobox-control > .operation-combobox-toggle svg { transition: transform 150ms ease; }
 .operation-combobox-control:has(input[aria-expanded='true']) > .operation-combobox-toggle svg {
@@ -336,7 +336,11 @@
   border-left: 0;
   border-radius: 0 var(--r-sm) var(--r-sm) 0;
 }
-.quantity-tier-field > button:hover:not(:disabled) { color: var(--risk); }
+.quantity-tier-field > button:hover:not(:disabled) {
+  color: #fff;
+  background: var(--steel-action);
+  border-color: var(--steel-action);
+}
 .quantity-tier-field > button:disabled { opacity: .4; }
 .add-quantity-button {
   min-height: 40px;

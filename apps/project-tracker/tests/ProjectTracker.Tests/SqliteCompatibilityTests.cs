@@ -182,6 +182,59 @@ public sealed class SqliteCompatibilityTests
         }
     }
 
+    [Fact]
+    public async Task EnsureLegacyTables_CreatesWalkthroughFeatureSettings()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new ProjectTrackerDbContext(options);
+
+        await SqliteCompatibility.EnsureLegacyTablesAsync(db, CancellationToken.None);
+
+        Assert.Equal(System.Data.ConnectionState.Open, connection.State);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name = 'FeatureSettings';";
+        Assert.Equal(1, Convert.ToInt32(await command.ExecuteScalarAsync()));
+    }
+
+    [Fact]
+    public async Task EnsureFeatureSettingsColumns_UpgradesExistingWalkthroughSettings()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                CREATE TABLE "FeatureSettings" (
+                    "Id" INTEGER NOT NULL CONSTRAINT "PK_FeatureSettings" PRIMARY KEY,
+                    "WalkthroughEnabled" INTEGER NOT NULL DEFAULT 1,
+                    "UpdatedAt" TEXT NOT NULL
+                );
+                INSERT INTO "FeatureSettings" ("Id", "WalkthroughEnabled", "UpdatedAt")
+                VALUES (1, 1, CURRENT_TIMESTAMP);
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new ProjectTrackerDbContext(options);
+
+        await SqliteCompatibility.EnsureFeatureSettingsColumnsAsync(db, CancellationToken.None);
+
+        Assert.Equal(System.Data.ConnectionState.Open, connection.State);
+        await using var check = connection.CreateCommand();
+        check.CommandText = "SELECT \"AssistantEnabled\", \"AssistantName\" FROM \"FeatureSettings\" WHERE \"Id\" = 1;";
+        await using var reader = await check.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(1L, reader.GetInt64(0));
+        Assert.Equal("Benny", reader.GetString(1));
+    }
+
     private static async Task CreateMalformedLegacyDatabaseAsync(string databasePath)
     {
         await using var connection = new SqliteConnection($"Data Source={databasePath}");

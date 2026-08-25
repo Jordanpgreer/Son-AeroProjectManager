@@ -2,7 +2,6 @@
 
 :root {
   /* App-specific + intentionally-divergent tokens. Shared tokens: brand-tokens.css */
-  --grid-line: rgba(16, 24, 33, 0.05);
   --shadow-pop: 0 30px 80px -28px rgba(11, 17, 24, 0.5);
 
   color: var(--ink);
@@ -17,7 +16,6 @@
 }
 
 :root[data-theme='dark'] {
-  --grid-line: rgba(255, 255, 255, 0.05);
   --shadow-pop: 0 30px 80px -28px rgba(0, 0, 0, 0.72);
 }
 
@@ -37,8 +35,8 @@ body {
 }
 
 ::selection {
-  background: var(--red-tint-2);
-  color: var(--red-700);
+  background: var(--steel-tint-2);
+  color: var(--steel-700);
 }
 
 * {
@@ -71,7 +69,7 @@ body {
   margin-bottom: 6px;
 }
 .kicker.red {
-  color: var(--red-700);
+  color: var(--steel-700);
 }
 
 .spin {
@@ -89,12 +87,7 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  /* Faint blueprint grid — an engineering motif, kept very subtle. */
-  background-image:
-    linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size: 30px 30px, 30px 30px;
-  background-position: -1px -1px;
+  background: var(--bg);
 }
 
 /* ---- Top bar --------------------------------------------------------- */
@@ -105,7 +98,7 @@ body {
   gap: var(--r-md);
   padding: 13px 28px;
   background: var(--nav-1);
-  border-bottom: 3px solid var(--red);
+  border-bottom: 3px solid var(--arda-red, #e23b2c);
   color: var(--nav-strong);
 }
 
@@ -119,6 +112,32 @@ body {
   height: 32px;
   width: auto;
   display: block;
+}
+.arda-brand {
+  gap: 10px;
+}
+.arda-logo-surface {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  min-width: 112px;
+  padding: 1px 8px;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 10px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.22);
+}
+.brand .arda-logo {
+  width: auto;
+  object-fit: contain;
+}
+.brand .arda-logo-lockup {
+  height: 42px;
+}
+.brand .arda-logo-mark {
+  display: none;
 }
 .brand-word {
   font-family: var(--font-display);
@@ -172,7 +191,7 @@ body {
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #f2b8b1;
+  color: var(--steel-700);
 }
 .portal-avatar {
   display: inline-flex;
@@ -181,8 +200,8 @@ body {
   width: 34px;
   height: 34px;
   border-radius: var(--r-pill);
-  background: rgba(226, 59, 44, 0.16);
-  border: 1px solid rgba(226, 59, 44, 0.45);
+  background: color-mix(in srgb, var(--steel) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--steel) 45%, transparent);
   color: #fff;
   font-family: var(--font-display);
   font-weight: 600;
@@ -250,7 +269,7 @@ body {
   font-weight: 500;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--faint-text);
   white-space: nowrap;
 }
 .status-readout dd {
@@ -327,8 +346,8 @@ body {
   border-color: var(--line-3);
 }
 .chip.is-active {
-  background: var(--ink);
-  border-color: var(--ink);
+  background: var(--steel-action);
+  border-color: var(--steel-action);
   color: #fff;
 }
 
@@ -347,13 +366,14 @@ body {
   transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
 .ghost-button {
-  color: var(--ink-2);
-  background: var(--surface);
-  border: 1px solid var(--line-2);
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border: 1px solid var(--steel-tint-2);
 }
 .ghost-button:hover:not(:disabled) {
-  border-color: var(--line-3);
-  color: var(--ink);
+  border-color: var(--steel);
+  color: var(--steel-700);
+  background: color-mix(in srgb, var(--steel) 18%, var(--surface));
 }
 .ghost-button:disabled {
   opacity: 0.55;
@@ -361,11 +381,11 @@ body {
 }
 .solid-button {
   color: #fff;
-  background: var(--red);
-  border: 1px solid var(--red-600);
+  background: var(--steel-action);
+  border: 1px solid var(--steel-action);
 }
 .solid-button:hover {
-  background: var(--red-600);
+  background: var(--steel-action-hover);
 }
 
 .portal-content {
@@ -431,7 +451,7 @@ body {
   transition: box-shadow 0.16s, border-color 0.16s;
 }
 .featured-preview:hover {
-  border-color: var(--red-tint-2);
+  border-color: var(--steel-tint-2);
   box-shadow: var(--shadow-2);
 }
 
@@ -586,7 +606,7 @@ body {
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--faint-text);
 }
 .featured-metrics .metric.ok {
   border-left-color: var(--ok);
@@ -625,7 +645,7 @@ body {
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--faint-text);
 }
 .featured-meta dd {
   margin: 0;
@@ -693,7 +713,7 @@ body {
   width: 16px;
   height: 16px;
   border-radius: 3px;
-  background: var(--red);
+  background: var(--steel);
 }
 .mini-rail-item {
   width: 18px;
@@ -702,7 +722,7 @@ body {
   background: rgba(255, 255, 255, 0.14);
 }
 .mini-rail-item.is-active {
-  background: rgba(226, 59, 44, 0.85);
+  background: color-mix(in srgb, var(--steel) 85%, transparent);
   width: 22px;
 }
 .mini-main {
@@ -772,7 +792,7 @@ body {
   font-size: 8px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--faint-text);
 }
 .mini-kpi.ok {
   border-left-color: var(--ok);
@@ -878,7 +898,7 @@ body {
   transform: translateY(-2px);
 }
 .app-card[data-status='active']:hover .app-icon {
-  background: var(--red-tint-2);
+  background: var(--steel-tint-2);
 }
 .app-card[data-status='active'] { border-left-color: var(--ok); }
 .app-card[data-status='comingSoon'],
@@ -910,9 +930,9 @@ body {
   width: 42px;
   height: 42px;
   border-radius: var(--r-md);
-  background: var(--red-tint);
-  color: var(--red-700);
-  border: 1px solid var(--red-tint-2);
+  background: var(--steel-tint);
+  color: var(--steel-700);
+  border: 1px solid var(--steel-tint-2);
   transition: background 0.16s ease;
 }
 .app-card[data-status='comingSoon'] .app-icon,
@@ -947,7 +967,7 @@ body {
   font-size: 11px;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--faint-text);
 }
 .app-open {
   display: inline-flex;
@@ -957,16 +977,16 @@ body {
   font-weight: 600;
   text-decoration: none;
   color: #fff;
-  background: var(--ink);
-  border: 1px solid var(--ink);
+  background: var(--steel-action);
+  border: 1px solid var(--steel-action);
   border-radius: var(--r-sm);
   padding: 6px 12px;
   transition: background 0.12s, border-color 0.12s;
   cursor: pointer;
 }
 .app-open:hover {
-  background: var(--red);
-  border-color: var(--red-600);
+  background: var(--steel-action-hover);
+  border-color: var(--steel-action-hover);
 }
 .app-open:focus-visible {
   outline: 2px solid var(--steel);
@@ -985,7 +1005,7 @@ body {
   font-weight: 500;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--faint-text);
 }
 .app-pending::before {
   content: '';
@@ -1058,7 +1078,7 @@ body {
   box-shadow: var(--shadow-1);
 }
 .portal-state.error {
-  color: var(--red-700);
+  color: var(--risk-700);
 }
 .portal-state-title {
   margin: 6px 0 0;
@@ -1184,6 +1204,22 @@ body {
   .brand-divider,
   .brand-kicker {
     display: none;
+  }
+  .arda-brand {
+    gap: 0;
+  }
+  .arda-logo-surface {
+    height: 40px;
+    min-width: 40px;
+    padding: 1px;
+    border-radius: 10px;
+  }
+  .brand .arda-logo-lockup {
+    display: none;
+  }
+  .brand .arda-logo-mark {
+    display: block;
+    height: 40px;
   }
   .portal-main {
     padding: 22px 16px 40px;

@@ -12,6 +12,9 @@ import { QUANTITY_TIERS } from './types'
 interface MaterialsSectionProps {
   materials: MaterialInput[]
   extendedCosts: Readonly<Record<string, number>>
+  idPrefix?: string
+  title?: string
+  kicker?: string
   onChange: (id: string, patch: Partial<MaterialInput>) => void
   onAdd: () => void
   onRemove: (id: string) => void
@@ -20,16 +23,19 @@ interface MaterialsSectionProps {
 export function MaterialsSection({
   materials,
   extendedCosts,
+  idPrefix = '',
+  title = 'Materials',
+  kicker = 'Direct inputs',
   onChange,
   onAdd,
   onRemove,
 }: MaterialsSectionProps) {
   return (
-    <section className="calc-card" aria-labelledby="materials-heading">
+    <section className="calc-card" aria-labelledby={`${idPrefix}materials-heading`}>
       <div className="calc-section-heading">
         <div>
-          <span className="section-kicker">Direct inputs</span>
-          <h2 id="materials-heading">Materials</h2>
+          <span className="section-kicker">{kicker}</span>
+          <h2 id={`${idPrefix}materials-heading`}>{title}</h2>
         </div>
         <div className="section-heading-actions">
           <span className="section-count">{materials.length} rows</span>
@@ -61,7 +67,7 @@ export function MaterialsSection({
                       type="text"
                       aria-label={`Material ${index + 1} description`}
                       value={material.description}
-                      data-testid={`material-description-${index}`}
+                      data-testid={`${idPrefix}material-description-${index}`}
                       onChange={(event) => onChange(material.id, { description: event.currentTarget.value })}
                     />
                     <button
@@ -89,7 +95,7 @@ export function MaterialsSection({
                     value={material.partsQuantity}
                     onValueChange={(value) => onChange(material.id, { partsQuantity: value })}
                     label={`Material ${index + 1} parts quantity`}
-                    testId={`material-quantity-${index}`}
+                    testId={`${idPrefix}material-quantity-${index}`}
                   />
                 </td>
                 <td>
@@ -97,12 +103,12 @@ export function MaterialsSection({
                     value={material.unitPrice}
                     onValueChange={(value) => onChange(material.id, { unitPrice: value })}
                     label={`Material ${index + 1} unit price`}
-                    testId={`material-price-${index}`}
+                    testId={`${idPrefix}material-price-${index}`}
                   />
                 </td>
                 <td
                   className="numeric read-only-value"
-                  data-testid={`material-extended-${index}`}
+                  data-testid={`${idPrefix}material-extended-${index}`}
                   data-raw-value={extendedCosts[material.id] ?? 0}
                 >
                   ${(extendedCosts[material.id] ?? 0).toFixed(2)}
@@ -112,7 +118,7 @@ export function MaterialsSection({
                     <input
                       type="checkbox"
                       checked={material.amortizeMinBuy}
-                      data-testid={`material-amortize-${index}`}
+                      data-testid={`${idPrefix}material-amortize-${index}`}
                       onChange={(event) => onChange(material.id, { amortizeMinBuy: event.currentTarget.checked })}
                     />
                     <span>Amortize</span>
@@ -129,6 +135,10 @@ export function MaterialsSection({
 
 interface ProcessesSectionProps {
   processes: ProcessInput[]
+  subassemblies?: readonly { id: string; partNumber: string }[]
+  idPrefix?: string
+  title?: string
+  kicker?: string
   onChange: (id: string, patch: Partial<ProcessInput>) => void
   onAdd: () => void
   onRemove: (id: string) => void
@@ -136,16 +146,21 @@ interface ProcessesSectionProps {
 
 export function ProcessesSection({
   processes,
+  subassemblies,
+  idPrefix = '',
+  title = 'Processes',
+  kicker = 'Outside services',
   onChange,
   onAdd,
   onRemove,
 }: ProcessesSectionProps) {
+  const supportsSubassemblies = subassemblies !== undefined
   return (
-    <section className="calc-card" aria-labelledby="processes-heading">
+    <section className="calc-card" aria-labelledby={`${idPrefix}processes-heading`}>
       <div className="calc-section-heading">
         <div>
-          <span className="section-kicker">Outside services</span>
-          <h2 id="processes-heading">Processes</h2>
+          <span className="section-kicker">{kicker}</span>
+          <h2 id={`${idPrefix}processes-heading`}>{title}</h2>
         </div>
         <div className="section-heading-actions">
           <span className="section-count">{processes.length} rows</span>
@@ -156,11 +171,13 @@ export function ProcessesSection({
         </div>
       </div>
       <div className="table-scroll">
-        <table className="input-table processes-table">
-          <caption>Outside process setup cost and run cost per unit</caption>
+        <table className={`input-table processes-table${supportsSubassemblies ? ' subassembly-processes-table' : ''}`}>
+          <caption>Outside process setup cost, run cost per unit, and optional subassembly roll-up</caption>
           <thead>
             <tr>
               <th scope="col">Description</th>
+              {supportsSubassemblies && <th scope="col">Subassembly?</th>}
+              {supportsSubassemblies && <th scope="col">Qty / parent</th>}
               <th scope="col">Setup cost</th>
               <th scope="col">Run cost each</th>
             </tr>
@@ -170,13 +187,36 @@ export function ProcessesSection({
               <tr key={process.id}>
                 <th scope="row">
                   <div className="line-item-control">
-                    <input
-                      type="text"
-                      aria-label={`Process ${index + 1} description`}
-                      value={process.description}
-                      data-testid={`process-description-${index}`}
-                      onChange={(event) => onChange(process.id, { description: event.currentTarget.value })}
-                    />
+                    {supportsSubassemblies && process.subassemblyId ? (
+                      <select
+                        aria-label={`Process ${index + 1} linked subassembly`}
+                        value={process.subassemblyId}
+                        data-testid={`${idPrefix}process-subassembly-select-${index}`}
+                        onChange={(event) => {
+                          const subassemblyId = event.currentTarget.value
+                          const selected = subassemblies.find((item) => item.id === subassemblyId)
+                          onChange(process.id, {
+                            subassemblyId,
+                            description: selected?.partNumber ?? '',
+                            quantityPerParent: process.quantityPerParent ?? 1,
+                          })
+                        }}
+                      >
+                        {subassemblies.map((subassembly, childIndex) => (
+                          <option key={subassembly.id} value={subassembly.id}>
+                            {subassembly.partNumber.trim() || `Subassembly ${childIndex + 1}`}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        aria-label={`Process ${index + 1} description`}
+                        value={process.description}
+                        data-testid={`${idPrefix}process-description-${index}`}
+                        onChange={(event) => onChange(process.id, { description: event.currentTarget.value })}
+                      />
+                    )}
                     <button
                       type="button"
                       className="remove-row-button"
@@ -188,21 +228,67 @@ export function ProcessesSection({
                     </button>
                   </div>
                 </th>
+                {supportsSubassemblies && (
+                  <td>
+                    <label className="inline-check compact-check">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(process.subassemblyId)}
+                        disabled={!process.subassemblyId && subassemblies.length === 0}
+                        data-testid={`${idPrefix}process-is-subassembly-${index}`}
+                        onChange={(event) => {
+                          if (!event.currentTarget.checked) {
+                            onChange(process.id, { subassemblyId: undefined, quantityPerParent: undefined })
+                            return
+                          }
+                          const first = subassemblies[0]
+                          if (first) {
+                            onChange(process.id, {
+                              subassemblyId: first.id,
+                              description: first.partNumber,
+                              quantityPerParent: 1,
+                              setupCost: 0,
+                              runCostEach: 0,
+                            })
+                          }
+                        }}
+                      />
+                      <span>{process.subassemblyId ? 'Linked' : 'No'}</span>
+                    </label>
+                  </td>
+                )}
+                {supportsSubassemblies && (
+                  <td>
+                    {process.subassemblyId ? (
+                      <SafeNumberInput
+                        value={process.quantityPerParent ?? 1}
+                        onValueChange={(value) => onChange(process.id, { quantityPerParent: value })}
+                        label={`Process ${index + 1} subassembly quantity per parent`}
+                        min={0.000001}
+                        testId={`${idPrefix}process-subassembly-quantity-${index}`}
+                      />
+                    ) : <span className="not-applicable">—</span>}
+                  </td>
+                )}
                 <td>
-                  <SafeNumberInput
-                    value={process.setupCost}
-                    onValueChange={(value) => onChange(process.id, { setupCost: value })}
-                    label={`Process ${index + 1} setup cost`}
-                    testId={`process-setup-${index}`}
-                  />
+                  {process.subassemblyId ? <span className="not-applicable">From child</span> : (
+                    <SafeNumberInput
+                      value={process.setupCost}
+                      onValueChange={(value) => onChange(process.id, { setupCost: value })}
+                      label={`Process ${index + 1} setup cost`}
+                      testId={`${idPrefix}process-setup-${index}`}
+                    />
+                  )}
                 </td>
                 <td>
-                  <SafeNumberInput
-                    value={process.runCostEach}
-                    onValueChange={(value) => onChange(process.id, { runCostEach: value })}
-                    label={`Process ${index + 1} run cost each`}
-                    testId={`process-run-${index}`}
-                  />
+                  {process.subassemblyId ? <span className="not-applicable">Calculated</span> : (
+                    <SafeNumberInput
+                      value={process.runCostEach}
+                      onValueChange={(value) => onChange(process.id, { runCostEach: value })}
+                      label={`Process ${index + 1} run cost each`}
+                      testId={`${idPrefix}process-run-${index}`}
+                    />
+                  )}
                 </td>
               </tr>
             ))}
@@ -215,29 +301,71 @@ export function ProcessesSection({
 
 interface FacilitiesSectionProps {
   values: EstimateInput['facilitiesByQuantity']
+  quantities?: readonly QuantityTier[]
+  idPrefix?: string
+  context?: 'estimate' | 'subassembly'
   onChange: (quantity: QuantityTier, value: number) => void
 }
 
-export function FacilitiesSection({ values, onChange }: FacilitiesSectionProps) {
+export function FacilitiesSection({
+  values,
+  quantities = QUANTITY_TIERS,
+  idPrefix = '',
+  context = 'estimate',
+  onChange,
+}: FacilitiesSectionProps) {
+  const headingId = `${idPrefix}facilities-heading`
+  const descriptionId = `${idPrefix}facilities-description`
+  const isSubassembly = context === 'subassembly'
+
   return (
-    <section className="calc-card facilities-card" aria-labelledby="facilities-heading">
+    <section
+      className="calc-card facilities-card"
+      aria-labelledby={headingId}
+      aria-describedby={descriptionId}
+    >
       <div className="calc-section-heading">
         <div>
-          <span className="section-kicker">Per-quantity adjustment</span>
-          <h2 id="facilities-heading">Facilities input</h2>
+          <span className="section-kicker">
+            {isSubassembly ? 'Optional child-cost adjustment' : 'Optional price adjustment'}
+          </span>
+          <h2 id={headingId}>
+            {isSubassembly ? 'Subassembly facilities adjustment' : 'Facilities adjustment'}
+          </h2>
         </div>
-        <span className="section-note">Per unit</span>
+        <span className="facilities-impact-badge">
+          {isSubassembly ? 'Added to child cost' : 'Added after markup'}
+        </span>
+      </div>
+      <div className="facilities-explainer" id={descriptionId}>
+        <strong>What this changes</strong>
+        {isSubassembly ? (
+          <p>
+            Adds a fixed dollar amount to this child&apos;s unit cost at the selected quantity.
+            The adjusted child cost rolls into the parent as a process cost and then follows the
+            parent&apos;s normal pricing calculation.
+          </p>
+        ) : (
+          <p>
+            Adds a fixed dollar amount directly to each unit&apos;s sell price at the selected quantity.
+            It is not multiplied by G&amp;A, profit, yield, or sales markup. Sell price, gross margin,
+            and extended quote value update immediately.
+          </p>
+        )}
       </div>
       <div className="facilities-grid">
-        {QUANTITY_TIERS.map((quantity) => (
+        {quantities.map((quantity) => (
           <label key={quantity}>
             <span>Qty {quantity.toLocaleString()}</span>
-            <SafeNumberInput
-              value={values[quantity]}
-              onValueChange={(value) => onChange(quantity, value)}
-              label={`Facilities cost per unit at quantity ${quantity}`}
-              testId={`facilities-${quantity}`}
-            />
+            <span className="currency-input">
+              <span aria-hidden="true">$</span>
+              <SafeNumberInput
+                value={values[quantity] ?? 0}
+                onValueChange={(value) => onChange(quantity, value)}
+                label={`${isSubassembly ? 'Subassembly facilities cost' : 'Facilities sell-price adjustment'} per unit at quantity ${quantity}`}
+                testId={`${idPrefix}facilities-${quantity}`}
+              />
+            </span>
           </label>
         ))}
       </div>

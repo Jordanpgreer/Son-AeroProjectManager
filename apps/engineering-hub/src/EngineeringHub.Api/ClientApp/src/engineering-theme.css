@@ -6,27 +6,26 @@
  */
 
 :root .engineering-app {
-  --bg: #e6ebf0;
-  --bg-deep: #dde4ea;
-  --surface: #f8fafc;
-  --surface-2: #eef3f7;
-  --surface-3: #e1e9f0;
+  --bg: #dde8f0;
+  --bg-deep: #d3e0e9;
+  --surface: #eaf1f6;
+  --surface-2: #e3edf4;
+  --surface-3: #dde8f0;
 
   --ink: #14202b;
   --ink-2: #3a4a59;
-  --muted: #607181;
+  --muted: #5f6b78;
   --faint: #7c8c9a;
 
-  --line: #d5dee6;
-  --line-2: #c2ced8;
-  --line-3: #a9b8c5;
-  --grid-line: rgba(48, 70, 88, 0.055);
+  --line: #d1dde6;
+  --line-2: #c6d5e1;
+  --line-3: #a8bdcc;
 
-  --red: #d63b2f;
-  --red-600: #b92f24;
-  --red-700: #a9251b;
-  --red-tint: #fbedeb;
-  --red-tint-2: #f5d4cf;
+  --red: #285b87;
+  --red-600: #285b87;
+  --red-700: #1f486f;
+  --red-tint: #e7eff6;
+  --red-tint-2: #a7c2d7;
 
   --steel: #285b87;
   --steel-700: #1f486f;
@@ -38,21 +37,21 @@
   --warn: #76500d;
   --warn-700: #5f3e06;
   --warn-tint: #f8efd8;
-  --risk: #a9251b;
-  --risk-700: #861b13;
-  --risk-tint: #fbedeb;
+  --risk: #76500d;
+  --risk-700: #5f3e06;
+  --risk-tint: #f8efd8;
   --done: #216442;
   --done-700: #174b31;
   --done-tint: #e7f3ec;
 
-  --eng-chrome: #f7f9fb;
-  --eng-panel: #f8fafc;
-  --eng-inset: #eef3f7;
-  --eng-row: #fcfdfe;
-  --eng-row-hover: #e8eff5;
-  --eng-selected: #e7eff6;
-  --eng-input: #ffffff;
-  --eng-raised: #ffffff;
+  --eng-chrome: var(--surface-2);
+  --eng-panel: var(--surface);
+  --eng-inset: var(--surface-2);
+  --eng-row: var(--surface);
+  --eng-row-hover: #d9e6ee;
+  --eng-selected: #d7e6f2;
+  --eng-input: var(--surface);
+  --eng-raised: var(--surface);
 
   --shadow-1: 0 1px 2px rgba(20, 32, 43, 0.08), 0 10px 24px -22px rgba(20, 32, 43, 0.5);
   --shadow-2: 0 1px 3px rgba(20, 32, 43, 0.1), 0 18px 36px -26px rgba(20, 32, 43, 0.55);
@@ -139,7 +138,7 @@
 .engineering-app .sidebar-user-chip {
   color: var(--nav-text);
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, .075), rgba(226, 59, 44, .055)),
+    linear-gradient(135deg, rgba(255, 255, 255, .075), rgba(40, 91, 135, .055)),
     rgba(8, 14, 21, .82);
   border-color: rgba(255, 255, 255, .13);
   box-shadow: 0 8px 20px -18px rgba(0, 0, 0, .95);
@@ -282,16 +281,16 @@
 .engineering-app .revision-actions .button.revision-pdf-button,
 :root[data-theme='dark'] .engineering-app .revision-actions .button.revision-pdf-button {
   color: #fff;
-  background: var(--red);
-  border-color: var(--red);
+  background: var(--red-action);
+  border-color: var(--red-action);
 }
 
 .engineering-app .revision-actions .button.revision-pdf-button:hover,
 :root[data-theme='dark'] .engineering-app .revision-actions .button.revision-pdf-button:hover {
   color: #fff;
-  background: var(--red-600);
-  border-color: var(--red-600);
-  box-shadow: 0 8px 18px -12px rgba(226, 59, 44, .9);
+  background: var(--red-action-hover);
+  border-color: var(--red-action-hover);
+  box-shadow: 0 8px 18px -12px rgba(40, 91, 135, .9);
 }
 
 .engineering-app .button.drawing-upload-button,
@@ -299,8 +298,8 @@
 :root[data-theme='dark'] .engineering-app .button.drawing-upload-button:not(.ghost):not(.danger),
 :root[data-theme='dark'] .engineering-app .drawing-revision-toolbar .button.revision-pdf-button {
   color: #fff;
-  background: var(--red);
-  border-color: var(--red);
+  background: var(--red-action);
+  border-color: var(--red-action);
 }
 
 .engineering-app .button.drawing-upload-button:hover,
@@ -308,8 +307,8 @@
 :root[data-theme='dark'] .engineering-app .button.drawing-upload-button:not(.ghost):not(.danger):hover,
 :root[data-theme='dark'] .engineering-app .drawing-revision-toolbar .button.revision-pdf-button:hover {
   color: #fff;
-  background: var(--red-600);
-  border-color: var(--red-600);
+  background: var(--red-action-hover);
+  border-color: var(--red-action-hover);
 }
 
 .engineering-app .collapsible-section {
@@ -342,8 +341,8 @@
 }
 
 .engineering-app .section-tone-red {
-  --section-accent: #a9251b;
-  --section-hover: #861b13;
+  --section-accent: #285b87;
+  --section-hover: #1f486f;
 }
 
 .engineering-app .section-titlebar {

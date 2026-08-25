@@ -13,6 +13,9 @@ export type User = {
   permissions: string[]
   canEdit: boolean
   isAdmin: boolean
+  walkthroughEnabled: boolean
+  assistantEnabled: boolean
+  assistantName: string
   preview: AccessPreview | null
 }
 
@@ -118,6 +121,7 @@ export type ProjectMissingField = {
 }
 
 export type ProjectMetadataDraft = {
+  programName: string
   programManager: string
   engineer: string
   customerName: string

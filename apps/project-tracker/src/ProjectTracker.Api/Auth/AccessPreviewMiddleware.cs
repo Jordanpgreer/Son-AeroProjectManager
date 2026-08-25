@@ -69,7 +69,11 @@ public static class AccessPreviewEndpoints
                 result.SessionToken,
                 result.SessionExpiresAt.Value,
                 context.Request.IsHttps);
-            return Results.Redirect("/");
+            var isWalkthrough = string.Equals(
+                context.Request.Query["experience"].ToString(),
+                "walkthrough",
+                StringComparison.OrdinalIgnoreCase);
+            return Results.Redirect(isWalkthrough ? "/?training=current" : "/");
         }).RequireAuthorization();
 
         endpoints.MapGet("/access-preview/end", async (
@@ -78,7 +82,13 @@ public static class AccessPreviewEndpoints
         {
             await previewService.RevokeAsync(context.User, context.Request, context.RequestAborted);
             previewService.ClearCookie(context.Response, context.Request.IsHttps);
-            return Results.Redirect(previewService.HubAccessAdminUrl(context.Request));
+            var isWalkthrough = string.Equals(
+                context.Request.Query["experience"].ToString(),
+                "walkthrough",
+                StringComparison.OrdinalIgnoreCase);
+            return Results.Redirect(isWalkthrough
+                ? previewService.HubWalkthroughAdminUrl(context.Request)
+                : previewService.HubAccessAdminUrl(context.Request));
         }).RequireAuthorization();
 
         return endpoints;

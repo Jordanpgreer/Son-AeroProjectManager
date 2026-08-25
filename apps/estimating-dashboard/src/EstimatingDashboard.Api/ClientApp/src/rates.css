@@ -48,7 +48,7 @@
   width: 9px; height: 9px; border: 1px solid currentColor; border-radius: 2px;
 }
 
-.rates-legend-input i { color: var(--red); background: var(--red-tint); }
+.rates-legend-input i { color: var(--steel); background: var(--steel-tint); }
 .rates-legend-calculated i { color: var(--steel); background: var(--steel-tint); }
 .rates-legend-reference i { color: var(--muted); background: var(--surface); }
 
@@ -118,8 +118,8 @@
 .rates-clear-button,
 .rates-empty-state button {
   display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-  min-height: 44px; padding: 8px 13px; color: var(--ink-2); background: var(--surface-2);
-  border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  min-height: 44px; padding: 8px 13px; color: var(--steel-700); background: var(--steel-tint);
+  border: 1px solid color-mix(in srgb, var(--steel) 30%, var(--line)); border-radius: var(--r-sm);
   font: inherit; font-size: 12px; font-weight: 650;
 }
 
@@ -146,7 +146,7 @@
   background: var(--steel); content: '';
 }
 
-.rates-summary-year::before { background: var(--red); }
+.rates-summary-year::before { background: var(--steel); }
 
 .rates-summary-card > span {
   color: var(--muted); font-size: 10px; font-weight: 700;
@@ -244,7 +244,7 @@
 
 .rates-table tbody tr.is-manufacturing .rates-operation-column {
   box-shadow:
-    inset 3px 0 color-mix(in srgb, var(--red) 68%, transparent),
+    inset 3px 0 color-mix(in srgb, var(--steel) 68%, transparent),
     8px 0 16px -16px var(--ink);
 }
 

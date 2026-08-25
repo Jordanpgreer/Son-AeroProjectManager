@@ -1,0 +1,407 @@
+/*
+ * Arda application-shell branding.
+ *
+ * This file is copied into each frontend by scripts/Sync-Branding.ps1 and loaded
+ * after app-specific shell styles. Keep these rules limited to shared identity
+ * surfaces so each module can retain its own navigation and content treatment.
+ */
+
+:root {
+  --arda-navy: #07325f;
+  --arda-navy-muted: #385773;
+  --arda-red: #e23b2c;
+  --arda-band: #eaf1f6;
+  --arda-band-hover: #dde8f0;
+  --arda-band-line: #c6d5e1;
+  --arda-band-ink: #07325f;
+  --arda-band-muted: #385773;
+  --arda-band-role: #1f486f;
+  --arda-band-focus: #07325f;
+  --arda-avatar-bg: #07325f;
+  --arda-avatar-ink: #ffffff;
+  --arda-back-label: #cf3122;
+}
+
+:root[data-theme='dark'] {
+  --arda-red: #ef5c4d;
+  --arda-band: #111d29;
+  --arda-band-hover: #182b3c;
+  --arda-band-line: #31485d;
+  --arda-band-ink: #f3f7fa;
+  --arda-band-muted: #aebdcc;
+  --arda-band-role: #acd0ef;
+  --arda-band-focus: #8ec5f2;
+  --arda-avatar-bg: #25384a;
+  --arda-avatar-ink: #f3f7fa;
+}
+
+/* Portal: one full-width identity band, with the transparent artwork directly on it. */
+.portal .portal-top,
+:root[data-theme='dark'] .portal .portal-top {
+  color: var(--arda-band-ink);
+  background: var(--arda-band);
+  border-bottom-color: var(--arda-red);
+  box-shadow: 0 1px 0 rgba(7, 50, 95, 0.10);
+}
+
+.portal .arda-brand {
+  gap: 0;
+}
+
+.portal .arda-logo-surface {
+  display: inline-flex;
+  min-width: clamp(142px, 13vw, 166px);
+  height: clamp(66px, 6vw, 78px);
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.portal .brand .arda-logo-lockup {
+  display: block;
+  width: auto;
+  height: clamp(66px, 6vw, 78px);
+  object-fit: contain;
+}
+
+.portal .brand .arda-logo-mark {
+  display: none;
+}
+
+.portal .brand-divider {
+  background: color-mix(in srgb, var(--arda-band-ink) 22%, transparent);
+}
+
+.portal .brand-kicker {
+  color: var(--arda-band-muted);
+}
+
+.portal .portal-user-name,
+.portal .portal-user-name.muted {
+  color: var(--arda-band-ink);
+}
+
+.portal .portal-user-role {
+  color: var(--arda-band-role);
+}
+
+.portal .portal-avatar {
+  color: var(--arda-avatar-ink);
+  background: var(--arda-avatar-bg);
+  border-color: color-mix(in srgb, var(--arda-band-ink) 32%, transparent);
+}
+
+/* Theme-aware raster artwork keeps the red orbit intact in both modes. */
+.arda-logo-reversed,
+.brand-lockup-reversed,
+.brand-mark-reversed,
+.topbar-brand-mark-reversed {
+  display: none !important;
+}
+
+:root[data-theme='dark'] .portal .brand .arda-logo-lockup.arda-logo-standard,
+:root[data-theme='dark'] .portal .brand .arda-logo-mark.arda-logo-standard,
+:root[data-theme='dark'] :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .brand .brand-lockup-standard,
+:root[data-theme='dark'] :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .brand .brand-mark-standard,
+:root[data-theme='dark'] :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .topbar-brand-mark-standard {
+  display: none !important;
+}
+
+:root[data-theme='dark'] .portal .brand .arda-logo-lockup.arda-logo-reversed,
+:root[data-theme='dark'] :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .brand .brand-lockup-reversed,
+:root[data-theme='dark'] :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .topbar-brand-mark-reversed {
+  display: block !important;
+}
+
+/* Module sidebars: a single edge-to-edge identity cap above the dark navigation. */
+:is(.project-tracker-app, .engineering-app, .quality-assurance-app) .sidebar > .brand {
+  min-height: 102px;
+  margin: -20px -16px 0;
+  padding: 10px 20px 17px;
+}
+
+.estimating-app .sidebar > .brand {
+  min-height: 102px;
+  margin: 0;
+  padding: 10px 20px 17px;
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .sidebar > .brand {
+  flex: 0 0 auto;
+  justify-content: center;
+  background: var(--arda-band);
+  border: 0;
+  border-bottom: 3px solid var(--arda-red);
+  border-radius: 0;
+  box-shadow: 0 10px 24px -22px rgba(0, 0, 0, 0.85);
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .brand .brand-lockup {
+  display: block;
+  width: 164px;
+  max-width: calc(100% - 8px);
+  height: auto;
+  object-fit: contain;
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .brand .brand-mark {
+  display: none;
+}
+
+/* Light mode uses the same blue-gray surface family for navigation and content. */
+:root:not([data-theme='dark']) :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .sidebar {
+  color: var(--ink-2);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 76%, transparent), transparent 58%),
+    var(--surface-2);
+  border-right-color: var(--line-2);
+  box-shadow: 12px 0 30px -28px rgba(7, 50, 95, 0.42);
+}
+
+:root:not([data-theme='dark']) :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .sidebar :is(
+  .sidebar-rail-toggle,
+  .nav-button,
+  .nav-link,
+  .switch-item
+) {
+  color: var(--ink-2);
+}
+
+:root:not([data-theme='dark']) :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .sidebar-rail-toggle {
+  background: var(--surface);
+  border-color: var(--line-2);
+}
+
+:root:not([data-theme='dark']) :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .sidebar :is(
+  .sidebar-rail-toggle,
+  .nav-button,
+  .nav-link,
+  .switch-item
+):hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--line-3);
+}
+
+:root:not([data-theme='dark']) :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .sidebar :is(
+  .sidebar-rail-toggle,
+  .nav-button,
+  .nav-link,
+  .switch-item
+):hover:not(:disabled) .nav-icon,
+:root:not([data-theme='dark']) :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .sidebar-rail-toggle:hover svg {
+  color: var(--arda-navy);
+}
+
+:root:not([data-theme='dark']) :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .sidebar :is(
+  .nav-button.active,
+  .nav-link.active,
+  .switch-item.active
+) {
+  color: var(--arda-navy);
+  background: color-mix(in srgb, var(--steel) 13%, var(--surface));
+  border-color: color-mix(in srgb, var(--steel) 34%, var(--line));
+}
+
+:root:not([data-theme='dark']) :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .sidebar :is(
+  .nav-button.active,
+  .nav-link.active
+) .nav-icon {
+  color: var(--arda-navy);
+  background: color-mix(in srgb, var(--steel) 12%, var(--surface));
+}
+
+:root:not([data-theme='dark']) :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .sidebar :is(
+  .nav-heading,
+  .nav-icon,
+  .sidebar-source,
+  .user-copy span
+) {
+  color: var(--muted);
+}
+
+:root:not([data-theme='dark']) :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .sidebar .nav-flag {
+  color: var(--red-700);
+  background: var(--red-tint);
+  border-color: var(--red-tint-2);
+}
+
+:root:not([data-theme='dark']) .engineering-app .sidebar-user-chip,
+:root:not([data-theme='dark']) .estimating-app .sidebar-source {
+  color: var(--ink-2);
+  background: var(--surface);
+  border-color: var(--line-2);
+  box-shadow: var(--shadow-1);
+}
+
+:root:not([data-theme='dark']) .engineering-app .sidebar-user-chip :is(strong, small),
+:root:not([data-theme='dark']) .estimating-app .sidebar-source strong {
+  color: var(--ink);
+}
+
+:root:not([data-theme='dark']) .estimating-app .avatar {
+  color: var(--red-700);
+  background: var(--red-tint);
+  border-color: var(--red-tint-2);
+}
+
+:root:not([data-theme='dark']) .engineering-app .sidebar-user-chip .avatar {
+  color: var(--red-700);
+  background: var(--red-tint);
+  border-color: var(--red-tint-2);
+}
+
+:root:not([data-theme='dark']) .estimating-app .sidebar-source svg {
+  color: var(--ok-700);
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .brand-hub-link:hover,
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .brand-hub-link:focus-visible {
+  background: var(--arda-band-hover);
+  border-color: var(--arda-band-line);
+  box-shadow: inset 0 -3px var(--arda-red);
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .brand-hub-link:hover img {
+  filter: none;
+  transform: translateY(-1px);
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .brand-hub-link:focus-visible {
+  outline: 2px solid var(--arda-band-focus);
+  outline-offset: -4px;
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .brand-hub-link::after {
+  bottom: 6px;
+  color: #ffffff;
+  background: var(--arda-back-label);
+  content: 'Back to Arda';
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .sidebar > .brand {
+  min-height: 92px;
+  margin-right: -10px;
+  margin-left: -10px;
+  padding: 13px 10px 18px;
+}
+
+.estimating-app.is-sidebar-collapsed .sidebar > .brand {
+  margin-right: 0;
+  margin-left: 0;
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .brand .brand-lockup {
+  display: none;
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .brand .brand-mark {
+  display: none !important;
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .brand .brand-mark-standard {
+  display: block !important;
+}
+
+:root[data-theme='dark'] :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .brand .brand-mark-standard {
+  display: none !important;
+}
+
+:root[data-theme='dark'] :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .brand .brand-lockup-reversed {
+  display: none !important;
+}
+
+:root[data-theme='dark'] :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .brand .brand-mark-reversed {
+  display: block !important;
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .brand-hub-link::after {
+  left: 50%;
+  bottom: 4px;
+  content: 'Arda';
+  transform: translate(-50%, 4px);
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .brand-hub-link:hover::after,
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .brand-hub-link:focus-visible::after {
+  transform: translate(-50%, 0);
+}
+
+/* Compact module shells show the transparent mark directly on the existing topbar. */
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .topbar-brand-link {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border-color: transparent;
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .topbar-brand-link img {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .topbar-brand-link:hover {
+  background: var(--arda-band);
+  border-color: var(--arda-band-line);
+}
+
+/* Form boundaries stay visible against the unified blue-gray surface stack. */
+:where(
+  :root[data-theme='light'] :is(.portal, .project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) :is(
+    input:not([type='checkbox']):not([type='radio']):not([type='range']),
+    select,
+    textarea
+  )
+) {
+  border-color: var(--control-line);
+}
+
+@media (max-width: 560px) {
+  .portal .arda-brand {
+    gap: 0;
+  }
+
+  .portal .arda-logo-surface {
+    min-width: 52px;
+    height: 52px;
+  }
+
+  .portal .brand .arda-logo-lockup {
+    display: none;
+  }
+
+  .portal .brand .arda-logo-mark {
+    display: block;
+    width: 52px;
+    height: 52px;
+    object-fit: contain;
+  }
+
+  :root[data-theme='dark'] .portal .brand .arda-logo-lockup.arda-logo-reversed {
+    display: none !important;
+  }
+
+  :root[data-theme='dark'] .portal .brand .arda-logo-mark.arda-logo-reversed {
+    display: block !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-hub-link img {
+    transition: none;
+  }
+}

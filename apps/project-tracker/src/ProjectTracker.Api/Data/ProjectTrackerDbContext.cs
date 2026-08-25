@@ -16,6 +16,7 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
     public DbSet<Holiday> Holidays => Set<Holiday>();
     public DbSet<WorkCenter> WorkCenters => Set<WorkCenter>();
     public DbSet<ScheduleSettings> ScheduleSettings => Set<ScheduleSettings>();
+    public DbSet<FeatureSettings> FeatureSettings => Set<FeatureSettings>();
     public DbSet<TaskOvertimeDay> TaskOvertimeDays => Set<TaskOvertimeDay>();
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<AppGroup> Groups => Set<AppGroup>();
@@ -151,6 +152,13 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
         modelBuilder.Entity<ScheduleSettings>(entity =>
         {
             entity.Property(settings => settings.Id).ValueGeneratedNever();
+        });
+
+        modelBuilder.Entity<FeatureSettings>(entity =>
+        {
+            entity.Property(settings => settings.Id).ValueGeneratedNever();
+            entity.Property(settings => settings.AssistantName)
+                .HasMaxLength(Models.FeatureSettings.AssistantNameMaxLength);
         });
 
         modelBuilder.Entity<Phase>(entity =>

@@ -455,11 +455,13 @@ export default function App() {
           className="brand brand-hub-link"
           href={hubUrl}
           target="_top"
-          aria-label="Return to All Applications"
-          title="Return to All Applications"
+          aria-label="Return to Arda applications"
+          title="Return to Arda applications"
         >
-          <img className="brand-lockup" src="/brand/son-aero-lockup-dark.png" alt="Son-Aero — Sonfarrel Aerospace" />
-          <img className="brand-mark" src="/brand/son-aero-mark.png" alt="Son-Aero" />
+          <img className="brand-lockup brand-lockup-standard" src="/brand/arda-lockup.png" alt="" />
+          <img className="brand-lockup brand-lockup-reversed" src="/brand/arda-lockup-reversed.png" alt="" />
+          <img className="brand-mark brand-mark-standard" src="/brand/arda-mark.png" alt="" />
+          <img className="brand-mark brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" />
         </a>
 
         <button
@@ -606,10 +608,11 @@ export default function App() {
               className="topbar-brand-link"
               href={hubUrl}
               target="_top"
-              aria-label="Return to All Applications"
-              title="Return to All Applications"
+              aria-label="Return to Arda applications"
+              title="Return to Arda applications"
             >
-              <img src="/brand/son-aero-mark.png" alt="" />
+              <img className="topbar-brand-mark-standard" src="/brand/arda-mark.png" alt="" />
+              <img className="topbar-brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" />
             </a>
             <div className="topbar-identity">
               <ThemeSwitch

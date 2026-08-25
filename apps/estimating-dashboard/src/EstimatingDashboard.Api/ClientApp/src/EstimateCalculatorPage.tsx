@@ -1,9 +1,10 @@
-import { RotateCcw, Save, ShieldCheck } from 'lucide-react'
+import { Download, RotateCcw, Save, ShieldCheck } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 import {
   MaterialsSection,
   ProcessesSection,
+  FacilitiesSection,
 } from './CalculatorCostSections'
 import {
   EstimateContextFields,
@@ -11,7 +12,10 @@ import {
 } from './CalculatorInputSections'
 import CalculatorResults from './CalculatorResults'
 import { calculateEstimate } from './calculations'
-import { createEstimateDefaults } from './estimateDefaults'
+import {
+  createEstimateDefaults,
+  createSubassemblyDefaults,
+} from './estimateDefaults'
 import {
   ANNUAL_RATE_ASSUMPTIONS,
   CONTROLLED_OPERATION_OPTIONS,
@@ -21,6 +25,7 @@ import {
   saveQuote,
   type QuoteStatus,
 } from './quoteStore'
+import SubassembliesSection from './SubassembliesSection'
 import type {
   EstimateInput,
   EstimateKind,
@@ -31,6 +36,7 @@ import type {
   ProcessInput,
   QuantityTier,
   RubberDifficulty,
+  SubassemblyInput,
 } from './types'
 import { ESTIMATE_YEARS } from './types'
 import './calculator.css'
@@ -66,12 +72,19 @@ export default function EstimateCalculatorPage({
   const [quoteId, setQuoteId] = useState<string | null>(initialQuote?.id ?? null)
   const [quoteStatus, setQuoteStatus] = useState<QuoteStatus>(initialQuote?.status ?? 'draft')
   const [saveMessage, setSaveMessage] = useState('')
+  const [exportMessage, setExportMessage] = useState('')
+  const [exporting, setExporting] = useState(false)
   const [estimate, setEstimate] = useState<EstimateInput>(
     () => initialQuote?.estimate ?? createEstimateDefaults('standard'),
   )
   const [dirty, setDirty] = useState(false)
   const [selectedQuantity, setSelectedQuantity] = useState<QuantityTier>(
     initialQuote?.selectedQuantity ?? 100,
+  )
+  const [selectedSubassemblyId, setSelectedSubassemblyId] = useState<string | null>(
+    initialQuote?.estimate.kind === 'subassembly'
+      ? initialQuote.estimate.subassemblies[0]?.id ?? null
+      : null,
   )
 
   const calculation = useMemo(() => calculateEstimate(estimate), [estimate])
@@ -89,11 +102,22 @@ export default function EstimateCalculatorPage({
     }
   }, [estimate.quantities, selectedQuantity])
 
+  useEffect(() => {
+    if (estimate.kind !== 'subassembly') {
+      setSelectedSubassemblyId(null)
+      return
+    }
+    if (!estimate.subassemblies.some((item) => item.id === selectedSubassemblyId)) {
+      setSelectedSubassemblyId(estimate.subassemblies[0]?.id ?? null)
+    }
+  }, [estimate, selectedSubassemblyId])
+
   const updateEstimate = (update: (current: EstimateInput) => EstimateInput) => {
     if (!canManageInputs) return
     setEstimate((current) => update(current))
     setDirty(true)
     setSaveMessage('')
+    setExportMessage('')
   }
 
   const persistQuote = () => {
@@ -131,6 +155,7 @@ export default function EstimateCalculatorPage({
       return
     }
     setEstimate(createEstimateDefaults(kind))
+    setSelectedSubassemblyId(null)
     setDirty(false)
   }
 
@@ -142,6 +167,7 @@ export default function EstimateCalculatorPage({
       return
     }
     setEstimate(createEstimateDefaults(estimate.kind))
+    setSelectedSubassemblyId(null)
     setDirty(false)
   }
 
@@ -247,6 +273,77 @@ export default function EstimateCalculatorPage({
     })
   }
 
+  const updateSubassembly = (
+    id: string,
+    update: (current: SubassemblyInput) => SubassemblyInput,
+  ) => {
+    updateEstimate((current) => {
+      if (current.kind !== 'subassembly') return current
+      const previous = current.subassemblies.find((item) => item.id === id)
+      if (!previous) return current
+      const next = update(previous)
+      const partNumberChanged = next.partNumber !== previous.partNumber
+      return {
+        ...current,
+        subassemblies: current.subassemblies.map((item) => item.id === id ? next : item),
+        processes: partNumberChanged
+          ? current.processes.map((process) => (
+              process.subassemblyId === id
+                ? { ...process, description: next.partNumber }
+                : process
+            ))
+          : current.processes,
+      }
+    })
+  }
+
+  const addSubassembly = () => {
+    updateEstimate((current) => {
+      if (current.kind !== 'subassembly' || current.subassemblies.length >= 12) return current
+      const index = Array.from({ length: 12 }, (_, candidate) => candidate)
+        .find((candidate) => !current.subassemblies.some(
+          (item) => item.id === `subassembly-${candidate + 1}`,
+        )) ?? current.subassemblies.length
+      const created = createSubassemblyDefaults(index)
+      setSelectedSubassemblyId(created.id)
+      return { ...current, subassemblies: [...current.subassemblies, created] }
+    })
+  }
+
+  const removeSubassembly = (id: string) => {
+    const child = estimate.kind === 'subassembly'
+      ? estimate.subassemblies.find((item) => item.id === id)
+      : undefined
+    if (!child || !window.confirm(`Remove ${child.partNumber.trim() || 'this subassembly'} and its inputs?`)) return
+    updateEstimate((current) => {
+      if (current.kind !== 'subassembly') return current
+      return {
+        ...current,
+        subassemblies: current.subassemblies.filter((item) => item.id !== id),
+        processes: current.processes.map((process) => (
+          process.subassemblyId === id
+            ? { ...process, subassemblyId: undefined, quantityPerParent: undefined }
+            : process
+        )),
+      }
+    })
+  }
+
+  const exportWorkbook = async () => {
+    if (estimate.kind !== 'subassembly' || !calculation.ok) return
+    setExporting(true)
+    setExportMessage('Preparing workbook…')
+    try {
+      const { downloadSubassemblyWorkbook } = await import('./estimateWorkbookExport')
+      await downloadSubassemblyWorkbook(estimate, calculation)
+      setExportMessage('Workbook exported')
+    } catch (cause) {
+      setExportMessage(cause instanceof Error ? cause.message : 'Could not export workbook.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="calculator-page">
       <section className="calculator-toolbar" aria-label="Estimate model and actions">
@@ -277,6 +374,18 @@ export default function EstimateCalculatorPage({
               Rubber
               <small>Breakdown</small>
             </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={estimate.kind === 'subassembly'}
+              className={estimate.kind === 'subassembly' ? 'active' : undefined}
+              data-testid="model-subassembly"
+              disabled={!canManageInputs}
+              onClick={() => switchModel('subassembly')}
+            >
+              Subassembly
+              <small>Rev E</small>
+            </button>
           </div>
         </div>
 
@@ -295,6 +404,18 @@ export default function EstimateCalculatorPage({
             <RotateCcw size={16} aria-hidden="true" />
             Reset
           </button>
+          {estimate.kind === 'subassembly' && (
+            <button
+              type="button"
+              className="secondary-button"
+              data-testid="export-subassembly-workbook"
+              disabled={exporting || !calculation.ok}
+              onClick={() => void exportWorkbook()}
+            >
+              <Download size={16} aria-hidden="true" />
+              {exporting ? 'Exporting…' : 'Export Excel'}
+            </button>
+          )}
           <div className="quote-save-controls">
             <label>
               <span className="sr-only">Quote status</span>
@@ -319,6 +440,9 @@ export default function EstimateCalculatorPage({
           </div>
           {saveMessage && (
             <span className="quote-save-message" role="status">{saveMessage}</span>
+          )}
+          {exportMessage && (
+            <span className="export-status" role="status">{exportMessage}</span>
           )}
         </div>
       </section>
@@ -390,6 +514,22 @@ export default function EstimateCalculatorPage({
         }))}
       />
 
+      {estimate.kind === 'subassembly' && (
+        <fieldset className="permission-fieldset" disabled={!canManageInputs}>
+          <legend className="sr-only">Subassembly inputs</legend>
+          <SubassembliesSection
+            subassemblies={estimate.subassemblies}
+            audits={calculation.subassemblies}
+            quantities={estimate.quantities}
+            selectedId={selectedSubassemblyId}
+            onSelectedIdChange={setSelectedSubassemblyId}
+            onAdd={addSubassembly}
+            onRemove={removeSubassembly}
+            onChange={updateSubassembly}
+          />
+        </fieldset>
+      )}
+
       <fieldset className="permission-fieldset calculator-input-stack" disabled={!canManageInputs}>
         <legend className="sr-only">Operations, materials, and processes</legend>
         <OperationsSection
@@ -414,11 +554,23 @@ export default function EstimateCalculatorPage({
         />
         <ProcessesSection
           processes={estimate.processes}
+          subassemblies={estimate.kind === 'subassembly' ? estimate.subassemblies : undefined}
           onChange={updateProcess}
           onAdd={addProcess}
           onRemove={(id) => updateEstimate((current) => ({
             ...current,
             processes: current.processes.filter((process) => process.id !== id),
+          }))}
+        />
+        <FacilitiesSection
+          values={estimate.facilitiesByQuantity}
+          quantities={estimate.quantities}
+          onChange={(quantity, value) => updateEstimate((current) => ({
+            ...current,
+            facilitiesByQuantity: {
+              ...current.facilitiesByQuantity,
+              [quantity]: value,
+            },
           }))}
         />
       </fieldset>

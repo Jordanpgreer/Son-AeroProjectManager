@@ -55,7 +55,7 @@ function createWorker({ windows = [], openedClient = null } = {}) {
   return { delays, dispatch, openedUrls, shown, visibleNotification }
 }
 
-test('push uses the Son-Aero mark and best-effort nine-second interaction window', async () => {
+test('push uses the Arda mark and best-effort nine-second interaction window', async () => {
   const worker = createWorker()
   await worker.dispatch('push', {
     data: {
@@ -67,8 +67,8 @@ test('push uses the Son-Aero mark and best-effort nine-second interaction window
   })
 
   const notification = assertSingle(worker.shown)
-  assert.equal(notification.options.icon, '/brand/son-aero-mark.png')
-  assert.equal(notification.options.badge, '/brand/son-aero-mark.png')
+  assert.equal(notification.options.icon, '/brand/arda-mark.png')
+  assert.equal(notification.options.badge, '/brand/arda-mark.png')
   assert.equal(notification.options.requireInteraction, true)
   assert.deepEqual(worker.delays, [9_000])
   assert.equal(worker.visibleNotification.closeCalls, 1)
@@ -97,8 +97,8 @@ test('push rejects cross-origin navigation supplied by a payload', async () => {
     notification.options.data.targetUrl,
     'https://projects.hub.son4l.local/?notificationProjectId=12',
   )
-  assert.equal(notification.options.icon, '/brand/son-aero-mark.png')
-  assert.equal(notification.options.badge, '/brand/son-aero-mark.png')
+  assert.equal(notification.options.icon, '/brand/arda-mark.png')
+  assert.equal(notification.options.badge, '/brand/arda-mark.png')
 })
 
 test('click navigates and focuses an existing Project Tracker window', async () => {

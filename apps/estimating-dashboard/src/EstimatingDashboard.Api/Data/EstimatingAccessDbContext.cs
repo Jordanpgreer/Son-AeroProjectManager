@@ -18,6 +18,7 @@ public sealed class EstimatingAccessDbContext(
     public DbSet<EstimatingQuoteHistoryRecord> QuoteHistory => Set<EstimatingQuoteHistoryRecord>();
     public DbSet<EstimatingQuoteHistoryAuditRecord> QuoteHistoryAudits => Set<EstimatingQuoteHistoryAuditRecord>();
     public DbSet<EstimatingHistoryImportBatch> QuoteHistoryImportBatches => Set<EstimatingHistoryImportBatch>();
+    public DbSet<EstimatingEstimatorSettingRecord> EstimatorSettings => Set<EstimatingEstimatorSettingRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -135,6 +136,15 @@ public sealed class EstimatingAccessDbContext(
             entity.Property(batch => batch.FileHash).HasMaxLength(64);
             entity.Property(batch => batch.ImportedBy).HasMaxLength(160);
         });
+
+        modelBuilder.Entity<EstimatingEstimatorSettingRecord>(entity =>
+        {
+            entity.ToTable("EstimatingEstimatorSettings");
+            entity.HasKey(setting => setting.EstimatorKey);
+            entity.Property(setting => setting.EstimatorKey).HasMaxLength(160);
+            entity.Property(setting => setting.EstimatorName).HasMaxLength(160);
+            entity.Property(setting => setting.UpdatedBy).HasMaxLength(160);
+        });
     }
 }
 
@@ -178,4 +188,13 @@ public sealed class EstimatingGroupPermissionRecord
     public int AppGroupId { get; set; }
     public EstimatingAccessGroupRecord Group { get; set; } = null!;
     public string PermissionKey { get; set; } = string.Empty;
+}
+
+public sealed class EstimatingEstimatorSettingRecord
+{
+    public string EstimatorKey { get; set; } = string.Empty;
+    public string EstimatorName { get; set; } = string.Empty;
+    public bool IsActive { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+    public string UpdatedBy { get; set; } = string.Empty;
 }

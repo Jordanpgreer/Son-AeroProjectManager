@@ -19,6 +19,8 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
     public DbSet<PortalProjectTrackerPermissionRecord> ProjectTrackerGroupPermissions => Set<PortalProjectTrackerPermissionRecord>();
     public DbSet<AccessPreviewSessionRecord> AccessPreviewSessions => Set<AccessPreviewSessionRecord>();
     public DbSet<PortalEngineeringStorageSettingRecord> EngineeringStorageSettings => Set<PortalEngineeringStorageSettingRecord>();
+    public DbSet<PortalEstimatingQuoteHistoryRecord> EstimatingQuoteHistory => Set<PortalEstimatingQuoteHistoryRecord>();
+    public DbSet<PortalEstimatorSettingRecord> EstimatorSettings => Set<PortalEstimatorSettingRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -160,6 +162,22 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
             entity.Property(setting => setting.RootPath).HasMaxLength(2048);
             entity.Property(setting => setting.UpdatedBy).HasMaxLength(160);
         });
+
+        modelBuilder.Entity<PortalEstimatingQuoteHistoryRecord>(entity =>
+        {
+            entity.ToTable("EstimatingQuoteHistory");
+            entity.HasKey(record => record.Id);
+            entity.Property(record => record.EstimatingRep).HasMaxLength(160);
+        });
+
+        modelBuilder.Entity<PortalEstimatorSettingRecord>(entity =>
+        {
+            entity.ToTable("EstimatingEstimatorSettings");
+            entity.HasKey(setting => setting.EstimatorKey);
+            entity.Property(setting => setting.EstimatorKey).HasMaxLength(160);
+            entity.Property(setting => setting.EstimatorName).HasMaxLength(160);
+            entity.Property(setting => setting.UpdatedBy).HasMaxLength(160);
+        });
     }
 }
 
@@ -278,6 +296,21 @@ public sealed class PortalEngineeringStorageSettingRecord
     public int Id { get; set; }
     public string RootPath { get; set; } = string.Empty;
     public string PreviousRootPathsJson { get; set; } = "[]";
+    public DateTimeOffset UpdatedAt { get; set; }
+    public string UpdatedBy { get; set; } = string.Empty;
+}
+
+public sealed class PortalEstimatingQuoteHistoryRecord
+{
+    public int Id { get; set; }
+    public string EstimatingRep { get; set; } = string.Empty;
+}
+
+public sealed class PortalEstimatorSettingRecord
+{
+    public string EstimatorKey { get; set; } = string.Empty;
+    public string EstimatorName { get; set; } = string.Empty;
+    public bool IsActive { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public string UpdatedBy { get; set; } = string.Empty;
 }

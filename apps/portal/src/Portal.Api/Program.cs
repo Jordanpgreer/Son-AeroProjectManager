@@ -19,6 +19,7 @@ builder.Services.AddScoped<PortalUserService>();
 builder.Services.AddScoped<IPortalRoleStore, PortalRoleStore>();
 builder.Services.AddScoped<ApplicationNotificationService>();
 builder.Services.AddScoped<PortalEngineeringStorageSchemaInitializer>();
+builder.Services.AddScoped<PortalEstimatingSettingsSchemaInitializer>();
 builder.Services.AddHttpClient<TrackerPreviewService>();
 builder.Services.Configure<EngineeringStorageAdminOptions>(
     builder.Configuration.GetSection(EngineeringStorageAdminOptions.SectionName));
@@ -63,6 +64,8 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     await scope.ServiceProvider.GetRequiredService<PortalEngineeringStorageSchemaInitializer>()
+        .InitializeAsync(CancellationToken.None);
+    await scope.ServiceProvider.GetRequiredService<PortalEstimatingSettingsSchemaInitializer>()
         .InitializeAsync(CancellationToken.None);
 }
 
@@ -117,6 +120,7 @@ api.MapGet("/application-notifications", async (
 }).RequireAuthorization();
 
 api.MapEngineeringAdminEndpoints();
+api.MapEstimatingAdminEndpoints();
 api.MapAdminAccessPreviewEndpoints();
 
 // Live "minimized dashboard" data for the Project Tracker card. Best-effort and read-only.

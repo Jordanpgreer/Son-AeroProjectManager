@@ -5,6 +5,8 @@ import { calculateEstimate, safeDivide } from '../src/calculations.ts'
 import {
   createRubberEstimateDefaults,
   createStandardEstimateDefaults,
+  createSubassemblyDefaults,
+  createSubassemblyEstimateDefaults,
 } from '../src/estimateDefaults.ts'
 import {
   ANNUAL_LABOR_RATES,
@@ -50,9 +52,11 @@ test('rate tables preserve annual precision, source ordering, duplicates, and hi
   )
 })
 
-test('defaults reproduce the Standard and Rubber workbook row structures', () => {
+test('defaults reproduce the Standard, Rubber, and Subassembly workbook row structures', () => {
   const standard = createStandardEstimateDefaults()
   const rubber = createRubberEstimateDefaults()
+  const subassemblyEstimate = createSubassemblyEstimateDefaults()
+  const subassembly = createSubassemblyDefaults()
 
   assert.deepEqual(
     standard.operations.slice(0, 3).map((operation) => operation.nameControl),
@@ -71,6 +75,142 @@ test('defaults reproduce the Standard and Rubber workbook row structures', () =>
   assert.equal(rubber.toolingMarkup, 0.12)
   assert.equal(rubber.difficulty, null)
   assert.equal(rubber.cavities, 0)
+  assert.equal(subassemblyEstimate.operations.length, 12)
+  assert.equal(subassemblyEstimate.operations.slice(0, 2).every(
+    (operation) => operation.costTreatment === 'nre',
+  ), true)
+  assert.equal(subassemblyEstimate.operations.slice(2).every(
+    (operation) => operation.costTreatment === 'production',
+  ), true)
+  assert.equal(subassemblyEstimate.materials.length, 12)
+  assert.equal(subassemblyEstimate.processes.length, 12)
+  assert.deepEqual(subassemblyEstimate.subassemblies, [])
+  assert.equal(subassembly.operations.length, 12)
+  assert.equal(subassembly.operations.slice(0, 2).every(
+    (operation) => operation.costTreatment === 'nre',
+  ), true)
+  assert.equal(subassembly.operations.slice(2).every(
+    (operation) => operation.costTreatment === 'production',
+  ), true)
+  assert.equal(subassembly.materials.length, 12)
+  assert.equal(subassembly.processes.length, 5)
+})
+
+test('matches the one-child Subassembly workbook roll-up without child G&A or profit', () => {
+  const estimate = createSubassemblyEstimateDefaults()
+  estimate.quantities = [10]
+  estimate.salesMarkup = 0
+  const child = createSubassemblyDefaults()
+  child.partNumber = 'CHILD-001'
+  child.facilitiesByQuantity[10] = 0.25
+
+  const program = child.operations.find((operation) => operation.name === 'Program')
+  const mill = child.operations.find((operation) => operation.name === 'Metals - Mills')
+  assert.ok(program)
+  assert.ok(mill)
+  program.setupMinutes = 60
+  mill.runMinutes = 2
+  child.materials[0].partsQuantity = 1
+  child.materials[0].unitPrice = 5
+  child.processes[0].setupCost = 20
+  child.processes[0].runCostEach = 1
+  estimate.subassemblies.push(child)
+  estimate.processes[0].description = child.partNumber
+  estimate.processes[0].subassemblyId = child.id
+
+  const result = mustSucceed(calculateEstimate(estimate))
+  const childAudit = result.subassemblies[0]
+  assert.notEqual(childAudit.quantities, null)
+  const childAtTen = childAudit.quantities?.[10]
+  assert.ok(childAtTen)
+
+  assertNear(childAtTen.basicLabor, 0.9736666666666667)
+  assertNear(childAtTen.laborBurden, 4.040716666666667)
+  assertNear(childAtTen.burdenedLabor, 5.014383333333334)
+  assertNear(childAtTen.rawMaterial, 5.5)
+  assertNear(childAtTen.rawProcess, 3)
+  assertNear(childAtTen.rawOneTimeNre, 124.8)
+  assertNear(childAtTen.amortizedNre, 12.48)
+  assertNear(childAtTen.facilities, 0.25)
+  assertNear(childAtTen.unitCost, 26.24438333333333)
+
+  assertNear(result.processes[0].unitCostByQuantity[10], childAtTen.unitCost)
+  assertNear(result.quantities[10].rawProcess, childAtTen.unitCost)
+  assertNear(result.quantities[10].process.ga, childAtTen.unitCost * 0.2)
+  assertNear(result.quantities[10].process.profit, childAtTen.unitCost * 1.2 * 0.2)
+  assertNear(result.quantities[10].process.loaded, childAtTen.unitCost * 1.2 * 1.2)
+  assertNear(result.quantities[10].sellPrice, 39.10413116666667)
+})
+
+test('rolls up multiple ordered children and applies quantity-per-parent multipliers', () => {
+  const estimate = createSubassemblyEstimateDefaults()
+  estimate.quantities = [10]
+  estimate.yield = 1
+  const first = createSubassemblyDefaults(0)
+  const second = createSubassemblyDefaults(1)
+  first.partNumber = 'FIRST'
+  second.partNumber = 'SECOND'
+  first.facilitiesByQuantity[10] = 2
+  second.facilitiesByQuantity[10] = 3
+  estimate.subassemblies.push(first, second)
+  estimate.processes[0].subassemblyId = first.id
+  estimate.processes[0].quantityPerParent = 2
+  estimate.processes[1].subassemblyId = second.id
+  estimate.processes[1].quantityPerParent = 3
+
+  const result = mustSucceed(calculateEstimate(estimate))
+
+  assert.deepEqual(
+    result.subassemblies.map((subassembly) => subassembly.subassemblyId),
+    [first.id, second.id],
+  )
+  assert.equal(result.subassemblies[0].quantities?.[10].unitCost, 2)
+  assert.equal(result.subassemblies[1].quantities?.[10].unitCost, 3)
+  assert.equal(result.processes[0].unitCostByQuantity[10], 4)
+  assert.equal(result.processes[1].unitCostByQuantity[10], 9)
+  assert.equal(result.quantities[10].rawProcess, 13)
+  assertNear(result.quantities[10].process.loaded, 18.72)
+})
+
+test('reports dangling subassembly process links explicitly', () => {
+  const estimate = createSubassemblyEstimateDefaults()
+  estimate.quantities = [10]
+  estimate.processes[0].subassemblyId = 'missing-child'
+  estimate.processes[0].quantityPerParent = 2
+
+  const result = calculateEstimate(estimate)
+
+  assert.equal(result.ok, false)
+  if (result.ok) {
+    throw new Error('Expected calculation to fail.')
+  }
+  assert.equal(result.errors[0].code, 'missing-subassembly-link')
+  assert.equal(result.processes[0].unitCostByQuantity[10], 0)
+})
+
+test('reports missing child labor rates with subassembly context', () => {
+  const estimate = createSubassemblyEstimateDefaults()
+  estimate.quantities = [10]
+  const child = createSubassemblyDefaults()
+  child.partNumber = 'RATE-FAIL'
+  child.operations[2].name = 'Unknown child operation'
+  estimate.subassemblies.push(child)
+  estimate.processes[0].subassemblyId = child.id
+
+  const result = calculateEstimate(estimate)
+
+  assert.equal(result.ok, false)
+  if (result.ok) {
+    throw new Error('Expected calculation to fail.')
+  }
+  const error = result.errors[0]
+  assert.equal(error.code, 'missing-subassembly-rate')
+  if (error.code !== 'missing-subassembly-rate') {
+    throw new Error('Expected a missing subassembly rate error.')
+  }
+  assert.equal(error.subassemblyId, child.id)
+  assert.equal(error.subassemblyPartNumber, child.partNumber)
+  assert.equal(result.subassemblies[0].quantities, null)
 })
 
 test('editable quantity tiers drive every calculation and audit map', () => {

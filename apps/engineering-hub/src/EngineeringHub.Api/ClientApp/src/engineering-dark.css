@@ -21,14 +21,13 @@
   --line: #1c2833;
   --line-2: #283847;
   --line-3: #4c6478;
-  --grid-line: rgba(153, 171, 187, 0.04);
 
-  --red: #d33d2f;
-  --red-600: #b92f24;
-  --red-700: #ffb9b0;
-  --red-tint: #301a18;
-  --red-tint-2: #482521;
-  --brand-signal: #ee3a29;
+  --red: #709fc2;
+  --red-600: #5c8daf;
+  --red-700: #a9cbe2;
+  --red-tint: #132434;
+  --red-tint-2: #2b4d68;
+  --brand-signal: #709fc2;
 
   --steel: #709fc2;
   --steel-700: #a9cbe2;
@@ -40,9 +39,9 @@
   --warn: #d0a354;
   --warn-700: #f1d59a;
   --warn-tint: #2b2418;
-  --risk: #ec675a;
-  --risk-700: #ffb9b0;
-  --risk-tint: #301a18;
+  --risk: #d0a354;
+  --risk-700: #f1d59a;
+  --risk-tint: #2b2418;
   --done: #55b27f;
   --done-700: #b9e2cc;
   --done-tint: #172a21;
@@ -74,7 +73,7 @@
 
 :root[data-theme='dark'] .engineering-app .sidebar {
   background:
-    radial-gradient(100% 48% at 0% 0%, rgba(211, 61, 47, 0.1), transparent 62%),
+    radial-gradient(100% 48% at 0% 0%, rgba(112, 159, 194, 0.1), transparent 62%),
     linear-gradient(184deg, var(--nav-2) 0%, var(--nav-1) 50%, var(--nav-3) 100%);
 }
 
@@ -182,14 +181,14 @@
 
 :root[data-theme='dark'] .engineering-app .sidebar-user-chip {
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(211, 61, 47, 0.045)),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(112, 159, 194, 0.045)),
     rgba(7, 12, 18, 0.88);
   border-color: rgba(255, 255, 255, 0.1);
 }
 
 :root[data-theme='dark'] .engineering-app .nav-button.active {
-  background: rgba(238, 58, 41, 0.11);
-  border-color: rgba(238, 58, 41, 0.27);
+  background: rgba(112, 159, 194, 0.11);
+  border-color: rgba(112, 159, 194, 0.27);
 }
 
 :root[data-theme='dark'] .engineering-app .nav-button.active .nav-icon {
@@ -230,8 +229,8 @@
 }
 
 :root[data-theme='dark'] .engineering-app .section-tone-red {
-  --section-accent: #6f312c;
-  --section-hover: #843b34;
+  --section-accent: #274a68;
+  --section-hover: #315a7d;
 }
 
 /*
@@ -248,7 +247,7 @@
   --faint: #73818f;
   --line: #1c2833;
   --line-2: #283847;
-  --red: #d33d2f;
+  --red: #709fc2;
   --steel: #709fc2;
   --steel-700: #a9cbe2;
 

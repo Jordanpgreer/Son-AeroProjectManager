@@ -4,11 +4,11 @@ import {
   BarChart3,
   CalendarCheck,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock3,
   Download,
-  DollarSign,
   FileSpreadsheet,
   Filter,
   History,
@@ -18,7 +18,7 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import { useDeferredValue, useEffect, useState } from 'react'
+import { useDeferredValue, useEffect, useState, type ReactNode } from 'react'
 import './estimating-history.css'
 
 interface HistoryRecord {
@@ -84,6 +84,7 @@ interface HistoryDashboard {
 
 interface FilterOptions {
   estimators: string[]
+  salesPersons?: string[]
   customers: string[]
   quoteStatuses: string[]
 }
@@ -140,6 +141,7 @@ interface AuditHistory {
 interface Filters {
   search: string
   estimator: string
+  salesPerson: string
   customer: string
   quoteStatus: string
   onTime: string
@@ -150,6 +152,7 @@ interface Filters {
 const emptyFilters: Filters = {
   search: '',
   estimator: '',
+  salesPerson: '',
   customer: '',
   quoteStatus: '',
   onTime: '',
@@ -159,13 +162,13 @@ const emptyFilters: Filters = {
 
 const emptyOptions: FilterOptions = {
   estimators: [],
+  salesPersons: [],
   customers: [],
   quoteStatuses: [],
 }
 
 type StatsPeriod = 'week' | 'month' | 'all'
-type ReportPeriod = 'week' | 'month' | 'year'
-type SummaryPreset = 'queue' | 'completed' | 'onTime' | 'late' | 'value' | 'average' | null
+type SummaryPreset = 'queue' | 'completed' | 'onTime' | 'late' | null
 
 function currency(value: number) {
   return value.toLocaleString('en-US', {
@@ -198,6 +201,89 @@ function inclusivePeriodEnd(value: string | null) {
   const date = new Date(Date.UTC(year, month - 1, day))
   date.setUTCDate(date.getUTCDate() - 1)
   return date.toISOString().slice(0, 10)
+}
+
+function measuredPercentage(value: number, remainder: number) {
+  const measured = value + remainder
+  return measured === 0 ? '0%' : `${Math.round((value / measured) * 100)}%`
+}
+
+function onTimeLabel(record: Pick<HistoryRecord, 'onTimeStatus' | 'daysLate'>) {
+  if (record.onTimeStatus === 'OnTime') return 'On time'
+  if (record.onTimeStatus === 'NoData') return 'No data'
+  return `${record.daysLate}d late`
+}
+
+function HighlightText({ value, query }: { value: string | number; query: string }) {
+  const text = String(value)
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  if (!normalizedQuery) return <>{text}</>
+
+  const normalizedText = text.toLocaleLowerCase()
+  const parts: ReactNode[] = []
+  let cursor = 0
+  let matchIndex = normalizedText.indexOf(normalizedQuery)
+
+  while (matchIndex >= 0) {
+    if (matchIndex > cursor) {
+      parts.push(<span key={`text-${cursor}`}>{text.slice(cursor, matchIndex)}</span>)
+    }
+    parts.push(
+      <mark key={`match-${matchIndex}`}>
+        {text.slice(matchIndex, matchIndex + normalizedQuery.length)}
+      </mark>,
+    )
+    cursor = matchIndex + normalizedQuery.length
+    matchIndex = normalizedText.indexOf(normalizedQuery, cursor)
+  }
+
+  if (cursor < text.length) {
+    parts.push(<span key={`text-${cursor}`}>{text.slice(cursor)}</span>)
+  }
+
+  return <>{parts}</>
+}
+
+function historyQueryParams({
+  page,
+  pageSize,
+  view,
+  sort,
+  direction,
+  filters,
+  search,
+  summaryPreset,
+  periodStart,
+  periodEnd,
+}: {
+  page?: number
+  pageSize?: number
+  view: 'live' | 'history'
+  sort: string
+  direction: string
+  filters: Filters
+  search: string
+  summaryPreset: SummaryPreset
+  periodStart: string | null
+  periodEnd: string | null
+}) {
+  const params = new URLSearchParams({ view, sort, direction })
+  if (page !== undefined) params.set('page', String(page))
+  if (pageSize !== undefined) params.set('pageSize', String(pageSize))
+
+  const values: Record<string, string> = { ...filters, search }
+  for (const [key, value] of Object.entries(values)) {
+    if (value.trim()) params.set(key, value.trim())
+  }
+  if (summaryPreset && summaryPreset !== 'queue') {
+    params.set('completion', 'completed')
+    if (periodStart) params.set('completedFrom', periodStart.slice(0, 10))
+    const completedTo = inclusivePeriodEnd(periodEnd)
+    if (completedTo) params.set('completedTo', completedTo)
+    if (summaryPreset === 'onTime') params.set('onTime', 'OnTime')
+    if (summaryPreset === 'late') params.set('onTime', 'Late')
+  }
+  return params
 }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -262,9 +348,13 @@ function SortButton({
 export default function EstimatingHistoryPage({
   canImport,
   canManageHistory,
+  importOpen,
+  onImportOpenChange,
 }: {
   canImport: boolean
   canManageHistory: boolean
+  importOpen: boolean
+  onImportOpenChange: (open: boolean) => void
 }) {
   const [dashboard, setDashboard] = useState<HistoryDashboard | null>(null)
   const [pageData, setPageData] = useState<HistoryPage>({ records: [], total: 0, page: 1, pageSize: 50 })
@@ -273,7 +363,6 @@ export default function EstimatingHistoryPage({
   const [page, setPage] = useState(1)
   const [view, setView] = useState<'live' | 'history'>('live')
   const [statsPeriod, setStatsPeriod] = useState<StatsPeriod>('week')
-  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('week')
   const [summaryPreset, setSummaryPreset] = useState<SummaryPreset>('queue')
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [reportBusy, setReportBusy] = useState(false)
@@ -282,7 +371,6 @@ export default function EstimatingHistoryPage({
   const [direction, setDirection] = useState('asc')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [importOpen, setImportOpen] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
   const [validation, setValidation] = useState<ImportValidation | null>(null)
   const [importBusy, setImportBusy] = useState(false)
@@ -293,6 +381,7 @@ export default function EstimatingHistoryPage({
   const [auditLoading, setAuditLoading] = useState(false)
   const [auditError, setAuditError] = useState<string | null>(null)
   const [revision, setRevision] = useState(0)
+  const [appliedSearch, setAppliedSearch] = useState('')
   const deferredSearch = useDeferredValue(filters.search)
 
   useEffect(() => {
@@ -313,30 +402,25 @@ export default function EstimatingHistoryPage({
 
   useEffect(() => {
     let active = true
-    const params = new URLSearchParams({
-      page: String(page),
-      pageSize: '50',
+    const requestSearch = deferredSearch.trim()
+    const params = historyQueryParams({
+      page,
+      pageSize: 50,
       view,
       sort,
       direction,
+      filters,
+      search: deferredSearch,
+      summaryPreset,
+      periodStart: dashboard?.periodStart ?? null,
+      periodEnd: dashboard?.periodEnd ?? null,
     })
-    const values: Record<string, string> = { ...filters, search: deferredSearch }
-    for (const [key, value] of Object.entries(values)) {
-      if (value.trim()) params.set(key, value.trim())
-    }
-    if (summaryPreset && summaryPreset !== 'queue') {
-      params.set('completion', 'completed')
-      if (dashboard?.periodStart) params.set('completedFrom', dashboard.periodStart.slice(0, 10))
-      const completedTo = inclusivePeriodEnd(dashboard?.periodEnd ?? null)
-      if (completedTo) params.set('completedTo', completedTo)
-      if (summaryPreset === 'onTime') params.set('onTime', 'OnTime')
-      if (summaryPreset === 'late') params.set('onTime', 'Late')
-    }
     setLoading(true)
     void api<HistoryPage>(`/api/quote-history?${params.toString()}`)
       .then((result) => {
         if (!active) return
         setPageData(result)
+        setAppliedSearch(requestSearch)
         setError(null)
       })
       .catch((cause) => {
@@ -346,7 +430,24 @@ export default function EstimatingHistoryPage({
         if (active) setLoading(false)
       })
     return () => { active = false }
-  }, [dashboard?.periodEnd, dashboard?.periodStart, deferredSearch, direction, filters, page, revision, sort, summaryPreset, view])
+  }, [
+    dashboard?.periodEnd,
+    dashboard?.periodStart,
+    deferredSearch,
+    direction,
+    filters.customer,
+    filters.dueFrom,
+    filters.dueTo,
+    filters.estimator,
+    filters.onTime,
+    filters.quoteStatus,
+    filters.salesPerson,
+    page,
+    revision,
+    sort,
+    summaryPreset,
+    view,
+  ])
 
   const updateFilter = (key: keyof Filters, value: string) => {
     setFilters((current) => ({ ...current, [key]: value }))
@@ -371,6 +472,16 @@ export default function EstimatingHistoryPage({
   }
 
   const applySummaryPreset = (preset: Exclude<SummaryPreset, null>) => {
+    if (summaryPreset === preset) {
+      setSummaryPreset(null)
+      if (preset === 'queue') {
+        setView('history')
+        setSort('number')
+        setDirection('desc')
+      }
+      setPage(1)
+      return
+    }
     setSummaryPreset(preset)
     if (preset === 'queue') {
       setView('live')
@@ -386,7 +497,7 @@ export default function EstimatingHistoryPage({
 
   const closeImport = () => {
     if (importBusy) return
-    setImportOpen(false)
+    onImportOpenChange(false)
     setImportFile(null)
     setValidation(null)
     setImportError(null)
@@ -452,22 +563,30 @@ export default function EstimatingHistoryPage({
     }
   }
 
-  const downloadReport = async () => {
+  const downloadFilteredResults = async () => {
     setReportBusy(true)
     setReportError(null)
     try {
-      const params = new URLSearchParams({ period: reportPeriod })
-      if (filters.estimator) params.set('estimator', filters.estimator)
-      const response = await fetch(`/api/quote-history/report?${params.toString()}`, {
+      const params = historyQueryParams({
+        view,
+        sort,
+        direction,
+        filters,
+        search: filters.search,
+        summaryPreset,
+        periodStart: dashboard?.periodStart ?? null,
+        periodEnd: dashboard?.periodEnd ?? null,
+      })
+      const response = await fetch(`/api/quote-history/export?${params.toString()}`, {
         credentials: 'include',
       })
       if (!response.ok) {
         const payload = await response.json().catch(() => null) as { message?: string } | null
-        throw new Error(payload?.message ?? 'Unable to create the statistics report.')
+        throw new Error(payload?.message ?? 'Unable to export the current quote results.')
       }
       const disposition = response.headers.get('content-disposition') ?? ''
       const fileName = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)/i)?.[1]
-        ?? `estimating-statistics-${reportPeriod}.xlsx`
+        ?? `estimating-${view === 'live' ? 'active-quotes' : 'quote-history'}-${new Date().toISOString().slice(0, 10)}.xlsx`
       const url = URL.createObjectURL(await response.blob())
       const link = document.createElement('a')
       link.href = url
@@ -477,7 +596,7 @@ export default function EstimatingHistoryPage({
       link.remove()
       URL.revokeObjectURL(url)
     } catch (cause) {
-      setReportError(cause instanceof Error ? cause.message : 'Unable to download the report.')
+      setReportError(cause instanceof Error ? cause.message : 'Unable to export the current quote results.')
     } finally {
       setReportBusy(false)
     }
@@ -485,52 +604,31 @@ export default function EstimatingHistoryPage({
 
   const department = dashboard?.department
   const totalPages = Math.max(1, Math.ceil(pageData.total / pageData.pageSize))
-  const activeFilterCount = [filters.estimator, filters.customer, filters.quoteStatus, filters.onTime]
+  const searchPending = filters.search.trim().toLocaleLowerCase() !== appliedSearch.toLocaleLowerCase()
+  const activeFilterCount = [filters.estimator, filters.salesPerson, filters.customer, filters.quoteStatus, filters.onTime]
     .filter((value) => value.trim())
     .length + (filters.dueFrom || filters.dueTo ? 1 : 0)
 
   return (
     <div className="history-page">
-      <section className="history-intro">
-        <div>
-          <span className="section-kicker">Fulcrum quote history</span>
-          <h2>Estimating logs</h2>
-          <p>Work the current Needs Approval queue, search the complete quote history, and monitor estimator performance.</p>
-        </div>
-        {canImport && <button type="button" className="history-import-button" onClick={() => setImportOpen(true)}>
-          <Upload size={17} aria-hidden="true" />
-          Import Excel
-        </button>}
-      </section>
-
       {error && <div className="history-error" role="alert">
         <AlertTriangle size={17} aria-hidden="true" />
         {error}
       </div>}
 
       <section className="history-stats-toolbar" aria-label="Statistics controls">
-        <div>
+        <div className="history-stats-heading">
           <span className="section-kicker">{dashboard?.isTeamView ? 'Department statistics' : 'Your statistics'}</span>
-          <strong>{dashboard?.periodLabel ?? 'This week'}</strong>
+          <div className="history-period-tabs" role="group" aria-label="Statistics time period">
+            {([['week', 'This week'], ['month', 'This month'], ['all', 'All time']] as const).map(([period, label]) => (
+              <button key={period} type="button" aria-pressed={statsPeriod === period} onClick={() => setStatsPeriod(period)}>{label}</button>
+            ))}
+          </div>
         </div>
-        <div className="history-period-tabs" role="group" aria-label="Statistics time period">
-          {([['week', 'This week'], ['month', 'This month'], ['all', 'All time']] as const).map(([period, label]) => (
-            <button key={period} type="button" aria-pressed={statsPeriod === period} onClick={() => setStatsPeriod(period)}>{label}</button>
-          ))}
-        </div>
-        {canManageHistory && <div className="history-report-controls">
-          <label>
-            <span>Report period</span>
-            <select value={reportPeriod} onChange={(event) => setReportPeriod(event.currentTarget.value as ReportPeriod)}>
-              <option value="week">This week</option>
-              <option value="month">This month</option>
-              <option value="year">This year</option>
-            </select>
-          </label>
-          <button type="button" disabled={reportBusy} onClick={() => void downloadReport()}>
-            <Download size={15} aria-hidden="true" /> {reportBusy ? 'Preparing…' : 'Download report'}
-          </button>
-        </div>}
+        {canImport && <button type="button" className="history-import-button" onClick={() => onImportOpenChange(true)}>
+          <Upload size={16} aria-hidden="true" />
+          Import Excel
+        </button>}
       </section>
 
       {reportError && <div className="history-error" role="alert">
@@ -550,24 +648,19 @@ export default function EstimatingHistoryPage({
         </button>
         <button type="button" className={summaryPreset === 'onTime' ? 'selected' : ''} aria-pressed={summaryPreset === 'onTime'} onClick={() => applySummaryPreset('onTime')}>
           <span><CalendarCheck size={17} aria-hidden="true" /> On time</span>
-          <strong>{department?.onTimeInPeriod ?? 0}</strong>
+          <span className="history-kpi-metric"><strong>{department?.onTimeInPeriod ?? 0}</strong><b>{measuredPercentage(department?.onTimeInPeriod ?? 0, department?.lateInPeriod ?? 0)}</b></span>
           <small>Completed within target</small>
         </button>
         <button type="button" className={summaryPreset === 'late' ? 'selected' : ''} aria-pressed={summaryPreset === 'late'} onClick={() => applySummaryPreset('late')}>
           <span><BarChart3 size={17} aria-hidden="true" /> Late</span>
-          <strong>{department?.lateInPeriod ?? 0}</strong>
+          <span className="history-kpi-metric"><strong>{department?.lateInPeriod ?? 0}</strong><b>{measuredPercentage(department?.lateInPeriod ?? 0, department?.onTimeInPeriod ?? 0)}</b></span>
           <small>Completed after due date</small>
         </button>
-        <button type="button" className={summaryPreset === 'value' ? 'selected' : ''} aria-pressed={summaryPreset === 'value'} onClick={() => applySummaryPreset('value')}>
-          <span><DollarSign size={17} aria-hidden="true" /> Completed value</span>
-          <strong>{currency(department?.completedValueInPeriod ?? 0)}</strong>
-          <small>{dashboard?.periodLabel ?? 'This week'}</small>
-        </button>
-        <button type="button" className={summaryPreset === 'average' ? 'selected' : ''} aria-pressed={summaryPreset === 'average'} onClick={() => applySummaryPreset('average')}>
+        <div className="history-kpi-static">
           <span><Clock3 size={17} aria-hidden="true" /> Avg. completion</span>
           <strong>{department?.averageCompletionWorkdaysInPeriod == null ? '—' : `${department.averageCompletionWorkdaysInPeriod}d`}</strong>
           <small>Inclusive business days</small>
-        </button>
+        </div>
       </section>
 
       <section className="estimator-stats-card" aria-labelledby="estimator-stats-heading">
@@ -580,7 +673,13 @@ export default function EstimatingHistoryPage({
         </div>
         {dashboard?.users.length ? (
           <div className="estimator-stat-grid">
-            {dashboard.users.map((user) => <article key={user.estimator}>
+            {dashboard.users.map((user) => <button
+              key={user.estimator}
+              type="button"
+              aria-pressed={filters.estimator === user.estimator}
+              aria-label={`${filters.estimator === user.estimator ? 'Remove' : 'Apply'} estimator filter for ${user.estimator}`}
+              onClick={() => updateFilter('estimator', filters.estimator === user.estimator ? '' : user.estimator)}
+            >
               <div className="estimator-stat-name">
                 <span>{user.estimator.slice(0, 1).toUpperCase()}</span>
                 <strong>{user.estimator}</strong>
@@ -588,12 +687,12 @@ export default function EstimatingHistoryPage({
               <dl>
                 <div><dt>Queue</dt><dd>{user.inQueue}</dd></div>
                 <div><dt>Completed</dt><dd>{user.completedInPeriod}</dd></div>
-                <div><dt>On time</dt><dd>{user.onTimeInPeriod}</dd></div>
+                <div><dt>On time</dt><dd>{measuredPercentage(user.onTimeInPeriod, user.lateInPeriod)}</dd></div>
                 <div><dt>Late</dt><dd>{user.lateInPeriod}</dd></div>
                 <div><dt>Completed value</dt><dd>{currency(user.completedValueInPeriod)}</dd></div>
                 <div><dt>Avg. time</dt><dd>{user.averageCompletionWorkdaysInPeriod == null ? '—' : `${user.averageCompletionWorkdaysInPeriod} days`}</dd></div>
               </dl>
-            </article>)}
+            </button>)}
           </div>
         ) : <div className="history-empty compact">
           <Users size={27} aria-hidden="true" />
@@ -602,7 +701,7 @@ export default function EstimatingHistoryPage({
         </div>}
       </section>
 
-      <section className="history-register-card" aria-labelledby="history-register-heading">
+      <section className="history-register-card" aria-labelledby="history-register-heading" aria-busy={loading || searchPending}>
         <div className="history-card-heading register-heading">
           <div className="history-register-title">
             <div>
@@ -620,24 +719,38 @@ export default function EstimatingHistoryPage({
               <input
                 type="search"
                 value={filters.search}
-                placeholder="Search every quote field except value and completion date…"
+                placeholder="Search quotes, customers, estimators, salespeople…"
                 aria-label="Search estimating quotes"
                 onChange={(event) => updateFilter('search', event.currentTarget.value)}
               />
             </label>
             <button type="button" className="history-filter-toggle" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((current) => !current)}>
-              <Filter size={15} aria-hidden="true" /> Filters {activeFilterCount > 0 && <b>{activeFilterCount}</b>}
+              <Filter size={15} aria-hidden="true" />
+              <span>Filter results</span>
+              {activeFilterCount > 0 && <b>{activeFilterCount}</b>}
+              <ChevronDown className="history-filter-chevron" size={14} aria-hidden="true" />
+            </button>
+            <button type="button" className="history-export-button" disabled={reportBusy} onClick={() => void downloadFilteredResults()}>
+              <Download size={16} aria-hidden="true" />
+              {reportBusy ? 'Exporting…' : 'Export results'}
             </button>
           </div>
         </div>
 
-        {filtersOpen && <div className="history-filter-panel">
+        {filtersOpen && <div className="history-filter-panel" role="region" aria-label="Quote result filters">
           <div className="history-filter-title">
-            <span><Filter size={15} aria-hidden="true" /> Refine quote results</span>
-            <button type="button" disabled={activeFilterCount === 0} onClick={() => { setFilters(emptyFilters); setPage(1) }}>Clear filters</button>
+            <div>
+              <span><Filter size={15} aria-hidden="true" /> Refine quote results</span>
+              <small>{activeFilterCount === 0 ? 'Showing all available values' : `${activeFilterCount} ${activeFilterCount === 1 ? 'filter' : 'filters'} applied`}</small>
+            </div>
+            <div className="history-filter-actions">
+              <button type="button" disabled={activeFilterCount === 0} onClick={() => { setFilters((current) => ({ ...emptyFilters, search: current.search })); setPage(1) }}>Clear filters</button>
+              <button type="button" className="history-filter-done" onClick={() => setFiltersOpen(false)}>Done</button>
+            </div>
           </div>
           <div className="history-filter-grid">
             <SelectFilter label="Estimator" value={filters.estimator} options={options.estimators} onChange={(value) => updateFilter('estimator', value)} />
+            <SelectFilter label="Salesperson" value={filters.salesPerson} options={options.salesPersons ?? []} onChange={(value) => updateFilter('salesPerson', value)} />
             <SelectFilter label="Customer" value={filters.customer} options={options.customers} onChange={(value) => updateFilter('customer', value)} />
             <SelectFilter label="Quote status" value={filters.quoteStatus} options={options.quoteStatuses} onChange={(value) => updateFilter('quoteStatus', value)} />
             <label><span>On time</span><select value={filters.onTime} onChange={(event) => updateFilter('onTime', event.currentTarget.value)}><option value="">All</option><option value="OnTime">On time</option><option value="Late">Late</option><option value="NoData">No data</option></select></label>
@@ -647,6 +760,7 @@ export default function EstimatingHistoryPage({
 
         {activeFilterCount > 0 && <div className="history-filter-chips" aria-label="Active quote filters">
           {filters.estimator && <button type="button" onClick={() => updateFilter('estimator', '')}>Estimator: {filters.estimator}<X size={12} aria-hidden="true" /></button>}
+          {filters.salesPerson && <button type="button" onClick={() => updateFilter('salesPerson', '')}>Salesperson: {filters.salesPerson}<X size={12} aria-hidden="true" /></button>}
           {filters.customer && <button type="button" onClick={() => updateFilter('customer', '')}>Customer: {filters.customer}<X size={12} aria-hidden="true" /></button>}
           {filters.quoteStatus && <button type="button" onClick={() => updateFilter('quoteStatus', '')}>Status: {filters.quoteStatus}<X size={12} aria-hidden="true" /></button>}
           {filters.onTime && <button type="button" onClick={() => updateFilter('onTime', '')}>On time: {filters.onTime}<X size={12} aria-hidden="true" /></button>}
@@ -654,7 +768,7 @@ export default function EstimatingHistoryPage({
         </div>}
 
         <div className="history-result-summary">
-          <span>{loading ? 'Updating records…' : `${pageData.total.toLocaleString()} matching ${view === 'live' ? 'queue' : 'history'} quotes`}</span>
+          <span role="status" aria-live="polite">{loading || searchPending ? 'Updating records…' : `${pageData.total.toLocaleString()} matching ${view === 'live' ? 'queue' : 'history'} quotes`}</span>
           <button type="button" aria-label="Refresh estimating history" onClick={() => setRevision((current) => current + 1)}>
             <RefreshCw size={14} aria-hidden="true" /> Refresh
           </button>
@@ -685,20 +799,20 @@ export default function EstimatingHistoryPage({
               </tr></thead>
               <tbody>{pageData.records.map((record) => <tr key={record.id}>
                 <th scope="row">
-                  <strong>{record.quoteNumber}</strong>
+                  <strong><HighlightText value={record.quoteNumber} query={appliedSearch} /></strong>
                 </th>
-                <td>{record.customer}</td>
-                <td>{record.customerContact ?? '—'}</td>
-                <td>{record.salesPerson}</td>
-                <td><span className="history-status neutral">{record.quoteStatus}</span></td>
-                <td>{record.rfqReferenceNumber ?? '—'}</td>
-                <td>{record.estimatingRep}</td>
-                <td>{date(record.rfqDueDate)}</td>
-                <td>{record.issues ?? '—'}</td>
-                <td><span className={`history-status ${record.quoteOnTrack?.toLowerCase().replaceAll(' ', '') ?? 'neutral'}`}>{record.quoteOnTrack ?? '—'}</span></td>
-                <td>{record.quoteComplexity ?? '—'}</td>
-                <td>{record.numberOfParts}</td>
-                <td>{record.estimatingStatus ?? '—'}</td>
+                <td><HighlightText value={record.customer} query={appliedSearch} /></td>
+                <td><HighlightText value={record.customerContact ?? '—'} query={appliedSearch} /></td>
+                <td><HighlightText value={record.salesPerson} query={appliedSearch} /></td>
+                <td><span className="history-status neutral"><HighlightText value={record.quoteStatus} query={appliedSearch} /></span></td>
+                <td><HighlightText value={record.rfqReferenceNumber ?? '—'} query={appliedSearch} /></td>
+                <td><HighlightText value={record.estimatingRep} query={appliedSearch} /></td>
+                <td><HighlightText value={date(record.rfqDueDate)} query={appliedSearch} /></td>
+                <td><HighlightText value={record.issues ?? '—'} query={appliedSearch} /></td>
+                <td><span className={`history-status ${record.quoteOnTrack?.toLowerCase().replaceAll(' ', '') ?? 'neutral'}`}><HighlightText value={record.quoteOnTrack ?? '—'} query={appliedSearch} /></span></td>
+                <td><HighlightText value={record.quoteComplexity ?? '—'} query={appliedSearch} /></td>
+                <td><HighlightText value={record.numberOfParts} query={appliedSearch} /></td>
+                <td><HighlightText value={record.estimatingStatus ?? '—'} query={appliedSearch} /></td>
                 {canManageHistory && <td className="history-audit-column"><button type="button" className="history-audit-link" aria-label={`Open audit for quote ${record.quoteNumber}`} onClick={() => void openAudit(record)}><History size={14} aria-hidden="true" /><span>Audit</span></button></td>}
               </tr>)}</tbody>
             </> : <>
@@ -721,22 +835,22 @@ export default function EstimatingHistoryPage({
               </tr></thead>
               <tbody>{pageData.records.map((record) => <tr key={record.id}>
                 <th scope="row">
-                  <strong>{record.quoteNumber}</strong>
-                  <small>{record.rfqReferenceNumber ?? record.sourceId}</small>
+                  <strong><HighlightText value={record.quoteNumber} query={appliedSearch} /></strong>
+                  <small><HighlightText value={record.rfqReferenceNumber ?? record.sourceId} query={appliedSearch} /></small>
                 </th>
-                <td>{record.customer}<small>{record.customerContact ?? 'No contact data'}</small></td>
-                <td>{record.salesPerson}</td>
-                <td>{record.estimatingRep}</td>
-                <td><span className="history-status neutral">{record.quoteStatus}</span></td>
-                <td>{record.estimatingStatus ?? '—'}</td>
-                <td><strong>{record.quoteComplexity ?? '—'}</strong><small>{record.issues ?? 'No issue data'}</small></td>
-                <td>{record.numberOfParts}</td>
+                <td><HighlightText value={record.customer} query={appliedSearch} /><small><HighlightText value={record.customerContact ?? 'No contact data'} query={appliedSearch} /></small></td>
+                <td><HighlightText value={record.salesPerson} query={appliedSearch} /></td>
+                <td><HighlightText value={record.estimatingRep} query={appliedSearch} /></td>
+                <td><span className="history-status neutral"><HighlightText value={record.quoteStatus} query={appliedSearch} /></span></td>
+                <td><HighlightText value={record.estimatingStatus ?? '—'} query={appliedSearch} /></td>
+                <td><strong><HighlightText value={record.quoteComplexity ?? '—'} query={appliedSearch} /></strong><small><HighlightText value={record.issues ?? 'No issue data'} query={appliedSearch} /></small></td>
+                <td><HighlightText value={record.numberOfParts} query={appliedSearch} /></td>
                 <td className="numeric">{currency(record.totalValue)}</td>
-                <td>{date(record.rfqDueDate)}</td>
-                <td>{date(record.dateToEstimating)}</td>
+                <td><HighlightText value={date(record.rfqDueDate)} query={appliedSearch} /></td>
+                <td><HighlightText value={date(record.dateToEstimating)} query={appliedSearch} /></td>
                 <td>{date(record.estimatingCompletionDate)}</td>
-                <td className="numeric">{record.workdays == null ? '—' : record.workdays}</td>
-                <td><span className={`history-status ${record.onTimeStatus.toLowerCase()}`}>{record.onTimeStatus === 'OnTime' ? 'On time' : record.onTimeStatus === 'NoData' ? 'No data' : `${record.daysLate}d late`}</span></td>
+                <td className="numeric"><HighlightText value={record.workdays == null ? '—' : record.workdays} query={appliedSearch} /></td>
+                <td><span className={`history-status ${record.onTimeStatus.toLowerCase()}`}><HighlightText value={onTimeLabel(record)} query={appliedSearch} /></span></td>
                 {canManageHistory && <td className="history-audit-column"><button type="button" className="history-audit-link" aria-label={`Open audit for quote ${record.quoteNumber}`} onClick={() => void openAudit(record)}><History size={14} aria-hidden="true" /><span>Audit</span></button></td>}
               </tr>)}</tbody>
             </>}
@@ -805,7 +919,7 @@ export default function EstimatingHistoryPage({
         </aside>
       </div>}
 
-      {importOpen && <div className="history-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) closeImport() }}>
+      {canImport && importOpen && <div className="history-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) closeImport() }}>
         <section className="history-modal" role="dialog" aria-modal="true" aria-labelledby="history-import-title">
           <header>
             <div><span className="section-kicker">Controlled workbook import</span><h2 id="history-import-title">Import estimating history</h2></div>

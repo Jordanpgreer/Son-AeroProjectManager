@@ -9,6 +9,8 @@ import {
   type ProcessInput,
   type RubberEstimateInput,
   type StandardEstimateInput,
+  type SubassemblyEstimateInput,
+  type SubassemblyInput,
 } from './types.ts'
 import { QUANTITY_TIERS } from './types.ts'
 
@@ -64,6 +66,36 @@ const RUBBER_OPERATION_DEFINITIONS: readonly OperationDefinition[] = [
   { id: 'rubber-operation-22', name: 'ID & Pack', costTreatment: 'production', nameControl: 'rate-list' },
 ]
 
+const SUBASSEMBLY_PARENT_OPERATION_DEFINITIONS: readonly OperationDefinition[] = [
+  { id: 'subassembly-parent-program', name: 'Program', costTreatment: 'nre', nameControl: 'fixed' },
+  { id: 'subassembly-parent-fixtures', name: 'Fixtures', costTreatment: 'nre', nameControl: 'fixed' },
+  { id: 'subassembly-parent-operation-1', name: 'Mill/Turn', costTreatment: 'production', nameControl: 'rate-list' },
+  { id: 'subassembly-parent-operation-2', name: 'Metals - Mills', costTreatment: 'production', nameControl: 'rate-list' },
+  { id: 'subassembly-parent-operation-3', name: 'Metals - Lathe', costTreatment: 'production', nameControl: 'rate-list' },
+  { id: 'subassembly-parent-operation-4', name: 'Rubber Mold', costTreatment: 'production', nameControl: 'rate-list' },
+  { id: 'subassembly-parent-operation-5', name: 'Plastic Injection Mold', costTreatment: 'production', nameControl: 'rate-list' },
+  { id: 'subassembly-parent-operation-6', name: 'Plastic Compression Mold', costTreatment: 'production', nameControl: 'rate-list' },
+  { id: 'subassembly-parent-operation-7', name: 'Waterjet - Operator', costTreatment: 'production', nameControl: 'rate-list' },
+  { id: 'subassembly-parent-operation-8', name: 'Assembly, Die Punch, Deburr', costTreatment: 'production', nameControl: 'rate-list' },
+  { id: 'subassembly-parent-operation-9', name: 'Quality Inspection', costTreatment: 'production', nameControl: 'rate-list' },
+  { id: 'subassembly-parent-operation-10', name: 'ID & Pack', costTreatment: 'production', nameControl: 'rate-list' },
+]
+
+const SUBASSEMBLY_CHILD_OPERATION_DEFINITIONS: readonly OperationDefinition[] = [
+  { id: 'program', name: 'Program', costTreatment: 'nre', nameControl: 'fixed' },
+  { id: 'fixtures', name: 'Fixtures', costTreatment: 'nre', nameControl: 'fixed' },
+  { id: 'operation-1', name: 'Mill/Turn', costTreatment: 'production', nameControl: 'rate-list' },
+  { id: 'operation-2', name: 'Metals - Mills', costTreatment: 'production', nameControl: 'rate-list' },
+  { id: 'operation-3', name: 'Metals - Lathe', costTreatment: 'production', nameControl: 'rate-list' },
+  { id: 'operation-4', name: 'Rubber Mold', costTreatment: 'production', nameControl: 'rate-list' },
+  { id: 'operation-5', name: 'Plastic Injection Mold', costTreatment: 'production', nameControl: 'rate-list' },
+  { id: 'operation-6', name: 'Plastic Compression Mold', costTreatment: 'production', nameControl: 'rate-list' },
+  { id: 'operation-7', name: 'Waterjet - Setup', costTreatment: 'production', nameControl: 'rate-list' },
+  { id: 'operation-8', name: 'Waterjet - Operator', costTreatment: 'production', nameControl: 'rate-list' },
+  { id: 'operation-9', name: 'Assembly, Die Punch, Deburr', costTreatment: 'production', nameControl: 'rate-list' },
+  { id: 'operation-10', name: 'Quality Inspection', costTreatment: 'production', nameControl: 'rate-list' },
+]
+
 function createMetadata(): EstimateMetadata {
   return {
     customer: '',
@@ -79,9 +111,13 @@ function createMetadata(): EstimateMetadata {
   }
 }
 
-function createOperations(definitions: readonly OperationDefinition[]): EstimateOperationInput[] {
+function createOperations(
+  definitions: readonly OperationDefinition[],
+  idPrefix = '',
+): EstimateOperationInput[] {
   return definitions.map((definition) => ({
     ...definition,
+    id: `${idPrefix}${definition.id}`,
     notes: '',
     setupMinutes: 0,
     runMinutes: 0,
@@ -89,9 +125,9 @@ function createOperations(definitions: readonly OperationDefinition[]): Estimate
   }))
 }
 
-function createMaterials(): MaterialInput[] {
+function createMaterials(idPrefix = ''): MaterialInput[] {
   return Array.from({ length: 12 }, (_, index) => ({
-    id: `material-${index + 1}`,
+    id: `${idPrefix}material-${index + 1}`,
     description: '',
     unitOfMeasure: '',
     partsQuantity: 0,
@@ -100,9 +136,9 @@ function createMaterials(): MaterialInput[] {
   }))
 }
 
-function createProcesses(): ProcessInput[] {
-  return Array.from({ length: 5 }, (_, index) => ({
-    id: `process-${index + 1}`,
+function createProcesses(length = 5, idPrefix = ''): ProcessInput[] {
+  return Array.from({ length }, (_, index) => ({
+    id: `${idPrefix}process-${index + 1}`,
     description: '',
     setupCost: 0,
     runCostEach: 0,
@@ -141,10 +177,39 @@ export function createRubberEstimateDefaults(): RubberEstimateInput {
   }
 }
 
+export function createSubassemblyDefaults(index = 0): SubassemblyInput {
+  const ordinal = index + 1
+  const id = `subassembly-${ordinal}`
+  const idPrefix = `${id}-`
+  return {
+    id,
+    partNumber: '',
+    revision: '',
+    operations: createOperations(SUBASSEMBLY_CHILD_OPERATION_DEFINITIONS, idPrefix),
+    materials: createMaterials(idPrefix),
+    processes: createProcesses(5, idPrefix),
+    facilitiesByQuantity: createQuantityValues(() => 0),
+  }
+}
+
+export function createSubassemblyEstimateDefaults(): SubassemblyEstimateInput {
+  return {
+    kind: 'subassembly',
+    ...createBaseDefaults(),
+    operations: createOperations(SUBASSEMBLY_PARENT_OPERATION_DEFINITIONS),
+    processes: createProcesses(12, 'subassembly-parent-'),
+    subassemblies: [],
+  }
+}
+
 export function createEstimateDefaults(kind: EstimateInput['kind']): EstimateInput {
-  return kind === 'rubber'
-    ? createRubberEstimateDefaults()
-    : createStandardEstimateDefaults()
+  if (kind === 'rubber') {
+    return createRubberEstimateDefaults()
+  }
+  if (kind === 'subassembly') {
+    return createSubassemblyEstimateDefaults()
+  }
+  return createStandardEstimateDefaults()
 }
 
 export const STANDARD_DEFAULT_OPERATION_NAMES: readonly string[] =
@@ -152,3 +217,9 @@ export const STANDARD_DEFAULT_OPERATION_NAMES: readonly string[] =
 
 export const RUBBER_DEFAULT_OPERATION_NAMES: readonly string[] =
   RUBBER_OPERATION_DEFINITIONS.map((operation) => operation.name)
+
+export const SUBASSEMBLY_PARENT_DEFAULT_OPERATION_NAMES: readonly string[] =
+  SUBASSEMBLY_PARENT_OPERATION_DEFINITIONS.map((operation) => operation.name)
+
+export const SUBASSEMBLY_CHILD_DEFAULT_OPERATION_NAMES: readonly string[] =
+  SUBASSEMBLY_CHILD_OPERATION_DEFINITIONS.map((operation) => operation.name)

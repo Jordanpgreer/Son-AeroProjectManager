@@ -1,12 +1,12 @@
 /*
- * SON-AERO brand tokens — canonical source of truth.
+ * Arda application design tokens — canonical source of truth.
  *
  * The shared design tokens (typography, color, lines, radii, elevation) for every
- * SON-AERO internal application. This file is the single source; each frontend imports
+ * Arda internal application. This file is the single source; each frontend imports
  * a synced copy (scripts/Sync-Branding.ps1 -> <app>/src/brand-tokens.css, pulled in from
  * that app's index.css). Only tokens that are identical across every app live here — an
- * app keeps any app-specific or intentionally-divergent tokens (e.g. --grid-line,
- * --shadow-pop, --font-id, spacing scale) in its own index.css :root.
+ * app keeps any app-specific or intentionally-divergent tokens (e.g. --shadow-pop,
+ * --font-id, spacing scale) in its own index.css :root.
  *
  * Update tokens HERE, then run scripts/Sync-Branding.ps1 to propagate.
  */
@@ -18,45 +18,56 @@
   --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
 
   /* ---- Canvas & surfaces ---------------------------------------------- */
-  --bg: #e9edf1;
-  --bg-deep: #dfe4ea;
-  --surface: #ffffff;
-  --surface-2: #f5f7f9;
-  --surface-3: #eceff3;
+  --bg: #dde8f0;
+  --bg-deep: #d3e0e9;
+  --surface: #eaf1f6;
+  --surface-2: #e3edf4;
+  --surface-3: #dde8f0;
 
   /* ---- Ink ------------------------------------------------------------- */
   --ink: #101822;
   --ink-2: #3a4654;
-  --muted: #67727f;
+  --muted: #5f6b78;
   --faint: #98a3af;
+  --faint-text: #536271;
 
   /* ---- Lines ----------------------------------------------------------- */
-  --line: #e3e7ec;
-  --line-2: #d0d7df;
-  --line-3: #bcc5ce;
+  --line: #d1dde6;
+  --line-2: #c6d5e1;
+  --line-3: #a8bdcc;
+  --control-line: #718da4;
 
-  /* ---- Brand red ------------------------------------------------------- */
-  --red: #e23b2c;
-  --red-600: #cf3122;
-  --red-700: #a92317;
-  --red-tint: #fceeec;
-  --red-tint-2: #f6d6d1;
+  /* ---- Legacy accent aliases ----------------------------------------- */
+  /* Estimating uses Arda blue for application actions and accents. The
+     brand separator and Back to Arda treatment use dedicated --arda-* tokens. */
+  --red: #2f6195;
+  --red-600: #28547f;
+  --red-700: #1f486f;
+  --red-action: #2f6195;
+  --red-action-hover: #1f486f;
+  --red-tint: #e8eff6;
+  --red-tint-2: #a7c2d7;
 
   /* ---- Steel (secondary accent / data) -------------------------------- */
   --steel: #2f6195;
   --steel-700: #1f486f;
   --steel-tint: #e8eff6;
+  --steel-tint-2: #a7c2d7;
+  --steel-action: #2f6195;
+  --steel-action-hover: #1f486f;
 
   /* ---- Status ---------------------------------------------------------- */
   --ok: #68a986;
   --ok-700: #326b4d;
+  --ok-action: #326b4d;
+  --ok-action-hover: #28563f;
   --ok-tint: #edf7f1;
   --warn: #b5731a;
   --warn-700: #8a560f;
   --warn-tint: #fbf1de;
-  --risk: #e23b2c;
-  --risk-700: #a92317;
-  --risk-tint: #fcebe8;
+  --risk: #b5731a;
+  --risk-700: #8a560f;
+  --risk-tint: #fbf1de;
   --done: #1f7a4d;
   --done-700: #155c39;
   --done-tint: #e5f2ea;
@@ -97,30 +108,39 @@
   --ink-2: #c7d1dc;
   --muted: #96a4b3;
   --faint: #738190;
+  --faint-text: #96a4b3;
 
   --line: #253240;
   --line-2: #324354;
   --line-3: #445769;
+  --control-line: #617f98;
 
-  --red: #ef5c4d;
-  --red-600: #de4b3d;
-  --red-700: #ffb0a6;
-  --red-tint: #35201e;
-  --red-tint-2: #4a2a26;
+  --red: #69a4d6;
+  --red-600: #548fbe;
+  --red-700: #acd0ef;
+  --red-action: #2f6195;
+  --red-action-hover: #3c75aa;
+  --red-tint: #1b2a39;
+  --red-tint-2: #2b4d68;
 
   --steel: #69a4d6;
   --steel-700: #acd0ef;
   --steel-tint: #1b2a39;
+  --steel-tint-2: #2b4d68;
+  --steel-action: #2f6195;
+  --steel-action-hover: #3c75aa;
 
   --ok: #78c59d;
   --ok-700: #bce7cf;
+  --ok-action: #326b4d;
+  --ok-action-hover: #28563f;
   --ok-tint: #1a2d25;
   --warn: #d3a354;
   --warn-700: #f0cc8a;
   --warn-tint: #332818;
-  --risk: #ef5c4d;
-  --risk-700: #ffb0a6;
-  --risk-tint: #341d1b;
+  --risk: #d3a354;
+  --risk-700: #f0cc8a;
+  --risk-tint: #332818;
   --done: #4fbb7f;
   --done-700: #abe0c2;
   --done-tint: #193024;

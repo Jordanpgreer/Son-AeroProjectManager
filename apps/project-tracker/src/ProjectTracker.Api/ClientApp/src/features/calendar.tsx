@@ -1,6 +1,7 @@
 import '../App.css'
 import { useState, useEffect, useMemo } from 'react'
 import {
+  CalendarPlus,
   CalendarRange,
   ChevronLeft,
   ChevronRight,
@@ -16,6 +17,7 @@ import {
   buildSchedule,
   statusClass,
   compactDate,
+  dateToMs,
   msToIso,
   addDays,
   startOfTodayMs,
@@ -32,18 +34,33 @@ import {
   SkeletonLine,
   SkeletonBlock,
 } from '../components'
+import {
+  groupCalendarWeeks,
+  isVisibleCalendarDay,
+  nextVisibleCalendarIso,
+  shiftVisibleCalendarWeekIso,
+  visibleCalendarWeekDays,
+} from './calendar-days'
 
 export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }: { data: ProjectDetail[]; holidaySet: Set<string>; workingDaySet: Set<number>; onOpenProject: (projectId: number) => Promise<void> }) {
   const [viewMode, setViewMode] = useState<'month' | 'week'>('month')
   const [monthAnchor, setMonthAnchor] = useState<number | null>(null)
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
+  const [workCenterLoadOpen, setWorkCenterLoadOpen] = useState(true)
+  const [collapsedStations, setCollapsedStations] = useState<Set<string>>(() => new Set())
 
-  const { dayMap, milestoneMap } = useMemo(() => {
+  const { dayMap, milestoneMap, approvedOvertimeDates } = useMemo(() => {
     const operationMap = new Map<string, CalOp[]>()
     const milestones = new Map<string, CalendarMilestone[]>()
+    const approvedDates = new Set<string>()
     for (const project of data) {
       const { items } = buildSchedule(project.tasks, project.programStart, holidaySet, workingDaySet)
       for (const item of items) {
+        const overtimeDates = new Set(item.task.overtimeDays.map((date) => date.date))
+        for (const overtime of item.task.overtimeDays) {
+          const overtimeMs = dateToMs(overtime.date)
+          if (overtimeMs >= item.startMs && overtimeMs <= item.endMs) approvedDates.add(overtime.date)
+        }
         const sharedMilestone = {
           projectId: project.id,
           taskId: item.task.id,
@@ -60,7 +77,7 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
         let day = item.startMs
         let guard = 0
         while (day <= item.endMs && guard < 400) {
-          if (isWorkday(day, holidaySet, workingDaySet, new Set(item.task.overtimeDays.map((date) => date.date)))) {
+          if (isWorkday(day, holidaySet, workingDaySet, overtimeDates)) {
             const iso = msToIso(day)
             const list = operationMap.get(iso) ?? []
             list.push({
@@ -88,7 +105,7 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
     for (const list of milestones.values()) {
       list.sort(compareCalendarMilestones)
     }
-    return { dayMap: operationMap, milestoneMap: milestones }
+    return { dayMap: operationMap, milestoneMap: milestones, approvedOvertimeDates: approvedDates }
   }, [data, holidaySet, workingDaySet])
 
   useEffect(() => {
@@ -101,8 +118,18 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
     }
     const date = new Date(`${initialIso}T00:00:00`)
     setMonthAnchor(new Date(date.getFullYear(), date.getMonth(), 1).getTime())
-    setSelectedDay(initialIso)
-  }, [data, dayMap, milestoneMap, monthAnchor])
+    setSelectedDay(nextVisibleCalendarIso(initialIso, approvedOvertimeDates))
+  }, [approvedOvertimeDates, data, dayMap, milestoneMap, monthAnchor])
+
+  useEffect(() => {
+    if (!selectedDay || isVisibleCalendarDay(dateToMs(selectedDay), selectedDay, approvedOvertimeDates)) return
+    setSelectedDay(nextVisibleCalendarIso(selectedDay, approvedOvertimeDates))
+  }, [approvedOvertimeDates, selectedDay])
+
+  useEffect(() => {
+    setWorkCenterLoadOpen(true)
+    setCollapsedStations(new Set())
+  }, [selectedDay])
 
   if (monthAnchor === null) {
     return (
@@ -115,15 +142,20 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
   const anchor = new Date(monthAnchor)
   const selectedAnchorMs = selectedDay ? new Date(`${selectedDay}T00:00:00`).getTime() : monthAnchor
   const cells = viewMode === 'month' ? buildMonthCells(monthAnchor) : buildWeekCells(selectedAnchorMs)
+  const calendarWeeks = groupCalendarWeeks(cells)
+  const visibleCells = calendarWeeks.flatMap((week) => visibleCalendarWeekDays(week, approvedOvertimeDates))
+  const visiblePeriodStart = visibleCells[0] ?? cells[0]
+  const visiblePeriodEnd = visibleCells.at(-1) ?? cells.at(-1) ?? visiblePeriodStart
   const periodLabel = viewMode === 'month'
     ? new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(anchor)
-    : formatWeekRange(cells[0].ms, cells.at(-1)?.ms ?? cells[0].ms)
+    : formatWeekRange(visiblePeriodStart.ms, visiblePeriodEnd.ms)
   const todayIso = msToIso(startOfTodayMs())
   const selectedOps = selectedDay ? (dayMap.get(selectedDay) ?? []) : []
+  const selectedStationGroups = groupByStation(selectedOps)
   const selectedMilestones = selectedDay ? (milestoneMap.get(selectedDay) ?? []) : []
   const selectedMilestoneCounts = countCalendarMilestones(selectedMilestones)
-  const weekOperations = viewMode === 'week' ? cells.flatMap((cell) => dayMap.get(cell.iso) ?? []) : []
-  const weekMilestones = viewMode === 'week' ? cells.flatMap((cell) => milestoneMap.get(cell.iso) ?? []) : []
+  const weekOperations = viewMode === 'week' ? visibleCells.flatMap((cell) => dayMap.get(cell.iso) ?? []) : []
+  const weekMilestones = viewMode === 'week' ? visibleCells.flatMap((cell) => milestoneMap.get(cell.iso) ?? []) : []
   const weekMilestoneCounts = countCalendarMilestones(weekMilestones)
   const weekActiveOperationCount = new Set(
     weekOperations.map((operation) => `${operation.projectId}-${operation.taskId}`),
@@ -132,26 +164,27 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
 
   const shiftPeriod = (delta: number) => {
     if (viewMode === 'week') {
-      const next = addDays(selectedAnchorMs, delta * 7)
-      setSelectedDay(msToIso(next))
-      const date = new Date(next)
+      const targetIso = shiftVisibleCalendarWeekIso(msToIso(selectedAnchorMs), delta, approvedOvertimeDates)
+      setSelectedDay(targetIso)
+      const date = new Date(`${targetIso}T00:00:00`)
       setMonthAnchor(new Date(date.getFullYear(), date.getMonth(), 1).getTime())
       return
     }
     const current = new Date(monthAnchor)
     const nextMonth = new Date(current.getFullYear(), current.getMonth() + delta, 1)
     setMonthAnchor(nextMonth.getTime())
-    setSelectedDay(msToIso(nextMonth.getTime()))
+    setSelectedDay(nextVisibleCalendarIso(msToIso(nextMonth.getTime()), approvedOvertimeDates))
   }
   const goToday = () => {
-    const now = new Date()
-    setMonthAnchor(new Date(now.getFullYear(), now.getMonth(), 1).getTime())
-    setSelectedDay(todayIso)
+    const nextSelectedDay = nextVisibleCalendarIso(todayIso, approvedOvertimeDates)
+    const nextSelectedDate = new Date(`${nextSelectedDay}T00:00:00`)
+    setMonthAnchor(new Date(nextSelectedDate.getFullYear(), nextSelectedDate.getMonth(), 1).getTime())
+    setSelectedDay(nextSelectedDay)
   }
 
   const changeView = (mode: 'month' | 'week') => {
     setViewMode(mode)
-    if (!selectedDay) setSelectedDay(todayIso)
+    if (!selectedDay) setSelectedDay(nextVisibleCalendarIso(todayIso, approvedOvertimeDates))
   }
 
   return (
@@ -165,8 +198,8 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
             </div>
             <div className="cal-head-actions">
               <div className="calendar-view-toggle" role="group" aria-label="Calendar view">
-                <button className={viewMode === 'month' ? 'active' : ''} type="button" onClick={() => changeView('month')}><LayoutGrid size={14} /> Month</button>
-                <button className={viewMode === 'week' ? 'active' : ''} type="button" onClick={() => changeView('week')}><Rows3 size={14} /> Week</button>
+                <button className={viewMode === 'month' ? 'active' : ''} type="button" aria-pressed={viewMode === 'month'} onClick={() => changeView('month')}><LayoutGrid size={14} /> Month</button>
+                <button className={viewMode === 'week' ? 'active' : ''} type="button" aria-pressed={viewMode === 'week'} onClick={() => changeView('week')}><Rows3 size={14} /> Week</button>
               </div>
               <div className="cal-nav">
               <button className="icon-button" onClick={() => shiftPeriod(-1)} aria-label={`Previous ${viewMode}`}><ChevronLeft size={16} /></button>
@@ -175,7 +208,7 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
               </div>
             </div>
           </header>
-          <div className="cal-legend" aria-label="Calendar legend">
+          <div className="cal-legend" data-guide-id="calendar-overview" aria-label="Calendar legend">
             <span className="cal-legend-item start"><Play size={11} aria-hidden="true" /> Scheduled start</span>
             <span className="cal-legend-item finish"><Flag size={11} aria-hidden="true" /> Scheduled finish</span>
             <span className="cal-legend-item load"><Factory size={11} aria-hidden="true" /> Active work center</span>
@@ -183,48 +216,66 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
             <span className="cal-legend-item conflict"><ConflictIcon message="Work-center conflict: two or more active projects overlap at the same work center." /> Work-center conflict</span>
           </div>
           <div className={`cal-grid ${viewMode === 'week' ? 'week-mode' : 'month-mode'}`}>
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((dow) => <div className="cal-dow" key={dow}>{dow}</div>)}
-            {cells.map((cell) => {
-              const ops = dayMap.get(cell.iso) ?? []
-              const milestones = milestoneMap.get(cell.iso) ?? []
-              const milestoneCounts = countCalendarMilestones(milestones)
-              const stations = stationsForDay(ops)
-              const visibleStationCount = viewMode === 'week' ? (milestones.length > 0 ? 4 : 5) : (milestones.length > 0 ? 2 : 3)
-              const hasConflict = ops.some((op) => op.conflict)
-              const completedLateCount = ops.filter((op) => op.status === 'CompletedLate').length
-              const classes = [
-                'cal-cell',
-                cell.inMonth ? '' : 'out',
-                cell.iso === todayIso ? 'today' : '',
-                cell.iso === selectedDay ? 'selected' : '',
-                holidaySet.has(cell.iso) ? 'holiday' : '',
-                !isWorkday(cell.ms, holidaySet, workingDaySet) ? 'non-working' : '',
-                ops.length ? 'has-ops' : '',
-                milestones.length ? 'has-milestones' : '',
-                hasConflict ? 'has-conflict' : '',
-              ].join(' ')
+            {calendarWeeks.map((week, weekIndex) => {
+              const visibleWeekCells = visibleCalendarWeekDays(week, approvedOvertimeDates)
               return (
-                <button key={cell.iso} className={classes} onClick={() => setSelectedDay(cell.iso)} aria-label={`${calendarCellLabel(cell.iso, ops.length, milestoneCounts.start, milestoneCounts.finish)}${completedLateCount > 0 ? `, ${completedLateCount} completed late operation${completedLateCount === 1 ? '' : 's'}` : ''}${hasConflict ? ', work-center conflict' : ''}`}>
-                  <span className="cal-date">{new Date(cell.ms).getDate()}</span>
-                  {ops.length > 0 && <span className="cal-count" title={`${ops.length} active operation${ops.length === 1 ? '' : 's'}`}><Factory size={9} aria-hidden="true" />{ops.length}</span>}
-                  {hasConflict && <ConflictIcon className="cal-conflict" focusable={false} message="Work-center conflict: two or more active projects use the same work center on this date." />}
-                  {milestones.length > 0 && (
-                    <span className="cal-milestones" aria-hidden="true">
-                      {milestoneCounts.start > 0 && <span className="cal-milestone-chip start"><Play size={9} />{milestoneCounts.start} start{milestoneCounts.start === 1 ? '' : 's'}</span>}
-                      {milestoneCounts.finish > 0 && <span className="cal-milestone-chip finish"><Flag size={9} />{milestoneCounts.finish} finish{milestoneCounts.finish === 1 ? '' : 'es'}</span>}
-                    </span>
-                  )}
-                  <span className="cal-ops">
-                    {stations.slice(0, visibleStationCount).map((entry) => (
-                      <span className={`cal-op ${statusClass(entry.status)} ${entry.unassigned ? 'unassigned' : ''} ${entry.completed ? 'completed-project' : ''}`} key={entry.station}>
-                        {entry.station}
-                        {entry.status === 'CompletedLate' && <span className="cal-op-status">Late</span>}
-                        {entry.completed && <Check size={10} aria-hidden="true" />}
-                      </span>
-                    ))}
-                    {stations.length > visibleStationCount && <span className="cal-more">+{stations.length - visibleStationCount} work center{stations.length - visibleStationCount === 1 ? '' : 's'}</span>}
-                  </span>
-                </button>
+                <div
+                  className="cal-week"
+                  key={`${viewMode}-${week[0]?.iso ?? weekIndex}`}
+                  style={{ gridTemplateColumns: `repeat(${visibleWeekCells.length}, minmax(0, 1fr))` }}
+                >
+                  {visibleWeekCells.map((cell) => {
+                    const ops = dayMap.get(cell.iso) ?? []
+                    const milestones = milestoneMap.get(cell.iso) ?? []
+                    const milestoneCounts = countCalendarMilestones(milestones)
+                    const stations = stationsForDay(ops)
+                    const visibleStationCount = viewMode === 'week' ? (milestones.length > 0 ? 4 : 5) : (milestones.length > 0 ? 2 : 3)
+                    const hasConflict = ops.some((op) => op.conflict)
+                    const completedLateCount = ops.filter((op) => op.status === 'CompletedLate').length
+                    const approvedOvertime = approvedOvertimeDates.has(cell.iso)
+                    const classes = [
+                      'cal-cell',
+                      cell.inMonth ? '' : 'out',
+                      cell.iso === todayIso ? 'today' : '',
+                      cell.iso === selectedDay ? 'selected' : '',
+                      holidaySet.has(cell.iso) ? 'holiday' : '',
+                      !isWorkday(cell.ms, holidaySet, workingDaySet) ? 'non-working' : '',
+                      approvedOvertime ? 'approved-overtime' : '',
+                      ops.length ? 'has-ops' : '',
+                      milestones.length ? 'has-milestones' : '',
+                      hasConflict ? 'has-conflict' : '',
+                    ].join(' ')
+                    return (
+                      <div className="cal-day-column" key={cell.iso}>
+                        <div className={`cal-dow ${approvedOvertime ? 'approved-overtime' : ''}`}>
+                          <span>{new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(new Date(cell.ms))}</span>
+                          {approvedOvertime && <span className="cal-overtime-label"><CalendarPlus size={10} aria-hidden="true" /> OT</span>}
+                        </div>
+                        <button className={classes} data-guide-id={hasConflict && cell.iso === selectedDay ? 'calendar-conflict-day' : undefined} onClick={() => setSelectedDay(cell.iso)} aria-label={`${calendarCellLabel(cell.iso, ops.length, milestoneCounts.start, milestoneCounts.finish)}${approvedOvertime ? ', approved overtime' : ''}${completedLateCount > 0 ? `, ${completedLateCount} completed late operation${completedLateCount === 1 ? '' : 's'}` : ''}${hasConflict ? ', work-center conflict' : ''}`}>
+                          <span className="cal-date">{new Date(cell.ms).getDate()}</span>
+                          {ops.length > 0 && <span className="cal-count" title={`${ops.length} active operation${ops.length === 1 ? '' : 's'}`}><Factory size={9} aria-hidden="true" />{ops.length}</span>}
+                          {hasConflict && <ConflictIcon className="cal-conflict" focusable={false} message="Work-center conflict: two or more active projects use the same work center on this date." />}
+                          {milestones.length > 0 && (
+                            <span className="cal-milestones" aria-hidden="true">
+                              {milestoneCounts.start > 0 && <span className="cal-milestone-chip start"><Play size={9} />{milestoneCounts.start} start{milestoneCounts.start === 1 ? '' : 's'}</span>}
+                              {milestoneCounts.finish > 0 && <span className="cal-milestone-chip finish"><Flag size={9} />{milestoneCounts.finish} finish{milestoneCounts.finish === 1 ? '' : 'es'}</span>}
+                            </span>
+                          )}
+                          <span className="cal-ops">
+                            {stations.slice(0, visibleStationCount).map((entry) => (
+                              <span className={`cal-op ${statusClass(entry.status)} ${entry.unassigned ? 'unassigned' : ''} ${entry.completed ? 'completed-project' : ''}`} key={entry.station}>
+                                {entry.station}
+                                {entry.status === 'CompletedLate' && <span className="cal-op-status">Late</span>}
+                                {entry.completed && <Check size={10} aria-hidden="true" />}
+                              </span>
+                            ))}
+                            {stations.length > visibleStationCount && <span className="cal-more">+{stations.length - visibleStationCount} work center{stations.length - visibleStationCount === 1 ? '' : 's'}</span>}
+                          </span>
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
               )
             })}
           </div>
@@ -286,35 +337,65 @@ export function CalendarView({ data, holidaySet, workingDaySet, onOpenProject }:
               )}
               {selectedOps.length > 0 && (
                 <section className="day-section" aria-labelledby="day-load-heading">
-                  <div className="day-section-head">
-                    <span className="kicker" id="day-load-heading">Work Center Load</span>
-                    <span>{selectedOps.length}</span>
-                  </div>
-              {groupByStation(selectedOps).map((group) => (
-                <div className="day-group" key={group.station}>
-                  <div className="day-group-head">
-                    <span className={`day-station ${group.unassigned ? 'unset' : ''}`}>
-                      {group.station}
-                      {group.conflict && <ConflictIcon message={`Work-center conflict: ${group.station} has overlapping project operations on this date.`} />}
+                  <button
+                    className="day-section-head day-collapse-toggle"
+                    data-guide-id="calendar-work-center-load"
+                    type="button"
+                    aria-expanded={workCenterLoadOpen}
+                    aria-controls="day-load-groups"
+                    onClick={() => setWorkCenterLoadOpen((open) => !open)}
+                  >
+                    <span className="day-collapse-label">
+                      <ChevronRight className={`day-collapse-chevron ${workCenterLoadOpen ? 'open' : ''}`} size={14} aria-hidden="true" />
+                      <span className="kicker" id="day-load-heading">Work Center Load</span>
                     </span>
-                    <span className="day-group-count">{group.ops.length}</span>
-                  </div>
-                  <div className="day-group-ops">
-                    {group.ops.map((op, index) => (
-                      <button className={`day-op ${op.completedProject ? 'completed-project' : ''}`} key={index} onClick={() => onOpenProject(op.projectId)} title={`Open ${op.programName}`}>
-                        <span className={`day-rail ${statusClass(op.status)}`} />
-                        <div className="day-op-body">
-                          <span className="mono-id">{op.programName}{op.completedProject && <span className="completed-project-badge">Completed</span>}</span>
-                          <span className="day-op-task">
-                            {op.taskTitle}{op.projected ? ' · projected' : ''}
-                            {op.status === 'CompletedLate' && <span className="completed-late-badge">Completed late</span>}
-                          </span>
+                    <span>{selectedOps.length}</span>
+                  </button>
+                  <div className="day-load-groups" id="day-load-groups" hidden={!workCenterLoadOpen}>
+                    {selectedStationGroups.map((group, groupIndex) => {
+                      const groupOpen = !collapsedStations.has(group.station)
+                      const groupId = `day-load-group-${groupIndex}`
+                      return (
+                        <div className="day-group" key={group.station}>
+                          <button
+                            className="day-group-head day-collapse-toggle"
+                            type="button"
+                            aria-expanded={groupOpen}
+                            aria-controls={groupId}
+                            onClick={() => setCollapsedStations((current) => {
+                              const next = new Set(current)
+                              if (next.has(group.station)) next.delete(group.station)
+                              else next.add(group.station)
+                              return next
+                            })}
+                          >
+                            <span className={`day-station ${group.unassigned ? 'unset' : ''}`}>
+                              {group.station}
+                              {group.conflict && <ConflictIcon focusable={false} message={`Work-center conflict: ${group.station} has overlapping project operations on this date.`} />}
+                            </span>
+                            <span className="day-group-head-meta">
+                              <span className="day-group-count">{group.ops.length}</span>
+                              <ChevronRight className={`day-collapse-chevron ${groupOpen ? 'open' : ''}`} size={14} aria-hidden="true" />
+                            </span>
+                          </button>
+                          <div className="day-group-ops" id={groupId} hidden={!groupOpen}>
+                            {group.ops.map((op, index) => (
+                              <button className={`day-op ${op.completedProject ? 'completed-project' : ''}`} key={index} onClick={() => onOpenProject(op.projectId)} title={`Open ${op.programName}`}>
+                                <span className={`day-rail ${statusClass(op.status)}`} />
+                                <div className="day-op-body">
+                                  <span className="mono-id">{op.programName}{op.completedProject && <span className="completed-project-badge">Completed</span>}</span>
+                                  <span className="day-op-task">
+                                    {op.taskTitle}{op.projected ? ' · projected' : ''}
+                                    {op.status === 'CompletedLate' && <span className="completed-late-badge">Completed late</span>}
+                                  </span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
                         </div>
-                      </button>
-                    ))}
+                      )
+                    })}
                   </div>
-                </div>
-              ))}
                 </section>
               )}
             </div>

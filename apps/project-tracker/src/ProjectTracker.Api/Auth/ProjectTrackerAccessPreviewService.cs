@@ -185,12 +185,17 @@ public sealed class ProjectTrackerAccessPreviewService(
         });
     }
 
-    public string HubAccessAdminUrl(HttpRequest request)
+    public string HubAccessAdminUrl(HttpRequest request) => HubAdminUrl(request, "#/admin/access");
+
+    public string HubWalkthroughAdminUrl(HttpRequest request) =>
+        HubAdminUrl(request, "#/admin/project-tracker/walkthrough");
+
+    private string HubAdminUrl(HttpRequest request, string fragment)
     {
         var runtimePortalOrigin = RuntimePortalOrigin(request);
         if (runtimePortalOrigin is not null)
         {
-            return $"{runtimePortalOrigin}/#/admin/access";
+            return $"{runtimePortalOrigin}/{fragment}";
         }
 
         var configuredOrigins = (configuration.GetSection("Cors:HubOrigins").Get<string[]>() ?? [])
@@ -204,7 +209,7 @@ public sealed class ProjectTrackerAccessPreviewService(
             ?? configuredOrigins.FirstOrDefault();
         if (configuredOrigin is not null)
         {
-            return $"{configuredOrigin.GetLeftPart(UriPartial.Authority)}/#/admin/access";
+            return $"{configuredOrigin.GetLeftPart(UriPartial.Authority)}/{fragment}";
         }
 
         throw new InvalidOperationException(

@@ -34,6 +34,22 @@ public sealed class AccessPreviewMiddlewareTests
     }
 
     [Fact]
+    public async Task Walkthrough_preview_returns_to_the_onboarding_admin_section()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>().UseSqlite(connection).Options;
+        await using var db = new ProjectTrackerDbContext(options);
+        var context = new DefaultHttpContext();
+        context.Request.Host = new HostString("localhost", 5135);
+
+        var url = new ProjectTrackerAccessPreviewService(db, new ConfigurationBuilder().Build())
+            .HubWalkthroughAdminUrl(context.Request);
+
+        Assert.Equal("http://localhost:5140/#/admin/project-tracker/walkthrough", url);
+    }
+
+    [Fact]
     public async Task Access_preview_prefers_permanent_portal_origin_when_legacy_origin_is_first()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

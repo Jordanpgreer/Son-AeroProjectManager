@@ -62,7 +62,7 @@
 }
 
 .sidebar-rail-toggle:hover svg { color: #fff; }
-.sidebar-rail-toggle:focus-visible { outline: 2px solid #f06c5d; outline-offset: 2px; }
+.sidebar-rail-toggle:focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; }
 .sidebar-rail-toggle-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .is-sidebar-collapsed .sidebar-rail-toggle {
@@ -80,8 +80,7 @@
 
 .is-sidebar-collapsed .nav-heading,
 .is-sidebar-collapsed .nav-link-label,
-.is-sidebar-collapsed .sidebar-source,
-.is-sidebar-collapsed .user-copy {
+.is-sidebar-collapsed .sidebar-source {
   display: none;
 }
 
@@ -93,12 +92,6 @@
 .is-sidebar-collapsed .nav-icon {
   width: 36px;
   height: 36px;
-}
-
-.is-sidebar-collapsed .sidebar-foot {
-  display: grid;
-  justify-content: center;
-  padding-inline: 8px;
 }
 
 .topbar-title-area {

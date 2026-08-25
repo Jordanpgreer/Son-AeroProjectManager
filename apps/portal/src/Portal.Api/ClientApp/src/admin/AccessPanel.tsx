@@ -57,7 +57,7 @@ export default function AccessPanel({
   currentAccountName,
   canManageUsers,
   canManageGroups,
-  context = 'SON-AERO',
+  context = 'Arda',
 }: {
   currentAccountName: string | null
   canManageUsers: boolean

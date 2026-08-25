@@ -29,7 +29,7 @@
   height: 28px;
   place-items: center;
   color: #fff;
-  background: var(--steel-700);
+  background: var(--steel-action);
   border-radius: 50%;
   font-size: 11px;
   font-weight: 800;
@@ -81,13 +81,13 @@
 .admin-import-stats > span { display: grid; gap: 2px; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); }
 .admin-import-stats strong { color: var(--ink); font-size: 20px; line-height: 1; }
 .admin-import-stats small { color: var(--muted); font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; }
-.admin-import-stats .has-errors { border-color: var(--red-tint-2); }
+.admin-import-stats .has-errors { border-color: color-mix(in srgb, var(--risk) 36%, var(--line)); }
 .admin-import-stats .has-errors strong { color: var(--risk-700); }
 .admin-import-stats .is-valid strong { color: var(--ok-700); }
 .admin-import-impact { display: flex; flex-wrap: wrap; gap: 7px; }
 .admin-import-impact span { padding: 6px 9px; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; font-size: 10px; }
 .admin-import-impact strong { color: var(--ink); }
-.admin-import-errors { padding: 14px; background: var(--risk-tint); border: 1px solid var(--red-tint-2); border-radius: var(--r-sm); }
+.admin-import-errors { padding: 14px; background: var(--risk-tint); border: 1px solid color-mix(in srgb, var(--risk) 36%, var(--line)); border-radius: var(--r-sm); }
 .admin-import-errors h4 { display: flex; align-items: center; gap: 7px; margin: 0 0 10px; color: var(--risk-700); font-size: 12px; }
 .admin-import-errors ul { display: grid; gap: 7px; max-height: 260px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
 .admin-import-errors li { display: grid; gap: 2px; padding: 8px 10px; background: color-mix(in srgb, var(--surface) 82%, transparent); border-radius: 5px; }
@@ -135,7 +135,9 @@
   .admin-page-head,
   .admin-surface-head,
   .admin-inline-save,
-  .admin-save-bar { align-items: stretch; flex-direction: column; }
+  .admin-save-bar,
+  .admin-walkthrough-preview > footer { align-items: stretch; flex-direction: column; }
+  .admin-onboarding-settings { grid-template-columns: 1fr; }
   .admin-module-tabs {
     display: flex;
     margin-inline: -16px;

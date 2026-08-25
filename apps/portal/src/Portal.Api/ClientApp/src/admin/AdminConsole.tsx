@@ -11,6 +11,7 @@ import {
   Factory,
   FolderTree,
   GanttChart,
+  GraduationCap,
   LockKeyhole,
   Settings2,
   ShieldCheck,
@@ -21,7 +22,9 @@ import {
 import AccessPanel from './AccessPanel'
 import AccessPreviewPanel from './AccessPreviewPanel'
 import EngineeringStoragePanel from './EngineeringStoragePanel'
+import EstimatorSettingsPanel from './EstimatorSettingsPanel'
 import QualityAssignmentRulesPanel from './QualityAssignmentRulesPanel'
+import WalkthroughSettingsPanel from './WalkthroughSettingsPanel'
 import { toErrorMessage, trackerApi } from './api'
 import { resolveModuleApplicationUrl } from './moduleUrls'
 import { ImportsPanel } from './ProjectTrackerDataPanels'
@@ -73,7 +76,7 @@ const MODULES: {
   },
   {
     key: 'hub',
-    label: 'Hub',
+    label: 'Arda',
     description: 'Administration directory and module ownership',
     icon: Boxes,
     href: '#/admin/hub/overview',
@@ -117,6 +120,7 @@ const PROJECT_TRACKER_SECTIONS: {
   label: string
   icon: typeof Settings2
 }[] = [
+  { key: 'walkthrough', label: 'Onboarding', icon: GraduationCap },
   { key: 'calendar', label: 'Work Calendar', icon: CalendarDays },
   { key: 'work-centers', label: 'Work Centers', icon: Factory },
   { key: 'holidays', label: 'Holidays', icon: CalendarDays },
@@ -219,10 +223,12 @@ export default function AdminConsole({
   currentAccountName,
   currentPortalRole,
   onPreviewAccess,
+  onPreviewWalkthrough,
 }: {
   currentAccountName: string | null
   currentPortalRole: string | null
   onPreviewAccess: (target: AdminAccessPreviewTarget) => void
+  onPreviewWalkthrough: (target: AdminAccessPreviewTarget) => Promise<void>
 }) {
   const route = parseRoute()
   const activeModule = MODULES.find((module) => module.key === route.module) ?? MODULES[0]
@@ -255,7 +261,7 @@ export default function AdminConsole({
     if (window.location.hash.split('?')[0] !== canonical) {
       window.history.replaceState(null, '', canonical)
     }
-    document.title = `${activeModule.label} Admin - SON-AERO`
+    document.title = `${activeModule.label} Admin · Arda`
     panelHeadingRef.current?.focus()
   }, [activeModule.label, route.module, route.section])
 
@@ -267,12 +273,14 @@ export default function AdminConsole({
   const canManageGroups = granted.has(PERMISSIONS.manageGroups)
   const canOpenAccess = canManageUsers || canManageGroups
   const canManageQualityRules = granted.has('quality-assurance.rules.manage')
+  const canManageEstimatingSettings = granted.has('estimating.settings.admin')
   const canManageWorkCenters = granted.has(PERMISSIONS.workCenters)
   const canImportWorkCenters = granted.has(PERMISSIONS.workCenterImports)
   const isAdministrator = trackerUser?.groups.some(
     (group) => group.toLowerCase() === 'administrators',
   ) ?? false
   const canOpenSection = (section: ProjectTrackerAdminSection) => {
+    if (section === 'walkthrough') return isAdministrator && canManageGroups
     if (section === 'calendar') return granted.has(PERMISSIONS.calendar)
     if (section === 'work-centers') return canManageWorkCenters || canImportWorkCenters
     if (section === 'holidays') return granted.has(PERMISSIONS.holidays)
@@ -314,7 +322,7 @@ export default function AdminConsole({
       <header className="admin-page-head">
         <div>
           <span className="kicker">Administration</span>
-          <h1>Hub Admin</h1>
+          <h1>Arda Admin</h1>
           <p>Manage module-owned settings from one controlled workspace.</p>
         </div>
         <span className="admin-controlled-badge"><ShieldCheck size={15} /> Permission controlled</span>
@@ -440,6 +448,7 @@ export default function AdminConsole({
           {route.module === 'project-tracker' && !permissionsLoading && !permissionsError && !selectedSectionAllowed && <NoAccess detail="Your Project Tracker groups do not grant the permission required for this administration section." />}
           {route.module === 'project-tracker' && !permissionsLoading && !permissionsError && selectedSectionAllowed && (
             <>
+              {route.section === 'walkthrough' && <WalkthroughSettingsPanel onPreviewWalkthrough={onPreviewWalkthrough} />}
               {route.section === 'calendar' && <WorkCalendarPanel />}
               {route.section === 'work-centers' && (
                 <WorkCentersPanel
@@ -456,14 +465,10 @@ export default function AdminConsole({
           {route.module === 'quality-assurance' && !permissionsLoading && permissionsError && <NoAccess detail={permissionsError} />}
           {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && !canManageQualityRules && <NoAccess detail="Your groups do not grant permission to manage Quality assignment rules." />}
           {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && canManageQualityRules && <QualityAssignmentRulesPanel />}
-          {route.module === 'estimating' && (
-            <section className="admin-surface admin-placeholder">
-              <span className="admin-placeholder-icon"><ShieldCheck size={25}/></span>
-              <h2>No module-specific settings yet</h2>
-              <p>Users, shared groups, and {activeModule.label} permissions are managed from the centralized Access screen.</p>
-              <a className="ghost-button" href="#/admin/access">Open Access</a>
-            </section>
-          )}
+          {route.module === 'estimating' && permissionsLoading && <div className="admin-loading" role="status">Checking Estimating permissions...</div>}
+          {route.module === 'estimating' && !permissionsLoading && permissionsError && <NoAccess detail={permissionsError} />}
+          {route.module === 'estimating' && !permissionsLoading && !permissionsError && !canManageEstimatingSettings && <NoAccess detail="Your groups do not grant permission to administer Estimating settings." />}
+          {route.module === 'estimating' && !permissionsLoading && !permissionsError && canManageEstimatingSettings && <EstimatorSettingsPanel />}
         </div>
       </section>
     </main>

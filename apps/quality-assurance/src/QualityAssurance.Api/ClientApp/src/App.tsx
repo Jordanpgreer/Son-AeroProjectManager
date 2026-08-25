@@ -118,7 +118,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    document.title = `${route === 'dashboard' ? 'Quality Dashboard' : 'Shipping Status'} - SON-AERO`
+    document.title = `${route === 'dashboard' ? 'Quality Dashboard' : 'Shipping Status'} · Arda`
   }, [route])
 
   if (!user) {
@@ -128,7 +128,7 @@ export default function App() {
           <span className="access-icon">{loading ? <ShieldCheck size={31} /> : <LockKeyhole size={31} />}</span>
           <span className="eyebrow">Quality Assurance access</span>
           <h1>{loading ? 'Checking your access' : 'Access unavailable'}</h1>
-          <p>{loading ? 'Verifying your SON-AERO account and shared Quality permissions.' : error ?? 'Your assigned groups do not grant access to Quality Assurance.'}</p>
+          <p>{loading ? 'Verifying your Arda account and shared Quality permissions.' : error ?? 'Your assigned groups do not grant access to Quality Assurance.'}</p>
           {!loading && <a className="return-button" href={hubUrl} target="_top"><AlertTriangle size={17} /> Return to Applications</a>}
         </section>
       </main>
@@ -143,7 +143,7 @@ export default function App() {
     <div className={`qa-shell quality-assurance-app ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
       <a className="skip-link" href="#main-content">Skip to main content</a>
       <aside className="sidebar" id="quality-sidebar">
-        <a className="brand brand-hub-link" href={hubUrl} target="_top" aria-label="Return to All Applications" title="Return to All Applications"><img className="brand-lockup" src="/brand/son-aero-lockup-dark.png" alt="Son-Aero - Sonfarrel Aerospace" /><img className="brand-mark" src="/brand/son-aero-mark.png" alt="Son-Aero" /></a>
+        <a className="brand brand-hub-link" href={hubUrl} target="_top" aria-label="Return to Arda applications" title="Return to Arda applications"><img className="brand-lockup brand-lockup-standard" src="/brand/arda-lockup.png" alt="" /><img className="brand-lockup brand-lockup-reversed" src="/brand/arda-lockup-reversed.png" alt="" /><img className="brand-mark brand-mark-standard" src="/brand/arda-mark.png" alt="" /><img className="brand-mark brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" /></a>
         <button type="button" className="sidebar-rail-toggle" aria-label={sidebarCollapsed ? 'Expand Quality Assurance navigation' : 'Collapse Quality Assurance navigation'} aria-expanded={!sidebarCollapsed} aria-controls="quality-sidebar" title={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} onClick={() => setSidebarCollapsed((current) => !current)}>
           {sidebarCollapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}
           <span className="sidebar-rail-toggle-label">{sidebarCollapsed ? 'Expand menu' : 'Collapse menu'}</span>
@@ -164,7 +164,7 @@ export default function App() {
             <div className="page-title-block"><span className="eyebrow">{page.eyebrow}</span><h1>{page.title}</h1><p>{page.description}</p></div>
           </div>
           <div className="topbar-actions">
-            <a className="topbar-brand-link" href={hubUrl} target="_top" aria-label="Return to All Applications" title="Return to All Applications"><img src="/brand/son-aero-mark.png" alt="" /></a>
+            <a className="topbar-brand-link" href={hubUrl} target="_top" aria-label="Return to Arda applications" title="Return to Arda applications"><img className="topbar-brand-mark-standard" src="/brand/arda-mark.png" alt="" /><img className="topbar-brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" /></a>
             <div className="topbar-identity"><ThemeSwitch theme={theme} onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} /><div className="user-chip topbar-user-chip" title={`${user.accountName}\n${user.groups.join(', ')}`}><span className="user-copy"><strong>{user.displayName}</strong><small>{user.role}</small></span><span className="avatar">{initials(user.displayName)}</span></div></div>
             <button className="button ghost" type="button" onClick={() => setReloadKey((value) => value + 1)}><RefreshCw size={15} /> Refresh</button>
           </div>

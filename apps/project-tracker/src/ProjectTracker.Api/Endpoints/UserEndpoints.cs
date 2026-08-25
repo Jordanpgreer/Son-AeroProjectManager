@@ -12,8 +12,35 @@ public static class UserEndpoints
 {
     public static RouteGroupBuilder MapUserEndpoints(this RouteGroupBuilder api)
     {
+        api.MapGet("/walkthrough/bootstrap", async (
+            CurrentUserService currentUser,
+            ProjectTrackerDbContext db,
+            CancellationToken cancellationToken) =>
+        {
+            var featureSettings = await db.FeatureSettings
+                .AsNoTracking()
+                .Where(settings => settings.Id == FeatureSettings.SingletonId)
+                .FirstOrDefaultAsync(cancellationToken)
+                ?? new FeatureSettings();
+            var canLaunch = (featureSettings.WalkthroughEnabled || currentUser.IsAccessPreview)
+                && currentUser.IsRegistered
+                && currentUser.Permissions.Contains(ApplicationPermissions.ModuleView, StringComparer.OrdinalIgnoreCase);
+
+            return new WalkthroughBootstrapDto(
+                canLaunch,
+                currentUser.DisplayName,
+                currentUser.Groups,
+                canLaunch ? currentUser.Permissions : [],
+                currentUser.IsAccessPreview ? "/access-preview/end?experience=walkthrough" : null);
+        });
+
         api.MapGet("/me", async (CurrentUserService currentUser, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
         {
+            var featureSettings = await db.FeatureSettings
+                .AsNoTracking()
+                .Where(settings => settings.Id == FeatureSettings.SingletonId)
+                .FirstOrDefaultAsync(cancellationToken)
+                ?? new FeatureSettings();
             var effectiveAccountName = currentUser.EffectiveAccountName;
             if (currentUser.IsAccessPreview && effectiveAccountName is null)
             {
@@ -23,6 +50,7 @@ public static class UserEndpoints
                     targetKey,
                     currentUser.PreviewTargetTitle ?? "Project Tracker group",
                     currentUser,
+                    featureSettings,
                     new AccessPreviewInfoDto(
                         currentUser.ActorAccountName,
                         targetKey,
@@ -64,6 +92,7 @@ public static class UserEndpoints
                 effectiveAccountName ?? user.AccountName,
                 user.DisplayName,
                 currentUser,
+                featureSettings,
                 preview));
         });
 
@@ -153,6 +182,7 @@ public static class UserEndpoints
         string accountName,
         string displayName,
         CurrentUserService currentUser,
+        FeatureSettings featureSettings,
         AccessPreviewInfoDto? preview)
     {
         var permissions = currentUser.Permissions;
@@ -177,6 +207,9 @@ public static class UserEndpoints
                 or ApplicationPermissions.AccessManageUsers
                 or ApplicationPermissions.AccessManageGroups
                 or ApplicationPermissions.ArchivedRestore),
+            featureSettings.WalkthroughEnabled,
+            featureSettings.AssistantEnabled,
+            featureSettings.AssistantName,
             preview);
     }
 

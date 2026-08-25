@@ -3,7 +3,6 @@
 :root {
   /* App-specific + intentionally-divergent tokens. Shared tokens: brand-tokens.css */
   --font-id: Arial, 'Helvetica Neue', Helvetica, system-ui, sans-serif;
-  --grid-line: rgba(16, 24, 33, 0.045);
   --done-700: #155c39;
   --shadow-pop: 0 28px 80px -24px rgba(11, 17, 24, 0.50);
 
@@ -29,7 +28,6 @@
 }
 
 :root[data-theme='dark'] {
-  --grid-line: rgba(255, 255, 255, 0.045);
   --shadow-pop: 0 28px 80px -24px rgba(0, 0, 0, 0.72);
 }
 

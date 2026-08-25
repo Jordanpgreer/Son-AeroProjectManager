@@ -17,7 +17,7 @@
   justify-content: space-between;
   gap: 24px;
   padding: 20px 22px;
-  border-top: 3px solid var(--red);
+  border-top: 3px solid var(--steel);
 }
 
 .quote-dashboard-intro h2,
@@ -42,8 +42,8 @@
   min-height: 40px;
   padding: 8px 13px;
   color: #fff;
-  background: var(--steel-700);
-  border: 1px solid var(--steel-700);
+  background: var(--steel-action);
+  border: 1px solid var(--steel-action);
   border-radius: var(--r-sm);
   font: inherit;
   font-weight: 700;
@@ -53,8 +53,8 @@
 .primary-action-button:hover,
 .add-row-button:hover,
 .add-quantity-button:hover {
-  background: var(--steel);
-  border-color: var(--steel);
+  background: var(--steel-action-hover);
+  border-color: var(--steel-action-hover);
 }
 
 .quote-storage-notice {
@@ -265,9 +265,9 @@
 }
 
 .quote-row-actions .danger-link {
-  color: var(--risk);
-  background: var(--risk-tint);
-  border-color: color-mix(in srgb, var(--risk) 26%, var(--line));
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border-color: color-mix(in srgb, var(--steel) 30%, var(--line));
 }
 
 .quote-empty-state {

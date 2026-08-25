@@ -119,6 +119,23 @@ public sealed class ProjectTrackerPermissionSchemaTests
     }
 
     [Fact]
+    public void FeatureSettings_UsesASingletonKeyAndEnablesHelpFeaturesByDefault()
+    {
+        var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>()
+            .UseSqlite("Data Source=:memory:")
+            .Options;
+        using var db = new ProjectTrackerDbContext(options);
+        var featureSettings = db.Model.FindEntityType(typeof(FeatureSettings))!;
+        var defaults = new FeatureSettings();
+
+        Assert.Equal(nameof(FeatureSettings.Id), featureSettings.FindPrimaryKey()!.Properties.Single().Name);
+        Assert.Equal(FeatureSettings.AssistantNameMaxLength, featureSettings.FindProperty(nameof(FeatureSettings.AssistantName))!.GetMaxLength());
+        Assert.True(defaults.WalkthroughEnabled);
+        Assert.True(defaults.AssistantEnabled);
+        Assert.Equal("Benny", defaults.AssistantName);
+    }
+
+    [Fact]
     public async Task SqliteDefaultPermissionSeed_RunsOnlyOnce()
     {
         var path = Path.Combine(Path.GetTempPath(), $"project-tracker-permissions-{Guid.NewGuid():N}.db");

@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "test:calendar": "node --test tests/calendar-days.test.mjs",
+    "test:guide": "node --test tests/guide-rules.test.mjs",
     "test:service-worker": "node --test tests/project-tracker-sw.test.mjs",
     "preview": "vite preview"
   },

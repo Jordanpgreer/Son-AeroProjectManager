@@ -128,6 +128,11 @@ export function calculateDuration(startDate: string | null, endDate: string | nu
   return workdaysBetween(dateToMs(startDate), dateToMs(endDate), holidaySet, workingDaySet, overtimeDates)
 }
 
+export function operationDateRangeError(startDate: string | null | undefined, endDate: string | null | undefined) {
+  if (!startDate || !endDate || startDate <= endDate) return null
+  return 'Start date cannot be later than end date. Choose a start date on or before the end date.'
+}
+
 export function calculateAutoProgressPercent(
   startDate: string | null,
   endDate: string | null,

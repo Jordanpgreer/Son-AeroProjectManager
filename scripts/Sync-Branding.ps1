@@ -1,17 +1,24 @@
 <#
     Sync-Branding.ps1
 
-    Copies the canonical SON-AERO web brand assets from shared/branding/web into each
-    application's ClientApp/public/brand folder, and the canonical design tokens from
-    shared/branding/brand-tokens.css into each ClientApp/src (imported by that app's
-    index.css). Uses plain file copies (no symlinks) so it works on any Windows checkout,
-    including paths that contain spaces.
+    Copies the canonical Arda application-shell assets from shared/branding/web into each
+    application's ClientApp/public/brand folder, along with the canonical design tokens
+    and Arda shell treatment in each ClientApp/src. Uses plain file copies (no symlinks)
+    so it works on any Windows checkout, including paths that contain spaces.
 #>
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $source = Join-Path $repoRoot 'shared\branding\web'
 $tokens = Join-Path $repoRoot 'shared\branding\brand-tokens.css'
+$shellStyles = Join-Path $repoRoot 'shared\branding\arda-shell.css'
+$assetNames = @(
+    'arda-lockup.png',
+    'arda-mark.png',
+    'arda-lockup-reversed.png',
+    'arda-mark-reversed.png',
+    'arda-favicon.png'
+)
 
 if (-not (Test-Path -LiteralPath $source)) {
     throw "Branding source not found: $source"
@@ -22,6 +29,7 @@ $clientApps = @(
     (Join-Path $repoRoot 'apps\project-tracker\src\ProjectTracker.Api\ClientApp'),
     (Join-Path $repoRoot 'apps\portal\src\Portal.Api\ClientApp'),
     (Join-Path $repoRoot 'apps\estimating-dashboard\src\EstimatingDashboard.Api\ClientApp'),
+    (Join-Path $repoRoot 'apps\engineering-hub\src\EngineeringHub.Api\ClientApp'),
     (Join-Path $repoRoot 'apps\quality-assurance\src\QualityAssurance.Api\ClientApp')
 )
 
@@ -34,19 +42,21 @@ foreach ($clientApp in $clientApps) {
     $brandDir = Join-Path $clientApp 'public\brand'
     New-Item -ItemType Directory -Force -Path $brandDir | Out-Null
 
-    Get-ChildItem -LiteralPath $source -File | Where-Object { $_.Name -ne 'favicon.svg' } | ForEach-Object {
-        Copy-Item -LiteralPath $_.FullName -Destination $brandDir -Force
-    }
-
-    # favicon lives at the public root, not under /brand.
-    $favicon = Join-Path $source 'favicon.svg'
-    if (Test-Path -LiteralPath $favicon) {
-        Copy-Item -LiteralPath $favicon -Destination (Join-Path $clientApp 'public') -Force
+    foreach ($assetName in $assetNames) {
+        $asset = Join-Path $source $assetName
+        if (-not (Test-Path -LiteralPath $asset)) {
+            throw "Canonical Arda asset not found: $asset"
+        }
+        Copy-Item -LiteralPath $asset -Destination $brandDir -Force
     }
 
     # Design tokens: imported by src/index.css, so they land next to it in src.
     if (Test-Path -LiteralPath $tokens) {
         Copy-Item -LiteralPath $tokens -Destination (Join-Path $clientApp 'src') -Force
+    }
+
+    if (Test-Path -LiteralPath $shellStyles) {
+        Copy-Item -LiteralPath $shellStyles -Destination (Join-Path $clientApp 'src') -Force
     }
 
     Write-Host "Synced branding -> $brandDir"

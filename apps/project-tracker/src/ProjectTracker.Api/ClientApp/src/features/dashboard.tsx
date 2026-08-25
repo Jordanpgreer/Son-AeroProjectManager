@@ -82,7 +82,9 @@ export function DashboardView({
     ? scopedProjects.filter((project) =>
       project.programName.toLowerCase().includes(query) ||
       (project.customerName ?? '').toLowerCase().includes(query) ||
-      (project.salesOrderNumber ?? '').toLowerCase().includes(query))
+      (project.salesOrderNumber ?? '').toLowerCase().includes(query) ||
+      (project.jobNumber ?? '').toLowerCase().includes(query) ||
+      project.status.toLowerCase().includes(query))
     : scopedProjects
 
   const handleSort = (field: DashboardSortField) =>
@@ -121,7 +123,7 @@ export function DashboardView({
 
   return (
     <section className="view dashboard-view">
-      <div className="kpi-row">
+      <div className="kpi-row" data-guide-id="dashboard-summary">
         <Kpi label="Active Programs" value={total.toString()} hint="in the development queue" tone="ink" icon={<Factory size={17} />} />
         <Kpi label="On Track" value={onTrack.toString()} hint={behind > 0 ? 'some need attention' : 'all clear'} tone="ok" icon={<CheckCircle2 size={17} />} />
         <Kpi label="Behind Schedule" value={behind.toString()} hint={behind > 0 ? 'needs attention' : 'all clear'} tone="risk" icon={<AlertTriangle size={17} />} />
@@ -129,6 +131,7 @@ export function DashboardView({
           <button
             type="button"
             className="kpi-action"
+            data-benny-target="largest-delay"
             onClick={() => void onOpenProject(largestDelay.id)}
             aria-label={`Open ${largestDelay.programName}, the project with the largest delay`}
             title={`Open ${largestDelay.programName}`}
@@ -152,7 +155,7 @@ export function DashboardView({
         )}
       </div>
 
-      <section className="panel table-panel">
+      <section className="panel table-panel" data-guide-id="dashboard-projects">
         <header className="panel-head">
           <div className="panel-head-text">
             <span className="kicker">Portfolio Control Board</span>
@@ -168,6 +171,8 @@ export function DashboardView({
             <button
               type="button"
               className={`my-projects-filter ${myProjectsOnly ? 'active' : ''}`}
+              data-guide-id="dashboard-my-projects"
+              data-benny-target="my-projects"
               aria-pressed={myProjectsOnly}
               onClick={() => setMyProjectsOnly((current) => !current)}
               title={myProjectsOnly ? 'Show all active projects' : 'Show projects where you are the engineer or project lead'}
@@ -190,7 +195,7 @@ export function DashboardView({
             title={myProjectsOnly ? 'No assigned projects found' : query ? 'No matching programs' : 'No active programs'}
             body={myProjectsOnly
               ? (query ? 'No assigned projects match the current search.' : 'You are not listed as the engineer or project lead on an active project.')
-              : query ? 'Try another part number, sales order number, or customer name.' : 'Import or add programs to begin tracking schedule progress.'}
+              : query ? 'Try another part number, sales order number, job number, customer name, or status.' : 'Import or add programs to begin tracking schedule progress.'}
           />
         ) : (
           <PortfolioTable
@@ -240,7 +245,8 @@ export function PastProjectsView({
     ? completed.filter((project) =>
       project.programName.toLowerCase().includes(query) ||
       (project.customerName ?? '').toLowerCase().includes(query) ||
-      (project.salesOrderNumber ?? '').toLowerCase().includes(query))
+      (project.salesOrderNumber ?? '').toLowerCase().includes(query) ||
+      (project.jobNumber ?? '').toLowerCase().includes(query))
     : completed
   const dated = visible.filter((project) => project.targetDelivery && project.finalCompletionDate)
   const onTime = dated.filter((project) => dateToMs(project.finalCompletionDate as string) <= dateToMs(project.targetDelivery as string)).length
@@ -353,7 +359,7 @@ export function PastProjectsView({
         {visible.length === 0 ? (
           <EmptyState
             title={query ? 'No matching completed programs' : 'No completed programs yet'}
-            body={query ? 'Try another part number, sales order number, or customer name.' : 'A project moves here after an authorized user confirms it is complete.'}
+            body={query ? 'Try another part number, sales order number, job number, or customer name.' : 'A project moves here after an authorized user confirms it is complete.'}
           />
         ) : (
           <PastProjectsTable projects={visible} onOpenProject={onOpenProject} />
@@ -621,20 +627,16 @@ export function PortfolioTable({
         </thead>
         <tbody>
           {projects.map((project) => (
-            <tr key={project.id} className={`clickable-row rail-${statusClass(project.status)}`} onClick={() => onOpenProject(project.id)}>
+            <tr key={project.id} data-guide-id={`project-row-${project.id}`} className={`clickable-row rail-${statusClass(project.status)}`} onClick={() => onOpenProject(project.id)}>
               <td className={`col-priority ${personalPriorityRanks ? 'dual' : ''}`} onClick={(event) => event.stopPropagation()}>
                 <PriorityControl rank={project.priorityRank} personalRank={personalPriorityRanks?.get(project.id)} maxPriority={maxPriority} canReorderPriority={canReorderPriority} programName={project.programName} onMove={(rank) => onMovePriority(project.id, rank)} />
               </td>
               <td>
                 <span className="mono-id"><HighlightedText value={project.programName} query={query} /></span>
-                {(project.salesOrderNumber || project.customerName) && (
-                  <span className="dashboard-project-refs">
-                    {project.salesOrderNumber && (
-                      <span><small>SO</small><HighlightedText value={project.salesOrderNumber} query={query} /></span>
-                    )}
-                    {project.customerName && (
-                      <span><HighlightedText value={project.customerName} query={query} /></span>
-                    )}
+                {project.customerName && (
+                  <span className="dashboard-project-customer">
+                    <small className="dashboard-project-customer-label">Customer</small>
+                    <span><HighlightedText value={project.customerName} query={query} /></span>
                   </span>
                 )}
               </td>

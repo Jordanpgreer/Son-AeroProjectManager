@@ -15,8 +15,10 @@ builder.Services.AddScoped<EstimatingAccessPreviewService>();
 builder.Services.AddScoped<IEstimatingAccessStore, EstimatingAccessStore>();
 builder.Services.AddScoped<EstimatingHistorySchemaInitializer>();
 builder.Services.AddScoped<EstimatingHistoryQueryService>();
+builder.Services.AddScoped<EstimatingEstimatorSettingsService>();
 builder.Services.AddScoped<EstimatingHistoryImportService>();
 builder.Services.AddScoped<EstimatingHistoryReportService>();
+builder.Services.AddScoped<EstimatingHistoryGridExportService>();
 builder.Services.AddSingleton<EstimatingHistoryReviewStore>();
 builder.Services.AddDbContext<EstimatingAccessDbContext>((serviceProvider, options) =>
 {

@@ -521,6 +521,30 @@ namespace ProjectTracker.Api.Data.Migrations
                     b.ToTable("PushSubscriptions", (string)null);
                 });
 
+            modelBuilder.Entity("ProjectTracker.Api.Models.FeatureSettings", b =>
+                {
+                    b.Property<bool>("AssistantEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("AssistantName")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<int>("Id")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("WalkthroughEnabled")
+                        .HasColumnType("bit");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("FeatureSettings");
+                });
+
             modelBuilder.Entity("ProjectTracker.Api.Models.ScheduleSettings", b =>
                 {
                     b.Property<int>("Id")

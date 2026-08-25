@@ -85,8 +85,8 @@ public sealed class PushNotificationDeliveryTests
         Assert.Equal(project.Id, root.GetProperty("data").GetProperty("projectId").GetInt32());
         Assert.Equal(NotificationKind.OperationNoteMention.ToString(), root.GetProperty("data").GetProperty("kind").GetString());
         Assert.Equal(task.Id, root.GetProperty("data").GetProperty("projectTaskId").GetInt32());
-        Assert.Equal("/brand/son-aero-mark.png", root.GetProperty("icon").GetString());
-        Assert.Equal("/brand/son-aero-mark.png", root.GetProperty("badge").GetString());
+        Assert.Equal("/brand/arda-mark.png", root.GetProperty("icon").GetString());
+        Assert.Equal("/brand/arda-mark.png", root.GetProperty("badge").GetString());
     }
 
     [Fact]
@@ -112,8 +112,8 @@ public sealed class PushNotificationDeliveryTests
         Assert.Equal(expectedTarget, root.GetProperty("data").GetProperty("targetUrl").GetString());
         Assert.StartsWith("/", root.GetProperty("targetUrl").GetString());
         Assert.DoesNotContain("evil.example", root.GetProperty("targetUrl").GetString());
-        Assert.Equal("/brand/son-aero-mark.png", root.GetProperty("icon").GetString());
-        Assert.Equal("/brand/son-aero-mark.png", root.GetProperty("badge").GetString());
+        Assert.Equal("/brand/arda-mark.png", root.GetProperty("icon").GetString());
+        Assert.Equal("/brand/arda-mark.png", root.GetProperty("badge").GetString());
         Assert.False(Uri.TryCreate(root.GetProperty("targetUrl").GetString(), UriKind.Absolute, out _));
         Assert.False(Uri.TryCreate(root.GetProperty("icon").GetString(), UriKind.Absolute, out _));
         Assert.False(Uri.TryCreate(root.GetProperty("badge").GetString(), UriKind.Absolute, out _));

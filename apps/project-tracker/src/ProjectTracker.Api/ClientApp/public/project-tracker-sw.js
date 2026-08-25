@@ -1,7 +1,7 @@
 /* global self */
 
 const AUTO_CLOSE_DELAY_MS = 9_000
-const BRAND_ICON_URL = '/brand/son-aero-mark.png'
+const BRAND_ICON_URL = '/brand/arda-mark.png'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting())

@@ -39,6 +39,7 @@ public sealed record EstimatingHistoryPageDto(
 
 public sealed record EstimatingHistoryFilterOptionsDto(
     IReadOnlyList<string> Estimators,
+    IReadOnlyList<string> SalesPersons,
     IReadOnlyList<string> Customers,
     IReadOnlyList<string> QuoteStatuses);
 

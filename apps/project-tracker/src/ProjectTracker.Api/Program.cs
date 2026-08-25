@@ -87,6 +87,7 @@ builder.Services.AddAuthorization(options =>
         policy => policy.RequireAssertion(context => AccessOverviewAuthorization.IsAllowed(context.User)));
     options.AddPolicy("ManageUsers", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.AccessManageUsers));
     options.AddPolicy("ManageGroups", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.AccessManageGroups));
+    options.AddPolicy(WalkthroughAuthorization.PolicyName, WalkthroughAuthorization.ConfigurePolicy);
     options.AddPolicy("RestoreArchived", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ArchivedRestore));
     options.AddPolicy(
         ArchivedProjectEndpoints.PermanentDeletePolicyName,
@@ -598,6 +599,10 @@ api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertD
     {
         return Results.Forbid();
     }
+    if (OperationDateValidator.Validate(dto) is { } dateError)
+    {
+        return Results.BadRequest(dateError);
+    }
 
     var previousSequences = project.Tasks.ToDictionary(candidate => candidate.Id, candidate => candidate.Sequence);
     var task = ApplyTaskDto(new ProjectTask { ProjectId = projectId, Project = project }, dto);
@@ -666,6 +671,10 @@ api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectT
     if (FindDeniedTaskPermission(task, dto, currentUser) is not null)
     {
         return Results.Forbid();
+    }
+    if (OperationDateValidator.Validate(dto) is { } dateError)
+    {
+        return Results.BadRequest(dateError);
     }
 
     var before = ProjectAuditService.CaptureTask(task);
@@ -898,6 +907,41 @@ api.MapPut("/settings/work-calendar", async (ScheduleSettingsUpsertDto dto, Proj
     return Results.Ok(new ScheduleSettingsDto(settings.GetWorkingDays().OrderBy(day => ((int)day + 6) % 7).ToList(), settings.UpdatedAt));
 }).RequireAuthorization("ManageCalendar");
 
+api.MapGet("/settings/walkthrough", async (ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
+{
+    var settings = await GetOrCreateFeatureSettingsAsync(db, cancellationToken);
+    return new WalkthroughSettingsDto(
+        settings.WalkthroughEnabled,
+        settings.AssistantEnabled,
+        settings.AssistantName,
+        settings.UpdatedAt);
+}).RequireAuthorization(WalkthroughAuthorization.PolicyName);
+
+api.MapPut("/settings/walkthrough", async (WalkthroughSettingsUpsertDto dto, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
+{
+    var assistantName = dto.AssistantName?.Trim();
+    if (string.IsNullOrWhiteSpace(assistantName))
+    {
+        return Results.BadRequest("Assistant name is required.");
+    }
+    if (assistantName.Length > FeatureSettings.AssistantNameMaxLength)
+    {
+        return Results.BadRequest($"Assistant name cannot exceed {FeatureSettings.AssistantNameMaxLength} characters.");
+    }
+
+    var settings = await GetOrCreateFeatureSettingsAsync(db, cancellationToken);
+    settings.WalkthroughEnabled = dto.Enabled;
+    settings.AssistantEnabled = dto.AssistantEnabled;
+    settings.AssistantName = assistantName;
+    settings.UpdatedAt = DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Ok(new WalkthroughSettingsDto(
+        settings.WalkthroughEnabled,
+        settings.AssistantEnabled,
+        settings.AssistantName,
+        settings.UpdatedAt));
+}).RequireAuthorization(WalkthroughAuthorization.PolicyName);
+
 app.MapFallbackToFile("index.html");
 
 app.Run();
@@ -1117,6 +1161,19 @@ static async Task<ScheduleSettings> GetOrCreateScheduleSettingsAsync(ProjectTrac
     return settings;
 }
 
+static async Task<FeatureSettings> GetOrCreateFeatureSettingsAsync(ProjectTrackerDbContext db, CancellationToken cancellationToken)
+{
+    var settings = await db.FeatureSettings.FindAsync([FeatureSettings.SingletonId], cancellationToken);
+    if (settings is not null)
+    {
+        return settings;
+    }
+
+    settings = new FeatureSettings();
+    db.FeatureSettings.Add(settings);
+    return settings;
+}
+
 static async Task InitializeDatabaseAsync(WebApplication app)
 {
     using var scope = app.Services.CreateScope();
@@ -1159,6 +1216,7 @@ static async Task InitializeDatabaseAsync(WebApplication app)
             await SqliteCompatibility.EnsureBooleanColumnAsync(db, "Projects", "ImportNeedsCompletion", cancellationToken: default);
             await SqliteCompatibility.EnsureBooleanColumnAsync(db, "Users", "IsActive", cancellationToken: default);
             await SqliteCompatibility.EnsureLegacyTablesAsync(db, cancellationToken: default);
+            await SqliteCompatibility.EnsureFeatureSettingsColumnsAsync(db, cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "UserNotifications", "ScheduledDate", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "UserNotifications", "SnoozedUntil", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "UserNotifications", "RespondedAt", cancellationToken: default);
@@ -1175,6 +1233,7 @@ static async Task InitializeDatabaseAsync(WebApplication app)
     NormalizeProjectPriorities(await db.Projects.ToListAsync());
 
     await GetOrCreateScheduleSettingsAsync(db, cancellationToken: default);
+    await GetOrCreateFeatureSettingsAsync(db, cancellationToken: default);
     await db.SaveChangesAsync();
 
     var autoImport = configuration.GetValue("Import:AutoImportOnEmpty", app.Environment.IsDevelopment());

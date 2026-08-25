@@ -19,13 +19,12 @@
   --line: #22303d;
   --line-2: #314355;
   --line-3: #455b70;
-  --grid-line: rgba(151, 165, 180, 0.055);
 
-  --red: #d23a2b;
-  --red-600: #b92f24;
-  --red-700: #ffb5ac;
-  --red-tint: #331d1a;
-  --red-tint-2: #512a25;
+  --red: #64a4d7;
+  --red-600: #4f8fbe;
+  --red-700: #acd0ef;
+  --red-tint: #17293a;
+  --red-tint-2: #2b4d68;
 
   --steel: #64a4d7;
   --steel-700: #b4d9f5;
@@ -38,9 +37,9 @@
   --warn: #d6a84e;
   --warn-700: #f5d38c;
   --warn-tint: #322715;
-  --risk: #f06a5b;
-  --risk-700: #ffb5ac;
-  --risk-tint: #331d1a;
+  --risk: #d7a94d;
+  --risk-700: #f5d38c;
+  --risk-tint: #322715;
   --done: #36a46a;
   --done-700: #b9e9cb;
   --done-tint: #152e22;
@@ -56,7 +55,7 @@
 
 :root[data-theme='dark'] .project-tracker-app .sidebar {
   background:
-    radial-gradient(100% 48% at 0% 0%, rgba(210, 58, 43, 0.11), transparent 62%),
+    radial-gradient(100% 48% at 0% 0%, rgba(100, 164, 215, 0.11), transparent 62%),
     linear-gradient(184deg, #111b25 0%, #0b1219 50%, #070b10 100%);
 }
 
@@ -95,25 +94,25 @@
 :root[data-theme='dark'] .project-tracker-app .button.primary,
 :root[data-theme='dark'] .project-tracker-app .button.danger-solid {
   color: #fff;
-  background: var(--red);
-  border-color: var(--red);
+  background: var(--red-action);
+  border-color: var(--red-action);
 }
 
 :root[data-theme='dark'] .project-tracker-app .button.primary:hover,
 :root[data-theme='dark'] .project-tracker-app .button.danger-solid:hover {
-  background: var(--red-600);
-  border-color: var(--red-600);
+  background: var(--red-action-hover);
+  border-color: var(--red-action-hover);
 }
 
 :root[data-theme='dark'] .project-tracker-app .button.complete-solid {
   color: #fff;
-  background: #287a50;
-  border-color: #287a50;
+  background: var(--steel-action);
+  border-color: var(--steel-action);
 }
 
 :root[data-theme='dark'] .project-tracker-app .button.complete-solid:hover {
-  background: #226c46;
-  border-color: #226c46;
+  background: var(--steel-action-hover);
+  border-color: var(--steel-action-hover);
 }
 
 :root[data-theme='dark'] .project-tracker-app :where(input, select, textarea) {
@@ -170,7 +169,7 @@
 :root[data-theme='dark'] .project-tracker-app .status.behind {
   color: var(--risk-700);
   background: var(--risk-tint);
-  border-color: #713a35;
+  border-color: color-mix(in srgb, var(--risk) 42%, var(--line-2));
 }
 
 :root[data-theme='dark'] .project-tracker-app .status.complete {
@@ -182,7 +181,7 @@
 :root[data-theme='dark'] .project-tracker-app .status.completed-late {
   color: var(--risk-700);
   background: linear-gradient(135deg, var(--done-tint), var(--risk-tint));
-  border-color: #713a35;
+  border-color: color-mix(in srgb, var(--risk) 42%, var(--line-2));
 }
 
 :root[data-theme='dark'] .project-tracker-app .status.not-started {
@@ -193,7 +192,7 @@
 
 :root[data-theme='dark'] .project-tracker-app .stat-chip.is-risk {
   background: var(--risk-tint);
-  border-color: #713a35;
+  border-color: color-mix(in srgb, var(--risk) 42%, var(--line-2));
 }
 
 :root[data-theme='dark'] .project-tracker-app .gantt-note {
@@ -207,16 +206,21 @@
 }
 
 :root[data-theme='dark'] .project-tracker-app .gantt-shade.holiday {
-  background: rgba(240, 106, 91, 0.075);
+  background: rgba(215, 169, 77, 0.075);
 }
 
 :root[data-theme='dark'] .project-tracker-app .role-viewer .role-lane-icon,
 :root[data-theme='dark'] .project-tracker-app .confirmation-icon.complete,
-:root[data-theme='dark'] .project-tracker-app .activity-marker.action-complete,
-:root[data-theme='dark'] .project-tracker-app .progress-presets button.active {
+:root[data-theme='dark'] .project-tracker-app .activity-marker.action-complete {
   color: var(--ok-700);
   background: var(--ok-tint);
   border-color: #31664b;
+}
+
+:root[data-theme='dark'] .project-tracker-app .progress-presets button.active {
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border-color: var(--steel-tint-2);
 }
 
 :root[data-theme='dark'] .project-tracker-app :where(.role-avatar, .chat-avatar) {
@@ -263,7 +267,7 @@
 
 :root[data-theme='dark'] .project-tracker-app .cal-cell.holiday {
   background: var(--risk-tint);
-  border-color: #713a35;
+  border-color: color-mix(in srgb, var(--risk) 42%, var(--line-2));
 }
 
 :root[data-theme='dark'] .project-tracker-app .day-summary-count.load.has {
@@ -274,7 +278,7 @@
 
 :root[data-theme='dark'] .project-tracker-app .week-overview .has-conflict {
   background: var(--risk-tint);
-  border-color: #713a35;
+  border-color: color-mix(in srgb, var(--risk) 42%, var(--line-2));
 }
 
 :root[data-theme='dark'] .project-tracker-app .day-milestone.start .day-milestone-icon {

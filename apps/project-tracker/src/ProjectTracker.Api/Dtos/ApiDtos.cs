@@ -11,6 +11,9 @@ public sealed record UserDto(
     IReadOnlyList<string> Permissions,
     bool CanEdit,
     bool IsAdmin,
+    bool WalkthroughEnabled,
+    bool AssistantEnabled,
+    string AssistantName,
     AccessPreviewInfoDto? Preview);
 
 public sealed record AccessPreviewInfoDto(
@@ -255,6 +258,24 @@ public sealed record ScheduleSettingsDto(
     DateTimeOffset UpdatedAt);
 
 public sealed record ScheduleSettingsUpsertDto(IReadOnlyList<DayOfWeek> WorkingDays);
+
+public sealed record WalkthroughSettingsDto(
+    bool Enabled,
+    bool AssistantEnabled,
+    string AssistantName,
+    DateTimeOffset UpdatedAt);
+
+public sealed record WalkthroughSettingsUpsertDto(
+    bool Enabled,
+    bool AssistantEnabled,
+    string? AssistantName);
+
+public sealed record WalkthroughBootstrapDto(
+    bool Enabled,
+    string DisplayName,
+    IReadOnlyList<string> Groups,
+    IReadOnlyList<string> Permissions,
+    string? ExitUrl);
 
 public sealed record HolidayDto(int Id, DateOnly Date, string Name);
 

@@ -3,7 +3,6 @@ import {
   CircleDollarSign,
   FileClock,
   FileText,
-  FolderOpen,
   Plus,
   Search,
 } from 'lucide-react'
@@ -119,11 +118,6 @@ export default function QuotesDashboardPage({
           New quote
         </button>
       </section>
-
-      <div className="quote-storage-notice">
-        <FolderOpen size={16} aria-hidden="true" />
-        Stored locally in this browser for {ownerAccountName}.
-      </div>
 
       <section className="quote-kpi-grid" aria-label="Quote portfolio summary">
         <button type="button" onClick={() => setFilter('draft')}>

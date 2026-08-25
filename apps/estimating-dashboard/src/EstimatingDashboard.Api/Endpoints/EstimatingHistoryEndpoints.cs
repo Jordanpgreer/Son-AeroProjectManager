@@ -64,6 +64,57 @@ public static class EstimatingHistoryEndpoints
             EstimatingHistoryQueryService service,
             CancellationToken cancellationToken) => Results.Ok(await service.GetFiltersAsync(cancellationToken)));
 
+        history.MapGet("/export", async (
+            EstimatingHistoryGridExportService service,
+            string? search,
+            string? estimator,
+            string? salesPerson,
+            string? customer,
+            string? quoteStatus,
+            string? estimatingStatus,
+            string? complexity,
+            string? issues,
+            string? quoteOnTrack,
+            string? view,
+            string? completion,
+            string? onTime,
+            DateTime? dueFrom,
+            DateTime? dueTo,
+            DateTime? completedFrom,
+            DateTime? completedTo,
+            decimal? minimumValue,
+            decimal? maximumValue,
+            string? sort,
+            string? direction,
+            CancellationToken cancellationToken) =>
+        {
+            var file = await service.CreateAsync(new EstimatingHistoryGridExportRequest(
+                search,
+                estimator,
+                salesPerson,
+                customer,
+                quoteStatus,
+                estimatingStatus,
+                complexity,
+                issues,
+                quoteOnTrack,
+                view,
+                completion,
+                onTime,
+                dueFrom,
+                dueTo,
+                completedFrom,
+                completedTo,
+                minimumValue,
+                maximumValue,
+                sort,
+                direction), cancellationToken);
+            return Results.File(
+                file.Content,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                file.FileName);
+        });
+
         history.MapGet("/dashboard", async (
             HttpContext context,
             EstimatingHistoryQueryService service,

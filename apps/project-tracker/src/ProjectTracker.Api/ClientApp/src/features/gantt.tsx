@@ -4,8 +4,6 @@ import {
   CalendarRange,
   ChevronLeft,
   GanttChartSquare,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react'
 import {
   buildSchedule,
@@ -23,57 +21,11 @@ import { dayMs } from '../types'
 import type {
   ProjectTask,
 } from '../types'
-
-export const ganttZoomLevels = [
-  { label: '25%', dayWidth: 6.5 },
-  { label: '50%', dayWidth: 13 },
-  { label: '75%', dayWidth: 20 },
-  { label: '100%', dayWidth: 26 },
-  { label: '125%', dayWidth: 34 },
-]
-export const defaultGanttZoomIndex = 3
-
-function getGuidedGanttScrollLeft({
-  scrollLeft,
-  maxScrollLeft,
-  viewportWidth,
-  labelWidth,
-  barStart,
-  barEnd,
-  margin = 20,
-}: {
-  scrollLeft: number
-  maxScrollLeft: number
-  viewportWidth: number
-  labelWidth: number
-  barStart: number
-  barEnd: number
-  margin?: number
-}) {
-  const timelineViewportWidth = Math.max(1, viewportWidth - labelWidth)
-  const safeMargin = Math.min(margin, timelineViewportWidth / 4)
-  const visibleStart = scrollLeft + safeMargin
-  const visibleEnd = scrollLeft + timelineViewportWidth - safeMargin
-  const start = Math.min(barStart, barEnd)
-  const end = Math.max(barStart, barEnd)
-  const visibleWidth = Math.max(1, visibleEnd - visibleStart)
-  const barWidth = Math.max(1, end - start)
-  const overlap = Math.max(0, Math.min(end, visibleEnd) - Math.max(start, visibleStart))
-  const meaningfulOverlap = Math.min(64, visibleWidth * 0.35, barWidth)
-
-  // A long operation can span beyond both sides of the viewport. If a useful
-  // portion is already visible, keep the user's date position stable.
-  if (barWidth > visibleWidth && overlap >= meaningfulOverlap) return scrollLeft
-
-  let nextScrollLeft = scrollLeft
-  if (start < visibleStart) {
-    nextScrollLeft = start - safeMargin
-  } else if (end > visibleEnd) {
-    nextScrollLeft = end - timelineViewportWidth + safeMargin
-  }
-
-  return Math.max(0, Math.min(maxScrollLeft, nextScrollLeft))
-}
+import {
+  defaultGanttZoomIndex,
+  ganttZoomLevels,
+  getGuidedGanttScrollLeft,
+} from './gantt-scroll'
 
 export function Gantt({
   tasks,
@@ -90,6 +42,7 @@ export function Gantt({
 }) {
   const ganttScrollRef = useRef<HTMLDivElement>(null)
   const pendingScrollCenterRef = useRef<number | null>(null)
+  const pendingAlignFirstRef = useRef(false)
   const guidedPanFrameRef = useRef<number | null>(null)
   const manualHorizontalUntilRef = useRef(0)
   const [zoomIndex, setZoomIndex] = useState(defaultGanttZoomIndex)
@@ -125,6 +78,9 @@ export function Gantt({
         const axisHeight = element.querySelector<HTMLElement>('.gantt-axis')?.getBoundingClientRect().height ?? 42
         const visibleTop = viewport.top + axisHeight
         const visibleBottom = viewport.bottom
+        const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight)
+        const atTop = element.scrollTop <= 1
+        const atBottom = maxScrollTop > 0 && element.scrollTop >= maxScrollTop - 1
         const focusRatio = direction < 0 ? 0.42 : 0.58
         const focusY = visibleTop + Math.max(0, visibleBottom - visibleTop) * focusRatio
 
@@ -133,13 +89,17 @@ export function Gantt({
           return rect.bottom > visibleTop && rect.top < visibleBottom
         })
         const candidates = visibleTracks.length > 0 ? visibleTracks : tracks
-        const target = candidates.reduce((nearest, track) => {
-          const nearestRect = nearest.getBoundingClientRect()
-          const trackRect = track.getBoundingClientRect()
-          const nearestDistance = Math.abs((nearestRect.top + nearestRect.bottom) / 2 - focusY)
-          const trackDistance = Math.abs((trackRect.top + trackRect.bottom) / 2 - focusY)
-          return trackDistance < nearestDistance ? track : nearest
-        })
+        const target = atTop
+          ? tracks[0]
+          : atBottom
+            ? tracks[tracks.length - 1]
+            : candidates.reduce((nearest, track) => {
+              const nearestRect = nearest.getBoundingClientRect()
+              const trackRect = track.getBoundingClientRect()
+              const nearestDistance = Math.abs((nearestRect.top + nearestRect.bottom) / 2 - focusY)
+              const trackDistance = Math.abs((trackRect.top + trackRect.bottom) / 2 - focusY)
+              return trackDistance < nearestDistance ? track : nearest
+            })
 
         const barStart = Number(target.dataset.ganttStart)
         const barEnd = Number(target.dataset.ganttEnd)
@@ -156,6 +116,7 @@ export function Gantt({
           labelWidth,
           barStart,
           barEnd,
+          alignStart: atTop,
         })
 
         if (Math.abs(nextScrollLeft - element.scrollLeft) >= 1) element.scrollLeft = nextScrollLeft
@@ -200,7 +161,10 @@ export function Gantt({
       )
       // At either vertical boundary, let the page continue scrolling instead
       // of trapping the wheel inside the schedule.
-      if (!canMoveVertically) return
+      if (!canMoveVertically) {
+        if (verticalDelta < 0 && element.scrollTop <= 1) guideToVisibleOperation(-1)
+        return
+      }
 
       // Own the vertical wheel step so the row motion and date guidance happen
       // together. Horizontal touchpad drift is intentionally ignored here.
@@ -237,6 +201,15 @@ export function Gantt({
     element.addEventListener('wheel', handleWheel, { passive: false })
     element.addEventListener('keydown', handleKeyDown)
     element.addEventListener('pointerdown', handlePointerDown)
+
+    // React can reuse this scroll region when a different project is opened.
+    // Align a chart already at the top to its new first operation instead of
+    // leaving that bar behind the sticky operation column.
+    if (element.scrollTop <= 1) {
+      manualHorizontalUntilRef.current = 0
+      guideToVisibleOperation(-1)
+    }
+
     return () => {
       element.removeEventListener('wheel', handleWheel)
       element.removeEventListener('keydown', handleKeyDown)
@@ -246,14 +219,39 @@ export function Gantt({
   }, [range])
 
   useEffect(() => {
-    const centerRatio = pendingScrollCenterRef.current
     const element = ganttScrollRef.current
-    if (centerRatio === null || !element) return undefined
+    if (!element) return undefined
+    const centerRatio = pendingScrollCenterRef.current
+    const alignFirst = pendingAlignFirstRef.current
+    if (centerRatio === null && !alignFirst) return undefined
 
     const frame = requestAnimationFrame(() => {
-      const nextLeft = centerRatio * element.scrollWidth - element.clientWidth / 2
-      element.scrollLeft = Math.max(0, Math.min(element.scrollWidth - element.clientWidth, nextLeft))
+      if (alignFirst) {
+        const firstTrack = element.querySelector<HTMLElement>('.gantt-track[data-gantt-start][data-gantt-end]')
+        const barStart = Number(firstTrack?.dataset.ganttStart)
+        const barEnd = Number(firstTrack?.dataset.ganttEnd)
+        const labelWidth = firstTrack?.previousElementSibling?.getBoundingClientRect().width
+          ?? element.querySelector<HTMLElement>('.gantt-label')?.getBoundingClientRect().width
+          ?? 0
+
+        if (Number.isFinite(barStart) && Number.isFinite(barEnd)) {
+          element.scrollLeft = getGuidedGanttScrollLeft({
+            scrollLeft: element.scrollLeft,
+            maxScrollLeft: Math.max(0, element.scrollWidth - element.clientWidth),
+            viewportWidth: element.clientWidth,
+            labelWidth,
+            barStart,
+            barEnd,
+            alignStart: true,
+          })
+        }
+      } else if (centerRatio !== null) {
+        const nextLeft = centerRatio * element.scrollWidth - element.clientWidth / 2
+        element.scrollLeft = Math.max(0, Math.min(element.scrollWidth - element.clientWidth, nextLeft))
+      }
+
       pendingScrollCenterRef.current = null
+      pendingAlignFirstRef.current = false
     })
 
     return () => cancelAnimationFrame(frame)
@@ -264,7 +262,13 @@ export function Gantt({
 
     const element = ganttScrollRef.current
     if (element && element.scrollWidth > 0) {
-      pendingScrollCenterRef.current = (element.scrollLeft + element.clientWidth / 2) / element.scrollWidth
+      if (element.scrollTop <= 1) {
+        pendingAlignFirstRef.current = true
+        pendingScrollCenterRef.current = null
+      } else {
+        pendingAlignFirstRef.current = false
+        pendingScrollCenterRef.current = (element.scrollLeft + element.clientWidth / 2) / element.scrollWidth
+      }
     }
     setZoomIndex(nextIndex)
   }
@@ -277,7 +281,7 @@ export function Gantt({
 
   if (!range) {
     return (
-      <section className="panel gantt empty-gantt gantt-docked">
+      <section className="panel gantt empty-gantt gantt-docked" data-guide-id="gantt-timeline">
         {collapseButton && <div className="gantt-dock-bar">{collapseButton}</div>}
         <div className="empty">
           <GanttChartSquare size={22} />
@@ -294,7 +298,7 @@ export function Gantt({
   const pct = (ms: number) => ((ms - range.start) / totalMs) * 100
 
   return (
-    <section className={`panel gantt ${onCollapse ? 'gantt-docked' : ''}`}>
+    <section className={`panel gantt ${onCollapse ? 'gantt-docked' : ''}`} data-guide-id="gantt-timeline">
       <header className="panel-head gantt-head">
         <div className="panel-head-text">
           <div className="gantt-title-row">
@@ -312,27 +316,23 @@ export function Gantt({
             <span><i className="legend-swatch projected" /> Projected</span>
             <span><i className="legend-today" /> Today</span>
           </div>
-          <div className="gantt-zoom" aria-label="Timeline zoom controls">
-            <button
-              type="button"
-              onClick={() => changeZoom(zoomIndex - 1)}
-              disabled={zoomIndex === 0}
-              aria-label="Zoom out timeline"
-              title="Zoom out timeline"
-            >
-              <ZoomOut size={14} />
-            </button>
-            <span className="gantt-zoom-value" aria-live="polite">{zoom.label}</span>
-            <button
-              type="button"
-              onClick={() => changeZoom(zoomIndex + 1)}
-              disabled={zoomIndex === ganttZoomLevels.length - 1}
-              aria-label="Zoom in timeline"
-              title="Zoom in timeline"
-            >
-              <ZoomIn size={14} />
-            </button>
-          </div>
+          <label className="gantt-zoom" htmlFor="gantt-zoom-slider">
+            <span className="gantt-zoom-label">Zoom</span>
+            <input
+              id="gantt-zoom-slider"
+              type="range"
+              min={0}
+              max={ganttZoomLevels.length - 1}
+              step={1}
+              value={zoomIndex}
+              onChange={(event) => changeZoom(Number(event.currentTarget.value))}
+              aria-label="Timeline zoom"
+              aria-valuetext={zoom.label}
+            />
+            <output className="gantt-zoom-value" htmlFor="gantt-zoom-slider" aria-live="polite">
+              {zoom.label}
+            </output>
+          </label>
         </div>
       </header>
 

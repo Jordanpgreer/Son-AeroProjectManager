@@ -6,7 +6,7 @@ export type QuantityValues<T> = Record<number, T>
 export const ESTIMATE_YEARS = [2023, 2024, 2025, 2026, 2027, 2028, 2029] as const
 
 export type EstimateYear = (typeof ESTIMATE_YEARS)[number]
-export type EstimateKind = 'standard' | 'rubber'
+export type EstimateKind = 'standard' | 'rubber' | 'subassembly'
 export type RateCategory = 'manufacturing' | 'rubber-breakdown'
 export type OperationCostTreatment = 'production' | 'nre' | 'conditional-tooling-nre'
 export type OperationNameControl = 'fixed' | 'rate-list'
@@ -50,6 +50,8 @@ export interface ProcessInput {
   description: string
   setupCost: number
   runCostEach: number
+  subassemblyId?: string
+  quantityPerParent?: number
 }
 
 interface BaseEstimateInput {
@@ -75,7 +77,25 @@ export interface RubberEstimateInput extends BaseEstimateInput {
   toolingMarkup: number
 }
 
-export type EstimateInput = StandardEstimateInput | RubberEstimateInput
+export interface SubassemblyInput {
+  id: string
+  partNumber: string
+  revision: string
+  operations: EstimateOperationInput[]
+  materials: MaterialInput[]
+  processes: ProcessInput[]
+  facilitiesByQuantity: QuantityValues<number>
+}
+
+export interface SubassemblyEstimateInput extends BaseEstimateInput {
+  kind: 'subassembly'
+  subassemblies: SubassemblyInput[]
+}
+
+export type EstimateInput =
+  | StandardEstimateInput
+  | RubberEstimateInput
+  | SubassemblyEstimateInput
 
 export interface AnnualLaborRateRow {
   sourceRow: number
@@ -111,7 +131,30 @@ export interface MissingRateCalculationError {
   message: string
 }
 
-export type EstimateCalculationError = MissingRateCalculationError
+export interface MissingSubassemblyLinkCalculationError {
+  code: 'missing-subassembly-link'
+  processId: string
+  subassemblyId: string
+  operationId: string
+  operationName: string
+  year: EstimateYear
+  message: string
+}
+
+export interface MissingSubassemblyRateCalculationError {
+  code: 'missing-subassembly-rate'
+  subassemblyId: string
+  subassemblyPartNumber: string
+  operationId: string
+  operationName: string
+  year: EstimateYear
+  message: string
+}
+
+export type EstimateCalculationError =
+  | MissingRateCalculationError
+  | MissingSubassemblyLinkCalculationError
+  | MissingSubassemblyRateCalculationError
 
 export interface OperationCostAudit {
   operationId: string
@@ -131,6 +174,32 @@ export interface MaterialCostAudit {
 export interface ProcessCostAudit {
   processId: string
   unitCostByQuantity: QuantityValues<number>
+  subassemblyId?: string
+  quantityPerParent?: number
+}
+
+export interface SubassemblyQuantityCalculationAudit {
+  quantity: QuantityTier
+  basicLabor: number
+  laborBurden: number
+  burdenedLabor: number
+  rawMaterial: number
+  rawProcess: number
+  rawOneTimeNre: number
+  amortizedNre: number
+  facilities: number
+  unitCost: number
+}
+
+export interface SubassemblyCalculationAudit {
+  subassemblyId: string
+  partNumber: string
+  revision: string
+  operations: OperationCostAudit[]
+  materials: MaterialCostAudit[]
+  processes: ProcessCostAudit[]
+  rawOneTimeNre: number | null
+  quantities: QuantityValues<SubassemblyQuantityCalculationAudit> | null
 }
 
 export interface LoadedComponentAudit {
@@ -169,6 +238,7 @@ interface CalculationResultBase {
   operations: OperationCostAudit[]
   materials: MaterialCostAudit[]
   processes: ProcessCostAudit[]
+  subassemblies: SubassemblyCalculationAudit[]
 }
 
 export interface EstimateCalculationSuccess extends CalculationResultBase {

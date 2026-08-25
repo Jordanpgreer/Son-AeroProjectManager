@@ -21,6 +21,8 @@ public static class AdminAccessPreviewEndpoints
         api.MapGet("/admin/access-previews", GetOverviewAsync).RequireAuthorization();
         api.MapPost("/admin/access-previews/{targetKey}/launch/{applicationId}", IssueLaunchAsync)
             .RequireAuthorization();
+        api.MapPost("/admin/access-previews/{targetKey}/walkthrough", IssueWalkthroughLaunchAsync)
+            .RequireAuthorization();
     }
 
     private static async Task<IResult> GetOverviewAsync(
@@ -68,6 +70,38 @@ public static class AdminAccessPreviewEndpoints
         PortalUserService users,
         PortalRoleDbContext db,
         ApplicationRegistry registry,
+        CancellationToken cancellationToken) =>
+        await IssueLaunchCoreAsync(
+            targetKey,
+            applicationId,
+            walkthrough: false,
+            users,
+            db,
+            registry,
+            cancellationToken);
+
+    private static async Task<IResult> IssueWalkthroughLaunchAsync(
+        string targetKey,
+        PortalUserService users,
+        PortalRoleDbContext db,
+        ApplicationRegistry registry,
+        CancellationToken cancellationToken) =>
+        await IssueLaunchCoreAsync(
+            targetKey,
+            AccessPreviewApplications.ProjectTracker,
+            walkthrough: true,
+            users,
+            db,
+            registry,
+            cancellationToken);
+
+    private static async Task<IResult> IssueLaunchCoreAsync(
+        string targetKey,
+        string applicationId,
+        bool walkthrough,
+        PortalUserService users,
+        PortalRoleDbContext db,
+        ApplicationRegistry registry,
         CancellationToken cancellationToken)
     {
         var currentUser = await users.CurrentAsync(cancellationToken);
@@ -106,9 +140,10 @@ public static class AdminAccessPreviewEndpoints
 
         await EnsureAccessPreviewTableAsync(db, cancellationToken);
         var now = DateTimeOffset.UtcNow;
-        await db.AccessPreviewSessions
+        var expiredSessions = (await db.AccessPreviewSessions.ToListAsync(cancellationToken))
             .Where(session => session.SessionExpiresAt <= now || session.RevokedAt != null)
-            .ExecuteDeleteAsync(cancellationToken);
+            .ToList();
+        db.AccessPreviewSessions.RemoveRange(expiredSessions);
 
         var rawToken = AccessPreviewTokens.Create();
         var session = new AccessPreviewSessionRecord
@@ -125,13 +160,19 @@ public static class AdminAccessPreviewEndpoints
         db.AccessPreviewSessions.Add(session);
         await db.SaveChangesAsync(cancellationToken);
 
-        var startUri = new UriBuilder(applicationUri)
+        var startUri = BuildStartUri(applicationUri, walkthrough).ToString();
+        return Results.Ok(new AdminAccessPreviewLaunchDto(startUri, rawToken, session.LaunchExpiresAt));
+    }
+
+    internal static Uri BuildStartUri(Uri applicationUri, bool walkthrough)
+    {
+        ArgumentNullException.ThrowIfNull(applicationUri);
+        return new UriBuilder(applicationUri)
         {
             Path = "/access-preview/start",
-            Query = string.Empty,
+            Query = walkthrough ? "experience=walkthrough" : string.Empty,
             Fragment = string.Empty
-        }.Uri.ToString();
-        return Results.Ok(new AdminAccessPreviewLaunchDto(startUri, rawToken, session.LaunchExpiresAt));
+        }.Uri;
     }
 
     private static async Task<AdminAccessPreviewTargetDto?> ResolveTargetAsync(

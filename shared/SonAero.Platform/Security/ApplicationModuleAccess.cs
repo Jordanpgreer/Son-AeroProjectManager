@@ -157,18 +157,18 @@ public static class ApplicationModuleCatalog
             category);
         var viewHistory = new PermissionDefinition(
             "estimating.history.view",
-            "View estimating history",
-            "View imported quote history, filters, and estimator performance statistics.",
+            "View Estimating Logs",
+            "Open Estimating Logs to search imported quotes and view estimator statistics.",
             category);
         var importHistory = new PermissionDefinition(
             "estimating.history.import",
-            "Import estimating history",
-            "Validate and import controlled Fulcrum quote-history workbooks.",
+            "Import Estimating Logs",
+            "Validate and import controlled Fulcrum workbooks into Estimating Logs.",
             category);
         var manageHistory = new PermissionDefinition(
             "estimating.history.manage",
-            "Manage estimating history",
-            "View team statistics and audits, and download estimating performance reports.",
+            "Manage Estimating Logs",
+            "View team statistics and audits, and download Estimating Logs reports.",
             category);
 
         return new ApplicationModuleDefinition(

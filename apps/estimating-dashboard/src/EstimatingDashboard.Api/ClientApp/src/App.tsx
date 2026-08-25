@@ -61,7 +61,7 @@ const PAGE_META: Record<EstimatingPage, {
   calculator: {
     eyebrow: 'Quote preparation',
     title: 'Estimate Calculator',
-    subtitle: 'Build standard and rubber estimates across controlled quantity tiers.',
+    subtitle: 'Build standard, rubber, and subassembly estimates across controlled quantity tiers.',
   },
   history: {
     eyebrow: 'Controlled quote intelligence',
@@ -82,13 +82,6 @@ function pageFromHash(): EstimatingPage | null {
     .toLowerCase()
   if (route === 'quotes' || route === 'calculator' || route === 'history' || route === 'rates') return route
   return null
-}
-
-function initials(name: string) {
-  const parts = name.split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '?'
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return `${parts[0][0]}${parts.at(-1)?.[0] ?? ''}`.toUpperCase()
 }
 
 function ThemeSwitch({
@@ -131,20 +124,6 @@ function ThemeSwitch({
   )
 }
 
-function UserChip({ me }: { me: EstimatingMe | null }) {
-  return (
-    <div className="user-chip" aria-live="polite">
-      <div className="user-copy">
-        <strong>{me?.displayName ?? 'Checking access'}</strong>
-        <span>{me?.role ?? 'Loading'}</span>
-      </div>
-      <span className="avatar" title={me?.accountName}>
-        {me ? initials(me.displayName) : '··'}
-      </span>
-    </div>
-  )
-}
-
 export default function App() {
   const [theme, setTheme] = useState(() => readThemePreference())
   const [page, setPage] = useState<EstimatingPage>(() => pageFromHash() ?? 'quotes')
@@ -158,6 +137,7 @@ export default function App() {
   const [me, setMe] = useState<EstimatingMe | null>(null)
   const [accessLoading, setAccessLoading] = useState(true)
   const [accessError, setAccessError] = useState<string | null>(null)
+  const [historyImportOpen, setHistoryImportOpen] = useState(false)
 
   useEffect(() => {
     if (!pageFromHash()) {
@@ -215,7 +195,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    document.title = `${PAGE_META[page].title} · SON-AERO`
+    document.title = `${PAGE_META[page].title} · Arda`
   }, [page])
 
   useEffect(() => {
@@ -257,10 +237,6 @@ export default function App() {
     me,
     estimatingPermissions.manageInputs,
   ) && !me?.isPreview
-  const canAdministerRates = hasEstimatingPermission(
-    me,
-    estimatingPermissions.administerRates,
-  ) && !me?.isPreview
   const canViewHistory = hasEstimatingPermission(me, estimatingPermissions.viewHistory)
   const canImportHistory = hasEstimatingPermission(
     me,
@@ -270,6 +246,20 @@ export default function App() {
     me,
     estimatingPermissions.manageHistory,
   ) && !me?.isPreview
+
+  useEffect(() => {
+    if (accessLoading || !me || page !== 'history' || canViewHistory) return
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}${window.location.search}#/quotes`,
+    )
+    setPage('quotes')
+  }, [accessLoading, canViewHistory, me, page])
+
+  useEffect(() => {
+    if (page !== 'history' || !canImportHistory) setHistoryImportOpen(false)
+  }, [canImportHistory, page])
 
   if (accessLoading || !me) {
     return (
@@ -303,11 +293,13 @@ export default function App() {
           className="brand brand-hub-link"
           href={hubUrl}
           target="_top"
-          aria-label="Return to All Applications"
-          title="Return to All Applications"
+          aria-label="Return to Arda applications"
+          title="Return to Arda applications"
         >
-          <img className="brand-lockup" src="/brand/son-aero-lockup-dark.png" alt="SON-AERO — Sonfarrel Aerospace" />
-          <img className="brand-mark" src="/brand/son-aero-mark.png" alt="SON-AERO" />
+          <img className="brand-lockup brand-lockup-standard" src="/brand/arda-lockup.png" alt="" />
+          <img className="brand-lockup brand-lockup-reversed" src="/brand/arda-lockup-reversed.png" alt="" />
+          <img className="brand-mark brand-mark-standard" src="/brand/arda-mark.png" alt="" />
+          <img className="brand-mark brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" />
         </a>
 
         <button
@@ -328,7 +320,6 @@ export default function App() {
         <section className="nav-section" aria-labelledby="estimating-nav-heading">
           <div className="nav-heading" id="estimating-nav-heading">
             <span>Estimating</span>
-            <span className="nav-flag">Controlled</span>
           </div>
           <nav className="primary-nav" aria-label="Estimating pages">
             <a
@@ -369,18 +360,6 @@ export default function App() {
             </a>
           </nav>
         </section>
-
-        <div className="sidebar-source">
-          <ShieldCheck size={16} aria-hidden="true" />
-          <div>
-            <strong>Workbook parity</strong>
-            <span>Annual matrix · 2023–2029</span>
-          </div>
-        </div>
-
-        <div className="sidebar-foot">
-          <UserChip me={me} />
-        </div>
       </aside>
 
       <main className="main-area">
@@ -404,13 +383,13 @@ export default function App() {
               className="topbar-brand-link"
               href={hubUrl}
               target="_top"
-              aria-label="Return to All Applications"
-              title="Return to All Applications"
+              aria-label="Return to Arda applications"
+              title="Return to Arda applications"
             >
-              <img src="/brand/son-aero-mark.png" alt="" />
+              <img className="topbar-brand-mark-standard" src="/brand/arda-mark.png" alt="" />
+              <img className="topbar-brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" />
             </a>
             <ThemeSwitch theme={theme} onChange={setTheme} />
-            <div className="topbar-user"><UserChip me={me} /></div>
           </div>
         </header>
 
@@ -449,13 +428,13 @@ export default function App() {
                 canManageInputs={canManageInputs}
               />
             )}
-            {page === 'rates' && (
-              <EstimatingRatesPage canAdministerRates={canAdministerRates} />
-            )}
+            {page === 'rates' && <EstimatingRatesPage />}
             {page === 'history' && canViewHistory && (
               <EstimatingHistoryPage
                 canImport={canImportHistory}
                 canManageHistory={canManageHistory}
+                importOpen={historyImportOpen}
+                onImportOpenChange={setHistoryImportOpen}
               />
             )}
           </div>

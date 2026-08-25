@@ -6,7 +6,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace EstimatingDashboard.Api.Services;
 
-public sealed class EstimatingHistoryQueryService(EstimatingAccessDbContext db)
+public sealed class EstimatingHistoryQueryService(
+    EstimatingAccessDbContext db,
+    EstimatingEstimatorSettingsService estimatorSettings)
 {
     public async Task<EstimatingHistoryPageDto> GetPageAsync(
         string? search,
@@ -37,23 +39,24 @@ public sealed class EstimatingHistoryQueryService(EstimatingAccessDbContext db)
         var term = Clean(search);
         if (term is not null)
         {
+            var normalizedTerm = term.ToLower();
             var hasSearchDate = DateTime.TryParse(term, out var searchDate);
             var searchDateEnd = searchDate.Date.AddDays(1);
             query = query.Where(record =>
-                record.SourceId.Contains(term)
+                record.SourceId.ToLower().Contains(normalizedTerm)
                 || record.QuoteNumber.ToString().Contains(term)
-                || record.Customer.Contains(term)
-                || (record.CustomerContact != null && record.CustomerContact.Contains(term))
-                || record.SalesPerson.Contains(term)
-                || record.QuoteStatus.Contains(term)
-                || record.EstimatingRep.Contains(term)
-                || (record.RfqReferenceNumber != null && record.RfqReferenceNumber.Contains(term))
-                || (record.Issues != null && record.Issues.Contains(term))
-                || (record.QuoteOnTrack != null && record.QuoteOnTrack.Contains(term))
-                || (record.QuoteComplexity != null && record.QuoteComplexity.Contains(term))
+                || record.Customer.ToLower().Contains(normalizedTerm)
+                || (record.CustomerContact != null && record.CustomerContact.ToLower().Contains(normalizedTerm))
+                || record.SalesPerson.ToLower().Contains(normalizedTerm)
+                || record.QuoteStatus.ToLower().Contains(normalizedTerm)
+                || record.EstimatingRep.ToLower().Contains(normalizedTerm)
+                || (record.RfqReferenceNumber != null && record.RfqReferenceNumber.ToLower().Contains(normalizedTerm))
+                || (record.Issues != null && record.Issues.ToLower().Contains(normalizedTerm))
+                || (record.QuoteOnTrack != null && record.QuoteOnTrack.ToLower().Contains(normalizedTerm))
+                || (record.QuoteComplexity != null && record.QuoteComplexity.ToLower().Contains(normalizedTerm))
                 || record.NumberOfParts.ToString().Contains(term)
-                || (record.EstimatingStatus != null && record.EstimatingStatus.Contains(term))
-                || record.OnTimeStatus.Contains(term)
+                || (record.EstimatingStatus != null && record.EstimatingStatus.ToLower().Contains(normalizedTerm))
+                || record.OnTimeStatus.ToLower().Contains(normalizedTerm)
                 || (record.Workdays != null && record.Workdays.Value.ToString().Contains(term))
                 || (hasSearchDate && (
                     (record.RfqDueDate >= searchDate.Date && record.RfqDueDate < searchDateEnd)
@@ -116,6 +119,7 @@ public sealed class EstimatingHistoryQueryService(EstimatingAccessDbContext db)
         var records = db.QuoteHistory.AsNoTracking();
         return new EstimatingHistoryFilterOptionsDto(
             await Values(records.Select(record => record.EstimatingRep), cancellationToken),
+            await Values(records.Select(record => record.SalesPerson), cancellationToken),
             await Values(records.Select(record => record.Customer), cancellationToken),
             await Values(records.Select(record => record.QuoteStatus), cancellationToken));
     }
@@ -126,8 +130,11 @@ public sealed class EstimatingHistoryQueryService(EstimatingAccessDbContext db)
         CancellationToken cancellationToken)
     {
         var records = await db.QuoteHistory.AsNoTracking().ToListAsync(cancellationToken);
+        var activeEstimators = await estimatorSettings.GetActiveEstimatorNamesAsync(
+            records.Select(record => record.EstimatingRep),
+            cancellationToken);
         var currentEmployeeRecords = records
-            .Where(record => !IsFormerEstimator(record.EstimatingRep))
+            .Where(record => activeEstimators.Contains(record.EstimatingRep.Trim()))
             .ToList();
         var tracked = currentEmployeeRecords
             .Where(record => IsTrackedEstimator(record.EstimatingRep))
@@ -273,10 +280,6 @@ public sealed class EstimatingHistoryQueryService(EstimatingAccessDbContext db)
         !string.IsNullOrWhiteSpace(value)
         && !string.Equals(value, "Unassigned", StringComparison.OrdinalIgnoreCase)
         && !string.Equals(value, "Sales", StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsFormerEstimator(string value) =>
-        string.Equals(value.Trim(), "Abel", StringComparison.OrdinalIgnoreCase)
-        || value.Trim().StartsWith("Abel ", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsCurrentEstimator(string estimator, EstimatingAccessProfile access)
     {

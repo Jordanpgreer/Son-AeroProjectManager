@@ -3,6 +3,7 @@
 This document records the web module's parity contract with:
 
 - `205 Rev E Estimating Quote Worksheet.xlsx`
+- `205-1 Rev E Estimating Worksheet - Subassembly Version.xlsx`
 - `Estimating Rates.xlsx`
 
 The source workbooks remain the business reference. The application stores a reviewed snapshot of
@@ -10,7 +11,7 @@ their active 2023–2029 annual matrix so deployed calculations do not depend on
 
 ## Controlled inputs
 
-- Estimate models: Standard (`Rev E`) and Rubber (`Rubber Breakdown`)
+- Estimate models: Standard (`Rev E`), Rubber (`Rubber Breakdown`), and Subassembly
 - Quantity tiers: 10, 25, 50, 75, 100, 250, 500, and 1,000
 - NRE quantity: 1
 - Rate years: 2023 through 2029
@@ -18,6 +19,11 @@ their active 2023–2029 annual matrix so deployed calculations do not depend on
 - Rubber operation rows: 4 fixed NRE/tooling rows and 22 controlled production rows
 - Material rows: 12
 - Outside-process rows: 5
+- Subassembly parent rows: 2 fixed NRE operations, 10 production operations, 12 materials,
+  and 12 outside-process/subassembly-link rows
+- Each child subassembly: 2 fixed NRE operations, 10 production operations, 12 materials,
+  and 5 outside-process rows
+- Child subassemblies are ordered and one level deep. The UI supports at most 12 children.
 
 Operation lookup follows Excel exact `VLOOKUP` behavior for this data: it is case-insensitive and
 returns the first matching row. Duplicate `Burn Holes` and `Heat Seal` rows are intentionally
@@ -67,6 +73,41 @@ For each outside-process row:
 ```text
 process unit cost = setup cost / q + run cost each
 ```
+
+### Subassembly roll-up
+
+Each child is calculated before the parent. Child operations use the selected parent rate year and
+the same exact labor-rate lookup rules. A child intentionally receives labor burden but no child
+G&A, profit, yield adjustment, or sales markup:
+
+```text
+child basic labor      = sum of child production operation unit costs
+child burdened labor   = child basic labor × (1 + annual burden rate)
+child raw material     = sum of child material unit costs
+child raw process      = sum of child outside-process unit costs
+child amortized NRE    = child raw one-time NRE / q
+
+child unit cost =
+  child burdened labor
+  + child raw material
+  + child raw process
+  + child amortized NRE
+  + child facilities
+```
+
+A linked parent process row ignores its setup and run fields and uses the selected child's unit
+cost. `quantityPerParent` defaults to 1 when omitted:
+
+```text
+linked parent process unit cost = child unit cost × quantityPerParent
+```
+
+The linked amount then participates in the parent `raw process` total. Parent process G&A and
+profit are applied once at the parent level. Child NRE and facilities are already part of child
+unit cost and are not added again elsewhere. A dangling child ID is an explicit
+`missing-subassembly-link` error. An unresolved child operation rate is an explicit
+`missing-subassembly-rate` error carrying the child ID and part number. Calculation results retain
+ordered child operation, material, process, NRE, and per-quantity roll-up audits.
 
 For the quantity roll-up:
 
@@ -142,8 +183,13 @@ Automated tests cover:
 - conditional Rubber tooling markup;
 - year switching;
 - zero-value ratio safety;
-- Rubber metadata non-effects; and
-- a complete Standard fixture across all eight quantity tiers.
+- Rubber metadata non-effects;
+- a complete Standard fixture across all eight quantity tiers;
+- Subassembly workbook parity for one child and multiple ordered children;
+- quantity-per-parent multiplication;
+- child NRE and facilities inclusion exactly once;
+- absence of child G&A/profit and parent process double-loading; and
+- explicit dangling-link and missing-child-rate failures.
 
 Any intentional business-rule change should update the implementation, this contract, and the
 golden fixture in the same change.

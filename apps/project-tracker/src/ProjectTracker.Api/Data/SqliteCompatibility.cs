@@ -66,6 +66,24 @@ public static partial class SqliteCompatibility
     public static Task EnsureLongColumnAsync(ProjectTrackerDbContext db, string table, string column, CancellationToken cancellationToken) =>
         EnsureColumnAsync(db, table, column, "INTEGER NOT NULL DEFAULT 1", cancellationToken);
 
+    public static async Task EnsureFeatureSettingsColumnsAsync(
+        ProjectTrackerDbContext db,
+        CancellationToken cancellationToken)
+    {
+        await EnsureColumnAsync(
+            db,
+            "FeatureSettings",
+            "AssistantEnabled",
+            "INTEGER NOT NULL DEFAULT 1",
+            cancellationToken);
+        await EnsureColumnAsync(
+            db,
+            "FeatureSettings",
+            "AssistantName",
+            "TEXT NOT NULL DEFAULT 'Benny'",
+            cancellationToken);
+    }
+
     public static async Task EnsureLegacyTablesAsync(ProjectTrackerDbContext db, CancellationToken cancellationToken)
     {
         const string commandText = """
@@ -79,6 +97,13 @@ public static partial class SqliteCompatibility
             CREATE TABLE IF NOT EXISTS "ScheduleSettings" (
                 "Id" INTEGER NOT NULL CONSTRAINT "PK_ScheduleSettings" PRIMARY KEY,
                 "WorkingDaysMask" INTEGER NOT NULL,
+                "UpdatedAt" TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS "FeatureSettings" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_FeatureSettings" PRIMARY KEY,
+                "WalkthroughEnabled" INTEGER NOT NULL DEFAULT 1,
+                "AssistantEnabled" INTEGER NOT NULL DEFAULT 1,
+                "AssistantName" TEXT NOT NULL DEFAULT 'Benny',
                 "UpdatedAt" TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS "TaskOvertimeDays" (
@@ -154,7 +179,11 @@ public static partial class SqliteCompatibility
             """;
 
         var connection = db.Database.GetDbConnection();
-        await connection.OpenAsync(cancellationToken);
+        var closeConnection = connection.State != ConnectionState.Open;
+        if (closeConnection)
+        {
+            await connection.OpenAsync(cancellationToken);
+        }
         try
         {
             await using var command = connection.CreateCommand();
@@ -163,7 +192,10 @@ public static partial class SqliteCompatibility
         }
         finally
         {
-            await connection.CloseAsync();
+            if (closeConnection && connection.State != ConnectionState.Closed)
+            {
+                await connection.CloseAsync();
+            }
         }
     }
 
@@ -332,7 +364,11 @@ public static partial class SqliteCompatibility
         }
 
         var connection = db.Database.GetDbConnection();
-        await connection.OpenAsync(cancellationToken);
+        var closeConnection = connection.State != ConnectionState.Open;
+        if (closeConnection)
+        {
+            await connection.OpenAsync(cancellationToken);
+        }
         try
         {
             await using var check = connection.CreateCommand();
@@ -345,7 +381,10 @@ public static partial class SqliteCompatibility
         }
         finally
         {
-            if (connection.State != ConnectionState.Closed) await connection.CloseAsync();
+            if (closeConnection && connection.State != ConnectionState.Closed)
+            {
+                await connection.CloseAsync();
+            }
         }
     }
 

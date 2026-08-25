@@ -1,6 +1,7 @@
 using EstimatingDashboard.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Data;
+using SonAero.Platform.Estimating;
 
 namespace EstimatingDashboard.Api.Services;
 
@@ -11,12 +12,16 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
         if (db.Database.IsSqlite())
         {
             await db.Database.ExecuteSqlRawAsync(SqliteSchema, cancellationToken);
+            await db.Database.ExecuteSqlRawAsync(EstimatorSettings.SqliteSchema, cancellationToken);
             await EnsureSqliteHistoryColumnsAsync(cancellationToken);
             return;
         }
 
         if (db.Database.IsSqlServer())
+        {
             await db.Database.ExecuteSqlRawAsync(SqlServerSchema, cancellationToken);
+            await db.Database.ExecuteSqlRawAsync(EstimatorSettings.SqlServerSchema, cancellationToken);
+        }
     }
 
     private const string SqliteSchema = """
@@ -102,24 +107,6 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
         CREATE INDEX IF NOT EXISTS "IX_EstimatingQuoteHistoryAudits_ImportBatchId"
             ON "EstimatingQuoteHistoryAudits" ("ImportBatchId");
 
-        INSERT OR IGNORE INTO "GroupPermissions" ("AppGroupId", "PermissionKey", "CreatedAt")
-        SELECT DISTINCT source."AppGroupId", 'estimating.history.view', CURRENT_TIMESTAMP
-        FROM "GroupPermissions" source
-        WHERE source."PermissionKey" = 'estimating.view';
-
-        INSERT OR IGNORE INTO "GroupPermissions" ("AppGroupId", "PermissionKey", "CreatedAt")
-        SELECT DISTINCT source."AppGroupId", 'estimating.history.import', CURRENT_TIMESTAMP
-        FROM "GroupPermissions" source
-        WHERE source."PermissionKey" IN (
-            'estimating.quotes.manage',
-            'estimating.inputs.manage',
-            'estimating.rates.admin',
-            'estimating.settings.admin');
-
-        INSERT OR IGNORE INTO "GroupPermissions" ("AppGroupId", "PermissionKey", "CreatedAt")
-        SELECT "Id", 'estimating.history.manage', CURRENT_TIMESTAMP
-        FROM "Groups"
-        WHERE UPPER("Name") IN ('MANAGERS', 'ADMINISTRATORS');
         """;
 
     private const string SqlServerSchema = """
@@ -237,36 +224,6 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
                 ON [EstimatingQuoteHistoryAudits] ([ImportBatchId]);
         END;
 
-        INSERT INTO [GroupPermissions] ([AppGroupId], [PermissionKey], [CreatedAt])
-        SELECT DISTINCT source.[AppGroupId], 'estimating.history.view', SYSDATETIMEOFFSET()
-        FROM [GroupPermissions] source
-        WHERE source.[PermissionKey] = 'estimating.view'
-          AND NOT EXISTS (
-              SELECT 1 FROM [GroupPermissions] existing
-              WHERE existing.[AppGroupId] = source.[AppGroupId]
-                AND existing.[PermissionKey] = 'estimating.history.view');
-
-        INSERT INTO [GroupPermissions] ([AppGroupId], [PermissionKey], [CreatedAt])
-        SELECT DISTINCT source.[AppGroupId], 'estimating.history.import', SYSDATETIMEOFFSET()
-        FROM [GroupPermissions] source
-        WHERE source.[PermissionKey] IN (
-            'estimating.quotes.manage',
-            'estimating.inputs.manage',
-            'estimating.rates.admin',
-            'estimating.settings.admin')
-          AND NOT EXISTS (
-              SELECT 1 FROM [GroupPermissions] existing
-              WHERE existing.[AppGroupId] = source.[AppGroupId]
-                AND existing.[PermissionKey] = 'estimating.history.import');
-
-        INSERT INTO [GroupPermissions] ([AppGroupId], [PermissionKey], [CreatedAt])
-        SELECT [Id], 'estimating.history.manage', SYSDATETIMEOFFSET()
-        FROM [Groups] source
-        WHERE UPPER([Name]) IN ('MANAGERS', 'ADMINISTRATORS')
-          AND NOT EXISTS (
-              SELECT 1 FROM [GroupPermissions] existing
-              WHERE existing.[AppGroupId] = source.[Id]
-                AND existing.[PermissionKey] = 'estimating.history.manage');
         """;
 
     private async Task EnsureSqliteHistoryColumnsAsync(CancellationToken cancellationToken)

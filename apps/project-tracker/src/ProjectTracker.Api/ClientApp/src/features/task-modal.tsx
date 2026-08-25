@@ -18,6 +18,7 @@ import {
 import {
   calculateEndDate,
   calculateDuration,
+  operationDateRangeError,
   calculateAutoProgressPercent,
   todayIso,
   compactDate,
@@ -237,6 +238,7 @@ export function TaskModal({
     overtimeDates,
   )
   const placementTarget = tasks.find((task) => String(task.id) === form.placementTaskId)
+  const dateRangeError = operationDateRangeError(form.startDate, form.endDate)
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -255,6 +257,11 @@ export function TaskModal({
       setTitleRequired(true)
       setOpenSection('identity')
       window.requestAnimationFrame(() => titleInputRef.current?.focus())
+      return
+    }
+    if (dateRangeError) {
+      event.preventDefault()
+      setOpenSection('schedule')
       return
     }
     void saveTask(event)
@@ -413,10 +420,24 @@ export function TaskModal({
             primary={(
               <div className="operation-schedule-primary">
                 <label className="field"><span>Start</span>
-                  <input type="date" value={form.startDate} onChange={(event) => updateSchedule({ startDate: event.target.value, startDateLocked: Boolean(event.target.value) })} disabled={!canField(permissionKeys.taskEditStartDate) || saving} />
+                  <input
+                    type="date"
+                    value={form.startDate}
+                    aria-invalid={Boolean(dateRangeError)}
+                    aria-describedby={dateRangeError ? 'operation-date-range-error' : undefined}
+                    onChange={(event) => updateSchedule({ startDate: event.target.value, startDateLocked: Boolean(event.target.value) })}
+                    disabled={!canField(permissionKeys.taskEditStartDate) || saving}
+                  />
                 </label>
                 <label className="field"><span>End</span>
-                  <input type="date" value={form.endDate} onChange={(event) => updateSchedule({ endDate: event.target.value })} disabled={!canField(permissionKeys.taskEditEndDate) || saving} />
+                  <input
+                    type="date"
+                    value={form.endDate}
+                    aria-invalid={Boolean(dateRangeError)}
+                    aria-describedby={dateRangeError ? 'operation-date-range-error' : undefined}
+                    onChange={(event) => updateSchedule({ endDate: event.target.value })}
+                    disabled={!canField(permissionKeys.taskEditEndDate) || saving}
+                  />
                 </label>
                 <label className="field"><span>Duration</span>
                   <div className="input-suffix">
@@ -424,6 +445,7 @@ export function TaskModal({
                     <span>days</span>
                   </div>
                 </label>
+                {dateRangeError && <em className="field-error operation-schedule-error" id="operation-date-range-error" role="alert">{dateRangeError}</em>}
               </div>
             )}
             open={openSection === 'schedule'}
@@ -585,7 +607,7 @@ export function TaskModal({
         {error && <p className="inline-note warning operation-modal-error" role="alert"><AlertTriangle size={14} /> {error}</p>}
         <div className="modal-actions operation-modal-actions">
           <button type="button" className="button ghost" onClick={onClose} disabled={saving}>Cancel</button>
-          <button type="submit" className="button primary" disabled={saving || !form.title.trim()}><Save size={15} /> {saving ? 'Saving...' : creating ? 'Add operation' : 'Save changes'}</button>
+          <button type="submit" className="button primary" disabled={saving || !form.title.trim() || Boolean(dateRangeError)}><Save size={15} /> {saving ? 'Saving...' : creating ? 'Add operation' : 'Save changes'}</button>
         </div>
       </form>
     </div>

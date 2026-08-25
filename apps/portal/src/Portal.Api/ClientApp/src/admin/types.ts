@@ -7,6 +7,7 @@ export type AdminModuleKey =
   | 'quality-assurance'
 
 export type ProjectTrackerAdminSection =
+  | 'walkthrough'
   | 'calendar'
   | 'work-centers'
   | 'holidays'
@@ -120,6 +121,18 @@ export interface ProjectTrackerUser {
 export interface WorkCenter {
   id: number
   name: string
+}
+
+export interface EstimatorSetting {
+  estimator: string
+  isActive: boolean
+  isExplicitlyConfigured: boolean
+  updatedAt: string | null
+  updatedBy: string | null
+}
+
+export interface EstimatorSettingsOverview {
+  estimators: EstimatorSetting[]
 }
 
 export interface WorkCenterImportResult {

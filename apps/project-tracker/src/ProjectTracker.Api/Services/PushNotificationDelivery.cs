@@ -176,8 +176,8 @@ public sealed class PushNotificationWorker(
             projectId = notification.ProjectId,
             kind = notification.Kind.ToString(),
             projectTaskId = notification.ProjectTaskId,
-            icon = "/brand/son-aero-mark.png",
-            badge = "/brand/son-aero-mark.png",
+            icon = "/brand/arda-mark.png",
+            badge = "/brand/arda-mark.png",
             data = new
             {
                 targetUrl,

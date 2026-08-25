@@ -52,3 +52,17 @@ public sealed record TrackerPreviewDto(
     IReadOnlyList<TrackerPreviewRow> Programs);
 
 public sealed record TrackerPreviewRow(string Name, double Progress, string Status);
+
+public sealed record EstimatorSettingDto(
+    string Estimator,
+    bool IsActive,
+    bool IsExplicitlyConfigured,
+    DateTimeOffset? UpdatedAt,
+    string? UpdatedBy);
+
+public sealed record EstimatorSettingsOverviewDto(
+    IReadOnlyList<EstimatorSettingDto> Estimators);
+
+public sealed record EstimatorSettingUpdateDto(
+    string Estimator,
+    bool IsActive);

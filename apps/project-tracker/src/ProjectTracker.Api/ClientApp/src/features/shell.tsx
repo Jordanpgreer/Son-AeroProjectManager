@@ -14,6 +14,7 @@ import {
   Clock3,
   FileSpreadsheet,
   FileText,
+  GraduationCap,
   History,
   LayoutDashboard,
   ListChecks,
@@ -103,6 +104,7 @@ export function Sidebar({
   hasActiveProjects,
   onOpenActiveProjects,
   user,
+  trainingMode = false,
 }: {
   collapsed: boolean
   onToggleCollapsed: () => void
@@ -112,19 +114,27 @@ export function Sidebar({
   hasActiveProjects: boolean
   onOpenActiveProjects: () => Promise<void>
   user: User | null
+  trainingMode?: boolean
 }) {
   return (
-    <aside className="sidebar" id="project-tracker-sidebar">
-      <a
+    <aside className="sidebar" id="project-tracker-sidebar" data-guide-id={trainingMode ? 'main-navigation' : undefined}>
+      {trainingMode ? <div className="brand brand-hub-link training-brand-static" aria-label="Arda Project Tracker training">
+        <img className="brand-lockup brand-lockup-standard" src="/brand/arda-lockup.png" alt="" />
+        <img className="brand-lockup brand-lockup-reversed" src="/brand/arda-lockup-reversed.png" alt="" />
+        <img className="brand-mark brand-mark-standard" src="/brand/arda-mark.png" alt="" />
+        <img className="brand-mark brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" />
+      </div> : <a
         className="brand brand-hub-link"
         href={hubUrl}
         target="_top"
-        aria-label="Return to All Applications"
-        title="Return to All Applications"
+        aria-label="Return to Arda applications"
+        title="Return to Arda applications"
       >
-        <img className="brand-lockup" src="/brand/son-aero-lockup-dark.png" alt="Son-Aero — Sonfarrel Aerospace" />
-        <img className="brand-mark" src="/brand/son-aero-mark.png" alt="Son-Aero" />
-      </a>
+        <img className="brand-lockup brand-lockup-standard" src="/brand/arda-lockup.png" alt="" />
+        <img className="brand-lockup brand-lockup-reversed" src="/brand/arda-lockup-reversed.png" alt="" />
+        <img className="brand-mark brand-mark-standard" src="/brand/arda-mark.png" alt="" />
+        <img className="brand-mark brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" />
+      </a>}
 
       <button
         type="button"
@@ -144,10 +154,10 @@ export function Sidebar({
       <div className="nav-section">
         <span className="nav-heading">Program Control</span>
         <nav aria-label="Primary">
-          <NavButton active={screen === 'dashboard'} onClick={() => setScreen('dashboard')} icon={<LayoutDashboard size={17} />} label="Dashboard" />
-          <NavButton active={screen === 'project' && selectedProject?.status !== 'Complete'} onClick={() => void onOpenActiveProjects()} icon={<ListChecks size={17} />} label="Project Detail" disabled={!hasActiveProjects} />
-          <NavButton active={screen === 'calendar'} onClick={() => setScreen('calendar')} icon={<CalendarRange size={17} />} label="Calendar" />
-          <NavButton active={screen === 'pastProjects' || (screen === 'project' && selectedProject?.status === 'Complete')} onClick={() => setScreen('pastProjects')} icon={<Archive size={17} />} label="Past Projects" />
+          <NavButton guideId={trainingMode ? 'nav-dashboard' : undefined} active={screen === 'dashboard'} onClick={() => setScreen('dashboard')} icon={<LayoutDashboard size={17} />} label="Dashboard" />
+          <NavButton guideId={trainingMode ? 'nav-project' : undefined} active={screen === 'project' && selectedProject?.status !== 'Complete'} onClick={() => void onOpenActiveProjects()} icon={<ListChecks size={17} />} label="Project Detail" disabled={!hasActiveProjects} />
+          <NavButton guideId={trainingMode ? 'nav-calendar' : undefined} active={screen === 'calendar'} onClick={() => setScreen('calendar')} icon={<CalendarRange size={17} />} label="Calendar" />
+          <NavButton guideId={trainingMode ? 'nav-past' : undefined} active={screen === 'pastProjects' || (screen === 'project' && selectedProject?.status === 'Complete')} onClick={() => setScreen('pastProjects')} icon={<Archive size={17} />} label="Past Projects" />
         </nav>
       </div>
 
@@ -177,12 +187,14 @@ export function NavButton({
   icon,
   label,
   disabled,
+  guideId,
 }: {
   active: boolean
   onClick: () => void
   icon: ReactNode
   label: string
   disabled?: boolean
+  guideId?: string
 }) {
   return (
     <button
@@ -191,6 +203,7 @@ export function NavButton({
       disabled={disabled}
       aria-current={active ? 'page' : undefined}
       title={label}
+      data-guide-id={guideId}
     >
       <span className="nav-icon">{icon}</span>
       <span className="nav-label">{label}</span>
@@ -417,6 +430,7 @@ function NotificationsMenu({
       <button
         className={`button ghost notification-trigger ${unreadCount ? 'has-unread' : ''}`}
         type="button"
+        data-benny-target="notifications"
         onClick={() => {
           setOpen((current) => !current)
           if (!open) void loadNotifications(true)
@@ -791,6 +805,7 @@ export function PageHeader({
   refresh,
   onAddProject,
   onOpenActivity,
+  onStartTour,
   user,
   onOpenNotification,
 }: {
@@ -810,6 +825,7 @@ export function PageHeader({
   refresh: () => Promise<void>
   onAddProject: () => void
   onOpenActivity: () => void
+  onStartTour: () => void
   user: User | null
   onOpenNotification: (notification: MentionNotification) => Promise<void>
 }) {
@@ -821,6 +837,7 @@ export function PageHeader({
   const customerPdfHref = `/api/reports/projects/${projectId}/customer.pdf`
   const showExports = screen === 'dashboard' || screen === 'project' || screen === 'pastProjects'
   const showCustomerExport = screen === 'project' && projectId !== undefined
+  const showTraining = Boolean(user?.walkthroughEnabled && user.permissions.includes('module.view') && !user.preview)
   const eyebrow = screenEyebrow(screen)
   const subtitle = screenSubtitle(screen)
 
@@ -832,7 +849,7 @@ export function PageHeader({
           <div className="page-title-row">
             <h1 className={screen === 'project' ? 'technical-id' : undefined}>{screenTitle(screen, selectedProject)}</h1>
             {screen === 'project' && selectedProject && hasPermission(user, 'project.activity.view') && (
-              <button className="button ghost page-activity-button" type="button" onClick={onOpenActivity}>
+              <button className="button ghost page-activity-button" data-benny-target="project-activity" type="button" onClick={onOpenActivity}>
                 <History size={15} /> Activity
               </button>
             )}
@@ -842,18 +859,18 @@ export function PageHeader({
       </div>
       <div className="topbar-actions">
         {screen === 'dashboard' && (
-          <label className={`topbar-search topbar-live-filter ${dashboardSearch.trim() ? 'is-active' : ''}`} aria-label="Search and live-filter dashboard projects">
+          <label className={`topbar-search topbar-live-filter ${dashboardSearch.trim() ? 'is-active' : ''}`} data-benny-target="dashboard-search" aria-label="Search and live-filter dashboard projects">
             <Search size={15} aria-hidden="true" />
             <input
               value={dashboardSearch}
               onChange={(event) => setDashboardSearch(event.target.value)}
-              placeholder="Search part, sales order, or customer"
+              placeholder="Search part, sales order, job, or customer"
             />
             {dashboardSearch.trim() && <span className="live-filter-indicator" aria-hidden="true">Live</span>}
           </label>
         )}
         {screen === 'pastProjects' && (
-          <label className="topbar-search" aria-label="Search past projects">
+          <label className="topbar-search" data-benny-target="past-search" aria-label="Search past projects">
             <Search size={15} aria-hidden="true" />
             <input
               value={pastProjectsSearch}
@@ -866,27 +883,38 @@ export function PageHeader({
           className="topbar-brand-link"
           href={hubUrl}
           target="_top"
-          aria-label="Return to All Applications"
-          title="Return to All Applications"
+          aria-label="Return to Arda applications"
+          title="Return to Arda applications"
         >
-          <img src="/brand/son-aero-mark.png" alt="" />
+          <img className="topbar-brand-mark-standard" src="/brand/arda-mark.png" alt="" />
+          <img className="topbar-brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" />
         </a>
         <NotificationsMenu user={user} onOpenNotification={onOpenNotification} />
         <div className="topbar-identity">
           <ThemeSwitch theme={theme} onToggleTheme={onToggleTheme} />
           <UserProfile user={user} />
         </div>
+        {showTraining && (
+          <button
+            className="button ghost"
+            type="button"
+            title={`Take the ${screenTitle(screen, selectedProject)} tour with fictional training data`}
+            onClick={onStartTour}
+          >
+            <GraduationCap size={15} /> Tour
+          </button>
+        )}
         <button className="button ghost" onClick={refresh} title="Reload tracker data">
           <RefreshCw size={15} /> Refresh
         </button>
         {screen === 'project' && canEnterProjectEdit && selectedProject && selectedProject.status !== 'Complete' && (
-          <button className={`button ${editMode ? 'primary' : 'ghost'} ${hasUnsavedChanges ? 'has-unsaved-changes' : ''}`} onClick={onToggleEdit} title={editMode && hasUnsavedChanges ? 'Review unsaved project details before leaving edit mode' : 'Edit the operation grid inline'}>
+          <button className={`button ${editMode ? 'primary' : 'ghost'} ${hasUnsavedChanges ? 'has-unsaved-changes' : ''}`} data-benny-target="project-edit" onClick={onToggleEdit} title={editMode && hasUnsavedChanges ? 'Review unsaved project details before leaving edit mode' : 'Edit the operation grid inline'}>
             {editMode ? <><Check size={15} /> Done{hasUnsavedChanges && <span className="button-dirty-dot" aria-label="Unsaved project details" />}</> : <><Pencil size={15} /> Edit</>}
           </button>
         )}
         {showExports && (
           <details className="export-menu">
-            <summary className="button ghost">
+            <summary className="button ghost" data-benny-target="exports">
               Export <ChevronDown size={15} />
             </summary>
             <div className="export-menu-list">
@@ -900,7 +928,7 @@ export function PageHeader({
             </div>
           </details>
         )}
-        {screen === 'dashboard' && canCreateProject && <button className="button primary" onClick={onAddProject}><Plus size={15} /> Add Project</button>}
+        {screen === 'dashboard' && canCreateProject && <button className="button primary" data-benny-target="add-project" onClick={onAddProject}><Plus size={15} /> Add Project</button>}
       </div>
     </header>
   )

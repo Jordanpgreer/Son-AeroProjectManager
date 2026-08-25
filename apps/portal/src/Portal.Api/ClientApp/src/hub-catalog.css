@@ -1,5 +1,5 @@
 /*
- * SON-AERO Hub catalog redesign.
+ * Arda application catalog redesign.
  *
  * This layer intentionally treats every registered application with equal
  * visual weight. It is scoped to the Portal and does not affect either module.
@@ -108,15 +108,15 @@
 }
 
 .catalog-search input::placeholder {
-  color: var(--faint);
+  color: var(--faint-text);
 }
 
 .catalog-clear {
   height: 42px;
   padding: 0 13px;
-  color: var(--red-700);
-  background: var(--red-tint);
-  border: 1px solid var(--red-tint-2);
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border: 1px solid var(--steel-tint-2);
   border-radius: var(--r-md);
   cursor: pointer;
   font: inherit;
@@ -246,7 +246,7 @@
 .catalog-app-card[data-status] .catalog-card-copy h3,
 .catalog-app-card[data-status] .catalog-card-copy p,
 .catalog-app-card[data-status] .catalog-capabilities li {
-  color: var(--faint);
+  color: var(--faint-text);
 }
 
 .catalog-app-card[data-status] .catalog-capabilities li {
@@ -281,10 +281,10 @@
   height: 28px;
   padding: 0 8px;
   color: #fff;
-  background: var(--red);
-  border: 1px solid var(--red-600);
+  background: var(--steel-action);
+  border: 1px solid var(--steel-action);
   border-radius: var(--r-pill);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--red) 24%, transparent);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--steel) 24%, transparent);
 }
 
 .catalog-notification strong {
@@ -365,8 +365,8 @@
   min-height: 38px;
   padding: 0 13px;
   color: #fff;
-  background: var(--red);
-  border: 1px solid var(--red-600);
+  background: var(--steel-action);
+  border: 1px solid var(--steel-action);
   border-radius: var(--r-sm);
   font-size: 12.5px;
   font-weight: 650;
@@ -375,7 +375,7 @@
 }
 
 .catalog-app-card:hover .catalog-open {
-  background: var(--red-600);
+  background: var(--steel-action-hover);
 }
 
 .catalog-state {
@@ -403,7 +403,7 @@
 }
 
 .catalog-state.error {
-  color: var(--risk);
+  color: var(--risk-700);
 }
 
 .catalog-card-skeleton {
@@ -430,7 +430,7 @@
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(90deg, var(--red) 0 4px, transparent 4px),
+    linear-gradient(90deg, var(--steel) 0 4px, transparent 4px),
     var(--nav-1);
   animation: catalogVeil 240ms cubic-bezier(0.2, 0, 0, 1) forwards;
 }
@@ -469,9 +469,9 @@
 }
 
 :root[data-theme='dark'] .catalog-clear {
-  color: var(--red-700);
-  background: var(--red-tint);
-  border-color: var(--red-tint-2);
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border-color: var(--steel-tint-2);
 }
 
 @media (max-width: 900px) {

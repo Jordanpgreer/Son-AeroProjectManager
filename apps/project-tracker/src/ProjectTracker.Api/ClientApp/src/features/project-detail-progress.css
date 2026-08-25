@@ -87,15 +87,15 @@
 }
 
 .operation-complete-button:hover:not(:disabled) {
-  border-color: var(--ok);
-  background: var(--ok-tint);
-  color: var(--ok-700);
+  border-color: var(--steel);
+  background: var(--steel-tint);
+  color: var(--steel-700);
 }
 
 .operation-complete-button:focus-visible {
   outline: 0;
-  border-color: var(--ok);
-  box-shadow: 0 0 0 3px var(--ok-tint);
+  border-color: var(--steel);
+  box-shadow: 0 0 0 3px var(--steel-tint);
 }
 
 .operation-complete-button:disabled,
