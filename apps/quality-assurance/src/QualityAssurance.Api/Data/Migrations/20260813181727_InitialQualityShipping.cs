@@ -1,10 +1,13 @@
 ﻿using System;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace QualityAssurance.Api.Data.Migrations
 {
+    [DbContext(typeof(QualityAssuranceDbContext))]
+    [Migration("20260813181727_InitialQualityShipping")]
     /// <inheritdoc />
     public partial class InitialQualityShipping : Migration
     {
@@ -15,25 +18,26 @@ namespace QualityAssurance.Api.Data.Migrations
                 name: "QualityAssignmentRules",
                 columns: table => new
                 {
-                    Id = table.Column<int>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
-                    Name = table.Column<string>(type: "TEXT", maxLength: 160, nullable: false),
-                    IsEnabled = table.Column<bool>(type: "INTEGER", nullable: false),
-                    Priority = table.Column<int>(type: "INTEGER", nullable: false),
-                    MatchField = table.Column<string>(type: "TEXT", maxLength: 40, nullable: false),
-                    MatchOperator = table.Column<string>(type: "TEXT", maxLength: 40, nullable: false),
-                    MatchValue = table.Column<string>(type: "TEXT", maxLength: 240, nullable: false),
-                    TargetGroupId = table.Column<int>(type: "INTEGER", nullable: false),
-                    TargetGroupName = table.Column<string>(type: "TEXT", maxLength: 160, nullable: false),
-                    AssignmentMode = table.Column<string>(type: "TEXT", maxLength: 40, nullable: false),
-                    TargetUserId = table.Column<int>(type: "INTEGER", nullable: true),
-                    TargetAccountName = table.Column<string>(type: "TEXT", maxLength: 160, nullable: true),
-                    TargetDisplayName = table.Column<string>(type: "TEXT", maxLength: 160, nullable: true),
-                    Version = table.Column<long>(type: "INTEGER", nullable: false),
-                    CreatedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-                    CreatedBy = table.Column<string>(type: "TEXT", nullable: false),
-                    UpdatedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-                    UpdatedBy = table.Column<string>(type: "TEXT", nullable: false)
+                    Id = table.Column<int>(nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    Name = table.Column<string>(maxLength: 160, nullable: false),
+                    IsEnabled = table.Column<bool>(nullable: false),
+                    Priority = table.Column<int>(nullable: false),
+                    MatchField = table.Column<string>(maxLength: 40, nullable: false),
+                    MatchOperator = table.Column<string>(maxLength: 40, nullable: false),
+                    MatchValue = table.Column<string>(maxLength: 240, nullable: false),
+                    TargetGroupId = table.Column<int>(nullable: false),
+                    TargetGroupName = table.Column<string>(maxLength: 160, nullable: false),
+                    AssignmentMode = table.Column<string>(maxLength: 40, nullable: false),
+                    TargetUserId = table.Column<int>(nullable: true),
+                    TargetAccountName = table.Column<string>(maxLength: 160, nullable: true),
+                    TargetDisplayName = table.Column<string>(maxLength: 160, nullable: true),
+                    Version = table.Column<long>(nullable: false),
+                    CreatedAt = table.Column<DateTimeOffset>(nullable: false),
+                    CreatedBy = table.Column<string>(nullable: false),
+                    UpdatedAt = table.Column<DateTimeOffset>(nullable: false),
+                    UpdatedBy = table.Column<string>(nullable: false)
                 },
                 constraints: table =>
                 {
@@ -44,39 +48,40 @@ namespace QualityAssurance.Api.Data.Migrations
                 name: "QualityShipments",
                 columns: table => new
                 {
-                    Id = table.Column<int>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
-                    Status = table.Column<string>(type: "TEXT", maxLength: 80, nullable: false),
-                    SalesOrderNumber = table.Column<string>(type: "TEXT", maxLength: 80, nullable: false),
-                    QaArrivalDate = table.Column<DateOnly>(type: "TEXT", nullable: true),
-                    PartNumber = table.Column<string>(type: "TEXT", maxLength: 160, nullable: false),
-                    PurchaseOrderNumber = table.Column<string>(type: "TEXT", maxLength: 160, nullable: true),
-                    Customer = table.Column<string>(type: "TEXT", maxLength: 240, nullable: false),
-                    TaskType = table.Column<string>(type: "TEXT", maxLength: 120, nullable: false),
-                    Quantity = table.Column<decimal>(type: "TEXT", precision: 18, scale: 3, nullable: true),
-                    DollarValue = table.Column<decimal>(type: "TEXT", precision: 18, scale: 2, nullable: true),
-                    ShipDate = table.Column<DateOnly>(type: "TEXT", nullable: true),
-                    HoldReason = table.Column<string>(type: "TEXT", nullable: true),
-                    SourceRequestedDate = table.Column<DateOnly>(type: "TEXT", nullable: true),
-                    NextAction = table.Column<string>(type: "TEXT", nullable: true),
-                    Comments = table.Column<string>(type: "TEXT", nullable: true),
-                    LastWorkedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
-                    AssignedGroupId = table.Column<int>(type: "INTEGER", nullable: true),
-                    AssignedGroupName = table.Column<string>(type: "TEXT", maxLength: 160, nullable: true),
-                    AssignedUserId = table.Column<int>(type: "INTEGER", nullable: true),
-                    AssignedAccountName = table.Column<string>(type: "TEXT", maxLength: 160, nullable: true),
-                    AssignedDisplayName = table.Column<string>(type: "TEXT", maxLength: 160, nullable: true),
-                    IsShipped = table.Column<bool>(type: "INTEGER", nullable: false),
-                    ShippedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
-                    ShippedByAccountName = table.Column<string>(type: "TEXT", nullable: true),
-                    ShippedByDisplayName = table.Column<string>(type: "TEXT", nullable: true),
-                    Version = table.Column<long>(type: "INTEGER", nullable: false),
-                    CreatedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-                    CreatedByAccountName = table.Column<string>(type: "TEXT", nullable: false),
-                    CreatedByDisplayName = table.Column<string>(type: "TEXT", nullable: false),
-                    UpdatedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-                    UpdatedByAccountName = table.Column<string>(type: "TEXT", nullable: false),
-                    UpdatedByDisplayName = table.Column<string>(type: "TEXT", nullable: false)
+                    Id = table.Column<int>(nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    Status = table.Column<string>(maxLength: 80, nullable: false),
+                    SalesOrderNumber = table.Column<string>(maxLength: 80, nullable: false),
+                    QaArrivalDate = table.Column<DateOnly>(nullable: true),
+                    PartNumber = table.Column<string>(maxLength: 160, nullable: false),
+                    PurchaseOrderNumber = table.Column<string>(maxLength: 160, nullable: true),
+                    Customer = table.Column<string>(maxLength: 240, nullable: false),
+                    TaskType = table.Column<string>(maxLength: 120, nullable: false),
+                    Quantity = table.Column<decimal>(precision: 18, scale: 3, nullable: true),
+                    DollarValue = table.Column<decimal>(precision: 18, scale: 2, nullable: true),
+                    ShipDate = table.Column<DateOnly>(nullable: true),
+                    HoldReason = table.Column<string>(nullable: true),
+                    SourceRequestedDate = table.Column<DateOnly>(nullable: true),
+                    NextAction = table.Column<string>(nullable: true),
+                    Comments = table.Column<string>(nullable: true),
+                    LastWorkedAt = table.Column<DateTimeOffset>(nullable: true),
+                    AssignedGroupId = table.Column<int>(nullable: true),
+                    AssignedGroupName = table.Column<string>(maxLength: 160, nullable: true),
+                    AssignedUserId = table.Column<int>(nullable: true),
+                    AssignedAccountName = table.Column<string>(maxLength: 160, nullable: true),
+                    AssignedDisplayName = table.Column<string>(maxLength: 160, nullable: true),
+                    IsShipped = table.Column<bool>(nullable: false),
+                    ShippedAt = table.Column<DateTimeOffset>(nullable: true),
+                    ShippedByAccountName = table.Column<string>(nullable: true),
+                    ShippedByDisplayName = table.Column<string>(nullable: true),
+                    Version = table.Column<long>(nullable: false),
+                    CreatedAt = table.Column<DateTimeOffset>(nullable: false),
+                    CreatedByAccountName = table.Column<string>(nullable: false),
+                    CreatedByDisplayName = table.Column<string>(nullable: false),
+                    UpdatedAt = table.Column<DateTimeOffset>(nullable: false),
+                    UpdatedByAccountName = table.Column<string>(nullable: false),
+                    UpdatedByDisplayName = table.Column<string>(nullable: false)
                 },
                 constraints: table =>
                 {
@@ -87,16 +92,17 @@ namespace QualityAssurance.Api.Data.Migrations
                 name: "QualityShipmentAuditEntries",
                 columns: table => new
                 {
-                    Id = table.Column<long>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
-                    ShipmentId = table.Column<int>(type: "INTEGER", nullable: false),
-                    EventType = table.Column<string>(type: "TEXT", maxLength: 80, nullable: false),
-                    FieldName = table.Column<string>(type: "TEXT", maxLength: 120, nullable: true),
-                    OldValue = table.Column<string>(type: "TEXT", nullable: true),
-                    NewValue = table.Column<string>(type: "TEXT", nullable: true),
-                    AccountName = table.Column<string>(type: "TEXT", maxLength: 160, nullable: false),
-                    DisplayName = table.Column<string>(type: "TEXT", maxLength: 160, nullable: false),
-                    OccurredAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false)
+                    Id = table.Column<long>(nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    ShipmentId = table.Column<int>(nullable: false),
+                    EventType = table.Column<string>(maxLength: 80, nullable: false),
+                    FieldName = table.Column<string>(maxLength: 120, nullable: true),
+                    OldValue = table.Column<string>(nullable: true),
+                    NewValue = table.Column<string>(nullable: true),
+                    AccountName = table.Column<string>(maxLength: 160, nullable: false),
+                    DisplayName = table.Column<string>(maxLength: 160, nullable: false),
+                    OccurredAt = table.Column<DateTimeOffset>(nullable: false)
                 },
                 constraints: table =>
                 {

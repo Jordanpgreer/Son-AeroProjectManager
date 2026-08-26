@@ -32,6 +32,22 @@ groups, and permissions, plus `quality-assurance-dev.db` for shipments, assignme
 history. Production uses the separate `QualityAssurance` SQL Server database configured by
 `ConnectionStrings:QualityStore`.
 
+SQL Server is the canonical design-time migration provider. Migration operations remain compatible
+with SQLite for local development, and the Quality test suite generates the complete SQL Server
+script offline to guard identity columns, native store types, migration discovery, and model-snapshot
+drift. Before first production activation, provision `QualityAssurance` with the deployment SQL
+tooling, confirm that no prior Quality migration was partially recorded, and validate the reviewed
+idempotent script against a disposable SQL Server database. The application applies pending Quality
+migrations during startup, so the IIS identity requires the database roles granted by
+`deployment/Configure-SqlServer.ps1`.
+
+For an existing pre-activation IIS installation whose current Quality binary cannot pass health against
+SQL Server, deploy the corrected publish output with
+`deployment/Deploy-QualityAssuranceRelease.ps1 -FirstActivation`. This bounded bootstrap switches
+only the Quality site path, requires the candidate health endpoint to succeed, and restores the
+prior path and pool state if the candidate fails. Activate the Portal card only after the script
+reports `QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY`.
+
 ```powershell
 dotnet run --project apps/quality-assurance/src/QualityAssurance.Api/QualityAssurance.Api.csproj
 ```

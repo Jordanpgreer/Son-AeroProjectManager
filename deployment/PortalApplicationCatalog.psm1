@@ -139,9 +139,9 @@ function Sync-PortalProductionApplicationCatalog {
             $productionApplication = $productionMap[$id]
             if ($templateMap.ContainsKey($id) -and $id -in $templateOwnedAllowedRolesIds) {
                 # AllowedRoles is a release policy, not a server-local customization. Applying
-                # the template value only for the two deferred modules ensures a carried-forward
-                # production file cannot accidentally re-enable them. Other first-party and
-                # custom application role policies remain untouched.
+                # the template value for Engineering and Quality ensures a carried-forward
+                # production file retains the reviewed active policy. Other first-party
+                # and custom application role policies remain untouched.
                 Set-PortalTemplateAllowedRolesPolicy `
                     -ProductionApplication $productionApplication `
                     -TemplateApplication $templateMap[$id] `

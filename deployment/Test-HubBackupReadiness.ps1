@@ -159,7 +159,7 @@ SELECT d.[name], d.[state_desc], d.[recovery_model_desc],
        SUM(CONVERT(bigint, m.[size])) * 8192 AS [allocated_bytes]
 FROM sys.databases AS d
 INNER JOIN sys.master_files AS m ON m.[database_id] = d.[database_id]
-WHERE d.[name] IN (N'ProjectTracker', N'EngineeringHub')
+WHERE d.[name] IN (N'ProjectTracker', N'EngineeringHub', N'QualityAssurance')
 GROUP BY d.[name], d.[state_desc], d.[recovery_model_desc]
 ORDER BY d.[name];
 "@
@@ -217,7 +217,7 @@ finally {
 }
 
 $failures = [System.Collections.Generic.List[string]]::new()
-foreach ($databaseName in @('ProjectTracker', 'EngineeringHub')) {
+foreach ($databaseName in @('ProjectTracker', 'EngineeringHub', 'QualityAssurance')) {
     $database = $databases | Where-Object Name -EQ $databaseName | Select-Object -First 1
     if (-not $database) {
         $failures.Add("Database $databaseName was not found.")
@@ -310,7 +310,7 @@ $sqlServiceAclWriteAccessProven = $ntfsWriteAllows.Count -gt 0 -and
     RequiredNextActions = @(
         "Retain at least two restore points outside $ExpectedComputerName.",
         "Keep direct NTFS Write and SMB Change/Full grants for '$sqlNetworkPrincipal' on the approved destination.",
-        'Create CHECKSUM backups for ProjectTracker and EngineeringHub and run RESTORE VERIFYONLY WITH CHECKSUM.',
+        'Create CHECKSUM backups for ProjectTracker, EngineeringHub, and QualityAssurance and run RESTORE VERIFYONLY WITH CHECKSUM.',
         'Back up EngineeringHub and EngineeringDrawings$ as one quiesced recovery set.',
         'Perform a restore drill on a non-production SQL instance before calling backups operational.'
     )

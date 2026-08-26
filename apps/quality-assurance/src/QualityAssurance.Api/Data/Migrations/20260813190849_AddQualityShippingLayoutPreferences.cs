@@ -1,10 +1,13 @@
 ﻿using System;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace QualityAssurance.Api.Data.Migrations
 {
+    [DbContext(typeof(QualityAssuranceDbContext))]
+    [Migration("20260813190849_AddQualityShippingLayoutPreferences")]
     /// <inheritdoc />
     public partial class AddQualityShippingLayoutPreferences : Migration
     {

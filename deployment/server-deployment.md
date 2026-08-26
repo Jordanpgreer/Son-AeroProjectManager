@@ -70,8 +70,9 @@ credential while each IIS application remains locally isolated in its own pool.
 
 Copy `deployment\Configure-SqlServer.ps1` to SON-SQL2 and run it from elevated PowerShell. It
 validates the hostname and Windows administrator access before changing anything, exports a
-registry backup, configures fixed TCP 1433, restricts the firewall rule to SON-IIS2, creates both
-databases, grants `SON4L\SON-IIS2$`, and creates the controlled drawing share under
+registry backup, configures fixed TCP 1433, restricts the firewall rule to SON-IIS2, creates the
+`ProjectTracker`, `EngineeringHub`, and `QualityAssurance` databases, grants `SON4L\SON-IIS2$`, and
+creates the controlled drawing share under
 `C:\SonAero\Data`. If the current Windows identity is not already a SQL sysadmin, the script uses
 SQL Server's restricted single-user recovery mode for the database work and always restores normal
 multi-user mode; it does not create a permanent recovery login:
@@ -135,7 +136,7 @@ Copy the matching file from `deployment\templates` into each stable site folder 
 | Portal | `portal...json` | Confirm SON-IIS2 module URLs and the Engineering drawings UNC share |
 | EngineeringHub | `engineering-hub...json` | Confirm the `\\SON-SQL2\EngineeringDrawings$` share |
 | EstimatingDashboard | `estimating-dashboard...json` | Confirm SQL port/instance |
-| QualityAssurance | `quality-assurance...json` | Confirm SQL port/instance and create/grant the `QualityAssurance` database |
+| QualityAssurance | `quality-assurance...json` | Confirm SQL port/instance |
 
 All templates already target SON-SQL2. The Project Tracker template bootstraps
 `SON4L\jordan.greer` as the first administrator. Change it only if a different account should
@@ -191,12 +192,12 @@ verification, the employee shortcut, HTTPS prerequisites, and backup prerequisit
 
 ## 10. Backups, updates, and rollback
 
-Back up both SQL databases, the Engineering drawing share, Production configuration, and TLS
+Back up all three SQL databases, the Engineering drawing share, Production configuration, and TLS
 bindings. Retain multiple restore points and perform a test restore.
 
 For each update:
 
-1. Back up both databases and the drawing share.
+1. Back up all three databases and the drawing share.
 2. In the source checkout run `git pull --ff-only origin main`.
 3. Publish into a new timestamped staging/release folder.
 4. Smoke-test it, take each site offline with `app_offline.htm`, and switch/copy the binaries.

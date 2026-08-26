@@ -23,25 +23,30 @@ $source = Get-Content -LiteralPath $ScriptPath -Raw
 foreach ($required in @(
     "[ValidateSet('SON-IIS2')]",
     "[ValidateSet('SonAeroPortal')]",
-    "'engineering-hub', 'quality-assurance'",
-    "'__production-disabled__'",
+    "[ValidateSet('https://engineering.hub.son4l.local/api/health')]",
+    "[ValidateSet('https://quality.hub.son4l.local/api/health')]",
+    "`$activatedApplicationIds = @('engineering-hub', 'quality-assurance')",
     'Assert-InteractiveAdministrator',
     'NT AUTHORITY\SYSTEM',
+    "`$identity.Name -notlike 'SON4L\*'",
     'Restart-WebAppPool -Name $AppPoolName',
     'Invoke-WebRequest -UseBasicParsing -UseDefaultCredentials',
     '[IO.File]::Replace($temporaryPath, $configurationPath, $backupPath)',
     '[IO.File]::Replace($restorePath, $configurationPath, $rollbackDisplacedPath)',
-    "'project-tracker', 'admin-console'",
-    'PORTAL_PRODUCTION_MODULES_HIDDEN_AND_VERIFIED',
-    'PORTAL_PRODUCTION_MODULES_ALREADY_HIDDEN_AND_VERIFIED',
+    "'engineering-hub'",
+    "'estimating-dashboard'",
+    "'quality-assurance'",
+    'PORTAL_PRODUCTION_MODULE_POLICY_APPLIED_AND_VERIFIED',
+    'PORTAL_PRODUCTION_MODULE_POLICY_ALREADY_APPLIED_AND_VERIFIED',
     'WHATIF_READY_PORTAL_PRODUCTION_MODULE_VISIBILITY'
 )) {
     if (-not $source.Contains($required)) { throw "Visibility script is missing required guard: $required" }
 }
 
 $functionNames = @('Get-ApplicationMap', 'Get-NormalizedAllowedRoles',
-    'Set-HiddenApplicationPolicy', 'Test-HiddenApplicationPolicy',
-    'Assert-PortalCatalogVisibility', 'ConvertFrom-PortalApplicationsJson')
+    'Set-VisibleApplicationPolicy', 'Test-VisibleApplicationPolicy',
+    'Assert-PortalCatalogVisibility', 'ConvertFrom-PortalApplicationsJson',
+    'Wait-ForModuleHealth')
 $definitions = @($ast.FindAll({
     param($node)
     $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
@@ -52,6 +57,18 @@ if ($definitions.Count -ne $functionNames.Count) {
 }
 Invoke-Expression (($definitions | ForEach-Object { $_.Extent.Text }) -join [Environment]::NewLine)
 
+$engineeringHealthIndex = $source.IndexOf(
+    "Wait-ForModuleHealth -ModuleName 'Engineering Hub' -Uri `$EngineeringHealthUri")
+$qualityHealthIndex = $source.IndexOf(
+    "Wait-ForModuleHealth -ModuleName 'Quality Assurance' -Uri `$QualityHealthUri")
+$configurationReadIndex = $source.IndexOf('$originalBytes = [IO.File]::ReadAllBytes($configurationPath)')
+if ($engineeringHealthIndex -lt 0 -or $qualityHealthIndex -lt 0 -or
+    $configurationReadIndex -lt 0 -or
+    $engineeringHealthIndex -gt $qualityHealthIndex -or
+    $qualityHealthIndex -gt $configurationReadIndex) {
+    throw 'Engineering and Quality health are not both required before the Portal configuration transaction begins.'
+}
+
 $configuration = @'
 {
   "Portal": {
@@ -59,68 +76,63 @@ $configuration = @'
       { "Id": "project-tracker", "AllowedRoles": [] },
       { "Id": "engineering-hub", "AllowedRoles": ["Admin"] },
       { "Id": "estimating-dashboard", "AllowedRoles": [] },
-      { "Id": "quality-assurance", "AllowedRoles": [] },
+      { "Id": "quality-assurance", "AllowedRoles": ["__production-disabled__"] },
       { "Id": "admin-console", "AllowedRoles": [] }
     ]
   }
 }
 '@ | ConvertFrom-Json
 
-Set-HiddenApplicationPolicy -Configuration $configuration `
-    -ApplicationIds @('engineering-hub', 'quality-assurance') `
-    -Sentinel '__production-disabled__'
-if (-not (Test-HiddenApplicationPolicy -Configuration $configuration `
-        -ApplicationIds @('engineering-hub', 'quality-assurance') `
-        -Sentinel '__production-disabled__')) {
-    throw 'The hidden-module policy was not recognized after it was applied.'
+Set-VisibleApplicationPolicy -Configuration $configuration `
+    -ApplicationIds @('engineering-hub', 'quality-assurance')
+if (-not (Test-VisibleApplicationPolicy -Configuration $configuration `
+        -ApplicationIds @('engineering-hub', 'quality-assurance'))) {
+    throw 'The activated-module policy was not recognized after it was applied.'
 }
 $map = Get-ApplicationMap -Configuration $configuration
-foreach ($id in @('engineering-hub', 'quality-assurance')) {
-    $roles = @(Get-NormalizedAllowedRoles -Application $map[$id] -ApplicationId $id)
-    if ($roles.Count -ne 1 -or $roles[0] -cne '__production-disabled__') {
-        throw "The exact hidden role policy was not applied to '$id'."
-    }
-}
-foreach ($id in @('project-tracker', 'estimating-dashboard', 'admin-console')) {
+foreach ($id in @('project-tracker', 'engineering-hub', 'estimating-dashboard', 'quality-assurance', 'admin-console')) {
     if (@(Get-NormalizedAllowedRoles -Application $map[$id] -ApplicationId $id).Count -ne 0) {
-        throw "The visibility policy changed non-target application '$id'."
+        throw "The visibility policy did not leave '$id' visible."
     }
 }
 
 $visibleCatalog = @(
     [pscustomobject]@{ id = 'project-tracker' },
+    [pscustomobject]@{ id = 'engineering-hub' },
     [pscustomobject]@{ id = 'estimating-dashboard' },
+    [pscustomobject]@{ id = 'quality-assurance' },
     [pscustomobject]@{ id = 'admin-console' }
 )
 Assert-PortalCatalogVisibility -Applications $visibleCatalog `
-    -HiddenIds @('engineering-hub', 'quality-assurance') `
-    -RequiredVisibleIds @('project-tracker', 'admin-console')
+    -RequiredVisibleIds @('project-tracker', 'engineering-hub', 'estimating-dashboard', 'quality-assurance', 'admin-console')
 
-$windowsPowerShellJson = '[{"id":"project-tracker","name":"Project Tracker"},{"id":"admin-console","name":"Admin Console"}]'
+$windowsPowerShellJson = '[{"id":"project-tracker","name":"Project Tracker"},{"id":"engineering-hub","name":"Engineering Hub"},{"id":"estimating-dashboard","name":"Estimating Dashboard"},{"id":"quality-assurance","name":"Quality Assurance"},{"id":"admin-console","name":"Admin Console"}]'
 $parsedApplications = @(ConvertFrom-PortalApplicationsJson -Json $windowsPowerShellJson)
-if ($parsedApplications.Count -ne 2 -or
+if ($parsedApplications.Count -ne 5 -or
     $parsedApplications[0].id -cne 'project-tracker' -or
-    $parsedApplications[1].id -cne 'admin-console') {
-    throw 'Windows PowerShell 5.1 JSON-array parsing did not return two independent applications.'
+    $parsedApplications[1].id -cne 'engineering-hub' -or
+    $parsedApplications[2].id -cne 'estimating-dashboard' -or
+    $parsedApplications[3].id -cne 'quality-assurance' -or
+    $parsedApplications[4].id -cne 'admin-console') {
+    throw 'Windows PowerShell 5.1 JSON-array parsing did not return five independent applications.'
 }
 Assert-PortalCatalogVisibility -Applications $parsedApplications `
-    -HiddenIds @('engineering-hub', 'quality-assurance') `
-    -RequiredVisibleIds @('project-tracker', 'admin-console')
+    -RequiredVisibleIds @('project-tracker', 'engineering-hub', 'estimating-dashboard', 'quality-assurance', 'admin-console')
 $invalidCatalogCases = @(
     [pscustomobject]@{ Applications = [object[]]@() },
     [pscustomobject]@{ Applications = [object[]]@([pscustomobject]@{ id = 'project-tracker' }) },
     [pscustomobject]@{ Applications = [object[]]@(
         [pscustomobject]@{ id = 'project-tracker' }
-        [pscustomobject]@{ id = 'admin-console' }
         [pscustomobject]@{ id = 'engineering-hub' }
+        [pscustomobject]@{ id = 'estimating-dashboard' }
+        [pscustomobject]@{ id = 'admin-console' }
     ) }
 )
 foreach ($invalidCatalogCase in $invalidCatalogCases) {
     $failed = $false
     try {
         Assert-PortalCatalogVisibility -Applications $invalidCatalogCase.Applications `
-            -HiddenIds @('engineering-hub', 'quality-assurance') `
-            -RequiredVisibleIds @('project-tracker', 'admin-console')
+            -RequiredVisibleIds @('project-tracker', 'engineering-hub', 'estimating-dashboard', 'quality-assurance', 'admin-console')
     }
     catch { $failed = $true }
     if (-not $failed) { throw 'An empty, incomplete, or still-visible Portal catalog passed verification.' }
@@ -134,9 +146,8 @@ foreach ($invalidJson in @(
     $failed = $false
     try {
         $invalid = $invalidJson | ConvertFrom-Json
-        Set-HiddenApplicationPolicy -Configuration $invalid `
-            -ApplicationIds @('engineering-hub', 'quality-assurance') `
-            -Sentinel '__production-disabled__'
+        Set-VisibleApplicationPolicy -Configuration $invalid `
+            -ApplicationIds @('engineering-hub', 'quality-assurance')
     }
     catch { $failed = $true }
     if (-not $failed) { throw "An invalid Portal catalog was accepted: $invalidJson" }

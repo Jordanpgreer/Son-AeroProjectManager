@@ -60,10 +60,10 @@ After a trusted HTTPS endpoint is operational, use
 server-only IIS environment and verify the public-key endpoint. Run its `-WhatIf` mode first. The
 production settings template stays disabled and never contains the private key.
 
-Engineering Hub and Quality Assurance remain in the repository and local development catalog but
-are deliberately hidden from the production Portal until they are production ready. After pulling
-a release containing this policy, apply it to the active Portal configuration on SON-IIS2 without
-deploying either deferred module:
+Engineering Hub and Quality Assurance are production-enabled in the Portal after both sites are
+healthy and Quality's SQL Server migration has been validated against the provisioned
+`QualityAssurance` database on SON-SQL2. After deploying the reviewed release, apply the visibility
+policy to the active Portal configuration on SON-IIS2:
 
 ```powershell
 & .\deployment\Configure-PortalProductionModuleVisibility.ps1 -WhatIf
@@ -71,10 +71,11 @@ deploying either deferred module:
 ```
 
 Require `WHATIF_READY_PORTAL_PRODUCTION_MODULE_VISIBILITY`, then
-`PORTAL_PRODUCTION_MODULES_HIDDEN_AND_VERIFIED`. If the policy was already applied, either command
-may instead return `PORTAL_PRODUCTION_MODULES_ALREADY_HIDDEN_AND_VERIFIED`. The operation
-changes only the two Portal cards and recycles only the Portal pool. It does not stop, remove, or
-weaken authorization on either module site; direct module URLs remain independently protected.
+`PORTAL_PRODUCTION_MODULE_POLICY_APPLIED_AND_VERIFIED`. If the policy was already applied, either
+command may instead return `PORTAL_PRODUCTION_MODULE_POLICY_ALREADY_APPLIED_AND_VERIFIED`. The
+operation changes only the Engineering and Quality Portal-card policies and recycles only the
+Portal pool. It does not stop, remove, or weaken authorization on either module site; direct module
+URLs remain independently protected and both modules still require their assigned permissions.
 Later full releases synchronize this production visibility policy from the production template
 while preserving server-local URLs, other production fields, and custom applications.
 
@@ -105,6 +106,32 @@ all five applications plus the same-origin Project Tracker gateway, and rolls II
 paths if health verification fails. Run `Configure-PortalProjectTrackerGateway.ps1` once on SON-IIS2
 before the first gateway-aware release.
 
+If Quality Assurance is the only unhealthy current site because its deferred SQLite-shaped
+migration chain cannot start on SQL Server, the all-app transaction cannot pass its current-health
+preflight. After provisioning and backing up the `QualityAssurance` database, use the narrowly scoped
+Quality transaction from a fresh `Publish-Hub.ps1` staging root:
+
+```powershell
+& .\deployment\Deploy-QualityAssuranceRelease.ps1 `
+  -PackageRoot C:\SonAero\staging\hub `
+  -ReleaseId quality-sqlserver-20260826 `
+  -FirstActivation `
+  -WhatIf
+& .\deployment\Deploy-QualityAssuranceRelease.ps1 `
+  -PackageRoot C:\SonAero\staging\hub `
+  -ReleaseId quality-sqlserver-20260826 `
+  -FirstActivation `
+  -Confirm:$false
+```
+
+Use `-FirstActivation` only for that reviewed bootstrap condition; later Quality-only updates require
+the current endpoint to be healthy and omit the switch. Require
+`WHATIF_READY_QUALITY_ASSURANCE_RELEASE`, then
+`QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY`. The transaction preserves the active Production
+settings byte-for-byte, changes only the Quality IIS path/pool, and restores the exact prior path and
+pool state on failure. Run it as an administrator who also has Quality module access, then apply the
+Portal visibility transaction above.
+
 When a release changes **only Project Tracker** and does not require a Portal, Engineering,
 Estimating, Quality, shared-production-configuration, or cross-module database change, use
 `Deploy-ProjectTrackerRelease.ps1` instead. Continue to build a fresh deterministic Hub staging
@@ -112,7 +139,7 @@ root with `Publish-Hub.ps1`; the targeted transaction reads only its `ProjectTra
 switches and verifies only the direct `ProjectTracker` IIS site and the existing
 `/project-tracker-api` Portal gateway. It preserves the active Project Tracker
 `appsettings.Production.json` and automatically restores both prior paths if candidate health
-verification fails. This avoids making a deferred module's health a release gate for an otherwise
+verification fails. This avoids making an unrelated module's health a release gate for an otherwise
 independent Project Tracker update.
 
 Run the targeted transaction with `-WhatIf` first and require
@@ -134,7 +161,7 @@ if root or gateway verification fails.
 For a compatible release containing both Project Tracker and Portal changes, publish once, deploy
 Project Tracker first, and require its healthy marker before deploying the Portal root from the
 same staging package. This leaves the existing Portal compatible if the Project Tracker transaction
-fails and avoids health-gating deferred modules. Require `WHATIF_READY_PORTAL_RELEASE` from the
+fails and avoids health-gating unrelated modules. Require `WHATIF_READY_PORTAL_RELEASE` from the
 Portal preview and `PORTAL_RELEASE_DEPLOYED_AND_HEALTHY` from apply. The same automatic-rollback
 stop rule applies: do not rerun blindly or delete the retained candidate.
 

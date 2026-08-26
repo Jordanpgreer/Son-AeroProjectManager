@@ -1,9 +1,9 @@
 <#
-    Hides the Engineering Hub and Quality Assurance cards in the production Portal catalog.
+    Activates Engineering Hub and Quality Assurance in the production Portal catalog.
 
     This is a presentation control, not an authorization boundary. The module sites and their
     independent authorization remain unchanged. The production template carries the same policy
-    so later Hub releases do not accidentally re-enable the cards.
+    so later Hub releases retain the same reviewed visibility policy.
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
@@ -19,20 +19,34 @@ param(
     [ValidateSet('https://hub.son4l.local/api/apps')]
     [string]$VerificationUri = 'https://hub.son4l.local/api/apps',
 
+    [ValidateSet('https://engineering.hub.son4l.local/api/health')]
+    [string]$EngineeringHealthUri = 'https://engineering.hub.son4l.local/api/health',
+
+    [ValidateSet('https://quality.hub.son4l.local/api/health')]
+    [string]$QualityHealthUri = 'https://quality.hub.son4l.local/api/health',
+
     [ValidateRange(10, 180)]
     [int]$HealthTimeoutSeconds = 60
 )
 
 $ErrorActionPreference = 'Stop'
-$hiddenApplicationIds = @('engineering-hub', 'quality-assurance')
-$requiredVisibleApplicationIds = @('project-tracker', 'admin-console')
-$disabledRoleSentinel = '__production-disabled__'
+$activatedApplicationIds = @('engineering-hub', 'quality-assurance')
+$requiredVisibleApplicationIds = @(
+    'project-tracker',
+    'engineering-hub',
+    'estimating-dashboard',
+    'quality-assurance',
+    'admin-console'
+)
 
 function Assert-InteractiveAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     if ($null -eq $identity -or $identity.IsSystem -or
         $identity.Name -ieq 'NT AUTHORITY\SYSTEM') {
         throw 'This script rejects Local System. Run it interactively as an authorized SON4L domain user.'
+    }
+    if ($identity.Name -notlike 'SON4L\*') {
+        throw "Run this script as an authorized SON4L domain user, not '$($identity.Name)'."
     }
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -116,11 +130,10 @@ function Get-NormalizedAllowedRoles {
     return @($roles | ForEach-Object { ([string]$_).Trim() })
 }
 
-function Set-HiddenApplicationPolicy {
+function Set-VisibleApplicationPolicy {
     param(
         [Parameter(Mandatory = $true)]$Configuration,
-        [Parameter(Mandatory = $true)][string[]]$ApplicationIds,
-        [Parameter(Mandatory = $true)][string]$Sentinel
+        [Parameter(Mandatory = $true)][string[]]$ApplicationIds
     )
 
     $map = Get-ApplicationMap -Configuration $Configuration
@@ -131,25 +144,25 @@ function Set-HiddenApplicationPolicy {
         $application = $map[$id]
         [void](Get-NormalizedAllowedRoles -Application $application -ApplicationId $id)
         $property = $application.PSObject.Properties['AllowedRoles']
-        if ($property) { $property.Value = @($Sentinel) }
+        if ($property) { $property.Value = @() }
         else {
-            $application | Add-Member -MemberType NoteProperty -Name AllowedRoles -Value @($Sentinel)
+            $application | Add-Member -MemberType NoteProperty -Name AllowedRoles -Value @()
         }
     }
 }
 
-function Test-HiddenApplicationPolicy {
+function Test-VisibleApplicationPolicy {
     param(
         [Parameter(Mandatory = $true)]$Configuration,
-        [Parameter(Mandatory = $true)][string[]]$ApplicationIds,
-        [Parameter(Mandatory = $true)][string]$Sentinel
+        [Parameter(Mandatory = $true)][string[]]$ApplicationIds
     )
 
     $map = Get-ApplicationMap -Configuration $Configuration
     foreach ($id in $ApplicationIds) {
         if (-not $map.ContainsKey($id)) { return $false }
-        $roles = @(Get-NormalizedAllowedRoles -Application $map[$id] -ApplicationId $id)
-        if ($roles.Count -ne 1 -or $roles[0] -cne $Sentinel) { return $false }
+        if (@(Get-NormalizedAllowedRoles -Application $map[$id] -ApplicationId $id).Count -ne 0) {
+            return $false
+        }
     }
     return $true
 }
@@ -163,18 +176,13 @@ function ConvertTo-Utf8JsonBytes {
 function Assert-PortalCatalogVisibility {
     param(
         [AllowNull()][object[]]$Applications,
-        [Parameter(Mandatory = $true)][string[]]$HiddenIds,
         [Parameter(Mandatory = $true)][string[]]$RequiredVisibleIds
     )
 
     $visibleIds = @($Applications | ForEach-Object { [string]$_.id })
-    $stillVisible = @($HiddenIds | Where-Object { $visibleIds -contains $_ })
-    if ($stillVisible.Count -gt 0) {
-        throw "Deferred Portal cards are still visible: $($stillVisible -join ', ')."
-    }
     $missingRequired = @($RequiredVisibleIds | Where-Object { $visibleIds -notcontains $_ })
     if ($missingRequired.Count -gt 0) {
-        throw "Required Portal cards are missing: $($missingRequired -join ', ')."
+        throw "Required Portal cards are missing: $($missingRequired -join ', '). Run this transaction as a Hub administrator whose groups grant Engineering and Quality module access."
     }
 }
 
@@ -191,7 +199,6 @@ function ConvertFrom-PortalApplicationsJson {
 function Wait-ForPortalVisibility {
     param(
         [Parameter(Mandatory = $true)][string]$Uri,
-        [Parameter(Mandatory = $true)][string[]]$HiddenIds,
         [Parameter(Mandatory = $true)][string[]]$RequiredVisibleIds,
         [Parameter(Mandatory = $true)][int]$TimeoutSeconds
     )
@@ -206,7 +213,7 @@ function Wait-ForPortalVisibility {
                 throw "HTTP $($response.StatusCode)"
             }
             $applications = @(ConvertFrom-PortalApplicationsJson -Json $response.Content)
-            Assert-PortalCatalogVisibility -Applications $applications -HiddenIds $HiddenIds `
+            Assert-PortalCatalogVisibility -Applications $applications `
                 -RequiredVisibleIds $RequiredVisibleIds
             return
         }
@@ -214,7 +221,30 @@ function Wait-ForPortalVisibility {
         Start-Sleep -Milliseconds 750
     } while ([DateTime]::UtcNow -lt $deadline)
 
-    throw "Portal did not hide the deferred modules at '$Uri'. Last error: $lastError"
+    throw "Portal did not apply the reviewed module visibility policy at '$Uri'. Last error: $lastError"
+}
+
+function Wait-ForModuleHealth {
+    param(
+        [Parameter(Mandatory = $true)][string]$ModuleName,
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [Parameter(Mandatory = $true)][int]$TimeoutSeconds
+    )
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $lastError = 'No response received.'
+    do {
+        try {
+            $response = Invoke-WebRequest -UseBasicParsing -UseDefaultCredentials `
+                -Uri $Uri -TimeoutSec 15
+            if ([int]$response.StatusCode -eq 200) { return }
+            $lastError = "HTTP $($response.StatusCode)"
+        }
+        catch { $lastError = $_.Exception.Message }
+        Start-Sleep -Milliseconds 750
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    throw "$ModuleName is not healthy at '$Uri'; Portal activation was not attempted. Last error: $lastError"
 }
 
 if ($env:COMPUTERNAME -ine $ExpectedComputerName) {
@@ -242,13 +272,17 @@ $configurationPath = Join-Path $physicalPath 'appsettings.Production.json'
 if (-not (Test-Path -LiteralPath $configurationPath -PathType Leaf)) {
     throw "Active Portal production configuration was not found: $configurationPath"
 }
+Wait-ForModuleHealth -ModuleName 'Engineering Hub' -Uri $EngineeringHealthUri `
+    -TimeoutSeconds $HealthTimeoutSeconds
+Wait-ForModuleHealth -ModuleName 'Quality Assurance' -Uri $QualityHealthUri `
+    -TimeoutSeconds $HealthTimeoutSeconds
 
 $originalBytes = [IO.File]::ReadAllBytes($configurationPath)
 $configuration = Read-PortalProductionConfiguration -Path $configurationPath
-$alreadyHidden = Test-HiddenApplicationPolicy -Configuration $configuration `
-    -ApplicationIds $hiddenApplicationIds -Sentinel $disabledRoleSentinel
+$alreadyConfigured = Test-VisibleApplicationPolicy -Configuration $configuration `
+    -ApplicationIds $activatedApplicationIds
 
-if ($alreadyHidden) {
+if ($alreadyConfigured) {
     if (-not $PSCmdlet.ShouldProcess(
             "$ExpectedComputerName/$SiteName",
             'Recycle the Portal pool and verify the existing production module visibility policy')) {
@@ -256,19 +290,19 @@ if ($alreadyHidden) {
         return
     }
     Restart-WebAppPool -Name $AppPoolName
-    Wait-ForPortalVisibility -Uri $VerificationUri -HiddenIds $hiddenApplicationIds `
+    Wait-ForPortalVisibility -Uri $VerificationUri `
         -RequiredVisibleIds $requiredVisibleApplicationIds -TimeoutSeconds $HealthTimeoutSeconds
-    Write-Host 'PORTAL_PRODUCTION_MODULES_ALREADY_HIDDEN_AND_VERIFIED'
+    Write-Host 'PORTAL_PRODUCTION_MODULE_POLICY_ALREADY_APPLIED_AND_VERIFIED'
     return
 }
 
-Set-HiddenApplicationPolicy -Configuration $configuration `
-    -ApplicationIds $hiddenApplicationIds -Sentinel $disabledRoleSentinel
+Set-VisibleApplicationPolicy -Configuration $configuration `
+    -ApplicationIds $activatedApplicationIds
 $updatedBytes = ConvertTo-Utf8JsonBytes -Configuration $configuration
 
 if (-not $PSCmdlet.ShouldProcess(
         "$ExpectedComputerName/$SiteName",
-        'Hide Engineering Hub and Quality Assurance cards in the production Portal catalog')) {
+        'Activate Engineering Hub and Quality Assurance in the production Portal catalog')) {
     Write-Host 'WHATIF_READY_PORTAL_PRODUCTION_MODULE_VISIBILITY: active configuration and IIS preflight passed; nothing was changed.'
     return
 }
@@ -281,24 +315,24 @@ $rollbackDisplacedPath = "$configurationPath.visibility-$operationId.failed.back
 try {
     [IO.File]::WriteAllBytes($temporaryPath, $updatedBytes)
     $prepared = Read-PortalProductionConfiguration -Path $temporaryPath
-    if (-not (Test-HiddenApplicationPolicy -Configuration $prepared `
-            -ApplicationIds $hiddenApplicationIds -Sentinel $disabledRoleSentinel)) {
-        throw 'The prepared Portal production configuration did not retain the hidden-module policy.'
+    if (-not (Test-VisibleApplicationPolicy -Configuration $prepared `
+            -ApplicationIds $activatedApplicationIds)) {
+        throw 'The prepared Portal production configuration did not activate Engineering Hub and Quality Assurance.'
     }
     $changeMayHaveOccurred = $true
     # Windows PowerShell 5.1/.NET Framework requires a legal backup path for File.Replace.
     # The replacement and durable backup are produced by the same atomic filesystem call.
     [IO.File]::Replace($temporaryPath, $configurationPath, $backupPath)
     $written = Read-PortalProductionConfiguration -Path $configurationPath
-    if (-not (Test-HiddenApplicationPolicy -Configuration $written `
-            -ApplicationIds $hiddenApplicationIds -Sentinel $disabledRoleSentinel)) {
-        throw 'The active Portal production configuration did not retain the hidden-module policy.'
+    if (-not (Test-VisibleApplicationPolicy -Configuration $written `
+            -ApplicationIds $activatedApplicationIds)) {
+        throw 'The active Portal production configuration did not activate Engineering Hub and Quality Assurance.'
     }
     Restart-WebAppPool -Name $AppPoolName
-    Wait-ForPortalVisibility -Uri $VerificationUri -HiddenIds $hiddenApplicationIds `
+    Wait-ForPortalVisibility -Uri $VerificationUri `
         -RequiredVisibleIds $requiredVisibleApplicationIds -TimeoutSeconds $HealthTimeoutSeconds
     Write-Host "Prior Portal configuration backup retained at: $backupPath"
-    Write-Host 'PORTAL_PRODUCTION_MODULES_HIDDEN_AND_VERIFIED'
+    Write-Host 'PORTAL_PRODUCTION_MODULE_POLICY_APPLIED_AND_VERIFIED'
 }
 catch {
     $failure = $_.Exception.Message

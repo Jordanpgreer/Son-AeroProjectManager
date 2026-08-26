@@ -145,6 +145,7 @@ function Configure-HubDatabases([string]$applicationName) {
     $createDatabasesSql = @"
 IF DB_ID(N'ProjectTracker') IS NULL EXEC(N'CREATE DATABASE [ProjectTracker]');
 IF DB_ID(N'EngineeringHub') IS NULL EXEC(N'CREATE DATABASE [EngineeringHub]');
+IF DB_ID(N'QualityAssurance') IS NULL EXEC(N'CREATE DATABASE [QualityAssurance]');
 SELECT 1;
 "@
     [void](Invoke-HubSql $localSqlServer 'master' $createDatabasesSql $applicationName)
@@ -156,7 +157,7 @@ SELECT 1;
 "@
     [void](Invoke-HubSql $localSqlServer 'master' $createLoginSql $applicationName)
 
-    foreach ($databaseName in @('ProjectTracker', 'EngineeringHub')) {
+    foreach ($databaseName in @('ProjectTracker', 'EngineeringHub', 'QualityAssurance')) {
         $grantDatabaseSql = @"
 IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE [name] = N'$escapedAccount')
     CREATE USER [$escapedAccount] FOR LOGIN [$escapedAccount];
@@ -490,6 +491,6 @@ elseif (-not (Get-SmbShareAccess -Name $DrawingShareName |
 }
 
 Write-Host "SQL Server is in normal multi-user service mode and listening externally on TCP $SqlPort."
-Write-Host 'ProjectTracker and EngineeringHub databases are ready.'
+Write-Host 'ProjectTracker, EngineeringHub, and QualityAssurance databases are ready.'
 Write-Host "Drawing share is ready at \\$ExpectedComputerName\$DrawingShareName."
 Write-Host "SQL network backup: $backupPath"

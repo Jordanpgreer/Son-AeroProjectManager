@@ -36,7 +36,7 @@ foreach ($entry in $expectedApplications.GetEnumerator()) {
 }
 
 $productionDisabledRole = '__production-disabled__'
-$expectedProductionHiddenIds = @('engineering-hub', 'quality-assurance')
+$expectedProductionHiddenIds = @()
 $actualProductionHiddenIds = @($portal.Portal.Applications |
     Where-Object {
         $roles = @($_.AllowedRoles)
@@ -45,10 +45,10 @@ $actualProductionHiddenIds = @($portal.Portal.Applications |
     ForEach-Object Id |
     Sort-Object)
 if (($actualProductionHiddenIds -join '|') -cne (($expectedProductionHiddenIds | Sort-Object) -join '|')) {
-    throw "Portal production template must hide exactly Engineering Hub and Quality Assurance with '$productionDisabledRole'; found: $($actualProductionHiddenIds -join ', ')."
+    throw "Portal production template must not hide any reviewed module with '$productionDisabledRole'; found: $($actualProductionHiddenIds -join ', ')."
 }
 
-foreach ($applicationId in @('project-tracker', 'estimating-dashboard', 'admin-console')) {
+foreach ($applicationId in @('project-tracker', 'engineering-hub', 'estimating-dashboard', 'quality-assurance', 'admin-console')) {
     $application = @($portal.Portal.Applications | Where-Object Id -eq $applicationId)
     if ($application.Count -ne 1) {
         throw "Portal production template must contain exactly one '$applicationId' application."
@@ -60,7 +60,7 @@ foreach ($applicationId in @('project-tracker', 'estimating-dashboard', 'admin-c
 
 $localPortal = Get-Content -LiteralPath (Join-Path $repoRoot 'apps\portal\src\Portal.Api\appsettings.json') -Raw |
     ConvertFrom-Json
-foreach ($applicationId in $expectedProductionHiddenIds) {
+foreach ($applicationId in @('engineering-hub', 'quality-assurance')) {
     $application = @($localPortal.Portal.Applications | Where-Object Id -eq $applicationId)
     if ($application.Count -ne 1 -or @($application[0].AllowedRoles).Count -ne 0) {
         throw "Local Portal application '$applicationId' must remain visible with an empty AllowedRoles list."

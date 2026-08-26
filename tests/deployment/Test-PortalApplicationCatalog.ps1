@@ -44,9 +44,9 @@ try {
   "Portal": {
     "Applications": [
       { "Id": "project-tracker", "Name": "Project Tracker", "Url": "https://projects.hub.son4l.local", "AllowedRoles": [] },
-      { "Id": "engineering-hub", "Name": "Engineering Hub", "Url": "https://engineering.hub.son4l.local", "AllowedRoles": [ "__production-disabled__" ] },
+      { "Id": "engineering-hub", "Name": "Engineering Hub", "Url": "https://engineering.hub.son4l.local", "AllowedRoles": [] },
       { "Id": "estimating-dashboard", "Name": "Estimating Dashboard", "Url": "http://SON-IIS2:5160" },
-      { "Id": "quality-assurance", "Name": "Quality Assurance", "Url": "http://SON-IIS2:5170", "AllowedRoles": [ "__production-disabled__" ] },
+      { "Id": "quality-assurance", "Name": "Quality Assurance", "Url": "http://SON-IIS2:5170", "AllowedRoles": [] },
       { "Id": "admin-console", "Name": "Admin Console", "Url": "/#/admin/access" }
     ]
   }
@@ -89,12 +89,12 @@ try {
         throw 'Synchronization changed the non-target Project Tracker role policy or production URL.'
     }
     $engineering = @($updated.Portal.Applications | Where-Object Id -eq 'engineering-hub')[0]
-    if ((@($engineering.AllowedRoles) -join '|') -ne '__production-disabled__' -or
+    if (@($engineering.AllowedRoles).Count -ne 0 -or
         $engineering.Url -ne 'http://SON-IIS2:5150' -or
         $engineering.ServerNote -ne 'retain me') {
-        throw 'The template disabled-role policy did not preserve unrelated Engineering production settings.'
+        throw 'The template active-role policy did not preserve unrelated Engineering production settings.'
     }
-    if ((@($quality[0].AllowedRoles) -join '|') -ne '__production-disabled__') {
+    if (@($quality[0].AllowedRoles).Count -ne 0) {
         throw 'A newly added first-party application did not retain the template AllowedRoles policy.'
     }
     $custom = @($updated.Portal.Applications | Where-Object Id -eq 'custom-tool')[0]

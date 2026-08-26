@@ -4,6 +4,8 @@ IF DB_ID(N'ProjectTracker') IS NULL CREATE DATABASE [ProjectTracker];
 GO
 IF DB_ID(N'EngineeringHub') IS NULL CREATE DATABASE [EngineeringHub];
 GO
+IF DB_ID(N'QualityAssurance') IS NULL CREATE DATABASE [QualityAssurance];
+GO
 IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE [name] = N'$(AppServiceAccount)')
     CREATE LOGIN [$(AppServiceAccount)] FROM WINDOWS;
 GO
@@ -17,6 +19,14 @@ ALTER ROLE [db_ddladmin] ADD MEMBER [$(AppServiceAccount)];
 GO
 
 USE [EngineeringHub];
+IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE [name] = N'$(AppServiceAccount)')
+    CREATE USER [$(AppServiceAccount)] FOR LOGIN [$(AppServiceAccount)];
+ALTER ROLE [db_datareader] ADD MEMBER [$(AppServiceAccount)];
+ALTER ROLE [db_datawriter] ADD MEMBER [$(AppServiceAccount)];
+ALTER ROLE [db_ddladmin] ADD MEMBER [$(AppServiceAccount)];
+GO
+
+USE [QualityAssurance];
 IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE [name] = N'$(AppServiceAccount)')
     CREATE USER [$(AppServiceAccount)] FOR LOGIN [$(AppServiceAccount)];
 ALTER ROLE [db_datareader] ADD MEMBER [$(AppServiceAccount)];
