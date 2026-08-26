@@ -171,6 +171,38 @@ public sealed class QualityShipmentWorkflowTests
         Assert.Contains(mine.Items, shipment => shipment.SalesOrderNumber == "SO-UNASSIGNED");
     }
 
+    [Fact]
+    public async Task AssigningRegisteredUserSynchronizesActionToDisplayName()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var shipment = new QualityShipment
+        {
+            SalesOrderNumber = "SO-ASSIGN",
+            PartNumber = "PN-ASSIGN",
+            Customer = "Customer",
+            TaskType = "General",
+            NextAction = "QA-ONE",
+            Version = 1,
+            CreatedByAccountName = fixture.Admin.AccountName,
+            CreatedByDisplayName = fixture.Admin.DisplayName,
+            UpdatedByAccountName = fixture.Admin.AccountName,
+            UpdatedByDisplayName = fixture.Admin.DisplayName,
+        };
+        fixture.Db.Shipments.Add(shipment);
+        await fixture.Db.SaveChangesAsync();
+
+        var assigned = await fixture.Shipments.AssignAsync(
+            shipment.Id,
+            new QualityShipmentAssignmentDto(shipment.Version, 10, 1),
+            fixture.Admin,
+            default);
+
+        Assert.NotNull(assigned);
+        Assert.Equal("Person One", assigned.NextAction);
+        Assert.Contains(await fixture.Db.ShipmentAuditEntries.ToListAsync(), entry =>
+            entry.FieldName == "nextAction" && entry.NewValue == "Person One");
+    }
+
     private static QualityShipment Shipment(
         string salesOrderNumber,
         DateOnly? qaArrivalDate,

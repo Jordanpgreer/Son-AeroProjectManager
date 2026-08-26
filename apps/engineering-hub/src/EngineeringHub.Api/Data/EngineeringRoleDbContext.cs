@@ -10,6 +10,7 @@ public sealed class EngineeringRoleDbContext(DbContextOptions<EngineeringRoleDbC
     public DbSet<EngineeringAccessGroupRecord> Groups => Set<EngineeringAccessGroupRecord>();
     public DbSet<EngineeringUserGroupMembershipRecord> UserGroupMemberships => Set<EngineeringUserGroupMembershipRecord>();
     public DbSet<EngineeringGroupPermissionRecord> GroupPermissions => Set<EngineeringGroupPermissionRecord>();
+    public DbSet<EngineeringAccessSeedMigrationRecord> AccessSeedMigrations => Set<EngineeringAccessSeedMigrationRecord>();
     public DbSet<AccessPreviewSessionRecord> AccessPreviewSessions => Set<AccessPreviewSessionRecord>();
     public DbSet<EngineeringStorageSettingRecord> StorageSettings => Set<EngineeringStorageSettingRecord>();
 
@@ -70,6 +71,13 @@ public sealed class EngineeringRoleDbContext(DbContextOptions<EngineeringRoleDbC
             entity.ToTable("GroupPermissions");
             entity.HasKey(permission => new { permission.AppGroupId, permission.PermissionKey });
             entity.Property(permission => permission.PermissionKey).HasMaxLength(120);
+        });
+
+        modelBuilder.Entity<EngineeringAccessSeedMigrationRecord>(entity =>
+        {
+            entity.ToTable("EngineeringAccessSeedMigrations");
+            entity.HasKey(migration => migration.Key);
+            entity.Property(migration => migration.Key).HasMaxLength(120);
         });
 
         modelBuilder.Entity<AccessPreviewSessionRecord>(entity =>
@@ -140,6 +148,12 @@ public sealed class EngineeringGroupPermissionRecord
     public EngineeringAccessGroupRecord Group { get; set; } = null!;
     public string PermissionKey { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class EngineeringAccessSeedMigrationRecord
+{
+    public string Key { get; set; } = string.Empty;
+    public DateTimeOffset AppliedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
 public sealed class EngineeringStorageSettingRecord

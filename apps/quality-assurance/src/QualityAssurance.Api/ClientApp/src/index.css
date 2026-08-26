@@ -581,14 +581,23 @@ mark { padding: 0 2px; color: inherit; background: #ffe071; border-radius: 2px; 
 .shipping-table { min-width: 1950px; width: 100%; border-collapse: separate; border-spacing: 0; font-size: 10.5px; }
 .shipping-table.layout-controlled { table-layout: fixed; }
 .shipping-table th { position: sticky; z-index: 2; top: 0; height: 42px; padding: 8px 10px; color: var(--ink-2); background: var(--surface-2); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line-2); font-size: 8.5px; font-weight: 750; letter-spacing: .07em; text-align: left; text-transform: uppercase; white-space: nowrap; }
-.shipping-table td { max-width: 240px; height: 54px; padding: 7px 10px; color: var(--ink-2); background: var(--surface); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); vertical-align: middle; }
+.shipping-table td { min-width: 0; max-width: none; height: 54px; padding: 7px 10px; overflow: hidden; color: var(--ink-2); text-overflow: ellipsis; white-space: nowrap; background: var(--surface); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); vertical-align: middle; }
+.shipping-table td > * { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shipping-table td > strong { display: block; }
+.shipping-table .draggable-column-header { padding-right: 12px; cursor: grab; user-select: none; }
+.shipping-table .draggable-column-header:active { cursor: grabbing; }
+.shipping-table .draggable-column-header.is-dragging { color: var(--steel-700); background: var(--steel-tint); opacity: .72; }
+.column-header-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.column-resize-handle { position: absolute; z-index: 4; top: 0; right: -4px; bottom: 0; width: 9px; cursor: col-resize; touch-action: none; }
+.column-resize-handle::after { position: absolute; top: 10px; right: 3px; bottom: 10px; width: 2px; background: transparent; border-radius: 2px; content: ''; transition: background 120ms ease; }
+.column-resize-handle:hover::after, .column-resize-handle:active::after { background: var(--steel); }
 .shipping-table tbody tr { cursor: pointer; }
 .shipping-table tbody tr:hover td { background: color-mix(in srgb, var(--steel-tint) 46%, var(--surface)); }
 .shipping-table .sticky-col { position: sticky; z-index: 1; left: 0; }
 .shipping-table th.sticky-col { z-index: 3; }
 .shipping-table .row-number { left: 0; width: 44px; min-width: 44px; color: var(--faint-text); text-align: center; }
 .shipping-table .order-col { left: 44px; width: 118px; min-width: 118px; box-shadow: 7px 0 12px -12px rgba(16, 24, 33, .7); }
-.shipping-table td small { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
+.shipping-table td small { display: block; margin-top: 3px; overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .shipping-table .numeric { font-family: 'IBM Plex Mono', monospace; text-align: right; }
 .shipping-table .customer-cell { min-width: 170px; font-weight: 600; }
 .shipping-table .long-cell { min-width: 230px; overflow: hidden; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }

@@ -18,6 +18,8 @@ public static class ToolingEndpoints
         api.MapGet("/tools/{id:int}", GetAsync).RequireAuthorization(EngineeringPermissions.ToolingView);
         api.MapPost("/tools", CreateAsync).RequireAuthorization(EngineeringPermissions.ToolingRecordsManage);
         api.MapPut("/tools/{id:int}", UpdateAsync).RequireAuthorization(EngineeringPermissions.ToolingRecordsManage);
+        api.MapPut("/tools/{id:int}/archive", UpdateArchiveStatusAsync)
+            .RequireAuthorization(EngineeringPermissions.ToolingArchiveManage);
         api.MapPost("/tools/{id:int}/checkout", CheckoutAsync).RequireAuthorization(EngineeringPermissions.ToolingCustodyManage);
         api.MapPost("/tools/{id:int}/checkin", CheckinAsync).RequireAuthorization(EngineeringPermissions.ToolingCustodyManage);
         api.MapPost("/tools/{id:int}/documents", UploadDocumentAsync)
@@ -168,6 +170,8 @@ public static class ToolingEndpoints
     {
         var validation = Validate(dto);
         if (validation is not null) return validation;
+        if (dto.IsArchived == true)
+            return Results.BadRequest(new ErrorDto("ArchiveActionRequired", "Create the active tool record first, then use the manager-controlled archive action."));
         var normalizedNumber = Normalize(dto.ToolNumber);
         if (await db.Tools.AnyAsync(x => x.NormalizedToolNumber == normalizedNumber, cancellationToken))
             return Results.Conflict(new ErrorDto("DuplicateToolNumber", "That tool number already exists."));
@@ -226,12 +230,11 @@ public static class ToolingEndpoints
         if (tool is null) return Results.NotFound();
         if (dto.Version.HasValue && dto.Version != tool.Version)
             return Results.Conflict(new ErrorDto("ToolChanged", "This tool changed after you opened it. Refresh and try again."));
+        if (dto.IsArchived.HasValue && dto.IsArchived.Value != tool.IsArchived)
+            return Results.BadRequest(new ErrorDto("ArchiveActionRequired", "Use the manager-controlled archive or restore action to change this tool's archive status."));
         var normalizedNumber = Normalize(dto.ToolNumber);
         if (await db.Tools.AnyAsync(x => x.Id != id && x.NormalizedToolNumber == normalizedNumber, cancellationToken))
             return Results.Conflict(new ErrorDto("DuplicateToolNumber", "That tool number already exists."));
-        if (dto.IsArchived && tool.CustodyStatus != ToolCustodyStatus.InStorage)
-            return Results.Conflict(new ErrorDto("ToolInCustody", "Check the tool into storage before archiving it."));
-
         var actor = Actor(http);
         var homeLocation = await ActiveLocationAsync(dto.HomeLocationId, db, cancellationToken);
         if (homeLocation is null)
@@ -269,7 +272,6 @@ public static class ToolingEndpoints
         tool.Description = description;
         tool.Notes = notes;
         SetPartNumbers(tool, partNumbers);
-        tool.IsArchived = dto.IsArchived;
         tool.UpdatedBy = actor;
         tool.UpdatedAt = DateTime.UtcNow;
         tool.Version++;
@@ -278,6 +280,40 @@ public static class ToolingEndpoints
             : "Saved the tool record without changing controlled values.", actor));
         await db.SaveChangesAsync(cancellationToken);
         return Results.Ok(new { tool.Id, tool.Version });
+    }
+
+    private static async Task<IResult> UpdateArchiveStatusAsync(
+        int id,
+        ToolArchiveStatusDto dto,
+        EngineeringDbContext db,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        var tool = await db.Tools
+            .Include(x => x.AuditEntries)
+            .SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (tool is null) return Results.NotFound();
+        if (dto.Version.HasValue && dto.Version != tool.Version)
+            return Results.Conflict(new ErrorDto("ToolChanged", "This tool changed after you opened it. Refresh and try again."));
+        if (dto.IsArchived == tool.IsArchived)
+            return Results.Ok(new { tool.Id, tool.Version, tool.IsArchived });
+        if (dto.IsArchived && tool.CustodyStatus != ToolCustodyStatus.InStorage)
+            return Results.Conflict(new ErrorDto("ToolInCustody", "Check the tool into storage before archiving it."));
+
+        var actor = Actor(http);
+        tool.IsArchived = dto.IsArchived;
+        tool.UpdatedBy = actor;
+        tool.UpdatedAt = DateTime.UtcNow;
+        tool.Version++;
+        tool.AuditEntries.Add(Audit(
+            tool,
+            dto.IsArchived ? "ToolArchived" : "ToolRestored",
+            dto.IsArchived
+                ? $"Archived tool {tool.ToolNumber}. Checkout and release actions are disabled until the tool is restored."
+                : $"Restored tool {tool.ToolNumber} to active service. Authorized custody actions are available again.",
+            actor));
+        await db.SaveChangesAsync(cancellationToken);
+        return Results.Ok(new { tool.Id, tool.Version, tool.IsArchived });
     }
 
     private static async Task<IResult> CheckoutAsync(
@@ -542,8 +578,6 @@ public static class ToolingEndpoints
         AddChange(changes, "notes", tool.Notes, notes);
         AddChange(changes, "default check-in location", tool.HomeLocationAssignment?.Location.Code, homeLocation.Code);
         AddChange(changes, "part numbers", JoinPartNumbers(tool.PartNumbers.Select(x => x.PartNumber)), JoinPartNumbers(partNumbers));
-        if (tool.IsArchived != dto.IsArchived)
-            changes.Add(dto.IsArchived ? "record archived" : "record restored to active");
         return changes;
     }
 

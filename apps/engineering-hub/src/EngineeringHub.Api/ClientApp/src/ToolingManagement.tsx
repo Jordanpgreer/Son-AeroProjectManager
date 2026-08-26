@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import {
   AlertTriangle,
+  Archive,
   ArrowLeft,
   ArrowUpRight,
   Building2,
@@ -16,6 +17,7 @@ import {
   PackageCheck,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   ShieldCheck,
   Truck,
@@ -127,7 +129,7 @@ interface ToolCatalogReview {
 
 interface ToolCatalogApplyResult { added: number; updated: number; skipped: number; fieldChanges: number }
 
-type DialogKind = 'create' | 'edit' | 'checkout' | 'checkin' | 'document' | 'locations' | 'import' | null
+type DialogKind = 'create' | 'edit' | 'archive' | 'restore' | 'checkout' | 'checkin' | 'document' | 'locations' | 'import' | null
 type ToolFilter = 'active' | 'checkedOut' | 'outsideProcessing' | 'auditAttention'
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -269,7 +271,6 @@ function ToolFields({ detail, locations }: { detail?: ToolDetail | null; locatio
       <option value="" disabled>Select location</option>
       {locations.filter(location => location.isActive || location.id === detail?.tool.homeLocationId).map(location => <option key={location.id} value={location.id}>{location.code} · {location.description ?? 'No description'}</option>)}
     </select></label>
-    {detail && <label className="tool-check-label"><input type="checkbox" name="isArchived" defaultChecked={detail.tool.isArchived}/> Archive this tool record</label>}
     <PartNumberTagEditor initialValues={detail?.tool.partNumbers ?? []}/>
     <label className="wide">Description<textarea name="description" rows={3} defaultValue={detail?.description ?? ''} placeholder="Purpose, construction, or identifying details"/></label>
     <label className="wide">Notes<textarea name="notes" rows={3} defaultValue={detail?.tool.notes ?? ''} placeholder="Searchable notes and handling information"/></label>
@@ -393,7 +394,6 @@ export default function ToolingManagement({ toolId, actorName, permissions, onOp
       notes: String(values.get('notes') ?? ''),
       homeLocationId: Number(values.get('homeLocationId')) || detail?.tool.homeLocationId || null,
       partNumbers,
-      isArchived: values.get('isArchived') === 'on',
       version: detail?.version ?? null,
     }
   }
@@ -428,6 +428,17 @@ export default function ToolingManagement({ toolId, actorName, permissions, onOp
         })
       })
     }, destinationType === 'vendor' ? 'Tool released to outside processing.' : 'Tool checked out.')
+  }
+
+  function updateArchiveStatus(isArchived: boolean) {
+    if (!detail) return
+    void runAction(async () => {
+      await api(`/api/tools/${detail.tool.id}/archive`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isArchived, version: detail.version }),
+      })
+    }, isArchived ? 'Tool archived. Checkout and release actions are disabled.' : 'Tool restored to active service.')
   }
 
   function submitCheckin(event: FormEvent<HTMLFormElement>) {
@@ -535,7 +546,10 @@ export default function ToolingManagement({ toolId, actorName, permissions, onOp
         <div className="tool-record-actions">
           {can(engineeringPermissionKeys.toolingRecordsManage) && <button className="button ghost" onClick={() => setDialog('edit')}><Wrench size={14}/> Edit record</button>}
           <button className="button ghost" type="button" onClick={() => setAuditOpen(true)}><History size={14}/> History</button>
-          {can(engineeringPermissionKeys.toolingCustodyManage) && (tool.custodyStatus === 'InStorage'
+          {can(engineeringPermissionKeys.toolingArchiveManage) && (tool.isArchived
+            ? <button className="button ghost" type="button" onClick={() => setDialog('restore')}><RotateCcw size={14}/> Restore tool</button>
+            : <button className="button danger" type="button" disabled={tool.custodyStatus !== 'InStorage'} title={tool.custodyStatus !== 'InStorage' ? 'Check the tool into storage before archiving it.' : 'Archive this tool'} onClick={() => setDialog('archive')}><Archive size={14}/> Archive tool</button>)}
+          {can(engineeringPermissionKeys.toolingCustodyManage) && !tool.isArchived && (tool.custodyStatus === 'InStorage'
             ? <button className="button" onClick={() => { setDestinationType('location'); setDialog('checkout') }}><ArrowUpRight size={14}/> Pull tool out</button>
             : <button className="button" onClick={() => setDialog('checkin')}><PackageCheck size={14}/> Check in</button>)}
         </div>
@@ -543,6 +557,7 @@ export default function ToolingManagement({ toolId, actorName, permissions, onOp
 
       {notice && <div className="tool-notice" role="status"><CheckCircle2 size={16}/>{notice}</div>}
       {error && <div className="tool-error" role="alert"><AlertTriangle size={16}/>{error}</div>}
+      {tool.isArchived && <div className="tool-archived-notice" role="status"><Archive size={19}/><div><strong>Archived tool</strong><p>This record is retained for history, but the tool cannot be checked out or released until a permitted manager restores it.</p></div></div>}
 
       <section className="tool-record-grid">
         <article className="panel tool-overview-card">
@@ -607,6 +622,14 @@ export default function ToolingManagement({ toolId, actorName, permissions, onOp
       </div>}
 
       {(dialog === 'edit' || dialog === 'create') && <NativeDialog title="Edit tool record" eyebrow="Tool identity & ownership" onClose={() => setDialog(null)} wide><form onSubmit={submitTool}><ToolFields detail={detail} locations={locations}/><div className="tool-dialog-actions"><button type="button" className="button ghost" onClick={() => setDialog(null)}>Cancel</button><button className="button" disabled={busy}>{busy ? 'Saving...' : 'Save tool'}</button></div></form></NativeDialog>}
+      {dialog === 'archive' && <NativeDialog title="Archive this tool?" eyebrow="Manager-controlled action" onClose={() => setDialog(null)}>
+        <div className="tool-archive-confirmation is-archive"><AlertTriangle size={25}/><div><strong>Active custody actions will be disabled</strong><p>Archiving removes {tool.toolNumber} from the active tool register and prevents checkout or release until it is restored.</p><p>Existing documents, movement history, and audit records will remain available. A user with archive permission can restore the tool later.</p></div></div>
+        <div className="tool-dialog-actions tool-confirm-actions"><button type="button" className="button ghost" onClick={() => setDialog(null)}>Keep active</button><button type="button" className="button danger" disabled={busy} onClick={() => updateArchiveStatus(true)}><Archive size={14}/>{busy ? 'Archiving...' : 'Archive tool'}</button></div>
+      </NativeDialog>}
+      {dialog === 'restore' && <NativeDialog title="Restore this tool?" eyebrow="Return to active service" onClose={() => setDialog(null)}>
+        <div className="tool-archive-confirmation is-restore"><RotateCcw size={25}/><div><strong>Return {tool.toolNumber} to the active register</strong><p>Authorized users will be able to check out and release this tool again after it is restored.</p></div></div>
+        <div className="tool-dialog-actions tool-confirm-actions"><button type="button" className="button ghost" onClick={() => setDialog(null)}>Cancel</button><button type="button" className="button" disabled={busy} onClick={() => updateArchiveStatus(false)}><RotateCcw size={14}/>{busy ? 'Restoring...' : 'Restore tool'}</button></div>
+      </NativeDialog>}
       {dialog === 'checkout' && <NativeDialog title="Pull tool out" eyebrow="Inspection & custody sign-off" onClose={() => setDialog(null)}>
         <form onSubmit={submitCheckout}>
           <div className="inspection-warning"><ClipboardCheck size={22}/><div><strong>Inspection reminder</strong><p>Inspect the tool before it leaves storage. This sign-off becomes part of the permanent custody history.</p></div></div>

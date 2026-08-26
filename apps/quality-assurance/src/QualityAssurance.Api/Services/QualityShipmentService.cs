@@ -250,11 +250,13 @@ public sealed class QualityShipmentService(
         }
 
         var old = AssignmentLabel(shipment);
+        var oldAction = shipment.NextAction;
         shipment.AssignedGroupId = group?.Id;
         shipment.AssignedGroupName = group?.Name;
         shipment.AssignedUserId = user?.Id;
         shipment.AssignedAccountName = user?.AccountName;
         shipment.AssignedDisplayName = user?.DisplayName;
+        if (user is not null) shipment.NextAction = user.DisplayName;
         var now = DateTimeOffset.UtcNow;
         shipment.LastWorkedAt = now;
         shipment.UpdatedAt = now;
@@ -262,6 +264,8 @@ public sealed class QualityShipmentService(
         shipment.UpdatedByDisplayName = access.DisplayName;
         shipment.Version++;
         AddAudit(shipment, access, "Assigned", "assignment", old, AssignmentLabel(shipment), now);
+        if (oldAction != shipment.NextAction)
+            AddAudit(shipment, access, "Updated", "nextAction", oldAction, shipment.NextAction, now);
         await db.SaveChangesAsync(cancellationToken);
         return ToDto(shipment, access);
     }

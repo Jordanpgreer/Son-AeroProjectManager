@@ -47,6 +47,10 @@ public sealed class EngineeringAccessSchemaInitializer(EngineeringRoleDbContext 
             CONSTRAINT "PK_EngineeringGroupPermissions" PRIMARY KEY ("AppGroupId", "PermissionKey"),
             CONSTRAINT "FK_EngineeringGroupPermissions_EngineeringGroups_AppGroupId" FOREIGN KEY ("AppGroupId") REFERENCES "EngineeringGroups" ("Id") ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS "EngineeringAccessSeedMigrations" (
+            "Key" TEXT NOT NULL CONSTRAINT "PK_EngineeringAccessSeedMigrations" PRIMARY KEY,
+            "AppliedAt" TEXT NOT NULL
+        );
         INSERT OR IGNORE INTO "Groups" ("Name", "Description", "IsSystemGroup", "CreatedAt", "UpdatedAt")
         SELECT "Name", "Description", "IsSystemGroup", "CreatedAt", "UpdatedAt"
         FROM "EngineeringGroups";
@@ -96,6 +100,14 @@ public sealed class EngineeringAccessSchemaInitializer(EngineeringRoleDbContext 
                 [CreatedAt] datetimeoffset NOT NULL,
                 CONSTRAINT [PK_EngineeringGroupPermissions] PRIMARY KEY ([AppGroupId], [PermissionKey]),
                 CONSTRAINT [FK_EngineeringGroupPermissions_EngineeringGroups_AppGroupId] FOREIGN KEY ([AppGroupId]) REFERENCES [EngineeringGroups] ([Id]) ON DELETE CASCADE
+            );
+        END;
+        IF OBJECT_ID(N'[EngineeringAccessSeedMigrations]', N'U') IS NULL
+        BEGIN
+            CREATE TABLE [EngineeringAccessSeedMigrations] (
+                [Key] nvarchar(120) NOT NULL,
+                [AppliedAt] datetimeoffset NOT NULL,
+                CONSTRAINT [PK_EngineeringAccessSeedMigrations] PRIMARY KEY ([Key])
             );
         END;
         INSERT INTO [Groups] ([Name], [Description], [IsSystemGroup], [CreatedAt], [UpdatedAt])

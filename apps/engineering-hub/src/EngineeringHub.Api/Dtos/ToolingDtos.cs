@@ -86,7 +86,7 @@ public sealed record ToolUpsertDto(
     string? Notes,
     int? HomeLocationId,
     IReadOnlyList<string>? PartNumbers,
-    bool IsArchived = false,
+    bool? IsArchived = null,
     long? Version = null);
 
 public sealed record ToolCheckoutDto(
@@ -99,6 +99,7 @@ public sealed record ToolCheckoutDto(
     string? InspectionNotes);
 
 public sealed record ToolCheckinDto(int LocationId, string? Person, string? Purpose);
+public sealed record ToolArchiveStatusDto(bool IsArchived, long? Version = null);
 public sealed record ToolLocationCreateDto(string Code, string? Description);
 public sealed record ToolLocationStatusDto(bool IsActive);
 public sealed record ToolCatalogIssueDto(int Row, string? Column, string Message);

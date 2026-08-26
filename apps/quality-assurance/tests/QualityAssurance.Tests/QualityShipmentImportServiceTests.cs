@@ -113,8 +113,71 @@ public sealed class QualityShipmentImportServiceTests
         Assert.Equal("Quality", saved.AssignedGroupName);
         Assert.Equal(7, saved.AssignedUserId);
         Assert.Equal("Alicia Chavez", saved.AssignedDisplayName);
+        Assert.Equal("Alicia Chavez", saved.NextAction);
         Assert.Contains(saved.AuditEntries, entry =>
             entry.EventType == "AutoAssigned" && entry.NewValue == "Quality / Alicia Chavez");
+    }
+
+    [Fact]
+    public async Task RepeatImportResolvesPendingActionAfterUserIsRegistered()
+    {
+        await using var fixture = await ImportFixture.CreateAsync(
+            [new QualityDirectoryGroup(10, "Quality", null, 1)],
+            [new QualityDirectoryUser(7, "SON-AERO\\julia", "Julia Santos", [10])]);
+        var pending = ImportedShipment("SO-JULIA", "QA-JULIA");
+        pending.AuditEntries.Add(new QualityAssurance.Api.Models.QualityShipmentAuditEntry
+        {
+            EventType = "AssignmentPending",
+            FieldName = "assignment",
+            NewValue = "Unassigned",
+            AccountName = fixture.Admin.AccountName,
+            DisplayName = fixture.Admin.DisplayName,
+        });
+        fixture.Db.Shipments.Add(pending);
+        await fixture.Db.SaveChangesAsync();
+        var workbook = Workbook([
+            ["WIP", "SO-JULIA", null, "PN-IMPORT", null, "HONEYWELL", null, null, null, null, null, "QA-JULIA", null, null]
+        ]);
+
+        await using var stream = new MemoryStream(workbook);
+        var result = await fixture.Importer.ImportAsync(stream, "shipping.xlsx", fixture.Admin, default);
+
+        Assert.Equal(0, result.CreatedRecords);
+        Assert.Equal(1, result.ReconciledAssignments);
+        Assert.Equal(7, pending.AssignedUserId);
+        Assert.Equal(10, pending.AssignedGroupId);
+        Assert.Equal("Julia Santos", pending.NextAction);
+        Assert.Contains(pending.AuditEntries, entry =>
+            entry.EventType == "UpdatedByImport" && entry.FieldName == "nextAction" && entry.NewValue == "Julia Santos");
+    }
+
+    [Fact]
+    public async Task RepeatImportMassUpdatesActionWithoutCreatingDuplicate()
+    {
+        await using var fixture = await ImportFixture.CreateAsync();
+        var pending = ImportedShipment("SO-ACTION-EDIT", "QA-OLD");
+        pending.AuditEntries.Add(new QualityAssurance.Api.Models.QualityShipmentAuditEntry
+        {
+            EventType = "AssignmentPending",
+            FieldName = "assignment",
+            NewValue = "Unassigned",
+            AccountName = fixture.Admin.AccountName,
+            DisplayName = fixture.Admin.DisplayName,
+        });
+        fixture.Db.Shipments.Add(pending);
+        await fixture.Db.SaveChangesAsync();
+        var workbook = Workbook([
+            ["WIP", "SO-ACTION-EDIT", null, "PN-IMPORT", null, "HONEYWELL", null, null, null, null, null, "QA-NEW", null, null]
+        ]);
+
+        await using var stream = new MemoryStream(workbook);
+        var result = await fixture.Importer.ImportAsync(stream, "shipping.xlsx", fixture.Admin, default);
+
+        Assert.Equal(0, result.CreatedRecords);
+        Assert.Equal(1, result.SkippedDuplicates);
+        Assert.Equal(1, result.ReconciledAssignments);
+        Assert.Equal("QA-NEW", pending.NextAction);
+        Assert.Equal(1, await fixture.Db.Shipments.CountAsync());
     }
 
     [Fact]
@@ -162,6 +225,31 @@ public sealed class QualityShipmentImportServiceTests
         Assert.Null(legacy.AssignedUserId);
         Assert.Contains(legacy.AuditEntries, entry =>
             entry.EventType == "AssignmentPending" && entry.OldValue == "Administrators / Quality Admin");
+    }
+
+    private static QualityAssurance.Api.Models.QualityShipment ImportedShipment(string salesOrder, string action)
+    {
+        var shipment = new QualityAssurance.Api.Models.QualityShipment
+        {
+            Status = "WIP",
+            SalesOrderNumber = salesOrder,
+            PartNumber = "PN-IMPORT",
+            Customer = "HONEYWELL",
+            TaskType = "General",
+            NextAction = action,
+            CreatedByAccountName = "TEST\\admin",
+            CreatedByDisplayName = "Quality Admin",
+            UpdatedByAccountName = "TEST\\admin",
+            UpdatedByDisplayName = "Quality Admin",
+        };
+        shipment.AuditEntries.Add(new QualityAssurance.Api.Models.QualityShipmentAuditEntry
+        {
+            EventType = "Imported",
+            NewValue = "shipping.xlsx / Complete List row 2",
+            AccountName = "TEST\\admin",
+            DisplayName = "Quality Admin",
+        });
+        return shipment;
     }
 
     private static byte[] Workbook(IReadOnlyList<object?[]> rows)

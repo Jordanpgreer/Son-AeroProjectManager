@@ -1,11 +1,10 @@
-import { startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ArrowRightLeft,
   ChevronRight,
   ClipboardList,
   Clock3,
-  Columns3,
   FileSpreadsheet,
   FileClock,
   FileUp,
@@ -19,7 +18,7 @@ import {
 } from 'lucide-react'
 import { qualityApi } from './api'
 import { ageInDays, formatCurrency, formatDate, formatDateTime } from './format'
-import ShippingLayoutEditor, { SHIPPING_COLUMN_METADATA } from './ShippingLayoutEditor'
+import { SHIPPING_COLUMN_METADATA } from './ShippingLayoutEditor'
 import type {
   AssignmentOptions,
   AuditEntry,
@@ -29,6 +28,7 @@ import type {
   ShipmentFieldKey,
   ShipmentList,
   ShippingLayout,
+  ShippingLayoutColumn,
   ShippingLayoutColumnKey,
 } from './types'
 
@@ -118,6 +118,20 @@ function Highlight({ value, query }: { value: string; query: string }) {
   const index = value.toLowerCase().indexOf(search.toLowerCase())
   if (index < 0) return value
   return <>{value.slice(0, index)}<mark>{value.slice(index, index + search.length)}</mark>{value.slice(index + search.length)}</>
+}
+
+function moveLayoutColumn(
+  columns: ShippingLayoutColumn[],
+  sourceKey: ShippingLayoutColumnKey,
+  targetKey: ShippingLayoutColumnKey,
+) {
+  const source = columns.findIndex((column) => column.key === sourceKey)
+  const target = columns.findIndex((column) => column.key === targetKey)
+  if (source < 0 || target < 0 || source === target) return columns
+  const next = [...columns]
+  const [moved] = next.splice(source, 1)
+  next.splice(target, 0, moved)
+  return next
 }
 
 function ShippingImportDialog({
@@ -415,15 +429,23 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState(false)
   const [assigning, setAssigning] = useState(false)
-  const [customizing, setCustomizing] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [layout, setLayout] = useState<ShippingLayout | null>(null)
+  const layoutRef = useRef<ShippingLayout | null>(null)
+  const layoutVersionRef = useRef(0)
+  const layoutSaveQueue = useRef(Promise.resolve())
+  const [draggingColumn, setDraggingColumn] = useState<ShippingLayoutColumnKey | null>(null)
   const [refresh, setRefresh] = useState(0)
 
   useEffect(() => {
     let active = true
     void qualityApi<ShippingLayout>('/api/shipping-layout')
-      .then((next) => { if (active) setLayout(next) })
+      .then((next) => {
+        if (!active) return
+        layoutRef.current = next
+        layoutVersionRef.current = next.version
+        setLayout(next)
+      })
       .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : 'Your saved layout is unavailable.') })
     return () => { active = false }
   }, [user.accountName])
@@ -467,6 +489,103 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
     column.isVisible && availableColumns.has(column.key)) ?? []
   const shippingTableWidth = 88 + visibleColumns.reduce((total, column) => total + column.width, 0)
 
+  function saveLayoutColumns(columns: ShippingLayoutColumn[]) {
+    const current = layoutRef.current
+    if (!current) return
+    const optimistic = { ...current, columns }
+    layoutRef.current = optimistic
+    setLayout(optimistic)
+    layoutSaveQueue.current = layoutSaveQueue.current.then(async () => {
+      try {
+        const saved = await qualityApi<ShippingLayout>('/api/shipping-layout', {
+          method: 'PUT',
+          body: JSON.stringify({ columns, version: layoutVersionRef.current }),
+        })
+        layoutVersionRef.current = saved.version
+        const latest = layoutRef.current
+        if (latest) {
+          layoutRef.current = { ...latest, version: saved.version, updatedAt: saved.updatedAt }
+          setLayout(layoutRef.current)
+        }
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'The table layout could not be saved.')
+        try {
+          const recovered = await qualityApi<ShippingLayout>('/api/shipping-layout')
+          layoutRef.current = recovered
+          layoutVersionRef.current = recovered.version
+          setLayout(recovered)
+        } catch { /* Keep the original layout error visible. */ }
+      }
+    })
+  }
+
+  function beginColumnResize(event: React.PointerEvent<HTMLSpanElement>, column: ShippingLayoutColumn) {
+    event.preventDefault()
+    event.stopPropagation()
+    const base = layoutRef.current
+    if (!base) return
+    const startX = event.clientX
+    const startWidth = column.width
+    const metadata = SHIPPING_COLUMN_METADATA[column.key]
+    const resized = (clientX: number) => Math.max(
+      metadata.minimumWidth,
+      Math.min(metadata.maximumWidth, Math.round(startWidth + clientX - startX)),
+    )
+    const columnsAt = (clientX: number) => base.columns.map((candidate) =>
+      candidate.key === column.key ? { ...candidate, width: resized(clientX) } : candidate)
+    const move = (pointerEvent: PointerEvent) => {
+      const columns = columnsAt(pointerEvent.clientX)
+      setLayout((current) => current ? { ...current, columns } : current)
+    }
+    const finish = (pointerEvent: PointerEvent) => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', finish)
+      saveLayoutColumns(columnsAt(pointerEvent.clientX))
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', finish)
+  }
+
+  function dropColumn(sourceKey: ShippingLayoutColumnKey, targetKey: ShippingLayoutColumnKey) {
+    const current = layoutRef.current
+    if (!current) return
+    const columns = moveLayoutColumn(current.columns, sourceKey, targetKey)
+    setDraggingColumn(null)
+    if (columns !== current.columns) saveLayoutColumns(columns)
+  }
+
+  function beginColumnDrag(event: React.PointerEvent<HTMLTableCellElement>, sourceKey: ShippingLayoutColumnKey) {
+    if (event.button !== 0) return
+    event.preventDefault()
+    const startX = event.clientX
+    let moved = false
+    const cleanup = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', cancel)
+      setDraggingColumn(null)
+    }
+    const move = (pointerEvent: PointerEvent) => {
+      if (Math.abs(pointerEvent.clientX - startX) < 4) return
+      pointerEvent.preventDefault()
+      moved = true
+      setDraggingColumn(sourceKey)
+    }
+    const finish = (pointerEvent: PointerEvent) => {
+      const target = document.elementFromPoint(pointerEvent.clientX, pointerEvent.clientY)
+        ?.closest<HTMLTableCellElement>('th[data-column-key]')
+        ?.dataset.columnKey as ShippingLayoutColumnKey | undefined
+      cleanup()
+      if (moved && target) dropColumn(sourceKey, target)
+    }
+    const cancel = () => cleanup()
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', cancel)
+  }
+
   function renderCell(key: ShippingLayoutColumnKey, shipment: Shipment) {
     switch (key) {
       case 'status': return <td key={key}><span className={`status-badge ${shipment.isShipped ? 'shipped' : ''}`}>{shipment.status ?? 'Hidden'}</span></td>
@@ -500,7 +619,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   return (
     <div className="view shipping-view">
       <section className="shipping-toolbar panel">
-        <div className="toolbar-top"><div><span className="eyebrow">Controlled register</span><h2>Shipping Status</h2><p>{data ? `${data.total} ${status === 'open' ? 'open' : status === 'shipped' ? 'past' : 'total'} shipments in this view` : 'Loading shipment register...'}</p></div><div className="toolbar-actions-inline">{canImport && <button className="button ghost" type="button" onClick={() => setImportOpen(true)}><FileUp size={15} /> Import Excel</button>}<button className="button ghost" type="button" disabled={!layout} onClick={() => setCustomizing(true)}><Columns3 size={15} /> Customize layout</button>{canCreate && <button className="button primary" type="button" onClick={() => setCreating(true)}><Plus size={15} /> Add shipment</button>}</div></div>
+        <div className="toolbar-top"><div><span className="eyebrow">Controlled register</span><h2>Shipping Status</h2><p>{data ? `${data.total} ${status === 'open' ? 'open' : status === 'shipped' ? 'past' : 'total'} shipments in this view. Drag headers to move columns or drag their right edges to resize.` : 'Loading shipment register...'}</p></div><div className="toolbar-actions-inline">{canImport && <button className="button ghost" type="button" onClick={() => setImportOpen(true)}><FileUp size={15} /> Import Excel</button>}{canCreate && <button className="button primary" type="button" onClick={() => setCreating(true)}><Plus size={15} /> Add shipment</button>}</div></div>
         <div className="filter-row">
           <div className="segmented" aria-label="Shipment status"><button className={status === 'open' ? 'active' : ''} type="button" onClick={() => setStatus('open')}>Open</button><button className={status === 'shipped' ? 'active' : ''} type="button" onClick={() => setStatus('shipped')}>Past shipments</button>{canAll && <button className={status === 'all' ? 'active' : ''} type="button" onClick={() => setStatus('all')}>All</button>}</div>
           <label className="search-box"><Search size={16} /><span className="sr-only">Search shipments</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order, part, customer, action..." />{search && <button type="button" onClick={() => setSearch('')} aria-label="Clear search"><X size={14} /></button>}</label>
@@ -516,7 +635,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
           <div className="shipping-table-wrap">
             <table className="shipping-table layout-controlled" style={{ minWidth: shippingTableWidth, width: shippingTableWidth }}>
               <colgroup><col style={{ width: 44 }} />{visibleColumns.map((column) => <col style={{ width: column.width }} key={column.key} />)}<col style={{ width: 44 }} /></colgroup>
-              <thead><tr><th className="sticky-col row-number">#</th>{visibleColumns.map((column) => <th key={column.key}>{SHIPPING_COLUMN_METADATA[column.key].label}</th>)}<th aria-label="Open record" /></tr></thead>
+              <thead><tr><th className="sticky-col row-number">#</th>{visibleColumns.map((column) => <th className={`draggable-column-header ${draggingColumn === column.key ? 'is-dragging' : ''}`} data-column-key={column.key} key={column.key} onPointerDown={(event) => beginColumnDrag(event, column.key)}><span className="column-header-label">{SHIPPING_COLUMN_METADATA[column.key].label}</span><span className="column-resize-handle" role="separator" aria-label={`Resize ${SHIPPING_COLUMN_METADATA[column.key].label}`} aria-orientation="vertical" onPointerDown={(event) => beginColumnResize(event, column)} /></th>)}<th aria-label="Open record" /></tr></thead>
               <tbody>{data.items.map((shipment, index) => (
                 <tr className={`${shipment.dueState === 'Past due' ? 'past-due-row' : ''} ${shipment.isShipped ? 'shipped-row' : ''}`} key={shipment.id} onClick={() => setSelected(shipment)}>
                   <td className="sticky-col row-number">{index + 1}</td>
@@ -533,7 +652,6 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
       {creating && <ShipmentForm fields={fields} onClose={() => setCreating(false)} onSaved={accepted} />}
       {editing && selected && <ShipmentForm shipment={selected} fields={fields} onClose={() => setEditing(false)} onSaved={accepted} />}
       {assigning && selected && <AssignmentDialog shipment={selected} user={user} onClose={() => setAssigning(false)} onSaved={accepted} />}
-      {customizing && layout && <ShippingLayoutEditor layout={layout} available={availableColumns} onClose={() => setCustomizing(false)} onSaved={setLayout} />}
       {importOpen && <ShippingImportDialog onClose={() => setImportOpen(false)} onImported={() => setRefresh((value) => value + 1)} />}
     </div>
   )

@@ -9,27 +9,28 @@ namespace QualityAssurance.Api.Services;
 
 public sealed class QualityShippingLayoutService(QualityAssuranceDbContext db)
 {
+    private const int NarrowestColumnWidth = 28;
     private sealed record ColumnDefinition(string Key, int DefaultWidth, int MinimumWidth, int MaximumWidth, bool Required);
 
     private static readonly IReadOnlyList<ColumnDefinition> Definitions =
     [
-        Column("status", 150, 110, 240, required: true),
-        Column("salesOrderNumber", 140, 100, 240),
-        Column("qaArrivalDate", 115, 90, 180),
-        Column("partNumber", 145, 105, 260, required: true),
-        Column("purchaseOrderNumber", 120, 90, 220),
-        Column("customer", 180, 120, 320),
-        Column("taskType", 150, 110, 260),
-        Column("quantity", 90, 70, 150),
-        Column("dollarValue", 125, 95, 190),
-        Column("shipDate", 135, 105, 210),
-        Column("holdReason", 235, 130, 420),
-        Column("sourceRequestedDate", 130, 100, 210),
-        Column("nextAction", 255, 150, 480, required: true),
-        Column("lastWorkedAt", 125, 95, 210),
-        Column("comments", 255, 150, 480),
-        Column("assignment", 175, 120, 300),
-        Column("queueAge", 90, 70, 150)
+        Column("status", 150, NarrowestColumnWidth, 480, required: true),
+        Column("salesOrderNumber", 140, NarrowestColumnWidth, 480),
+        Column("qaArrivalDate", 115, NarrowestColumnWidth, 480),
+        Column("partNumber", 145, NarrowestColumnWidth, 480, required: true),
+        Column("purchaseOrderNumber", 120, NarrowestColumnWidth, 480),
+        Column("customer", 180, NarrowestColumnWidth, 480),
+        Column("taskType", 150, NarrowestColumnWidth, 480),
+        Column("quantity", 90, NarrowestColumnWidth, 480),
+        Column("dollarValue", 125, NarrowestColumnWidth, 480),
+        Column("shipDate", 135, NarrowestColumnWidth, 480),
+        Column("holdReason", 235, NarrowestColumnWidth, 640),
+        Column("sourceRequestedDate", 130, NarrowestColumnWidth, 480),
+        Column("nextAction", 255, NarrowestColumnWidth, 640, required: true),
+        Column("lastWorkedAt", 125, NarrowestColumnWidth, 480),
+        Column("comments", 255, NarrowestColumnWidth, 640),
+        Column("assignment", 175, NarrowestColumnWidth, 480),
+        Column("queueAge", 90, NarrowestColumnWidth, 480)
     ];
 
     private static readonly IReadOnlyDictionary<string, ColumnDefinition> DefinitionByKey =
@@ -125,7 +126,7 @@ public sealed class QualityShippingLayoutService(QualityAssuranceDbContext db)
             normalized.Add(new QualityShippingColumnDto(
                 column.Key,
                 Math.Clamp(column.Width, definition.MinimumWidth, definition.MaximumWidth),
-                definition.Required || column.IsVisible));
+                true));
         }
         foreach (var definition in Definitions.Where(definition => !seen.Contains(definition.Key)))
         {
@@ -144,8 +145,8 @@ public sealed class QualityShippingLayoutService(QualityAssuranceDbContext db)
         var keys = columns.Select(column => column.Key).ToHashSet(StringComparer.Ordinal);
         if (keys.Count != Definitions.Count || keys.Any(key => !DefinitionByKey.ContainsKey(key)))
             throw new ArgumentException("The layout contains an unknown or duplicate Shipping Status column.");
-        if (columns.Any(column => DefinitionByKey[column.Key].Required && !column.IsVisible))
-            throw new ArgumentException("Status, Part Number, and Action must remain visible.");
+        if (columns.Any(column => !column.IsVisible))
+            throw new ArgumentException("Shipping Status columns must remain visible in the live table layout.");
         if (columns.Any(column => column.Width < DefinitionByKey[column.Key].MinimumWidth
             || column.Width > DefinitionByKey[column.Key].MaximumWidth))
             throw new ArgumentException("One or more column widths are outside the supported range.");

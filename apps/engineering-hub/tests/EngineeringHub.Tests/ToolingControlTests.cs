@@ -1,10 +1,19 @@
+using System.Security.Claims;
 using System.Text;
+using System.Text.Json;
 using ClosedXML.Excel;
+using EngineeringHub.Api.Auth;
 using EngineeringHub.Api.Data;
+using EngineeringHub.Api.Dtos;
+using EngineeringHub.Api.Endpoints;
 using EngineeringHub.Api.Models;
 using EngineeringHub.Api.Services;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using SonAero.Platform.Engineering;
 using SonAero.Platform.Security;
@@ -150,6 +159,63 @@ public sealed class ToolingControlTests
         movement.Purpose = "Attempted rewrite";
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Db.SaveChangesAsync());
         Assert.Contains("append-only", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ToolArchiveWorkflow_BlocksActiveCustodyAndSupportsArchiveCheckoutGuardAndRestore()
+    {
+        await using var fixture = await ToolingFixture.CreateAsync();
+        var location = CreateLocation();
+        var storedTool = CreateTool(location);
+        var checkedOutTool = CreateTool(location, "TL-OUT", "PN-OUT");
+        checkedOutTool.CustodyStatus = ToolCustodyStatus.CheckedOut;
+        checkedOutTool.CurrentHolder = "TEST\\Operator";
+        checkedOutTool.CheckedOutAt = DateTime.UtcNow;
+        fixture.Db.Tools.AddRange(storedTool, checkedOutTool);
+        await fixture.Db.SaveChangesAsync();
+
+        await using var app = CreateToolingApp(fixture.Db);
+        var custodyConflict = await InvokeJsonAsync(
+            app, "PUT", "/api/tools/{id:int}/archive", checkedOutTool.Id,
+            new ToolArchiveStatusDto(true, checkedOutTool.Version));
+        Assert.Equal(StatusCodes.Status409Conflict, custodyConflict.StatusCode);
+
+        var editBypass = await InvokeJsonAsync(
+            app, "PUT", "/api/tools/{id:int}", storedTool.Id,
+            new ToolUpsertDto(
+                storedTool.ToolNumber, storedTool.Name, storedTool.ToolType, storedTool.Owner,
+                storedTool.Description, storedTool.Notes, location.Id,
+                storedTool.PartNumbers.Select(part => part.PartNumber).ToArray(), true, storedTool.Version));
+        Assert.Equal(StatusCodes.Status400BadRequest, editBypass.StatusCode);
+        Assert.Contains("manager-controlled archive or restore action", editBypass.Body, StringComparison.OrdinalIgnoreCase);
+
+        var archivedResponse = await InvokeJsonAsync(
+            app, "PUT", "/api/tools/{id:int}/archive", storedTool.Id,
+            new ToolArchiveStatusDto(true, storedTool.Version));
+        Assert.Equal(StatusCodes.Status200OK, archivedResponse.StatusCode);
+
+        fixture.Db.ChangeTracker.Clear();
+        var archived = await fixture.Db.Tools.Include(tool => tool.AuditEntries)
+            .SingleAsync(tool => tool.Id == storedTool.Id);
+        Assert.True(archived.IsArchived);
+        Assert.Contains(archived.AuditEntries, entry => entry.Action == "ToolArchived");
+
+        var checkoutResponse = await InvokeJsonAsync(
+            app, "POST", "/api/tools/{id:int}/checkout", archived.Id,
+            new ToolCheckoutDto("location", location.Id, null, "TEST\\Operator", "Test release", true, null));
+        Assert.Equal(StatusCodes.Status409Conflict, checkoutResponse.StatusCode);
+        Assert.Contains("Archived tools cannot be checked out", checkoutResponse.Body, StringComparison.OrdinalIgnoreCase);
+
+        var restoredResponse = await InvokeJsonAsync(
+            app, "PUT", "/api/tools/{id:int}/archive", archived.Id,
+            new ToolArchiveStatusDto(false, archived.Version));
+        Assert.Equal(StatusCodes.Status200OK, restoredResponse.StatusCode);
+
+        fixture.Db.ChangeTracker.Clear();
+        var restored = await fixture.Db.Tools.Include(tool => tool.AuditEntries)
+            .SingleAsync(tool => tool.Id == storedTool.Id);
+        Assert.False(restored.IsArchived);
+        Assert.Contains(restored.AuditEntries, entry => entry.Action == "ToolRestored");
     }
 
     [Fact]
@@ -399,12 +465,23 @@ public sealed class ToolingControlTests
     [Fact]
     public void ToolingPermissions_AreDelegableAndKeepAdministrativeImportsLockedByDefault()
     {
+        var managers = EngineeringPermissions.Expand(EngineeringPermissions.DefaultsForGroup("Managers"));
+        Assert.Contains(EngineeringPermissions.ToolingArchiveManage, managers);
+
         var engineering = EngineeringPermissions.Expand(EngineeringPermissions.DefaultsForGroup("Engineering"));
         Assert.Contains(EngineeringPermissions.ToolingRecordsManage, engineering);
         Assert.Contains(EngineeringPermissions.ToolingCustodyManage, engineering);
         Assert.Contains(EngineeringPermissions.ToolingDocumentsManage, engineering);
+        Assert.DoesNotContain(EngineeringPermissions.ToolingArchiveManage, engineering);
         Assert.DoesNotContain(EngineeringPermissions.ToolingLocationsManage, engineering);
         Assert.DoesNotContain(EngineeringPermissions.ToolingAuditImport, engineering);
+
+        var archiveOnly = EngineeringPermissions.Expand([
+            EngineeringPermissions.ModuleView,
+            EngineeringPermissions.ToolingArchiveManage
+        ]);
+        Assert.Contains(EngineeringPermissions.ToolingView, archiveOnly);
+        Assert.Equal(ApplicationRoles.Editor, EngineeringPermissions.RoleFor(archiveOnly));
 
         var importOnly = EngineeringPermissions.Expand([
             EngineeringPermissions.ModuleView,
@@ -415,7 +492,7 @@ public sealed class ToolingControlTests
     }
 
     [Fact]
-    public async Task AccessSeeder_AddsNewPermissionsToExistingSystemAdministrators()
+    public async Task AccessSeeder_AddsAdministrativePermissionsAndMigratesExistingManagersOnce()
     {
         await using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -428,14 +505,35 @@ public sealed class ToolingControlTests
             IsSystemGroup = true,
             Permissions = [new EngineeringGroupPermissionRecord { PermissionKey = EngineeringPermissions.ModuleView }]
         });
+        db.Groups.Add(new EngineeringAccessGroupRecord
+        {
+            Name = "Managers",
+            IsSystemGroup = true
+        });
         await db.SaveChangesAsync();
 
         await new EngineeringAccessSeeder(db, new EngineeringAccessSchemaInitializer(db)).SeedAsync();
 
         var administrator = await db.Groups.Include(group => group.Permissions)
             .SingleAsync(group => group.Name == "Administrators");
+        Assert.Contains(administrator.Permissions, permission => permission.PermissionKey == EngineeringPermissions.ToolingArchiveManage);
         Assert.Contains(administrator.Permissions, permission => permission.PermissionKey == EngineeringPermissions.ToolingAuditImport);
         Assert.Contains(administrator.Permissions, permission => permission.PermissionKey == EngineeringPermissions.ToolingLocationsManage);
+
+        var managers = await db.Groups.Include(group => group.Permissions)
+            .SingleAsync(group => group.Name == "Managers");
+        var managerArchivePermission = Assert.Single(managers.Permissions.Where(permission =>
+            permission.PermissionKey == EngineeringPermissions.ToolingArchiveManage));
+        db.GroupPermissions.Remove(managerArchivePermission);
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+
+        await new EngineeringAccessSeeder(db, new EngineeringAccessSchemaInitializer(db)).SeedAsync();
+
+        managers = await db.Groups.Include(group => group.Permissions)
+            .SingleAsync(group => group.Name == "Managers");
+        Assert.DoesNotContain(managers.Permissions, permission =>
+            permission.PermissionKey == EngineeringPermissions.ToolingArchiveManage);
     }
 
     private static ToolLocation CreateLocation() => new()
@@ -469,6 +567,66 @@ public sealed class ToolingControlTests
         tool.Notes = notes;
         return tool;
     }
+
+    private static WebApplication CreateToolingApp(EngineeringDbContext db)
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddSingleton(db);
+        builder.Services.AddSingleton<ToolCatalogReviewStore>();
+        builder.Services.AddScoped<ToolCatalogWorkbookService>();
+        builder.Services.Configure<DrawingStorageOptions>(options =>
+            options.RootPath = Path.Combine(Path.GetTempPath(), "engineering-tooling-tests"));
+        builder.Services.AddScoped<IDrawingFileStore, DrawingFileStore>();
+        var app = builder.Build();
+        app.MapGroup("/api").MapToolingEndpoints();
+        return app;
+    }
+
+    private static async Task<EndpointResponse> InvokeJsonAsync<T>(
+        WebApplication app,
+        string method,
+        string route,
+        int id,
+        T body)
+    {
+        var endpoint = ((IEndpointRouteBuilder)app).DataSources
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Single(candidate =>
+                candidate.RoutePattern.RawText == route &&
+                candidate.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(method) == true);
+        await using var scope = app.Services.CreateAsyncScope();
+        var content = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(
+            body,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        var context = new DefaultHttpContext
+        {
+            RequestServices = scope.ServiceProvider,
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.Name, "TEST\\Manager")],
+                "Test"))
+        };
+        context.Request.Method = method;
+        context.Request.RouteValues["id"] = id.ToString();
+        context.Request.ContentType = "application/json";
+        context.Request.ContentLength = content.Length;
+        context.Request.Body = new MemoryStream(content);
+        context.Features.Set<IHttpRequestBodyDetectionFeature>(new StaticRequestBodyDetectionFeature());
+        context.Response.Body = new MemoryStream();
+
+        await endpoint.RequestDelegate!(context);
+
+        context.Response.Body.Position = 0;
+        using var reader = new StreamReader(context.Response.Body);
+        return new EndpointResponse(context.Response.StatusCode, await reader.ReadToEndAsync());
+    }
+
+    private sealed class StaticRequestBodyDetectionFeature : IHttpRequestBodyDetectionFeature
+    {
+        public bool CanHaveBody => true;
+    }
+
+    private sealed record EndpointResponse(int StatusCode, string Body);
 
     private sealed class ToolingFixture : IAsyncDisposable
     {

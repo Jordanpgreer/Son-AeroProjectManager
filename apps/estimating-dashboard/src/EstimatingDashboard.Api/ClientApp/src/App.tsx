@@ -242,11 +242,6 @@ export default function App() {
     me,
     estimatingPermissions.importHistory,
   ) && !me?.isPreview
-  const canManageHistory = hasEstimatingPermission(
-    me,
-    estimatingPermissions.manageHistory,
-  ) && !me?.isPreview
-
   useEffect(() => {
     if (accessLoading || !me || page !== 'history' || canViewHistory) return
     window.history.replaceState(
@@ -432,7 +427,6 @@ export default function App() {
             {page === 'history' && canViewHistory && (
               <EstimatingHistoryPage
                 canImport={canImportHistory}
-                canManageHistory={canManageHistory}
                 importOpen={historyImportOpen}
                 onImportOpenChange={setHistoryImportOpen}
               />

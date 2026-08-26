@@ -46,7 +46,7 @@ public sealed class QualityShipmentImportService(
             .Include(shipment => shipment.AuditEntries)
             .ToListAsync(cancellationToken);
         var existingBySignature = existing
-            .GroupBy(Signature)
+            .GroupBy(IdentitySignature)
             .ToDictionary(
                 group => group.Key,
                 group => new Queue<QualityShipment>(group.OrderBy(shipment => shipment.Id)),
@@ -60,7 +60,7 @@ public sealed class QualityShipmentImportService(
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         foreach (var row in rows)
         {
-            var signature = Signature(row);
+            var signature = IdentitySignature(row);
             if (existingBySignature.TryGetValue(signature, out var matches) && matches.Count > 0)
             {
                 var existingShipment = matches.Dequeue();
@@ -77,7 +77,7 @@ public sealed class QualityShipmentImportService(
 
             var shipment = CreateShipment(row, actor, now);
             var owner = ResolveOwner(row.Action, users, groups);
-            ApplyOwner(shipment, owner);
+            ApplyImportedOwner(shipment, row.Action, owner);
 
             shipment.AuditEntries.Add(new QualityShipmentAuditEntry
             {
@@ -117,21 +117,26 @@ public sealed class QualityShipmentImportService(
         DateTimeOffset now)
     {
         var isImported = shipment.AuditEntries.Any(entry => entry.EventType == "Imported");
-        var hasAssignmentDecision = shipment.AuditEntries.Any(entry =>
-            entry.EventType is "Assigned" or "AutoAssigned" or "AssignmentPending");
-        if (!isImported || hasAssignmentDecision) return false;
+        var hasManualAssignment = shipment.AuditEntries.Any(entry => entry.EventType == "Assigned");
+        if (!isImported || hasManualAssignment) return false;
 
-        var oldValue = AssignmentLabel(shipment);
-        ApplyOwner(shipment, owner);
+        var oldAssignment = AssignmentLabel(shipment);
+        var oldAction = shipment.NextAction;
+        ApplyImportedOwner(shipment, action, owner);
+        var newAssignment = AssignmentLabel(shipment);
+        var assignmentChanged = oldAssignment != newAssignment;
+        var actionChanged = oldAction != shipment.NextAction;
+        if (!assignmentChanged && !actionChanged) return false;
+
         shipment.UpdatedAt = now;
         shipment.UpdatedByAccountName = actor.AccountName;
         shipment.UpdatedByDisplayName = actor.DisplayName;
         shipment.Version++;
-        shipment.AuditEntries.Add(new QualityShipmentAuditEntry
+        if (assignmentChanged) shipment.AuditEntries.Add(new QualityShipmentAuditEntry
         {
             EventType = owner is null ? "AssignmentPending" : "AutoAssigned",
             FieldName = "assignment",
-            OldValue = oldValue,
+            OldValue = oldAssignment,
             NewValue = owner is null
                 ? string.IsNullOrWhiteSpace(action)
                     ? "Unassigned: no action owner supplied"
@@ -141,16 +146,27 @@ public sealed class QualityShipmentImportService(
             DisplayName = actor.DisplayName,
             OccurredAt = now
         });
+        if (actionChanged) shipment.AuditEntries.Add(new QualityShipmentAuditEntry
+        {
+            EventType = "UpdatedByImport",
+            FieldName = "nextAction",
+            OldValue = oldAction,
+            NewValue = shipment.NextAction,
+            AccountName = actor.AccountName,
+            DisplayName = actor.DisplayName,
+            OccurredAt = now
+        });
         return true;
     }
 
-    private static void ApplyOwner(QualityShipment shipment, ResolvedOwner? owner)
+    private static void ApplyImportedOwner(QualityShipment shipment, string? uploadedAction, ResolvedOwner? owner)
     {
         shipment.AssignedGroupId = owner?.Group.Id;
         shipment.AssignedGroupName = owner?.Group.Name;
         shipment.AssignedUserId = owner?.User.Id;
         shipment.AssignedAccountName = owner?.User.AccountName;
         shipment.AssignedDisplayName = owner?.User.DisplayName;
+        shipment.NextAction = owner?.User.DisplayName ?? Clean(uploadedAction);
     }
 
     private static string AssignmentLabel(QualityShipment shipment)
@@ -478,7 +494,7 @@ public sealed class QualityShipmentImportService(
         IReadOnlyDictionary<string, int> columns,
         string header) => sheet.Cell(row, columns[NormalizeHeader(header)]);
 
-    private static string Signature(QualityShipment shipment) => Signature(
+    private static string IdentitySignature(QualityShipment shipment) => IdentitySignature(
         shipment.Status,
         shipment.SalesOrderNumber,
         shipment.QaArrivalDate,
@@ -490,11 +506,10 @@ public sealed class QualityShipmentImportService(
         shipment.ShipDate,
         shipment.HoldReason,
         shipment.SourceRequestedDate,
-        shipment.NextAction,
         shipment.LastWorkedAt.HasValue ? DateOnly.FromDateTime(shipment.LastWorkedAt.Value.UtcDateTime) : null,
         shipment.Comments);
 
-    private static string Signature(ImportRow row) => Signature(
+    private static string IdentitySignature(ImportRow row) => IdentitySignature(
         row.Status,
         row.SalesOrderNumber,
         row.QaArrivalDate,
@@ -506,11 +521,10 @@ public sealed class QualityShipmentImportService(
         row.ShipDate,
         row.HoldReason,
         row.SourceRequestedDate,
-        row.Action,
         row.LastWorkedDate,
         row.Comments);
 
-    private static string Signature(
+    private static string IdentitySignature(
         string? status,
         string? salesOrder,
         DateOnly? qaArrival,
@@ -522,7 +536,6 @@ public sealed class QualityShipmentImportService(
         DateOnly? shipDate,
         string? holdReason,
         DateOnly? sourceRequested,
-        string? action,
         DateOnly? lastWorked,
         string? comments) => string.Join('\u001f',
     [
@@ -537,7 +550,6 @@ public sealed class QualityShipmentImportService(
         DateValue(shipDate),
         FingerprintText(holdReason),
         DateValue(sourceRequested),
-        FingerprintText(action),
         DateValue(lastWorked),
         FingerprintText(comments)
     ]);

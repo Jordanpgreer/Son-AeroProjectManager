@@ -11,16 +11,14 @@ namespace QualityAssurance.Tests;
 public sealed class QualityShippingLayoutServiceTests
 {
     [Fact]
-    public async Task Saved_layout_persists_order_width_and_visibility_for_one_user_only()
+    public async Task Saved_layout_persists_drag_order_and_narrow_width_for_one_user_only()
     {
         await using var fixture = await LayoutFixture.CreateAsync();
         var defaults = await fixture.Service.GetAsync(fixture.UserOne, CancellationToken.None);
         var columns = defaults.Columns.Select(column => column with { }).ToList();
         var action = columns.Single(column => column.Key == "nextAction");
         columns.Remove(action);
-        columns.Insert(0, action with { Width = 360 });
-        var commentsIndex = columns.FindIndex(column => column.Key == "comments");
-        columns[commentsIndex] = columns[commentsIndex] with { IsVisible = false };
+        columns.Insert(0, action with { Width = 28 });
 
         var saved = await fixture.Service.SaveAsync(
             new QualityShippingLayoutUpdateDto(columns, defaults.Version),
@@ -32,23 +30,23 @@ public sealed class QualityShippingLayoutServiceTests
 
         Assert.Equal(1, saved.Version);
         Assert.Equal("nextAction", reloaded.Columns[0].Key);
-        Assert.Equal(360, reloaded.Columns[0].Width);
-        Assert.False(reloaded.Columns.Single(column => column.Key == "comments").IsVisible);
+        Assert.Equal(28, reloaded.Columns[0].Width);
+        Assert.All(reloaded.Columns, column => Assert.True(column.IsVisible));
         Assert.Equal(0, otherUser.Version);
         Assert.Equal("status", otherUser.Columns[0].Key);
         Assert.All(otherUser.Columns, column => Assert.True(column.IsVisible));
     }
 
     [Fact]
-    public async Task Required_shipping_columns_cannot_be_hidden()
+    public async Task Shipping_columns_cannot_be_hidden_from_the_live_layout()
     {
         await using var fixture = await LayoutFixture.CreateAsync();
         var defaults = await fixture.Service.GetAsync(fixture.UserOne, CancellationToken.None);
 
-        foreach (var requiredKey in new[] { "status", "partNumber", "nextAction" })
+        foreach (var key in new[] { "status", "customer", "comments" })
         {
             var columns = defaults.Columns
-                .Select(column => column.Key == requiredKey ? column with { IsVisible = false } : column)
+                .Select(column => column.Key == key ? column with { IsVisible = false } : column)
                 .ToList();
             var exception = await Assert.ThrowsAsync<ArgumentException>(() => fixture.Service.SaveAsync(
                 new QualityShippingLayoutUpdateDto(columns, defaults.Version),

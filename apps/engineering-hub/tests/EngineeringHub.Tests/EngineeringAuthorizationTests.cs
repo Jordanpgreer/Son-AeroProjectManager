@@ -401,11 +401,14 @@ public sealed class EngineeringAuthorizationTests
             options.UseSqlite("Data Source=:memory:"));
         builder.Services.AddScoped<IDrawingFileStore, DrawingFileStore>();
         builder.Services.AddScoped<MylarCustodyService>();
+        builder.Services.AddSingleton<ToolCatalogReviewStore>();
+        builder.Services.AddScoped<ToolCatalogWorkbookService>();
         var app = builder.Build();
         var api = app.MapGroup("/api")
             .RequireAuthorization(EngineeringAuthorization.ReadPolicy);
         api.MapDrawingEndpoints();
         api.MapDrawingOperationalEndpoints();
+        api.MapToolingEndpoints();
 
         AssertPolicies(app, "GET", "/api/drawings", EngineeringAuthorization.ReadPolicy, EngineeringPermissions.DrawingsView);
         var protectedRoutes = new (string Method, string Route, string Permission)[]
@@ -419,6 +422,7 @@ public sealed class EngineeringAuthorizationTests
             ("POST", "/api/drawing-revisions/{id:int}/make-current", EngineeringPermissions.RevisionMakeCurrent),
             ("POST", "/api/drawings/{id:int}/mylars", EngineeringPermissions.MylarManage),
             ("POST", "/api/drawings/{id:int}/validations", EngineeringPermissions.ValidationsManage),
+            ("PUT", "/api/tools/{id:int}/archive", EngineeringPermissions.ToolingArchiveManage),
             ("GET", "/api/drawing-documents/{id:int}/file", EngineeringPermissions.SupportingDocumentsView)
         };
         foreach (var (method, route, permission) in protectedRoutes)

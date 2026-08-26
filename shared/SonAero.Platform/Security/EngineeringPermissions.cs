@@ -29,6 +29,7 @@ public static class EngineeringPermissions
     public const string AuditView = "engineering.audit.view";
     public const string ToolingView = "engineering.tooling.view";
     public const string ToolingRecordsManage = "engineering.tooling.records.manage";
+    public const string ToolingArchiveManage = "engineering.tooling.archive.manage";
     public const string ToolingCustodyManage = "engineering.tooling.custody.manage";
     public const string ToolingDocumentsManage = "engineering.tooling.documents.manage";
     public const string ToolingLocationsManage = "engineering.tooling.locations.manage";
@@ -67,7 +68,8 @@ public static class EngineeringPermissions
         Permission(ValidationsManage, "Manage validation records", "Add validation and inspection records.", "Quality records"),
         Permission(AuditView, "View drawing audit history", "View permanent drawing and revision audit events.", "Quality records"),
         Permission(ToolingView, "View tooling management", "Open tooling records and tooling search results.", "Other engineering areas"),
-        Permission(ToolingRecordsManage, "Manage tool records", "Create and update tool identity, ownership, notes, and archive status.", "Tooling control"),
+        Permission(ToolingRecordsManage, "Manage tool records", "Create and update tool identity, ownership, notes, and part-number assignments.", "Tooling control"),
+        Permission(ToolingArchiveManage, "Archive or restore tools", "Archive in-storage tools or restore archived tools to active service. Intended for managers and administrators.", "Tooling control"),
         Permission(ToolingCustodyManage, "Manage tool custody", "Check tools in or out and record required inspection sign-off.", "Tooling control"),
         Permission(ToolingDocumentsManage, "Manage tool documents", "Upload receiving and shipping documents to permanent tool history.", "Tooling control"),
         Permission(ToolingLocationsManage, "Manage tool locations", "Create and activate physical tooling bin locations.", "Tooling control"),
@@ -107,6 +109,7 @@ public static class EngineeringPermissions
         AddDependency(expanded, MylarManage, MylarView);
         AddDependency(expanded, ValidationsManage, ValidationsView);
         AddDependency(expanded, ToolingRecordsManage, ToolingView);
+        AddDependency(expanded, ToolingArchiveManage, ToolingView);
         AddDependency(expanded, ToolingCustodyManage, ToolingView);
         AddDependency(expanded, ToolingDocumentsManage, ToolingView);
         AddDependency(expanded, ToolingLocationsManage, ToolingView);
@@ -170,12 +173,13 @@ public static class EngineeringPermissions
         ValidationsView,
         AuditView,
         ToolingView,
+        ToolingArchiveManage,
         CompoundDataView
     ];
 
     private static readonly string[] EngineeringDefaults =
     [
-        .. ManagerDefaults,
+        .. ManagerDefaults.Where(permission => permission != ToolingArchiveManage),
         DrawingCreate,
         DrawingMetadataEdit,
         RevisionCreate,

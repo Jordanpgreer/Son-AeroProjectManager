@@ -9,6 +9,8 @@ public sealed class EngineeringAccessSeeder(
     EngineeringRoleDbContext db,
     EngineeringAccessSchemaInitializer schema)
 {
+    private const string ToolingArchiveManagersMigration = "2026-08-tooling-archive-managers";
+
     public async Task SeedAsync(CancellationToken cancellationToken = default)
     {
         await schema.InitializeAsync(cancellationToken);
@@ -58,6 +60,29 @@ public sealed class EngineeringAccessSeeder(
                     PermissionKey = permission
                 });
             }
+        }
+
+        if (!await db.AccessSeedMigrations.AnyAsync(
+                migration => migration.Key == ToolingArchiveManagersMigration,
+                cancellationToken))
+        {
+            var managers = groups.Single(group =>
+                string.Equals(group.Name, "Managers", StringComparison.OrdinalIgnoreCase));
+            if (managers.Permissions.All(permission => !string.Equals(
+                    permission.PermissionKey,
+                    EngineeringPermissions.ToolingArchiveManage,
+                    StringComparison.OrdinalIgnoreCase)))
+            {
+                managers.Permissions.Add(new EngineeringGroupPermissionRecord
+                {
+                    PermissionKey = EngineeringPermissions.ToolingArchiveManage
+                });
+            }
+
+            db.AccessSeedMigrations.Add(new EngineeringAccessSeedMigrationRecord
+            {
+                Key = ToolingArchiveManagersMigration
+            });
         }
 
         await db.SaveChangesAsync(cancellationToken);

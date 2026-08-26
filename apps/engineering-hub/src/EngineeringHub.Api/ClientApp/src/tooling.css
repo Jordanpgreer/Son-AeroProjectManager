@@ -16,6 +16,11 @@
   color: var(--ok); background: color-mix(in srgb, var(--ok) 8%, var(--surface)); font-size: 12px; font-weight: 650;
 }
 .tool-error { color: var(--red-700); border-color: color-mix(in srgb, var(--red) 40%, var(--line)); background: color-mix(in srgb, var(--red) 8%, var(--surface)); }
+.tool-archived-notice { display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px; color: var(--warn); background: color-mix(in srgb, var(--warn) 9%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 36%, var(--line)); border-radius: var(--r-sm); }
+.tool-archived-notice > svg { flex: none; }
+.tool-archived-notice > div { display: grid; gap: 3px; }
+.tool-archived-notice strong { color: var(--ink); font-size: 11px; }
+.tool-archived-notice p { color: var(--ink-2); font-size: 10.5px; }
 
 .tool-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .tool-kpis button { position: relative; display: grid; gap: 2px; min-height: 105px; padding: 14px 15px; overflow: hidden; font: inherit; text-align: left; cursor: pointer; transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease; }
@@ -83,6 +88,7 @@
 .tool-record-identity > div { display: flex; align-items: center; gap: 10px; }
 .tool-record-identity h2 { font-size: 21px; }
 .tool-record-identity p { color: var(--muted); font-size: 12px; }
+.tool-record-actions .button:disabled { cursor: not-allowed; opacity: .45; box-shadow: none; }
 .tool-record-grid { display: grid; grid-template-columns: minmax(0, .88fr) minmax(0, 1.12fr); gap: 14px; }
 .tool-overview-card, .tool-documents-card, .tool-history-card { padding: 17px; }
 .tool-overview-card > header, .tool-documents-card > header, .tool-history-card > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; padding-bottom: 11px; border-bottom: 1px solid var(--line); color: var(--muted); }
@@ -143,9 +149,15 @@
 .tool-dialog input[type='file'] { padding: 7px; font-size: 10px; }
 .tool-dialog input[type='file']::file-selector-button { margin-right: 9px; padding: 6px 9px; color: #fff; background: var(--red-action); border: 0; border-radius: 3px; cursor: pointer; }
 .tool-field-help { color: var(--muted); font-size: 9px; font-weight: 500; }
-.tool-check-label { display: flex !important; align-items: center; gap: 8px !important; align-self: end; min-height: 39px; padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
-.tool-check-label input, .inspection-confirm input { accent-color: var(--red); }
+.inspection-confirm input { accent-color: var(--red); }
 .tool-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 17px; padding-top: 13px; border-top: 1px solid var(--line); }
+.tool-archive-confirmation { display: flex; gap: 12px; margin: 17px; padding: 13px; color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 38%, var(--line)); border-radius: var(--r-sm); }
+.tool-archive-confirmation.is-restore { color: var(--ok); background: color-mix(in srgb, var(--ok) 8%, var(--surface)); border-color: color-mix(in srgb, var(--ok) 32%, var(--line)); }
+.tool-archive-confirmation > svg { flex: none; }
+.tool-archive-confirmation > div { display: grid; gap: 7px; }
+.tool-archive-confirmation strong { color: var(--ink); }
+.tool-archive-confirmation p { color: var(--ink-2); font-size: 10.5px; line-height: 1.45; }
+.tool-confirm-actions { margin: 0 17px 17px; }
 .tool-part-editor { gap: 6px !important; }
 .tool-part-input { display: flex; min-height: 43px; flex-wrap: wrap; align-items: center; gap: 5px; padding: 6px 8px; color: var(--ink); background: var(--input-bg, var(--surface-2)); border: 1px solid var(--line-2); border-radius: var(--r-sm); cursor: text; }
 .tool-part-input:focus-within { border-color: var(--red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 10%, transparent); }
