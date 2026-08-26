@@ -587,10 +587,11 @@ mark { padding: 0 2px; color: inherit; background: #ffe071; border-radius: 2px; 
 .shipping-table .draggable-column-header { padding-right: 12px; cursor: grab; user-select: none; }
 .shipping-table .draggable-column-header:active { cursor: grabbing; }
 .shipping-table .draggable-column-header.is-dragging { color: var(--steel-700); background: var(--steel-tint); opacity: .72; }
+.shipping-table .draggable-column-header.is-drop-target::before { position: absolute; z-index: 6; inset: 3px 4px; padding: 9px 8px; overflow: hidden; color: var(--steel-700); text-overflow: ellipsis; white-space: nowrap; background: color-mix(in srgb, var(--steel-tint) 86%, transparent); border: 1px dashed var(--steel); border-radius: 4px; box-shadow: 0 5px 13px -9px rgba(var(--qa-accent-rgb), .9); content: attr(data-drag-preview); opacity: .9; pointer-events: none; }
 .column-header-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.column-resize-handle { position: absolute; z-index: 4; top: 0; right: -4px; bottom: 0; width: 9px; cursor: col-resize; touch-action: none; }
-.column-resize-handle::after { position: absolute; top: 10px; right: 3px; bottom: 10px; width: 2px; background: transparent; border-radius: 2px; content: ''; transition: background 120ms ease; }
-.column-resize-handle:hover::after, .column-resize-handle:active::after { background: var(--steel); }
+.column-resize-handle { position: absolute; z-index: 7; top: 50%; right: -8px; display: grid; width: 17px; height: 22px; place-items: center; color: var(--steel-700); background: var(--surface); border: 1px solid color-mix(in srgb, var(--steel) 38%, var(--line-2)); border-radius: 9px; box-shadow: 0 2px 7px -4px rgba(16, 24, 33, .75); cursor: col-resize; opacity: .68; touch-action: none; transform: translateY(-50%); transition: color 120ms ease, background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease; }
+.column-resize-handle:hover, .column-resize-handle:active { color: #fff; background: var(--steel-action); border-color: var(--steel-action); box-shadow: 0 4px 10px -5px rgba(var(--qa-accent-rgb), .95); opacity: 1; }
+.column-resize-handle svg { pointer-events: none; }
 .shipping-table tbody tr { cursor: pointer; }
 .shipping-table tbody tr:hover td { background: color-mix(in srgb, var(--steel-tint) 46%, var(--surface)); }
 .shipping-table .sticky-col { position: sticky; z-index: 1; left: 0; }

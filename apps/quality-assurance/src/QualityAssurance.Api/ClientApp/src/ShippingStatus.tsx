@@ -435,6 +435,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   const layoutVersionRef = useRef(0)
   const layoutSaveQueue = useRef(Promise.resolve())
   const [draggingColumn, setDraggingColumn] = useState<ShippingLayoutColumnKey | null>(null)
+  const [dragTargetColumn, setDragTargetColumn] = useState<ShippingLayoutColumnKey | null>(null)
   const [refresh, setRefresh] = useState(0)
 
   useEffect(() => {
@@ -548,6 +549,40 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
     window.addEventListener('pointercancel', finish)
   }
 
+  function autoFitColumn(event: React.MouseEvent<HTMLSpanElement>, column: ShippingLayoutColumn) {
+    event.preventDefault()
+    event.stopPropagation()
+    const header = event.currentTarget.closest<HTMLTableCellElement>('th')
+    const table = header?.closest<HTMLTableElement>('table')
+    const headerRow = header?.parentElement
+    const columnIndex = header && headerRow ? Array.from(headerRow.children).indexOf(header) : -1
+    const current = layoutRef.current
+    if (!header || !table || columnIndex < 0 || !current) return
+
+    const label = header.querySelector<HTMLElement>('.column-header-label')
+    const headerStyle = window.getComputedStyle(header)
+    const headerPadding = Number.parseFloat(headerStyle.paddingLeft) + Number.parseFloat(headerStyle.paddingRight)
+    let widest = (label?.scrollWidth ?? 0) + headerPadding + 10
+
+    table.querySelectorAll<HTMLTableRowElement>('tbody tr').forEach((row) => {
+      const cell = row.children.item(columnIndex) as HTMLElement | null
+      if (!cell) return
+      const cellStyle = window.getComputedStyle(cell)
+      const cellPadding = Number.parseFloat(cellStyle.paddingLeft) + Number.parseFloat(cellStyle.paddingRight)
+      const childWidth = Array.from(cell.children).reduce(
+        (maximum, child) => Math.max(maximum, (child as HTMLElement).scrollWidth + cellPadding),
+        0,
+      )
+      widest = Math.max(widest, cell.scrollWidth, childWidth)
+    })
+
+    const metadata = SHIPPING_COLUMN_METADATA[column.key]
+    const width = Math.max(metadata.minimumWidth, Math.min(metadata.maximumWidth, Math.ceil(widest + 2)))
+    if (width === column.width) return
+    saveLayoutColumns(current.columns.map((candidate) =>
+      candidate.key === column.key ? { ...candidate, width } : candidate))
+  }
+
   function dropColumn(sourceKey: ShippingLayoutColumnKey, targetKey: ShippingLayoutColumnKey) {
     const current = layoutRef.current
     if (!current) return
@@ -566,12 +601,17 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
       window.removeEventListener('pointerup', finish)
       window.removeEventListener('pointercancel', cancel)
       setDraggingColumn(null)
+      setDragTargetColumn(null)
     }
     const move = (pointerEvent: PointerEvent) => {
       if (Math.abs(pointerEvent.clientX - startX) < 4) return
       pointerEvent.preventDefault()
       moved = true
       setDraggingColumn(sourceKey)
+      const target = document.elementFromPoint(pointerEvent.clientX, pointerEvent.clientY)
+        ?.closest<HTMLTableCellElement>('th[data-column-key]')
+        ?.dataset.columnKey as ShippingLayoutColumnKey | undefined
+      setDragTargetColumn(target && target !== sourceKey ? target : null)
     }
     const finish = (pointerEvent: PointerEvent) => {
       const target = document.elementFromPoint(pointerEvent.clientX, pointerEvent.clientY)
@@ -619,7 +659,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   return (
     <div className="view shipping-view">
       <section className="shipping-toolbar panel">
-        <div className="toolbar-top"><div><span className="eyebrow">Controlled register</span><h2>Shipping Status</h2><p>{data ? `${data.total} ${status === 'open' ? 'open' : status === 'shipped' ? 'past' : 'total'} shipments in this view. Drag headers to move columns or drag their right edges to resize.` : 'Loading shipment register...'}</p></div><div className="toolbar-actions-inline">{canImport && <button className="button ghost" type="button" onClick={() => setImportOpen(true)}><FileUp size={15} /> Import Excel</button>}{canCreate && <button className="button primary" type="button" onClick={() => setCreating(true)}><Plus size={15} /> Add shipment</button>}</div></div>
+        <div className="toolbar-top"><div><span className="eyebrow">Controlled register</span><h2>Shipping Status</h2><p>{data ? `${data.total} ${status === 'open' ? 'open' : status === 'shipped' ? 'past' : 'total'} shipments in this view. Drag headers to move columns, drag their edges to resize, or double-click an edge to auto-fit.` : 'Loading shipment register...'}</p></div><div className="toolbar-actions-inline">{canImport && <button className="button ghost" type="button" onClick={() => setImportOpen(true)}><FileUp size={15} /> Import Excel</button>}{canCreate && <button className="button primary" type="button" onClick={() => setCreating(true)}><Plus size={15} /> Add shipment</button>}</div></div>
         <div className="filter-row">
           <div className="segmented" aria-label="Shipment status"><button className={status === 'open' ? 'active' : ''} type="button" onClick={() => setStatus('open')}>Open</button><button className={status === 'shipped' ? 'active' : ''} type="button" onClick={() => setStatus('shipped')}>Past shipments</button>{canAll && <button className={status === 'all' ? 'active' : ''} type="button" onClick={() => setStatus('all')}>All</button>}</div>
           <label className="search-box"><Search size={16} /><span className="sr-only">Search shipments</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order, part, customer, action..." />{search && <button type="button" onClick={() => setSearch('')} aria-label="Clear search"><X size={14} /></button>}</label>
@@ -635,7 +675,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
           <div className="shipping-table-wrap">
             <table className="shipping-table layout-controlled" style={{ minWidth: shippingTableWidth, width: shippingTableWidth }}>
               <colgroup><col style={{ width: 44 }} />{visibleColumns.map((column) => <col style={{ width: column.width }} key={column.key} />)}<col style={{ width: 44 }} /></colgroup>
-              <thead><tr><th className="sticky-col row-number">#</th>{visibleColumns.map((column) => <th className={`draggable-column-header ${draggingColumn === column.key ? 'is-dragging' : ''}`} data-column-key={column.key} key={column.key} onPointerDown={(event) => beginColumnDrag(event, column.key)}><span className="column-header-label">{SHIPPING_COLUMN_METADATA[column.key].label}</span><span className="column-resize-handle" role="separator" aria-label={`Resize ${SHIPPING_COLUMN_METADATA[column.key].label}`} aria-orientation="vertical" onPointerDown={(event) => beginColumnResize(event, column)} /></th>)}<th aria-label="Open record" /></tr></thead>
+              <thead><tr><th className="sticky-col row-number">#</th>{visibleColumns.map((column) => <th className={`draggable-column-header ${draggingColumn === column.key ? 'is-dragging' : ''} ${dragTargetColumn === column.key ? 'is-drop-target' : ''}`} data-column-key={column.key} data-drag-preview={dragTargetColumn === column.key && draggingColumn ? SHIPPING_COLUMN_METADATA[draggingColumn].label : undefined} key={column.key} onPointerDown={(event) => beginColumnDrag(event, column.key)}><span className="column-header-label">{SHIPPING_COLUMN_METADATA[column.key].label}</span><span className="column-resize-handle" role="separator" aria-label={`Resize ${SHIPPING_COLUMN_METADATA[column.key].label}`} aria-orientation="vertical" title="Drag to resize; double-click to auto-fit" onDoubleClick={(event) => autoFitColumn(event, column)} onPointerDown={(event) => beginColumnResize(event, column)}><ArrowRightLeft aria-hidden="true" size={11} strokeWidth={2.4} /></span></th>)}<th aria-label="Open record" /></tr></thead>
               <tbody>{data.items.map((shipment, index) => (
                 <tr className={`${shipment.dueState === 'Past due' ? 'past-due-row' : ''} ${shipment.isShipped ? 'shipped-row' : ''}`} key={shipment.id} onClick={() => setSelected(shipment)}>
                   <td className="sticky-col row-number">{index + 1}</td>
