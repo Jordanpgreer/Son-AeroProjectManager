@@ -117,15 +117,31 @@ function Assert-JsonFile {
     }
 }
 
-function Test-HealthOnce {
+function Get-HealthResult {
     param([Parameter(Mandatory = $true)][object]$Application)
     $uri = "http://localhost:$($Application.Port)/api/health"
     try {
         $response = Invoke-WebRequest -UseBasicParsing -UseDefaultCredentials -Uri $uri -TimeoutSec 10
-        return ($response.StatusCode -eq 200)
+        return [pscustomobject]@{
+            Healthy = ($response.StatusCode -eq 200)
+            Detail = "HTTP $([int]$response.StatusCode) from $uri"
+        }
     }
     catch {
-        return $false
+        $status = $null
+        if ($null -ne $_.Exception.Response) {
+            try { $status = [int]$_.Exception.Response.StatusCode } catch {}
+        }
+        $detail = if ($null -ne $status) {
+            "HTTP $status from $uri"
+        }
+        else {
+            "$uri failed: $($_.Exception.Message)"
+        }
+        return [pscustomobject]@{
+            Healthy = $false
+            Detail = $detail
+        }
     }
 }
 
@@ -136,29 +152,57 @@ function Wait-ApplicationHealth {
     )
 
     $pending = @($Targets)
+    $lastResults = @{}
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
         foreach ($application in @($pending)) {
-            if (Test-HealthOnce -Application $application) {
+            $result = Get-HealthResult -Application $application
+            if ($result.Healthy) {
                 $pending = @($pending | Where-Object Name -NE $application.Name)
+            }
+            else {
+                $lastResults[$application.Name] = [string]$result.Detail
             }
         }
         if ($pending.Count -gt 0) { Start-Sleep -Milliseconds 750 }
     } while ($pending.Count -gt 0 -and [DateTime]::UtcNow -lt $deadline)
 
     if ($pending.Count -gt 0) {
-        throw "Health verification timed out for: $($pending.Name -join ', ')."
+        $details = @(
+            foreach ($application in $pending) {
+                $detail = [string]$lastResults[$application.Name]
+                if ([string]::IsNullOrWhiteSpace($detail)) { $detail = 'No response detail was captured.' }
+                '{0}: {1}' -f $application.Name, $detail
+            }
+        )
+        throw "Health verification timed out for: $($pending.Name -join ', '). Last results: $($details -join ' | ')"
     }
 }
 
-function Test-ProjectTrackerGatewayHealthOnce {
+function Get-ProjectTrackerGatewayHealthResult {
     $uri = "http://localhost:$($projectTrackerGateway.Port)$($projectTrackerGateway.Path)/api/health"
     try {
         $response = Invoke-WebRequest -UseBasicParsing -UseDefaultCredentials -Uri $uri -TimeoutSec 10
-        return ($response.StatusCode -eq 200)
+        return [pscustomobject]@{
+            Healthy = ($response.StatusCode -eq 200)
+            Detail = "HTTP $([int]$response.StatusCode) from $uri"
+        }
     }
     catch {
-        return $false
+        $status = $null
+        if ($null -ne $_.Exception.Response) {
+            try { $status = [int]$_.Exception.Response.StatusCode } catch {}
+        }
+        $detail = if ($null -ne $status) {
+            "HTTP $status from $uri"
+        }
+        else {
+            "$uri failed: $($_.Exception.Message)"
+        }
+        return [pscustomobject]@{
+            Healthy = $false
+            Detail = $detail
+        }
     }
 }
 
@@ -166,12 +210,15 @@ function Wait-ProjectTrackerGatewayHealth {
     param([Parameter(Mandatory = $true)][int]$TimeoutSeconds)
 
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $lastResult = $null
     do {
-        if (Test-ProjectTrackerGatewayHealthOnce) { return }
+        $lastResult = Get-ProjectTrackerGatewayHealthResult
+        if ($lastResult.Healthy) { return }
         Start-Sleep -Milliseconds 750
     } while ([DateTime]::UtcNow -lt $deadline)
 
-    throw "Project Tracker gateway health verification timed out at '$($projectTrackerGateway.Path)'."
+    $detail = if ($null -eq $lastResult) { 'No response detail was captured.' } else { [string]$lastResult.Detail }
+    throw "Project Tracker gateway health verification timed out at '$($projectTrackerGateway.Path)'. Last result: $detail"
 }
 
 function Wait-IisState {
@@ -269,15 +316,26 @@ function Start-HubApplications {
     Start-OneApplication -Application $tracker
     Wait-ApplicationHealth -Targets @($tracker) -TimeoutSeconds $HealthTimeoutSeconds
 
+    # Start the Portal root while the separate preloaded gateway pool is still stopped. This keeps
+    # the gateway's Project Tracker cold start from overlapping the Portal root startup.
+    $portal = @($applications | Where-Object Name -EQ $projectTrackerGateway.Site)[0]
+    Start-OneApplication -Application $portal
+    Wait-ApplicationHealth -Targets @($portal) -TimeoutSeconds $HealthTimeoutSeconds
+
     Request-IisState -Kind Pool -Name $projectTrackerGateway.Pool -State Started
     Wait-IisState -Kind Pool -Names @($projectTrackerGateway.Pool) -State Started
+    Wait-ProjectTrackerGatewayHealth -TimeoutSeconds $HealthTimeoutSeconds
 
-    $remaining = @($applications | Where-Object Name -NE 'ProjectTracker')
+    $remaining = @($applications | Where-Object {
+        $_.Name -ne 'ProjectTracker' -and $_.Name -ne $projectTrackerGateway.Site
+    })
+    # Each application can perform SQL migrations or shared permission seeding before its health
+    # endpoint begins listening. Start and verify each cold application completely before starting
+    # the next one so first-run SQL work cannot overlap across modules.
     foreach ($application in $remaining) {
         Start-OneApplication -Application $application
+        Wait-ApplicationHealth -Targets @($application) -TimeoutSeconds $HealthTimeoutSeconds
     }
-    Wait-ApplicationHealth -Targets $remaining -TimeoutSeconds $HealthTimeoutSeconds
-    Wait-ProjectTrackerGatewayHealth -TimeoutSeconds $HealthTimeoutSeconds
 }
 
 function Set-IisPhysicalPaths {
@@ -492,15 +550,17 @@ foreach ($application in $applications) {
     if ((Get-WebAppPoolState -Name $application.Name).Value -ne 'Started') {
         throw "IIS application pool '$($application.Name)' is not started. No changes were made."
     }
-    if (-not (Test-HealthOnce -Application $application)) {
-        throw "The current '$($application.Name)' health endpoint is not HTTP 200. No changes were made."
+    $currentHealth = Get-HealthResult -Application $application
+    if (-not $currentHealth.Healthy) {
+        throw "The current '$($application.Name)' health endpoint is not HTTP 200. No changes were made. $($currentHealth.Detail)"
     }
 }
 if ((Get-WebAppPoolState -Name $projectTrackerGateway.Pool).Value -ne 'Started') {
     throw "IIS application pool '$($projectTrackerGateway.Pool)' is not started. No changes were made."
 }
-if (-not (Test-ProjectTrackerGatewayHealthOnce)) {
-    throw "The current Project Tracker gateway health endpoint is not HTTP 200. No changes were made."
+$currentGatewayHealth = Get-ProjectTrackerGatewayHealthResult
+if (-not $currentGatewayHealth.Healthy) {
+    throw "The current Project Tracker gateway health endpoint is not HTTP 200. No changes were made. $($currentGatewayHealth.Detail)"
 }
 
 if (-not $PSCmdlet.ShouldProcess(

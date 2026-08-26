@@ -87,7 +87,10 @@ certificate. A certificate-file SHA-256 is not the binding thumbprint.
 
 The release apply must end with `HUB_RELEASE_DEPLOYED_AND_HEALTHY`. It must be healthy on the
 retained HTTP endpoints before binding or application configuration changes; do not point
-shortcuts at the new hostnames yet.
+shortcuts at the new hostnames yet. The full release cold-starts and verifies the Portal, the
+Project Tracker gateway, and each remaining SQL-backed module serially. If it rolls back, retain the
+failed release and diagnose its reported endpoint result and Windows Application event before using
+a fresh release ID; never rerun the retained ID.
 
 ### Later Project Tracker-only application releases
 

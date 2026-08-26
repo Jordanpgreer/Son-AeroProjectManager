@@ -103,8 +103,11 @@ Artifacts are written under `deployment\artifacts\hub` and are ignored by Git. P
 separate site directories, never at the repository or staging directory. For production updates,
 use `Deploy-HubRelease.ps1`; it stages an immutable release, preserves Production settings, checks
 all five applications plus the same-origin Project Tracker gateway, and rolls IIS back to the prior
-paths if health verification fails. Run `Configure-PortalProjectTrackerGateway.ps1` once on SON-IIS2
-before the first gateway-aware release.
+paths if health verification fails. Its cold-start sequence health-gates the Portal, Project Tracker
+gateway, and each remaining SQL-backed module one at a time so migration and permission-seeding work
+does not overlap. A timeout reports the last endpoint failure and retains the failed immutable
+release for inspection. Run `Configure-PortalProjectTrackerGateway.ps1` once on SON-IIS2 before the
+first gateway-aware release.
 
 If Quality Assurance is the only unhealthy current site because its deferred SQLite-shaped
 migration chain cannot start on SQL Server, the all-app transaction cannot pass its current-health

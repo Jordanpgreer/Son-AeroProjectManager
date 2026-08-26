@@ -35,7 +35,9 @@ On `SON-IIS2`, update the existing source checkout and publish from the commit s
 rollout. Do not point IIS at the checkout or copy files over a running site. The deploy script
 builds a new immutable release folder, preserves the five current Production settings files,
 switches all five IIS paths together, checks health, and restores the previous paths if the new
-release is not healthy.
+release is not healthy. Candidate applications are cold-started and health-gated one at a time,
+including the separate Project Tracker gateway, so first-run SQL migrations and permission seeding
+cannot overlap across modules.
 
 **Elevated PowerShell on SON-IIS2:**
 
@@ -99,7 +101,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Release deployment failed; review the rollback
 The preview must end with `WHATIF_READY`. The apply run must end with
 `HUB_RELEASE_DEPLOYED_AND_HEALTHY`. Keep the previous immutable release and the pre-deployment SQL
 backup. Do not use `xcopy`, `Copy-Item -Force`, or a manual DLL replacement against a running IIS
-application pool.
+application pool. If apply rolls back, keep the retained failed release and use its reported final
+endpoint result plus the Windows Application log before attempting a new immutable release ID.
 
 After cutover, verify all five health endpoints from a domain workstation:
 
