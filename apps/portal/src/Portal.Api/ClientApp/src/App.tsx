@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import {
   AlertTriangle,
@@ -13,7 +13,6 @@ import {
   Eye,
   GanttChart,
   LayoutGrid,
-  Search,
   Settings,
   ShieldCheck,
   Truck,
@@ -109,7 +108,6 @@ export default function App() {
   const [apps, setApps] = useState<PortalApp[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
   const [notificationCounts, setNotificationCounts] = useState<Record<string, number>>({})
   const [launchingAppId, setLaunchingAppId] = useState<string | null>(null)
   const [locationHash, setLocationHash] = useState(() => window.location.hash)
@@ -189,21 +187,6 @@ export default function App() {
   }, [])
 
   const catalogApps = accessPreview?.applications ?? apps
-  const filtered = useMemo(() => {
-    if (!catalogApps) return []
-    const query = search.trim().toLowerCase()
-    return catalogApps.filter((application) => {
-      if (!query) return true
-      return (
-        application.name.toLowerCase().includes(query) ||
-        application.description.toLowerCase().includes(query) ||
-        application.category.toLowerCase().includes(query) ||
-        capabilityLabels(application).some((label) => label.toLowerCase().includes(query))
-      )
-    })
-  }, [catalogApps, search])
-
-  const hasFilters = search.length > 0
   const adminRoute = isAdminHash(locationHash)
 
   useEffect(() => {
@@ -258,14 +241,9 @@ export default function App() {
     }, 240)
   }
 
-  function clearFilters() {
-    setSearch('')
-  }
-
   function startAccessPreview(target: AdminAccessPreviewTarget) {
     setAccessPreview(target)
     setPreviewLaunchError(null)
-    setSearch('')
     window.location.hash = '#/'
   }
 
@@ -344,7 +322,6 @@ export default function App() {
               <>
                 <div className="portal-user-text">
                   <span className="portal-user-name">{me.displayName}</span>
-                  <span className="portal-user-role">{me.role}</span>
                 </div>
                 <span className="portal-avatar" title={me.accountName}>
                   {initials(me.displayName)}
@@ -393,24 +370,6 @@ export default function App() {
           </div>
         </section>
 
-        <section className="catalog-toolbar" aria-label="Application catalog filters">
-          <label className="catalog-search">
-            <Search size={17} aria-hidden="true" />
-            <span className="sr-only">Search applications</span>
-            <input
-              type="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search applications and capabilities"
-            />
-          </label>
-          {hasFilters && (
-            <button type="button" className="catalog-clear" onClick={clearFilters}>
-              Clear
-            </button>
-          )}
-        </section>
-
         {loading ? (
           <section className="catalog-loading" aria-live="polite" aria-busy="true">
             <span className="sr-only">Loading applications</span>
@@ -430,21 +389,18 @@ export default function App() {
               Try again
             </button>
           </section>
-        ) : filtered.length === 0 ? (
+        ) : !catalogApps || catalogApps.length === 0 ? (
           <section className="catalog-state" aria-live="polite">
             <AppWindow size={27} />
-            <h2>No applications match</h2>
-            <p>Try a different search term.</p>
-            <button type="button" className="ghost-button" onClick={clearFilters}>
-              Clear filters
-            </button>
+            <h2>No applications available</h2>
+            <p>Your account does not currently have access to an application.</p>
           </section>
         ) : (
           <div className="catalog-results" aria-live="polite">
             <ApplicationSection
               title="Application catalog"
               description="Company tools and workspaces"
-              applications={filtered}
+              applications={catalogApps}
               notificationCounts={accessPreview ? {} : notificationCounts}
               launchingAppId={launchingAppId}
               onLaunch={launchApplication}

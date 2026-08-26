@@ -42,6 +42,7 @@ public sealed record QualityShipmentListDto(
     string Status,
     string Scope,
     string Sort,
+    string Direction,
     IReadOnlyList<QualityFieldAccessDto> Fields);
 
 public sealed record QualityShipmentCreateDto(
@@ -92,19 +93,34 @@ public sealed record QualityQueueMetricsDto(
     int Open,
     int Overdue,
     int Completed,
-    double? AverageCompletionHours);
+    double? AverageCompletionHours,
+    decimal? OpenDollarValue,
+    decimal? CompletedDollarValue,
+    decimal? CompletedDollarValueYtd,
+    decimal? CompletedDollarValueCurrentQuarter);
 
 public sealed record QualityPersonQueueDto(
     int UserId,
     string DisplayName,
     string AccountName,
-    QualityQueueMetricsDto Metrics);
+    QualityQueueMetricsDto Metrics,
+    IReadOnlyList<QualityShipmentDto> OpenShipments);
 
 public sealed record QualityDashboardDto(
     QualityQueueMetricsDto MyQueue,
     IReadOnlyList<QualityShipmentDto> Queue,
     IReadOnlyList<QualityPersonQueueDto> TeamQueues,
-    bool CanViewTeam);
+    QualityQueueMetricsDto GroupQueue,
+    IReadOnlyList<QualityShipmentDto> GroupShipments,
+    QualityQueueMetricsDto UnassignedQueue,
+    IReadOnlyList<QualityShipmentDto> UnassignedShipments,
+    bool CanViewTeam,
+    bool CanViewAssignment,
+    bool CanAssign,
+    bool CanAssignGroup,
+    bool CanAssignUser,
+    bool CanViewDollarValue,
+    IReadOnlyList<QualityFieldAccessDto> Fields);
 
 public sealed record QualityDirectoryGroupDto(
     int Id,

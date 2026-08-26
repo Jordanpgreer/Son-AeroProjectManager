@@ -98,6 +98,58 @@ namespace QualityAssurance.Api.Data.Migrations
                     b.ToTable("QualityAssignmentRules", (string)null);
                 });
 
+            modelBuilder.Entity("QualityAssurance.Api.Models.QualityMentionNotification", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ActorAccountName")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ActorDisplayName")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("BodyPreview")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CommentId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("ReadAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RecipientAccountName")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("RecipientUserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ShipmentId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CommentId");
+
+                    b.HasIndex("RecipientUserId", "ReadAt", "CreatedAt");
+
+                    b.HasIndex("ShipmentId", "CommentId");
+
+                    b.ToTable("QualityMentionNotifications", (string)null);
+                });
+
             modelBuilder.Entity("QualityAssurance.Api.Models.QualityShipment", b =>
                 {
                     b.Property<int>("Id")
@@ -275,6 +327,46 @@ namespace QualityAssurance.Api.Data.Migrations
                     b.ToTable("QualityShipmentAuditEntries", (string)null);
                 });
 
+            modelBuilder.Entity("QualityAssurance.Api.Models.QualityShipmentComment", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AuthorAccountName")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AuthorDisplayName")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("AuthorUserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(8000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsLegacyImport")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ShipmentId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ShipmentId", "Id");
+
+                    b.ToTable("QualityShipmentComments", (string)null);
+                });
+
             modelBuilder.Entity("QualityAssurance.Api.Models.QualityShippingLayoutPreference", b =>
                 {
                     b.Property<int>("Id")
@@ -320,9 +412,35 @@ namespace QualityAssurance.Api.Data.Migrations
                     b.Navigation("Shipment");
                 });
 
+            modelBuilder.Entity("QualityAssurance.Api.Models.QualityMentionNotification", b =>
+                {
+                    b.HasOne("QualityAssurance.Api.Models.QualityShipmentComment", "Comment")
+                        .WithMany("MentionNotifications")
+                        .HasForeignKey("CommentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Comment");
+                });
+
+            modelBuilder.Entity("QualityAssurance.Api.Models.QualityShipmentComment", b =>
+                {
+                    b.HasOne("QualityAssurance.Api.Models.QualityShipment", "Shipment")
+                        .WithMany("CommentThread")
+                        .HasForeignKey("ShipmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Shipment");
+
+                    b.Navigation("MentionNotifications");
+                });
+
             modelBuilder.Entity("QualityAssurance.Api.Models.QualityShipment", b =>
                 {
                     b.Navigation("AuditEntries");
+
+                    b.Navigation("CommentThread");
                 });
 #pragma warning restore 612, 618
         }

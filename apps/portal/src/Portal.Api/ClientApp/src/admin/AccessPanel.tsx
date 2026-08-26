@@ -11,8 +11,8 @@ import {
   UserRound,
 } from 'lucide-react'
 import { toErrorMessage, trackerApi } from './api'
-import { GroupCreationWizard, GroupEditor } from './GroupManagement'
-import type { NewAccessGroup } from './GroupManagement'
+import { GroupCreationWizard, GroupEditor } from './AccessGroupManagement'
+import type { NewAccessGroup } from './AccessGroupManagement'
 import type {
   AccessGroup,
   AccessOverview,
@@ -57,12 +57,12 @@ export default function AccessPanel({
   currentAccountName,
   canManageUsers,
   canManageGroups,
-  context = 'Arda',
+  view,
 }: {
   currentAccountName: string | null
   canManageUsers: boolean
   canManageGroups: boolean
-  context?: string
+  view: 'people' | 'groups'
 }) {
   const [overview, setOverview] = useState<AccessOverview | null>(null)
   const [loading, setLoading] = useState(true)
@@ -70,6 +70,7 @@ export default function AccessPanel({
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [groupSearch, setGroupSearch] = useState('')
   const [userDrafts, setUserDrafts] = useState<Record<number, UserDraft>>({})
   const [groupDrafts, setGroupDrafts] = useState<Record<number, string[]>>({})
   const [newUser, setNewUser] = useState({ accountName: '', displayName: '' })
@@ -133,6 +134,12 @@ export default function AccessPanel({
     return !query
       || user.displayName.toLowerCase().includes(query)
       || user.accountName.toLowerCase().includes(query)
+  })
+  const filteredGroups = (overview?.groups ?? []).filter((group) => {
+    const query = groupSearch.trim().toLowerCase()
+    return !query
+      || group.name.toLowerCase().includes(query)
+      || group.description?.toLowerCase().includes(query)
   })
 
   function updateUser(id: number, update: (draft: UserDraft) => UserDraft) {
@@ -251,25 +258,37 @@ export default function AccessPanel({
     <section className="admin-surface" aria-labelledby="access-heading" aria-busy={loading}>
       <header className="admin-surface-head">
         <div>
-          <span className="kicker">Access control</span>
-          <h2 id="access-heading">{context} users and groups</h2>
-          <p>Register Windows accounts, assign shared groups, and control each group&apos;s permissions by module.</p>
+          <span className="kicker">{view === 'people' ? 'People directory' : 'Permission groups'}</span>
+          <h2 id="access-heading">{view === 'people' ? 'Manage people' : 'Build access by responsibility'}</h2>
+          <p>{view === 'people'
+            ? 'Register Windows accounts, activate or deactivate access, and assign shared permission groups.'
+            : 'Create shared groups and set their permissions one module at a time.'}</p>
         </div>
       </header>
 
       {error && <p className="admin-notice error" role="alert"><AlertTriangle size={16} /> {error}</p>}
       {message && <p className="admin-notice success" role="status"><CheckCircle2 size={16} /> {message}</p>}
 
-      {loading || !overview ? (
+      {loading ? (
         <div className="admin-loading" role="status">Loading access controls…</div>
+      ) : !overview ? (
+        <div className="admin-empty">Access controls could not be loaded. Use the error above to resolve the connection and try again.</div>
       ) : (
-        <div className="admin-access-grid">
-          <details className="admin-user-directory">
+        <>
+          <div className="access-overview-stats" aria-label="Access overview">
+            <span><strong>{overview.users.length}</strong><small>Registered people</small></span>
+            <span><strong>{overview.groups.length}</strong><small>Permission groups</small></span>
+            <span><strong>{overview.permissions.length}</strong><small>Available permissions</small></span>
+            <p><ShieldCheck size={15} aria-hidden="true" /><span><strong>Access is additive</strong><small>A person receives the combined permissions from every assigned group.</small></span></p>
+          </div>
+          <div className={`admin-access-grid ${view}-only`}>
+          {view === 'people' && (
+          <details className="admin-user-directory" open>
             <summary>
               <span className="admin-directory-icon"><UserRound size={18} aria-hidden="true" /></span>
               <div>
-                <h3 id="registered-users-heading">Registered users</h3>
-                <p>Search accounts and expand one user to edit assignments.</p>
+                <h3 id="registered-users-heading">Registered people</h3>
+                <p>Find a Windows account and manage its group assignments.</p>
               </div>
               <span className="admin-directory-count">{overview.users.length} {overview.users.length === 1 ? 'user' : 'users'}</span>
               <ChevronDown size={18} aria-hidden="true" />
@@ -285,7 +304,7 @@ export default function AccessPanel({
                   placeholder="Search by name or Windows account"
                 />
               </label>
-              <p className="admin-directory-results">{filteredUsers.length} of {overview.users.length} users shown · assignments apply across modules</p>
+              <p className="admin-directory-results">{filteredUsers.length} of {overview.users.length} people shown · assignments apply across modules</p>
             {canManageUsers ? (
               <form className="admin-create-form" onSubmit={createUser}>
                 <label>
@@ -375,10 +394,12 @@ export default function AccessPanel({
             </div>
             </div>
           </details>
+          )}
 
+          {view === 'groups' && (
           <section aria-labelledby="permission-groups-heading">
             <div className="admin-section-title">
-              <div><h3 id="permission-groups-heading">Shared permission groups</h3><p>Permissions stack across assigned groups and are organized by module.</p></div>
+              <div><h3 id="permission-groups-heading">Permission groups</h3><p>Open one group in a focused editor—no full-page permission list.</p></div>
               <ShieldCheck size={19} aria-hidden="true" />
             </div>
             {canManageGroups ? (
@@ -397,8 +418,13 @@ export default function AccessPanel({
             ) : (
               <p className="admin-readonly-note">Permission editing requires the Manage Groups permission.</p>
             )}
+            <label className="admin-search access-group-search">
+              <Search size={16} aria-hidden="true" />
+              <span className="sr-only">Search permission groups</span>
+              <input type="search" value={groupSearch} onChange={(event) => setGroupSearch(event.target.value)} placeholder="Search permission groups" />
+            </label>
             <div className="admin-group-list">
-              {overview.groups.map((group) => (
+              {filteredGroups.map((group) => (
                 <GroupEditor
                   key={group.id}
                   group={group}
@@ -406,17 +432,23 @@ export default function AccessPanel({
                   draft={groupDrafts[group.id] ?? group.permissions}
                   disabled={saving || !canManageGroups}
                   deleting={deletingGroupId === group.id}
+                  saving={saving}
+                  pendingCount={pendingCount}
                   hasPendingUserAssignments={Object.values(userDrafts).some((draft) => draft.groupIds.includes(group.id))}
                   onChange={(permissions) => setGroupDrafts((current) => ({
                     ...current,
                     [group.id]: permissions,
                   }))}
                   onDelete={() => deleteGroup(group)}
+                  onSave={saveAll}
                 />
               ))}
+              {!filteredGroups.length && <p className="admin-empty">No permission groups match that search.</p>}
             </div>
           </section>
-        </div>
+          )}
+          </div>
+        </>
       )}
 
       <div className="admin-save-bar">

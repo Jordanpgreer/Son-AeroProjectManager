@@ -35,6 +35,7 @@ public sealed class QualityShipment
     public string UpdatedByAccountName { get; set; } = string.Empty;
     public string UpdatedByDisplayName { get; set; } = string.Empty;
     public ICollection<QualityShipmentAuditEntry> AuditEntries { get; set; } = [];
+    public ICollection<QualityShipmentComment> CommentThread { get; set; } = [];
 }
 
 public sealed class QualityShipmentAuditEntry

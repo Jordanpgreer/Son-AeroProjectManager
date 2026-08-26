@@ -13,6 +13,9 @@ public interface IQualityAssuranceAccessStore
         CancellationToken cancellationToken = default);
     Task<IReadOnlyList<QualityDirectoryGroup>> GetGroupsAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<QualityDirectoryUser>> GetUsersAsync(int? groupId = null, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<QualityDirectoryUser>> GetUsersWithPermissionAsync(
+        string permissionKey,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record QualityDirectoryGroup(int Id, string Name, string? Description, int ActiveUserCount);
@@ -91,6 +94,27 @@ public sealed class QualityAssuranceAccessStore(
             .Include(user => user.GroupMemberships)
             .Where(user => user.IsActive
                 && (!groupId.HasValue || user.GroupMemberships.Any(membership => membership.AppGroupId == groupId)))
+            .OrderBy(user => user.DisplayName)
+            .ThenBy(user => user.AccountName)
+            .ToListAsync(cancellationToken);
+        return users.Select(user => new QualityDirectoryUser(
+                user.Id,
+                user.AccountName,
+                user.DisplayName,
+                user.GroupMemberships.Select(membership => membership.AppGroupId).ToList()))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<QualityDirectoryUser>> GetUsersWithPermissionAsync(
+        string permissionKey,
+        CancellationToken cancellationToken = default)
+    {
+        var users = await db.Users
+            .AsNoTracking()
+            .Include(user => user.GroupMemberships)
+            .Where(user => user.IsActive
+                && user.GroupMemberships.Any(membership =>
+                    membership.Group.Permissions.Any(permission => permission.PermissionKey == permissionKey)))
             .OrderBy(user => user.DisplayName)
             .ThenBy(user => user.AccountName)
             .ToListAsync(cancellationToken);

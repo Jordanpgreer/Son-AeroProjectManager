@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Linq.Expressions;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using QualityAssurance.Api.Auth;
@@ -14,24 +15,35 @@ public sealed class QualityShipmentService(
     IQualityAssuranceAccessStore accessStore,
     QualityAssignmentService assignments)
 {
+    public async Task<QualityShipmentDto?> GetAsync(
+        int id,
+        QualityAssuranceAccessProfile access,
+        CancellationToken cancellationToken = default)
+    {
+        var shipment = await db.Shipments
+            .AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+        if (shipment is null) return null;
+        EnsureRecordAccess(shipment, access);
+        return ToDto(shipment, access);
+    }
+
     public async Task<QualityShipmentListDto> ListAsync(
         QualityAssuranceAccessProfile access,
         string? status,
         string? scope,
         string? sort,
+        string? direction,
         string? search,
+        string? shipmentStatus,
+        IReadOnlyCollection<string>? customer,
+        string? assignee,
         CancellationToken cancellationToken)
     {
-        var normalizedStatus = status?.Trim().ToLowerInvariant() switch
-        {
-            "shipped" => "shipped",
-            "all" => "all",
-            _ => "open"
-        };
+        var normalizedStatus = NormalizeStatus(status);
         var normalizedScope = NormalizeScope(access, scope);
-        var normalizedSort = string.Equals(sort, "ship-date", StringComparison.OrdinalIgnoreCase)
-            ? "ship-date"
-            : "oldest";
+        var normalizedSort = NormalizeSort(access, sort);
+        var normalizedDirection = NormalizeDirection(direction);
 
         var query = ApplyVisibility(db.Shipments.AsNoTracking(), access, normalizedScope);
         query = normalizedStatus switch
@@ -41,22 +53,90 @@ public sealed class QualityShipmentService(
             _ => query.Where(shipment => !shipment.IsShipped)
         };
         query = ApplySearch(query, access, search);
+        query = ApplyFilters(query, access, shipmentStatus, customer, assignee);
         var total = await query.CountAsync(cancellationToken);
-        var sorted = normalizedSort == "ship-date"
-            ? query.OrderBy(shipment => shipment.ShipDate == null)
-                .ThenBy(shipment => shipment.ShipDate)
-                .ThenBy(shipment => shipment.Id)
-            : query.OrderBy(shipment => shipment.QaArrivalDate == null)
-                .ThenBy(shipment => shipment.QaArrivalDate)
-                .ThenBy(shipment => shipment.Id);
-        var shipments = await sorted.Take(500).ToListAsync(cancellationToken);
+        var shipments = RequiresClientSortForSqlite(normalizedSort)
+            && string.Equals(db.Database.ProviderName, "Microsoft.EntityFrameworkCore.Sqlite", StringComparison.Ordinal)
+                ? ApplyClientSort(await query.ToListAsync(cancellationToken), normalizedSort, normalizedDirection)
+                    .Take(500)
+                    .ToList()
+                : await ApplySort(query, normalizedSort, normalizedDirection, access)
+                    .Take(500)
+                    .ToListAsync(cancellationToken);
         return new QualityShipmentListDto(
             shipments.Select(shipment => ToDto(shipment, access)).ToList(),
             total,
             normalizedStatus,
             normalizedScope,
             normalizedSort,
+            normalizedDirection,
             QualityFieldAccess.For(access));
+    }
+
+    public async Task<IReadOnlyList<QualityShipmentDto>> ExportRowsAsync(
+        QualityAssuranceAccessProfile access,
+        string? status,
+        string? scope,
+        string? sort,
+        string? direction,
+        string? search,
+        string? shipmentStatus,
+        IReadOnlyCollection<string>? customer,
+        string? assignee,
+        CancellationToken cancellationToken)
+    {
+        var normalizedStatus = NormalizeStatus(status);
+        var normalizedScope = NormalizeScope(access, scope);
+        var query = ApplyVisibility(db.Shipments.AsNoTracking(), access, normalizedScope);
+        query = normalizedStatus switch
+        {
+            "shipped" => query.Where(shipment => shipment.IsShipped),
+            "all" => query,
+            _ => query.Where(shipment => !shipment.IsShipped)
+        };
+        query = ApplySearch(query, access, search);
+        query = ApplyFilters(query, access, shipmentStatus, customer, assignee);
+        var normalizedSort = NormalizeSort(access, sort);
+        var normalizedDirection = NormalizeDirection(direction);
+        var rows = RequiresClientSortForSqlite(normalizedSort)
+            && string.Equals(db.Database.ProviderName, "Microsoft.EntityFrameworkCore.Sqlite", StringComparison.Ordinal)
+                ? ApplyClientSort(await query.ToListAsync(cancellationToken), normalizedSort, normalizedDirection).ToList()
+                : await ApplySort(query, normalizedSort, normalizedDirection, access).ToListAsync(cancellationToken);
+        return rows
+            .Select(shipment => ToDto(shipment, access))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<string>> CustomerOptionsAsync(
+        QualityAssuranceAccessProfile access,
+        string? status,
+        string? scope,
+        CancellationToken cancellationToken)
+    {
+        if (!access.HasPermission(QualityAssurancePermissions.CustomerView))
+            return [];
+
+        var normalizedStatus = NormalizeStatus(status);
+        var normalizedScope = NormalizeScope(access, scope);
+        var query = ApplyVisibility(db.Shipments.AsNoTracking(), access, normalizedScope);
+        query = normalizedStatus switch
+        {
+            "shipped" => query.Where(shipment => shipment.IsShipped),
+            "all" => query,
+            _ => query.Where(shipment => !shipment.IsShipped)
+        };
+
+        var values = await query
+            .Select(shipment => shipment.Customer)
+            .Where(customer => customer != "")
+            .ToListAsync(cancellationToken);
+        return values
+            .Select(customer => customer.Trim())
+            .Where(customer => customer.Length > 0)
+            .OrderBy(customer => customer, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(customer => customer, StringComparer.Ordinal)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     public async Task<QualityDashboardDto> DashboardAsync(
@@ -66,6 +146,12 @@ public sealed class QualityShipmentService(
         var canViewTeam = access.HasPermission(QualityAssurancePermissions.TeamDashboardView)
             || access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll);
         var canReviewUnassigned = access.HasPermission(QualityAssurancePermissions.AssignmentGroup);
+        var canAssignGroup = access.HasPermission(QualityAssurancePermissions.AssignmentGroup);
+        var canAssignUser = access.HasPermission(QualityAssurancePermissions.AssignmentUser);
+        var canViewAssignment = access.HasPermission(QualityAssurancePermissions.AssignmentView);
+        var canAssign = canViewAssignment
+            && (canAssignGroup || canAssignUser);
+        var canViewDollarValue = access.HasPermission(QualityAssurancePermissions.DollarValueView);
         var groupIds = access.Groups.Select(group => group.Id).ToList();
         var dashboardQuery = db.Shipments.AsNoTracking();
         if (!access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll))
@@ -78,17 +164,22 @@ public sealed class QualityShipmentService(
                     || (canReviewUnassigned && !shipment.AssignedGroupId.HasValue && !shipment.AssignedUserId.HasValue));
         }
         var all = await dashboardQuery.ToListAsync(cancellationToken);
-        var mine = all.Where(shipment => shipment.AssignedUserId == access.UserId).ToList();
         var reviewQueue = canReviewUnassigned
             ? all.Where(shipment => shipment.AssignedUserId == access.UserId
                 || (!shipment.AssignedGroupId.HasValue && !shipment.AssignedUserId.HasValue))
-            : mine;
+            : all.Where(shipment => shipment.AssignedUserId == access.UserId);
         var queue = reviewQueue.Where(shipment => !shipment.IsShipped)
             .OrderBy(shipment => shipment.QaArrivalDate ?? DateOnly.MaxValue)
             .ThenBy(shipment => shipment.CreatedAt)
             .ThenBy(shipment => shipment.ShipDate ?? DateOnly.MaxValue)
             .Take(12)
             .Select(shipment => ToDto(shipment, access))
+            .ToList();
+        var unassigned = all.Where(shipment => !shipment.AssignedGroupId.HasValue
+                && !shipment.AssignedUserId.HasValue)
+            .ToList();
+        var groupQueue = all.Where(shipment => shipment.AssignedGroupId.HasValue
+                && !shipment.AssignedUserId.HasValue)
             .ToList();
         var team = new List<QualityPersonQueueDto>();
         if (canViewTeam)
@@ -99,17 +190,55 @@ public sealed class QualityShipmentService(
                 var permittedGroupIds = groupIds.ToHashSet();
                 users = users.Where(user => user.GroupIds.Any(permittedGroupIds.Contains)).ToList();
             }
-            team = users.Select(user => new QualityPersonQueueDto(
-                    user.Id,
-                    user.DisplayName,
-                    user.AccountName,
-                    Metrics(all.Where(shipment => shipment.AssignedUserId == user.Id))))
+            team = users.Select(user =>
+                {
+                    var personShipments = all.Where(shipment => shipment.AssignedUserId == user.Id).ToList();
+                    var openShipments = personShipments.Where(shipment => !shipment.IsShipped)
+                        .OrderBy(shipment => shipment.ShipDate ?? DateOnly.MaxValue)
+                        .ThenBy(shipment => shipment.QaArrivalDate ?? DateOnly.MaxValue)
+                        .ThenBy(shipment => shipment.Id)
+                        .Take(20)
+                        .Select(shipment => ToDto(shipment, access))
+                        .ToList();
+                    return new QualityPersonQueueDto(
+                        user.Id,
+                        user.DisplayName,
+                        user.AccountName,
+                        Metrics(personShipments, canViewDollarValue),
+                        openShipments);
+                })
                 .OrderByDescending(user => user.Metrics.Overdue)
                 .ThenByDescending(user => user.Metrics.Open)
                 .ThenBy(user => user.DisplayName)
                 .ToList();
         }
-        return new QualityDashboardDto(Metrics(mine), queue, team, canViewTeam);
+        return new QualityDashboardDto(
+            Metrics(reviewQueue, canViewDollarValue),
+            queue,
+            team,
+            Metrics(groupQueue, canViewDollarValue),
+            groupQueue.Where(shipment => !shipment.IsShipped)
+                .OrderBy(shipment => shipment.ShipDate ?? DateOnly.MaxValue)
+                .ThenBy(shipment => shipment.QaArrivalDate ?? DateOnly.MaxValue)
+                .ThenBy(shipment => shipment.Id)
+                .Take(20)
+                .Select(shipment => ToDto(shipment, access))
+                .ToList(),
+            Metrics(unassigned, canViewDollarValue),
+            unassigned.Where(shipment => !shipment.IsShipped)
+                .OrderBy(shipment => shipment.ShipDate ?? DateOnly.MaxValue)
+                .ThenBy(shipment => shipment.QaArrivalDate ?? DateOnly.MaxValue)
+                .ThenBy(shipment => shipment.Id)
+                .Take(20)
+                .Select(shipment => ToDto(shipment, access))
+                .ToList(),
+            canViewTeam,
+            canViewAssignment,
+            canAssign,
+            canAssignGroup,
+            canAssignUser,
+            canViewDollarValue,
+            QualityFieldAccess.For(access));
     }
 
     public async Task<QualityShipmentDto> CreateAsync(
@@ -159,6 +288,17 @@ public sealed class QualityShipmentService(
             Version = 1
         };
         var rule = await assignments.ApplyFirstMatchingRuleAsync(shipment, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(shipment.Comments))
+        {
+            shipment.CommentThread.Add(new QualityShipmentComment
+            {
+                Body = shipment.Comments,
+                AuthorUserId = access.UserId,
+                AuthorAccountName = access.AccountName,
+                AuthorDisplayName = access.DisplayName,
+                CreatedAt = now
+            });
+        }
         if (rule is null)
         {
             var group = access.Groups.FirstOrDefault();
@@ -356,22 +496,212 @@ public sealed class QualityShipmentService(
     {
         var value = search?.Trim();
         if (string.IsNullOrWhiteSpace(value)) return query;
+        var normalized = value.ToLowerInvariant();
         var canSalesOrder = access.HasPermission(QualityAssurancePermissions.SalesOrderView);
         var canPart = access.HasPermission(QualityAssurancePermissions.PartNumberView);
         var canPo = access.HasPermission(QualityAssurancePermissions.PurchaseOrderView);
         var canCustomer = access.HasPermission(QualityAssurancePermissions.CustomerView);
         var canType = access.HasPermission(QualityAssurancePermissions.TaskTypeView);
         var canAction = access.HasPermission(QualityAssurancePermissions.ActionView);
+        var canAssignment = access.HasPermission(QualityAssurancePermissions.AssignmentView);
         var canComments = access.HasPermission(QualityAssurancePermissions.CommentsView);
         return query.Where(shipment =>
-            (canSalesOrder && shipment.SalesOrderNumber.Contains(value))
-            || (canPart && shipment.PartNumber.Contains(value))
-            || (canPo && shipment.PurchaseOrderNumber != null && shipment.PurchaseOrderNumber.Contains(value))
-            || (canCustomer && shipment.Customer.Contains(value))
-            || (canType && shipment.TaskType.Contains(value))
-            || (canAction && shipment.NextAction != null && shipment.NextAction.Contains(value))
-            || (canComments && shipment.Comments != null && shipment.Comments.Contains(value)));
+            (canSalesOrder && shipment.SalesOrderNumber.ToLower().Contains(normalized))
+            || (canPart && shipment.PartNumber.ToLower().Contains(normalized))
+            || (canPo && shipment.PurchaseOrderNumber != null && shipment.PurchaseOrderNumber.ToLower().Contains(normalized))
+            || (canCustomer && shipment.Customer.ToLower().Contains(normalized))
+            || (canType && shipment.TaskType.ToLower().Contains(normalized))
+            || (canAction && shipment.NextAction != null && shipment.NextAction.ToLower().Contains(normalized))
+            || (canAssignment && shipment.AssignedDisplayName != null && shipment.AssignedDisplayName.ToLower().Contains(normalized))
+            || (canAssignment && shipment.AssignedGroupName != null && shipment.AssignedGroupName.ToLower().Contains(normalized))
+            || (canComments && shipment.Comments != null && shipment.Comments.ToLower().Contains(normalized)));
     }
+
+    private static IQueryable<QualityShipment> ApplyFilters(
+        IQueryable<QualityShipment> query,
+        QualityAssuranceAccessProfile access,
+        string? shipmentStatus,
+        IReadOnlyCollection<string>? customer,
+        string? assignee)
+    {
+        var normalizedShipmentStatus = shipmentStatus?.Trim().ToLowerInvariant();
+        if (!string.IsNullOrWhiteSpace(normalizedShipmentStatus)
+            && access.HasPermission(QualityAssurancePermissions.StatusView))
+            query = query.Where(shipment => shipment.Status.ToLower() == normalizedShipmentStatus);
+
+        var normalizedCustomers = customer?
+            .Select(value => value?.Trim().ToLowerInvariant())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Cast<string>()
+            .Distinct(StringComparer.Ordinal)
+            .Take(25)
+            .ToArray() ?? [];
+        if (normalizedCustomers.Length > 0
+            && access.HasPermission(QualityAssurancePermissions.CustomerView))
+        {
+            var shipment = Expression.Parameter(typeof(QualityShipment), "shipment");
+            var customerProperty = Expression.Property(shipment, nameof(QualityShipment.Customer));
+            var loweredCustomer = Expression.Call(
+                customerProperty,
+                typeof(string).GetMethod(nameof(string.ToLower), Type.EmptyTypes)!);
+            var containsMethod = typeof(string).GetMethod(
+                nameof(string.Contains),
+                [typeof(string)])!;
+            Expression? customerMatches = null;
+            foreach (var normalizedCustomer in normalizedCustomers)
+            {
+                var contains = Expression.Call(
+                    loweredCustomer,
+                    containsMethod,
+                    Expression.Constant(normalizedCustomer));
+                customerMatches = customerMatches is null
+                    ? contains
+                    : Expression.OrElse(customerMatches, contains);
+            }
+            query = query.Where(Expression.Lambda<Func<QualityShipment, bool>>(
+                customerMatches!, shipment));
+        }
+
+        var normalizedAssignee = assignee?.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(normalizedAssignee)
+            || !access.HasPermission(QualityAssurancePermissions.AssignmentView)) return query;
+        if (normalizedAssignee == "unassigned")
+            return query.Where(shipment => !shipment.AssignedGroupId.HasValue && !shipment.AssignedUserId.HasValue);
+        if (normalizedAssignee.StartsWith("user:", StringComparison.Ordinal)
+            && int.TryParse(normalizedAssignee[5..], out var userId))
+            return query.Where(shipment => shipment.AssignedUserId == userId);
+        if (normalizedAssignee.StartsWith("group:", StringComparison.Ordinal)
+            && int.TryParse(normalizedAssignee[6..], out var groupId))
+            return query.Where(shipment => shipment.AssignedGroupId == groupId && !shipment.AssignedUserId.HasValue);
+        return query;
+    }
+
+    private static IOrderedQueryable<QualityShipment> ApplySort(
+        IQueryable<QualityShipment> query,
+        string sort,
+        string direction,
+        QualityAssuranceAccessProfile access)
+    {
+        var descending = direction == "desc";
+        var canViewAction = access.HasPermission(QualityAssurancePermissions.ActionView);
+        var canViewAssignment = access.HasPermission(QualityAssurancePermissions.AssignmentView);
+        IOrderedQueryable<QualityShipment> ordered = sort switch
+        {
+            "status" => descending ? query.OrderByDescending(shipment => shipment.Status) : query.OrderBy(shipment => shipment.Status),
+            "sales-order" => descending ? query.OrderByDescending(shipment => shipment.SalesOrderNumber) : query.OrderBy(shipment => shipment.SalesOrderNumber),
+            "part-number" => descending ? query.OrderByDescending(shipment => shipment.PartNumber) : query.OrderBy(shipment => shipment.PartNumber),
+            "purchase-order" => descending ? query.OrderByDescending(shipment => shipment.PurchaseOrderNumber) : query.OrderBy(shipment => shipment.PurchaseOrderNumber),
+            "customer" => descending ? query.OrderByDescending(shipment => shipment.Customer) : query.OrderBy(shipment => shipment.Customer),
+            "quantity" => descending ? query.OrderByDescending(shipment => shipment.Quantity) : query.OrderBy(shipment => shipment.Quantity),
+            "dollar-value" => descending ? query.OrderByDescending(shipment => shipment.DollarValue) : query.OrderBy(shipment => shipment.DollarValue),
+            "ship-date" => descending
+                ? query.OrderBy(shipment => shipment.ShipDate == null).ThenByDescending(shipment => shipment.ShipDate)
+                : query.OrderBy(shipment => shipment.ShipDate == null).ThenBy(shipment => shipment.ShipDate),
+            "hold-reason" => descending ? query.OrderByDescending(shipment => shipment.HoldReason) : query.OrderBy(shipment => shipment.HoldReason),
+            "source-scheduled" => descending ? query.OrderByDescending(shipment => shipment.SourceRequestedDate) : query.OrderBy(shipment => shipment.SourceRequestedDate),
+            "action" when canViewAction && canViewAssignment => descending
+                ? query.OrderByDescending(shipment => shipment.AssignedDisplayName ?? shipment.AssignedGroupName ?? shipment.NextAction)
+                : query.OrderBy(shipment => shipment.AssignedDisplayName ?? shipment.AssignedGroupName ?? shipment.NextAction),
+            "action" when canViewAssignment => descending
+                ? query.OrderByDescending(shipment => shipment.AssignedDisplayName ?? shipment.AssignedGroupName)
+                : query.OrderBy(shipment => shipment.AssignedDisplayName ?? shipment.AssignedGroupName),
+            "action" => descending
+                ? query.OrderByDescending(shipment => shipment.NextAction)
+                : query.OrderBy(shipment => shipment.NextAction),
+            "last-worked" => descending ? query.OrderByDescending(shipment => shipment.LastWorkedAt) : query.OrderBy(shipment => shipment.LastWorkedAt),
+            "comments" => descending ? query.OrderByDescending(shipment => shipment.Comments) : query.OrderBy(shipment => shipment.Comments),
+            "queue-age" => descending ? query.OrderBy(shipment => shipment.CreatedAt) : query.OrderByDescending(shipment => shipment.CreatedAt),
+            _ => descending
+                ? query.OrderBy(shipment => shipment.QaArrivalDate == null).ThenByDescending(shipment => shipment.QaArrivalDate)
+                : query.OrderBy(shipment => shipment.QaArrivalDate == null).ThenBy(shipment => shipment.QaArrivalDate)
+        };
+        return ordered.ThenBy(shipment => shipment.Id);
+    }
+
+    private static bool RequiresClientSortForSqlite(string sort) =>
+        sort is "quantity" or "dollar-value" or "last-worked" or "queue-age";
+
+    private static IOrderedEnumerable<QualityShipment> ApplyClientSort(
+        IEnumerable<QualityShipment> shipments,
+        string sort,
+        string direction)
+    {
+        var descending = direction == "desc";
+        IOrderedEnumerable<QualityShipment> ordered = sort switch
+        {
+            "quantity" => descending
+                ? shipments.OrderByDescending(shipment => shipment.Quantity)
+                : shipments.OrderBy(shipment => shipment.Quantity),
+            "dollar-value" => descending
+                ? shipments.OrderByDescending(shipment => shipment.DollarValue)
+                : shipments.OrderBy(shipment => shipment.DollarValue),
+            "last-worked" => descending
+                ? shipments.OrderByDescending(shipment => shipment.LastWorkedAt)
+                : shipments.OrderBy(shipment => shipment.LastWorkedAt),
+            "queue-age" => descending
+                ? shipments.OrderBy(shipment => shipment.CreatedAt)
+                : shipments.OrderByDescending(shipment => shipment.CreatedAt),
+            _ => shipments.OrderBy(shipment => shipment.Id)
+        };
+        return ordered.ThenBy(shipment => shipment.Id);
+    }
+
+    private static string NormalizeStatus(string? status) => status?.Trim().ToLowerInvariant() switch
+    {
+        "shipped" => "shipped",
+        "all" => "all",
+        _ => "open"
+    };
+
+    private static string NormalizeSort(QualityAssuranceAccessProfile access, string? sort)
+    {
+        var normalized = sort?.Trim().ToLowerInvariant() switch
+        {
+            "status" => "status",
+            "sales-order" or "salesordernumber" => "sales-order",
+            "part-number" or "partnumber" => "part-number",
+            "purchase-order" or "purchaseordernumber" => "purchase-order",
+            "customer" => "customer",
+            "quantity" => "quantity",
+            "dollar-value" or "dollarvalue" => "dollar-value",
+            "ship-date" or "shipdate" => "ship-date",
+            "hold-reason" or "holdreason" => "hold-reason",
+            "source-scheduled" or "sourcerequesteddate" => "source-scheduled",
+            "action" => "action",
+            "last-worked" or "lastworkedat" => "last-worked",
+            "comments" => "comments",
+            "queue-age" or "queueage" => "queue-age",
+            _ => "qa-arrival"
+        };
+        if (CanViewSort(access, normalized)) return normalized;
+        return access.HasPermission(QualityAssurancePermissions.QaArrivalDateView)
+            ? "qa-arrival"
+            : "queue-age";
+    }
+
+    private static bool CanViewSort(QualityAssuranceAccessProfile access, string sort) => sort switch
+    {
+        "status" => access.HasPermission(QualityAssurancePermissions.StatusView),
+        "sales-order" => access.HasPermission(QualityAssurancePermissions.SalesOrderView),
+        "part-number" => access.HasPermission(QualityAssurancePermissions.PartNumberView),
+        "purchase-order" => access.HasPermission(QualityAssurancePermissions.PurchaseOrderView),
+        "customer" => access.HasPermission(QualityAssurancePermissions.CustomerView),
+        "quantity" => access.HasPermission(QualityAssurancePermissions.QuantityView),
+        "dollar-value" => access.HasPermission(QualityAssurancePermissions.DollarValueView),
+        "ship-date" => access.HasPermission(QualityAssurancePermissions.ShipDateView),
+        "hold-reason" => access.HasPermission(QualityAssurancePermissions.HoldReasonView),
+        "source-scheduled" => access.HasPermission(QualityAssurancePermissions.SourceRequestedDateView),
+        "action" => access.HasPermission(QualityAssurancePermissions.ActionView)
+            || access.HasPermission(QualityAssurancePermissions.AssignmentView),
+        "last-worked" => access.HasPermission(QualityAssurancePermissions.LastWorkedView),
+        "comments" => access.HasPermission(QualityAssurancePermissions.CommentsView),
+        "qa-arrival" => access.HasPermission(QualityAssurancePermissions.QaArrivalDateView),
+        "queue-age" => true,
+        _ => false
+    };
+
+    private static string NormalizeDirection(string? direction) =>
+        string.Equals(direction, "desc", StringComparison.OrdinalIgnoreCase) ? "desc" : "asc";
 
     private static string NormalizeScope(QualityAssuranceAccessProfile access, string? scope)
     {
@@ -426,7 +756,7 @@ public sealed class QualityShipmentService(
             case "holdReason": Change(shipment, key, shipment.HoldReason, Text(ReadString(value), null, 4000), next => shipment.HoldReason = next, access, now); break;
             case "sourceRequestedDate": Change(shipment, key, shipment.SourceRequestedDate, ReadDate(value), next => shipment.SourceRequestedDate = next, access, now); break;
             case "nextAction": Change(shipment, key, shipment.NextAction, Text(ReadString(value), null, 2000), next => shipment.NextAction = next, access, now); break;
-            case "comments": Change(shipment, key, shipment.Comments, Text(ReadString(value), null, 8000), next => shipment.Comments = next, access, now); break;
+            case "comments": throw new ArgumentException("Add comments through the shipment conversation so its history is preserved.");
             default: throw new ArgumentException($"Field '{key}' is not editable.");
         }
     }
@@ -516,11 +846,16 @@ public sealed class QualityShipmentService(
         return days < 0 ? "Past due" : days == 0 ? "Due today" : days <= 3 ? "Due soon" : "On track";
     }
 
-    private static QualityQueueMetricsDto Metrics(IEnumerable<QualityShipment> source)
+    private static QualityQueueMetricsDto Metrics(
+        IEnumerable<QualityShipment> source,
+        bool includeDollarValues)
     {
         var shipments = source.ToList();
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var shipped = shipments.Where(shipment => shipment.IsShipped && shipment.ShippedAt.HasValue).ToList();
+        var yearStart = new DateTimeOffset(today.Year, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var quarterStartMonth = ((today.Month - 1) / 3 * 3) + 1;
+        var quarterStart = new DateTimeOffset(today.Year, quarterStartMonth, 1, 0, 0, 0, TimeSpan.Zero);
         return new QualityQueueMetricsDto(
             shipments.Count(shipment => !shipment.IsShipped),
             shipments.Count(shipment => !shipment.IsShipped && shipment.ShipDate.HasValue && shipment.ShipDate < today),
@@ -535,7 +870,21 @@ public sealed class QualityShipmentService(
                             TimeSpan.Zero)
                         : shipment.CreatedAt;
                     return Math.Max(0, (shipment.ShippedAt!.Value - startedAt).TotalHours);
-                }));
+                }),
+            includeDollarValues
+                ? shipments.Where(shipment => !shipment.IsShipped).Sum(shipment => shipment.DollarValue ?? 0)
+                : null,
+            includeDollarValues
+                ? shipped.Sum(shipment => shipment.DollarValue ?? 0)
+                : null,
+            includeDollarValues
+                ? shipped.Where(shipment => shipment.ShippedAt >= yearStart)
+                    .Sum(shipment => shipment.DollarValue ?? 0)
+                : null,
+            includeDollarValues
+                ? shipped.Where(shipment => shipment.ShippedAt >= quarterStart)
+                    .Sum(shipment => shipment.DollarValue ?? 0)
+                : null);
     }
 
     private static string AssignmentLabel(QualityShipment shipment) =>

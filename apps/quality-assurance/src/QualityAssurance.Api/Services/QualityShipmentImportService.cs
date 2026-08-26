@@ -345,33 +345,49 @@ public sealed class QualityShipmentImportService(
     private static QualityShipment CreateShipment(
         ImportRow row,
         QualityAssuranceAccessProfile actor,
-        DateTimeOffset now) => new()
+        DateTimeOffset now)
     {
-        Status = row.Status,
-        SalesOrderNumber = row.SalesOrderNumber,
-        QaArrivalDate = row.QaArrivalDate,
-        PartNumber = row.PartNumber,
-        PurchaseOrderNumber = row.PurchaseOrderNumber,
-        Customer = row.Customer,
-        TaskType = "General",
-        Quantity = row.Quantity,
-        DollarValue = row.DollarValue,
-        ShipDate = row.ShipDate,
-        HoldReason = row.HoldReason,
-        SourceRequestedDate = row.SourceRequestedDate,
-        NextAction = row.Action,
-        LastWorkedAt = row.LastWorkedDate.HasValue
-            ? new DateTimeOffset(row.LastWorkedDate.Value.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero)
-            : null,
-        Comments = row.Comments,
-        CreatedAt = now,
-        CreatedByAccountName = actor.AccountName,
-        CreatedByDisplayName = actor.DisplayName,
-        UpdatedAt = now,
-        UpdatedByAccountName = actor.AccountName,
-        UpdatedByDisplayName = actor.DisplayName,
-        Version = 1
-    };
+        var shipment = new QualityShipment
+        {
+            Status = row.Status,
+            SalesOrderNumber = row.SalesOrderNumber,
+            QaArrivalDate = row.QaArrivalDate,
+            PartNumber = row.PartNumber,
+            PurchaseOrderNumber = row.PurchaseOrderNumber,
+            Customer = row.Customer,
+            TaskType = "General",
+            Quantity = row.Quantity,
+            DollarValue = row.DollarValue,
+            ShipDate = row.ShipDate,
+            HoldReason = row.HoldReason,
+            SourceRequestedDate = row.SourceRequestedDate,
+            NextAction = row.Action,
+            LastWorkedAt = row.LastWorkedDate.HasValue
+                ? new DateTimeOffset(row.LastWorkedDate.Value.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero)
+                : null,
+            Comments = row.Comments,
+            CreatedAt = now,
+            CreatedByAccountName = actor.AccountName,
+            CreatedByDisplayName = actor.DisplayName,
+            UpdatedAt = now,
+            UpdatedByAccountName = actor.AccountName,
+            UpdatedByDisplayName = actor.DisplayName,
+            Version = 1
+        };
+        if (!string.IsNullOrWhiteSpace(row.Comments))
+        {
+            shipment.CommentThread.Add(new QualityShipmentComment
+            {
+                Body = row.Comments,
+                AuthorUserId = actor.UserId,
+                AuthorAccountName = actor.AccountName,
+                AuthorDisplayName = actor.DisplayName,
+                CreatedAt = now,
+                IsLegacyImport = true
+            });
+        }
+        return shipment;
+    }
 
     private static IReadOnlyDictionary<string, int> Columns(IXLWorksheet sheet)
     {

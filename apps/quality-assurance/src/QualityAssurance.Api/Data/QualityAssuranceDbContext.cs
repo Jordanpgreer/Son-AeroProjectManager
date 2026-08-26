@@ -8,6 +8,8 @@ public sealed class QualityAssuranceDbContext(
 {
     public DbSet<QualityShipment> Shipments => Set<QualityShipment>();
     public DbSet<QualityShipmentAuditEntry> ShipmentAuditEntries => Set<QualityShipmentAuditEntry>();
+    public DbSet<QualityShipmentComment> ShipmentComments => Set<QualityShipmentComment>();
+    public DbSet<QualityMentionNotification> MentionNotifications => Set<QualityMentionNotification>();
     public DbSet<QualityAssignmentRule> AssignmentRules => Set<QualityAssignmentRule>();
     public DbSet<QualityShippingLayoutPreference> ShippingLayoutPreferences => Set<QualityShippingLayoutPreference>();
 
@@ -37,6 +39,10 @@ public sealed class QualityAssuranceDbContext(
                 .WithOne(entry => entry.Shipment)
                 .HasForeignKey(entry => entry.ShipmentId)
                 .OnDelete(DeleteBehavior.Restrict);
+            entity.HasMany(shipment => shipment.CommentThread)
+                .WithOne(comment => comment.Shipment)
+                .HasForeignKey(comment => comment.ShipmentId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<QualityShipmentAuditEntry>(entity =>
@@ -48,6 +54,33 @@ public sealed class QualityAssuranceDbContext(
             entity.Property(entry => entry.AccountName).HasMaxLength(160);
             entity.Property(entry => entry.DisplayName).HasMaxLength(160);
             entity.HasIndex(entry => new { entry.ShipmentId, entry.OccurredAt });
+        });
+
+        modelBuilder.Entity<QualityShipmentComment>(entity =>
+        {
+            entity.ToTable("QualityShipmentComments");
+            entity.HasKey(comment => comment.Id);
+            entity.Property(comment => comment.Body).HasMaxLength(8000);
+            entity.Property(comment => comment.AuthorAccountName).HasMaxLength(160);
+            entity.Property(comment => comment.AuthorDisplayName).HasMaxLength(160);
+            entity.HasIndex(comment => new { comment.ShipmentId, comment.Id });
+        });
+
+        modelBuilder.Entity<QualityMentionNotification>(entity =>
+        {
+            entity.ToTable("QualityMentionNotifications");
+            entity.HasKey(notification => notification.Id);
+            entity.Property(notification => notification.RecipientAccountName).HasMaxLength(160);
+            entity.Property(notification => notification.ActorAccountName).HasMaxLength(160);
+            entity.Property(notification => notification.ActorDisplayName).HasMaxLength(160);
+            entity.Property(notification => notification.BodyPreview).HasMaxLength(300);
+            entity.HasIndex(notification => notification.CommentId);
+            entity.HasIndex(notification => new { notification.RecipientUserId, notification.ReadAt, notification.CreatedAt });
+            entity.HasIndex(notification => new { notification.ShipmentId, notification.CommentId });
+            entity.HasOne(notification => notification.Comment)
+                .WithMany(comment => comment.MentionNotifications)
+                .HasForeignKey(notification => notification.CommentId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<QualityAssignmentRule>(entity =>

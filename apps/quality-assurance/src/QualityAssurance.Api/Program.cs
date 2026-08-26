@@ -15,7 +15,9 @@ builder.Services.AddScoped<QualityAssuranceUserService>();
 builder.Services.AddScoped<IQualityAssuranceAccessStore, QualityAssuranceAccessStore>();
 builder.Services.AddScoped<QualityAssignmentService>();
 builder.Services.AddScoped<QualityShipmentService>();
+builder.Services.AddScoped<QualityShipmentCommentService>();
 builder.Services.AddScoped<QualityShipmentImportService>();
+builder.Services.AddScoped<QualityShipmentGridExportService>();
 builder.Services.AddScoped<QualityShippingLayoutService>();
 builder.Services.AddScoped<QualityPermissionSeeder>();
 builder.Services.AddDbContext<QualityAssuranceAccessDbContext>((serviceProvider, options) =>
@@ -173,7 +175,9 @@ api.MapGet("/me", (HttpContext context) =>
         ? Results.Forbid()
         : Results.Ok(QualityAssuranceUserService.Current(access));
 }).RequireAuthorization(QualityAssurancePolicies.ModuleView);
-api.RequireAuthorization(QualityAssurancePolicies.ModuleView).MapQualityShippingEndpoints();
+api.RequireAuthorization(QualityAssurancePolicies.ModuleView)
+    .MapQualityShippingEndpoints()
+    .MapQualityCommentEndpoints();
 
 app.MapFallback("/api/{**path}", async context =>
 {

@@ -53,9 +53,9 @@ export default function AccessPreviewPanel({
       <header>
         <span className="admin-placeholder-icon"><Eye size={21} /></span>
         <div>
-          <span className="kicker">Read-only access preview</span>
-          <h3 id="access-preview-heading">View the Hub as a user or group</h3>
-          <p>Confirm which application cards they can see, then open any available module in the same read-only preview.</p>
+          <span className="kicker">Verify before handing off access</span>
+          <h3 id="access-preview-heading">Preview Arda as a person or group</h3>
+          <p>Confirm which application cards are visible, then open an available module in the same read-only preview.</p>
         </div>
       </header>
 
@@ -70,12 +70,11 @@ export default function AccessPreviewPanel({
             <span className="sr-only">Search preview users and groups</span>
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search users or groups" />
           </label>
-          <div className="admin-preview-targets" role="listbox" aria-label="Preview target">
+          <div className="admin-preview-targets" role="group" aria-label="Preview target">
             {filtered.map((target) => (
               <button
                 type="button"
-                role="option"
-                aria-selected={selectedKey === target.key}
+                aria-pressed={selectedKey === target.key}
                 className={selectedKey === target.key ? 'selected' : ''}
                 key={target.key}
                 onClick={() => setSelectedKey(target.key)}

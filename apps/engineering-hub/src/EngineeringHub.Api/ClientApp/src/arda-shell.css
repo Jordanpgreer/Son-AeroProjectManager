@@ -15,11 +15,12 @@
   --arda-band-line: #c6d5e1;
   --arda-band-ink: #07325f;
   --arda-band-muted: #385773;
-  --arda-band-role: #2f6195;
+  --arda-band-role: #1f486f;
   --arda-band-focus: #07325f;
   --arda-avatar-bg: #07325f;
   --arda-avatar-ink: #ffffff;
   --arda-back-label: #cf3122;
+  --arda-shell-separator-width: 3px;
 }
 
 :root[data-theme='dark'] {
@@ -33,6 +34,11 @@
   --arda-band-focus: #8ec5f2;
   --arda-avatar-bg: #25384a;
   --arda-avatar-ink: #f3f7fa;
+}
+
+/* Preserve the slightly stronger identity treatment used by these two module shells. */
+:is(.project-tracker-app, .engineering-app) {
+  --arda-band-role: #2f6195;
 }
 
 /* Portal: one full-width identity band, with the transparent artwork directly on it. */
@@ -120,13 +126,13 @@
 
 /* Module sidebars: a single edge-to-edge identity cap above the dark navigation. */
 :is(.project-tracker-app, .engineering-app, .quality-assurance-app) .sidebar > .brand {
-  min-height: 102px;
+  min-height: 131px;
   margin: -20px -16px 0;
   padding: 10px 20px 17px;
 }
 
 .estimating-app .sidebar > .brand {
-  min-height: 102px;
+  min-height: 131px;
   margin: 0;
   padding: 10px 20px 17px;
 }
@@ -136,14 +142,14 @@
   justify-content: center;
   background: var(--arda-band);
   border: 0;
-  border-bottom: 3px solid var(--arda-red);
+  border-bottom: var(--arda-shell-separator-width) solid var(--arda-red);
   border-radius: 0;
   box-shadow: 0 10px 24px -22px rgba(0, 0, 0, 0.85);
 }
 
 :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .brand .brand-lockup {
   display: block;
-  width: 164px;
+  width: 180px;
   max-width: calc(100% - 8px);
   height: auto;
   object-fit: contain;
@@ -151,6 +157,17 @@
 
 :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .brand .brand-mark {
   display: none;
+}
+
+/* Use one border primitive and one thickness token on both sides of the shell seam. */
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .topbar {
+  min-height: 131px;
+  border-bottom: var(--arda-shell-separator-width) solid transparent;
+  border-image: linear-gradient(90deg, var(--steel), color-mix(in srgb, var(--steel) 34%, transparent) 55%, transparent 100%) 1;
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .topbar::after {
+  content: none;
 }
 
 /* Light mode uses the same blue-gray surface family for navigation and content. */
@@ -226,6 +243,12 @@
 }
 
 :root:not([data-theme='dark']) :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .sidebar .nav-flag {
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border-color: var(--steel-tint-2);
+}
+
+:root:not([data-theme='dark']) :is(.project-tracker-app, .estimating-app, .engineering-app) .sidebar .nav-flag {
   color: var(--red-700);
   background: var(--red-tint);
   border-color: var(--red-tint-2);
@@ -245,12 +268,18 @@
 }
 
 :root:not([data-theme='dark']) .estimating-app .avatar {
-  color: var(--red-700);
-  background: var(--red-tint);
-  border-color: var(--red-tint-2);
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border-color: var(--steel-tint-2);
 }
 
 :root:not([data-theme='dark']) .engineering-app .sidebar-user-chip .avatar {
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border-color: var(--steel-tint-2);
+}
+
+:root:not([data-theme='dark']) :is(.estimating-app .avatar, .engineering-app .sidebar-user-chip .avatar) {
   color: var(--red-700);
   background: var(--red-tint);
   border-color: var(--red-tint-2);
@@ -263,8 +292,8 @@
 :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .brand-hub-link:hover,
 :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .brand-hub-link:focus-visible {
   background: var(--arda-band-hover);
-  border-color: var(--arda-band-line);
-  box-shadow: inset 0 -3px var(--arda-red);
+  border-bottom-color: var(--arda-red);
+  box-shadow: 0 10px 24px -22px rgba(0, 0, 0, 0.85);
 }
 
 :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .brand-hub-link:hover img {
@@ -287,7 +316,7 @@
 }
 
 :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .sidebar > .brand {
-  min-height: 92px;
+  min-height: 131px;
   margin-right: -10px;
   margin-left: -10px;
   padding: 13px 10px 18px;
@@ -303,10 +332,18 @@
 }
 
 :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .brand .brand-mark {
-  display: block;
-  width: 48px;
-  height: 48px;
+  display: none !important;
+  width: 52px;
+  height: 52px;
   object-fit: contain;
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .brand .brand-mark-standard {
+  display: block !important;
+}
+
+:root[data-theme='dark'] :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .brand .brand-mark-standard {
+  display: none !important;
 }
 
 :root[data-theme='dark'] :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .brand .brand-lockup-reversed {
@@ -360,6 +397,28 @@
   )
 ) {
   border-color: var(--control-line);
+}
+
+@media (min-width: 901px) and (max-width: 1100px) {
+  :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .topbar {
+    gap: 16px;
+    padding-right: 20px;
+    padding-left: 20px;
+  }
+
+  :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .topbar-actions {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .topbar-actions > .button {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .page-title-block p {
+    display: none;
+  }
 }
 
 @media (max-width: 560px) {

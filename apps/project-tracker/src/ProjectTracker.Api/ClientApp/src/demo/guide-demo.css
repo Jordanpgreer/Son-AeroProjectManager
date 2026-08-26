@@ -195,6 +195,7 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
+  filter: hue-rotate(208deg) saturate(.78);
 }
 
 .training-card__header > div {
@@ -556,7 +557,7 @@
 
   .training-card__bloub {
     border-radius: 46% 54% 50% 50%;
-    background: var(--red);
+    background: var(--steel);
   }
 }
 

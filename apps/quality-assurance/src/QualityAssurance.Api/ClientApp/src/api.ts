@@ -10,6 +10,10 @@ export class QualityApiError extends Error {
 
 export async function qualityApi<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
+  const method = (init.method ?? 'GET').toUpperCase()
+  if (method !== 'GET' && method !== 'HEAD' && !headers.has('X-Requested-With')) {
+    headers.set('X-Requested-With', 'XMLHttpRequest')
+  }
   if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }

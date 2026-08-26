@@ -71,63 +71,16 @@
   font-size: 14px;
 }
 
-.catalog-toolbar {
-  display: grid;
-  grid-template-columns: minmax(280px, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 20px 0 30px;
-}
-
-.catalog-search {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 42px;
-  padding: 0 13px;
-  color: var(--muted);
-  background: var(--surface);
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-1);
-}
-
-.catalog-search:focus-within {
-  border-color: var(--steel);
-  box-shadow: 0 0 0 3px var(--steel-tint);
-}
-
-.catalog-search input {
-  min-width: 0;
-  width: 100%;
-  color: var(--ink);
-  background: transparent;
-  border: 0;
-  outline: 0;
-  font: inherit;
-}
-
-.catalog-search input::placeholder {
-  color: var(--faint-text);
-}
-
-.catalog-clear {
-  height: 42px;
-  padding: 0 13px;
-  color: var(--steel-700);
-  background: var(--steel-tint);
-  border: 1px solid var(--steel-tint-2);
-  border-radius: var(--r-md);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-}
-
 .catalog-results {
   display: flex;
   flex-direction: column;
   gap: 38px;
+  margin-top: 30px;
+}
+
+.catalog-loading,
+.catalog-state {
+  margin-top: 30px;
 }
 
 .catalog-section {
@@ -451,7 +404,6 @@
   to { opacity: 1; }
 }
 
-:root[data-theme='dark'] .catalog-search,
 :root[data-theme='dark'] .catalog-app-card,
 :root[data-theme='dark'] .catalog-state {
   background: var(--surface);
@@ -468,19 +420,9 @@
   border-color: var(--line);
 }
 
-:root[data-theme='dark'] .catalog-clear {
-  color: var(--steel-700);
-  background: var(--steel-tint);
-  border-color: var(--steel-tint-2);
-}
-
 @media (max-width: 900px) {
   .catalog-main {
     padding: 34px 24px 52px;
-  }
-
-  .catalog-toolbar {
-    grid-template-columns: minmax(260px, 1fr) auto;
   }
 }
 
@@ -496,15 +438,6 @@
     align-items: stretch;
     flex-direction: column;
     gap: 20px;
-  }
-
-  .catalog-toolbar {
-    grid-template-columns: 1fr;
-    padding: 16px 0 26px;
-  }
-
-  .catalog-clear {
-    width: 100%;
   }
 
   .catalog-grid {

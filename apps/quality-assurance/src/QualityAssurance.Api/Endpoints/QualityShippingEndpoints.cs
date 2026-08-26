@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using QualityAssurance.Api.Auth;
 using QualityAssurance.Api.Dtos;
 using QualityAssurance.Api.Services;
@@ -7,6 +8,8 @@ namespace QualityAssurance.Api.Endpoints;
 
 public static class QualityShippingEndpoints
 {
+    public const long MaxWorkbookBytes = 25L * 1024 * 1024;
+
     public static RouteGroupBuilder MapQualityShippingEndpoints(this RouteGroupBuilder api)
     {
         api.MapGet("/dashboard", async (
@@ -16,17 +19,81 @@ public static class QualityShippingEndpoints
             Results.Ok(await shipments.DashboardAsync(Access(context), cancellationToken)))
             .RequireAuthorization(QualityAssurancePermissions.ShipmentsView);
 
+        api.MapGet("/dashboard/report", async (
+            HttpContext context,
+            QualityShipmentService shipments,
+            CancellationToken cancellationToken) =>
+        {
+            var access = Access(context);
+            var dashboard = await shipments.DashboardAsync(access, cancellationToken);
+            var bytes = new QualityDashboardReportService().Generate(
+                dashboard,
+                access.DisplayName,
+                DateTimeOffset.UtcNow);
+            return Results.File(
+                bytes,
+                "application/pdf",
+                $"arda-quality-team-performance-{DateOnly.FromDateTime(DateTime.UtcNow):yyyy-MM-dd}.pdf");
+        }).RequireAuthorization(QualityAssurancePermissions.ShipmentsView);
+
         api.MapGet("/shipments", async (
             string? status,
             string? scope,
             string? sort,
+            string? direction,
             string? search,
+            string? shipmentStatus,
+            string[]? customer,
+            string? assignee,
             HttpContext context,
             QualityShipmentService shipments,
             CancellationToken cancellationToken) =>
             Results.Ok(await shipments.ListAsync(
-                Access(context), status, scope, sort, search, cancellationToken)))
+                Access(context), status, scope, sort, direction, search,
+                shipmentStatus, customer, assignee, cancellationToken)))
             .RequireAuthorization(QualityAssurancePermissions.ShipmentsView);
+
+        api.MapGet("/shipments/customer-options", async (
+            string? status,
+            string? scope,
+            HttpContext context,
+            QualityShipmentService shipments,
+            CancellationToken cancellationToken) =>
+            Results.Ok(await shipments.CustomerOptionsAsync(
+                Access(context), status, scope, cancellationToken)))
+            .RequireAuthorization(QualityAssurancePermissions.ShipmentsView);
+
+        api.MapGet("/shipments/{id:int}", async (
+            int id,
+            HttpContext context,
+            QualityShipmentService shipments,
+            CancellationToken cancellationToken) =>
+        {
+            var shipment = await shipments.GetAsync(id, Access(context), cancellationToken);
+            return shipment is null ? Results.NotFound() : Results.Ok(shipment);
+        }).RequireAuthorization(QualityAssurancePermissions.ShipmentsView);
+
+        api.MapGet("/shipments/export", async (
+            string? status,
+            string? scope,
+            string? sort,
+            string? direction,
+            string? search,
+            string? shipmentStatus,
+            string[]? customer,
+            string? assignee,
+            HttpContext context,
+            QualityShipmentGridExportService exporter,
+            CancellationToken cancellationToken) =>
+        {
+            var file = await exporter.CreateAsync(
+                Access(context), status, scope, sort, direction, search,
+                shipmentStatus, customer, assignee, cancellationToken);
+            return Results.File(
+                file.Content,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                file.FileName);
+        }).RequireAuthorization(QualityAssurancePermissions.ShipmentsView);
 
         api.MapGet("/shipping-layout", async (
             HttpContext context,
@@ -60,26 +127,10 @@ public static class QualityShippingEndpoints
             return Results.Created($"/api/shipments/{created.Id}", created);
         }).RequireAuthorization(QualityAssurancePermissions.ShipmentCreate);
 
-        api.MapPost("/shipments/import", async (
-            IFormFile file,
-            HttpContext context,
-            QualityShipmentImportService importer,
-            CancellationToken cancellationToken) =>
-        {
-            if (file.Length == 0)
-                return Results.BadRequest(new ErrorDto("EmptyWorkbook", "Choose a non-empty Excel workbook."));
-            if (file.Length > 25 * 1024 * 1024)
-                return Results.BadRequest(new ErrorDto("WorkbookTooLarge", "The workbook cannot exceed 25 MB."));
-            if (!string.Equals(Path.GetExtension(file.FileName), ".xlsx", StringComparison.OrdinalIgnoreCase))
-                return Results.BadRequest(new ErrorDto("InvalidWorkbookType", "Upload an .xlsx Shipping Status workbook."));
-
-            await using var stream = file.OpenReadStream();
-            return Results.Ok(await importer.ImportAsync(
-                stream,
-                Path.GetFileName(file.FileName),
-                Access(context),
-                cancellationToken));
-        }).DisableAntiforgery().RequireAuthorization(QualityAssurancePermissions.ShipmentImport);
+        api.MapPost("/shipments/import", ImportAsync)
+            .DisableAntiforgery()
+            .WithMetadata(new RequestSizeLimitAttribute(MaxWorkbookBytes + 128 * 1024))
+            .RequireAuthorization(QualityAssurancePermissions.ShipmentImport);
 
         api.MapPatch("/shipments/{id:int}", async (
             int id,
@@ -165,6 +216,34 @@ public static class QualityShippingEndpoints
                 : Results.NotFound());
 
         return api;
+    }
+
+    public static async Task<IResult> ImportAsync(
+        HttpRequest request,
+        IFormFile file,
+        HttpContext context,
+        QualityShipmentImportService importer,
+        CancellationToken cancellationToken)
+    {
+        if (!QualityRequestIntegrity.IsTrustedMultipartAjaxRequest(request))
+        {
+            return Results.BadRequest(new ErrorDto(
+                "UntrustedImportRequest",
+                "Shipping Status imports must be submitted from the Quality Assurance application."));
+        }
+        if (file is null || file.Length == 0)
+            return Results.BadRequest(new ErrorDto("EmptyWorkbook", "Choose a non-empty Excel workbook."));
+        if (file.Length > MaxWorkbookBytes)
+            return Results.BadRequest(new ErrorDto("WorkbookTooLarge", "The workbook cannot exceed 25 MB."));
+        if (!string.Equals(Path.GetExtension(file.FileName), ".xlsx", StringComparison.OrdinalIgnoreCase))
+            return Results.BadRequest(new ErrorDto("InvalidWorkbookType", "Upload an .xlsx Shipping Status workbook."));
+
+        await using var stream = file.OpenReadStream();
+        return Results.Ok(await importer.ImportAsync(
+            stream,
+            Path.GetFileName(file.FileName),
+            Access(context),
+            cancellationToken));
     }
 
     private static QualityAssuranceAccessProfile Access(HttpContext context) =>

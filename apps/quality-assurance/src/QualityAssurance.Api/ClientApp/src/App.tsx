@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   AlertTriangle,
+  FileUp,
   LayoutDashboard,
   LockKeyhole,
   PanelLeftClose,
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react'
 import { qualityApi } from './api'
 import Dashboard from './Dashboard'
+import QualityNotificationCenter from './QualityNotificationCenter'
 import ShippingStatus from './ShippingStatus'
 import { persistTheme, readThemePreference } from './theme'
 import type { AppTheme } from './theme'
@@ -138,6 +140,16 @@ export default function App() {
   const page = route === 'dashboard'
     ? { eyebrow: 'Quality Assurance Module', title: 'Dashboard', description: 'Your workload, due-date risk, and completion performance.' }
     : { eyebrow: 'Quality Operations', title: 'Shipping Status', description: 'Controlled shipment queue, ownership, and completion tracking.' }
+  const userPermissions = user.permissions
+
+  function openMentionedShipment(shipmentId: number, isShipped: boolean) {
+    const notificationScope = userPermissions.includes('quality-assurance.shipments.view-all')
+      ? 'all'
+      : userPermissions.includes('quality-assurance.dashboard.team-view') ? 'team' : 'mine'
+    window.location.hash = `#/shipping-status?shipment=${shipmentId}&comments=1&scope=${notificationScope}&status=${isShipped ? 'shipped' : 'open'}`
+    setRoute('shipping-status')
+    setReloadKey((value) => value + 1)
+  }
 
   return (
     <div className={`qa-shell quality-assurance-app ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
@@ -166,6 +178,8 @@ export default function App() {
           <div className="topbar-actions">
             <a className="topbar-brand-link" href={hubUrl} target="_top" aria-label="Return to Arda applications" title="Return to Arda applications"><img className="topbar-brand-mark-standard" src="/brand/arda-mark.png" alt="" /><img className="topbar-brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" /></a>
             <div className="topbar-identity"><ThemeSwitch theme={theme} onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} /><div className="user-chip topbar-user-chip" title={`${user.accountName}\n${user.groups.join(', ')}`}><span className="user-copy"><strong>{user.displayName}</strong><small>{user.role}</small></span><span className="avatar">{initials(user.displayName)}</span></div></div>
+            {userPermissions.includes('quality-assurance.shipments.view') && userPermissions.includes('quality-assurance.fields.comments.view') && <QualityNotificationCenter onOpenShipment={openMentionedShipment} />}
+            {route === 'shipping-status' && userPermissions.includes('quality-assurance.shipments.import') && <button className="button ghost" type="button" onClick={() => window.dispatchEvent(new Event('quality:open-shipping-import'))}><FileUp size={15} /> Import Excel</button>}
             <button className="button ghost" type="button" onClick={() => setReloadKey((value) => value + 1)}><RefreshCw size={15} /> Refresh</button>
           </div>
         </header>

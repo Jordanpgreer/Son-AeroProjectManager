@@ -347,5 +347,10 @@ public sealed class QualityShipmentImportServiceTests
             Task.FromResult<IReadOnlyList<QualityDirectoryUser>>(groupId.HasValue
                 ? users.Where(user => user.GroupIds.Contains(groupId.Value)).ToList()
                 : users);
+
+        public Task<IReadOnlyList<QualityDirectoryUser>> GetUsersWithPermissionAsync(
+            string permissionKey,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(users);
     }
 }

@@ -1,10 +1,14 @@
 export type AdminModuleKey =
   | 'access'
-  | 'hub'
   | 'project-tracker'
   | 'engineering'
   | 'estimating'
   | 'quality-assurance'
+
+export type ArdaAccessSection =
+  | 'groups'
+  | 'people'
+  | 'preview'
 
 export type ProjectTrackerAdminSection =
   | 'walkthrough'

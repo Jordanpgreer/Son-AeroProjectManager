@@ -23,9 +23,9 @@ public static class QualityFieldAccess
         new("taskType", "Task Type", QualityAssurancePermissions.TaskTypeView, QualityAssurancePermissions.TaskTypeEdit),
         new("quantity", "Quantity", QualityAssurancePermissions.QuantityView, QualityAssurancePermissions.QuantityEdit),
         new("dollarValue", "Dollar Value", QualityAssurancePermissions.DollarValueView, QualityAssurancePermissions.DollarValueEdit),
-        new("shipDate", "Ship Date", QualityAssurancePermissions.ShipDateView, QualityAssurancePermissions.ShipDateEdit),
+        new("shipDate", "Ship By", QualityAssurancePermissions.ShipDateView, QualityAssurancePermissions.ShipDateEdit),
         new("holdReason", "Hold Reason", QualityAssurancePermissions.HoldReasonView, QualityAssurancePermissions.HoldReasonEdit),
-        new("sourceRequestedDate", "Source Requested", QualityAssurancePermissions.SourceRequestedDateView, QualityAssurancePermissions.SourceRequestedDateEdit),
+        new("sourceRequestedDate", "Source Scheduled", QualityAssurancePermissions.SourceRequestedDateView, QualityAssurancePermissions.SourceRequestedDateEdit),
         new("nextAction", "Action", QualityAssurancePermissions.ActionView, QualityAssurancePermissions.ActionEdit),
         new("lastWorkedAt", "Last Worked On", QualityAssurancePermissions.LastWorkedView, null),
         new("comments", "Comments", QualityAssurancePermissions.CommentsView, QualityAssurancePermissions.CommentsEdit)

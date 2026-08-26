@@ -51,6 +51,53 @@ final result: passed
 
 ---
 
+# Shared shell separator alignment — 2026-08-26
+
+## Comparison target
+
+- Source visual truth: `C:\Users\USER\AppData\Local\Temp\codex-clipboard-a2c9cc70-2406-4b06-afbb-324a484ad8c7.png`.
+- Browser-rendered implementation: `http://127.0.0.1:5180/#/quotes` in the in-app Browser.
+- Implementation screenshot: `C:\Users\USER\projects\non project folder\Project Tracker\tmp\design-qa\estimating-separator-hover-real-border-after.png`.
+- Combined full-state comparison: `C:\Users\USER\projects\non project folder\Project Tracker\tmp\design-qa\estimating-separator-comparison.png`.
+- Focused seam comparison: `C:\Users\USER\projects\non project folder\Project Tracker\tmp\design-qa\estimating-separator-focused-comparison.png`.
+- Source pixels: 838 x 346, supplied as a cropped high-density screenshot with unknown CSS viewport and device density.
+- Implementation pixels and CSS viewport: 1280 x 720 at device pixel ratio 1.
+- State: light theme, expanded navigation, `Back to Arda` link hovered.
+- Density normalization: raw pixel thickness was not compared across the unknown-density source and the DPR 1 implementation. The focused visual comparison establishes edge alignment; browser-computed CSS measurements establish exact thickness and datum.
+
+## Findings
+
+- No actionable P0, P1, or P2 findings remain.
+- Fonts and typography: unchanged; the existing Estimating hierarchy and hover-label typography remain intact.
+- Spacing and layout rhythm: the sidebar identity band and topbar both end at 131 CSS px. Their separators now share the same bottom datum.
+- Colors and visual tokens: the sidebar keeps `--arda-red`; the topbar keeps the existing `--steel` gradient. No palette or semantic-token changes were introduced.
+- Image quality and asset fidelity: the supplied Arda raster lockup is unchanged and remains sharp at its existing crop and scale.
+- Copy and content: unchanged, including the exact `Back to Arda` hover label.
+
+## Comparison evidence
+
+- Full-state comparison: the combined image shows the supplied hover state and the corrected browser-rendered state together. The source red rule sits above the blue rule; the corrected rules meet at one edge.
+- Focused region: the seam comparison isolates the sidebar/topbar junction and shows the corrected red and blue top edges aligned without an intervening gray band.
+- Browser-computed post-fix measurements: both separators are real solid bottom borders with a shared `3px` thickness token; the brand bottom and topbar bottom are both 131 CSS px; the former blue `::after` painter has `content: none`.
+
+## Comparison history
+
+1. P2 — hovering the brand link changed its real 3 px bottom border to gray and drew a second 3 px red inset shadow above it, visibly lifting the red rule. Fixed by preserving the real red bottom border, removing the inset duplicate, and rendering the blue rule with the same bottom-border primitive. Post-fix browser measurements and the focused comparison show identical 3 px thickness and a shared 131 px datum.
+
+## Interaction and runtime checks
+
+- Hovered `Back to Arda` and confirmed the hover label, red separator, and blue separator render together in the intended state.
+- Collapsed dark mode retained the same 131 px datum and two 3 px bottom borders; the preview was restored to expanded light mode afterward.
+- Browser console errors and warnings: zero.
+- Estimating production build passed.
+- Estimating lint passed.
+- All 26 Estimating client tests passed.
+- Shared canonical rule and all five synced frontend copies contain the corrected declarations; the obsolete inset separator is absent.
+
+final result: passed
+
+---
+
 # Calculator context and live-search refinement — 2026-08-25
 
 ## Comparison target

@@ -65,22 +65,9 @@ export interface ShipmentList {
   total: number
   status: 'open' | 'shipped' | 'all'
   scope: 'mine' | 'team' | 'all'
-  sort: 'oldest' | 'ship-date'
+  sort: string
+  direction: 'asc' | 'desc'
   fields: FieldAccess[]
-}
-
-export type ShippingLayoutColumnKey = ShipmentFieldKey | 'assignment' | 'queueAge'
-
-export interface ShippingLayoutColumn {
-  key: ShippingLayoutColumnKey
-  width: number
-  isVisible: boolean
-}
-
-export interface ShippingLayout {
-  columns: ShippingLayoutColumn[]
-  version: number
-  updatedAt: string | null
 }
 
 export interface QueueMetrics {
@@ -88,6 +75,10 @@ export interface QueueMetrics {
   overdue: number
   completed: number
   averageCompletionHours: number | null
+  openDollarValue: number | null
+  completedDollarValue: number | null
+  completedDollarValueYtd: number | null
+  completedDollarValueCurrentQuarter: number | null
 }
 
 export interface PersonQueue {
@@ -95,13 +86,24 @@ export interface PersonQueue {
   displayName: string
   accountName: string
   metrics: QueueMetrics
+  openShipments: Shipment[]
 }
 
 export interface DashboardData {
   myQueue: QueueMetrics
   queue: Shipment[]
   teamQueues: PersonQueue[]
+  groupQueue: QueueMetrics
+  groupShipments: Shipment[]
+  unassignedQueue: QueueMetrics
+  unassignedShipments: Shipment[]
+  fields: FieldAccess[]
   canViewTeam: boolean
+  canViewAssignment: boolean
+  canAssign: boolean
+  canAssignGroup: boolean
+  canAssignUser: boolean
+  canViewDollarValue: boolean
 }
 
 export interface DirectoryGroup {
@@ -132,4 +134,34 @@ export interface AuditEntry {
   accountName: string
   displayName: string
   occurredAt: string
+}
+
+export interface ShipmentComment {
+  id: number
+  shipmentId: number
+  body: string
+  authorUserId: number
+  authorAccountName: string
+  authorDisplayName: string
+  createdAt: string
+  isLegacyImport: boolean
+}
+
+export interface MentionableUser {
+  userId: number
+  accountName: string
+  displayName: string
+  mentionHandle: string
+}
+
+export interface QualityMentionNotification {
+  id: number
+  shipmentId: number
+  commentId: number
+  isShipped: boolean
+  actorAccountName: string
+  actorDisplayName: string
+  bodyPreview: string
+  createdAt: string
+  readAt: string | null
 }
