@@ -17,6 +17,8 @@ param(
     [string]$ReleaseRoot = 'C:\SonAero\releases',
     [string]$ExpectedComputerName = 'SON-IIS2',
 
+    [switch]$RetainVerifiedQuality,
+
     [ValidateRange(30, 600)]
     [int]$HealthTimeoutSeconds = 180
 )
@@ -28,6 +30,20 @@ if (-not (Test-Path -LiteralPath $portalCatalogModule -PathType Leaf)) {
     throw "Portal catalog deployment module was not found: $portalCatalogModule"
 }
 Import-Module $portalCatalogModule -Force -ErrorAction Stop
+
+$qualityProductionConfigurationModule = Join-Path $PSScriptRoot 'QualityAssuranceProductionConfiguration.psm1'
+if (-not (Test-Path -LiteralPath $qualityProductionConfigurationModule -PathType Leaf)) {
+    throw "Quality Production configuration module was not found: $qualityProductionConfigurationModule"
+}
+Import-Module $qualityProductionConfigurationModule -Force -ErrorAction Stop
+
+if ($RetainVerifiedQuality) {
+    $retainedQualityModule = Join-Path $PSScriptRoot 'HubReleaseRetainedQuality.psm1'
+    if (-not (Test-Path -LiteralPath $retainedQualityModule -PathType Leaf)) {
+        throw "Retained Quality deployment module was not found: $retainedQualityModule"
+    }
+    Import-Module $retainedQualityModule -Force -ErrorAction Stop
+}
 
 $applications = @(
     [pscustomobject]@{
@@ -61,6 +77,13 @@ $applications = @(
         MainDll = 'QualityAssurance.Api.dll'
     }
 )
+$qualityApplication = @($applications | Where-Object Name -EQ 'QualityAssurance')[0]
+$deploymentApplications = if ($RetainVerifiedQuality) {
+    @($applications | Where-Object Name -NE $qualityApplication.Name)
+}
+else {
+    @($applications)
+}
 
 $projectTrackerGateway = [pscustomobject]@{
     Site = 'SonAeroPortal'
@@ -69,8 +92,14 @@ $projectTrackerGateway = [pscustomobject]@{
     Port = 5140
 }
 
-function Assert-Administrator {
+function Assert-DeploymentIdentity {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    if ($null -eq $identity -or $identity.IsSystem -or $identity.Name -ieq 'NT AUTHORITY\SYSTEM') {
+        throw 'Run this script interactively as an authorized domain user, not Local System.'
+    }
+    if ($identity.Name -notlike 'SON4L\*') {
+        throw "Run this script as an authorized SON4L domain user, not '$($identity.Name)'."
+    }
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
         throw 'Run this script from an elevated Windows PowerShell session.'
@@ -80,6 +109,19 @@ function Assert-Administrator {
 function Get-FullPath {
     param([Parameter(Mandatory = $true)][string]$Path)
     return [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($Path)).TrimEnd('\')
+}
+
+function Test-PathContainmentOverlap {
+    param(
+        [Parameter(Mandatory = $true)][string]$FirstPath,
+        [Parameter(Mandatory = $true)][string]$SecondPath
+    )
+
+    $first = Get-FullPath -Path $FirstPath
+    $second = Get-FullPath -Path $SecondPath
+    return $first -ieq $second -or
+        $first.StartsWith($second + '\', [StringComparison]::OrdinalIgnoreCase) -or
+        $second.StartsWith($first + '\', [StringComparison]::OrdinalIgnoreCase)
 }
 
 function Assert-ValidWebConfig {
@@ -99,9 +141,11 @@ function Assert-ValidWebConfig {
     if ($aspNetCoreNodes.Count -ne 1) {
         throw "'$Path' must contain exactly one aspNetCore element."
     }
-    $arguments = [string]$aspNetCoreNodes[0].arguments
-    if ($arguments -notmatch [regex]::Escape($MainDll)) {
-        throw "'$Path' does not launch the expected application DLL '$MainDll'."
+    $arguments = ([string]$aspNetCoreNodes[0].arguments).Trim()
+    if ([string]$aspNetCoreNodes[0].processPath -ine 'dotnet' -or
+        [string]$aspNetCoreNodes[0].hostingModel -ine 'inprocess' -or
+        $arguments -cne ".\$MainDll") {
+        throw "'$Path' must launch only '$MainDll' with the approved in-process dotnet command and no application arguments."
     }
 }
 
@@ -290,12 +334,12 @@ function Request-IisState {
 }
 
 function Stop-HubApplications {
-    foreach ($application in $applications) {
+    foreach ($application in $deploymentApplications) {
         Request-IisState -Kind Site -Name $application.Name -State Stopped
     }
-    Wait-IisState -Kind Site -Names @($applications.Name) -State Stopped
+    Wait-IisState -Kind Site -Names @($deploymentApplications.Name) -State Stopped
 
-    $poolNames = @($applications.Name) + @($projectTrackerGateway.Pool)
+    $poolNames = @($deploymentApplications.Name) + @($projectTrackerGateway.Pool)
     foreach ($poolName in $poolNames) {
         Request-IisState -Kind Pool -Name $poolName -State Stopped
     }
@@ -312,13 +356,13 @@ function Start-OneApplication {
 }
 
 function Start-HubApplications {
-    $tracker = @($applications | Where-Object Name -EQ 'ProjectTracker')[0]
+    $tracker = @($deploymentApplications | Where-Object Name -EQ 'ProjectTracker')[0]
     Start-OneApplication -Application $tracker
     Wait-ApplicationHealth -Targets @($tracker) -TimeoutSeconds $HealthTimeoutSeconds
 
     # Start the Portal root while the separate preloaded gateway pool is still stopped. This keeps
     # the gateway's Project Tracker cold start from overlapping the Portal root startup.
-    $portal = @($applications | Where-Object Name -EQ $projectTrackerGateway.Site)[0]
+    $portal = @($deploymentApplications | Where-Object Name -EQ $projectTrackerGateway.Site)[0]
     Start-OneApplication -Application $portal
     Wait-ApplicationHealth -Targets @($portal) -TimeoutSeconds $HealthTimeoutSeconds
 
@@ -326,7 +370,7 @@ function Start-HubApplications {
     Wait-IisState -Kind Pool -Names @($projectTrackerGateway.Pool) -State Started
     Wait-ProjectTrackerGatewayHealth -TimeoutSeconds $HealthTimeoutSeconds
 
-    $remaining = @($applications | Where-Object {
+    $remaining = @($deploymentApplications | Where-Object {
         $_.Name -ne 'ProjectTracker' -and $_.Name -ne $projectTrackerGateway.Site
     })
     # Each application can perform SQL migrations or shared permission seeding before its health
@@ -343,7 +387,7 @@ function Set-IisPhysicalPaths {
 
     $serverManager = New-Object Microsoft.Web.Administration.ServerManager
     try {
-        foreach ($application in $applications) {
+        foreach ($application in $deploymentApplications) {
             $site = $serverManager.Sites[$application.Name]
             if (-not $site) { throw "IIS site '$($application.Name)' disappeared during deployment." }
             $rootApplication = $site.Applications['/']
@@ -388,10 +432,32 @@ function Copy-SanitizedApplication {
     }
 }
 
+function Assert-RetainedQualityPreserved {
+    param(
+        [Parameter(Mandatory = $true)]$ExpectedSnapshot,
+        [Parameter(Mandatory = $true)][string]$PackageQualityPath,
+        [Parameter(Mandatory = $true)][string]$ActiveQualityPath,
+        [Parameter(Mandatory = $true)][string]$Phase
+    )
+
+    [void](Read-QualityProductionConfiguration -Path (
+        Join-Path $ActiveQualityPath 'appsettings.Production.json'))
+    Assert-QualitySanitizedApplicationManifestEqual `
+        -SourceRoot $PackageQualityPath `
+        -CandidateRoot $ActiveQualityPath
+    Assert-HubRetainedQualityBoundaryUnchanged `
+        -ExpectedSnapshot $ExpectedSnapshot `
+        -SiteName $qualityApplication.Name `
+        -PoolName $qualityApplication.Name `
+        -MainDll $qualityApplication.MainDll `
+        -HealthUri "http://localhost:$($qualityApplication.Port)/api/health" `
+        -Phase $Phase
+}
+
 if ($env:COMPUTERNAME -ine $ExpectedComputerName) {
     throw "This script is for $ExpectedComputerName; the current computer is $env:COMPUTERNAME."
 }
-Assert-Administrator
+Assert-DeploymentIdentity
 
 if ($ReleaseId -in @('.', '..')) { throw 'ReleaseId cannot be a relative-path marker.' }
 $packagePath = Get-FullPath -Path $PackageRoot
@@ -408,6 +474,9 @@ if (-not $releasePath.StartsWith($releaseRootPath + '\', [StringComparison]::Ord
 }
 if (Test-Path -LiteralPath $releasePath) {
     throw "Release destination already exists and will not be overwritten: $releasePath"
+}
+if (Test-PathContainmentOverlap -FirstPath $packagePath -SecondPath $releasePath) {
+    throw 'PackageRoot and the release destination cannot contain one another.'
 }
 
 # The script's -WhatIf preference must not suppress loading the read-only IIS
@@ -443,6 +512,12 @@ try {
         $sourcePath = Join-Path $packagePath $application.Folder
         if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) {
             throw "Package application folder is missing: $sourcePath"
+        }
+        if ($RetainVerifiedQuality) {
+            # The retained recovery path is allowed only when every package tree has a stable,
+            # sanitized manifest. This also rejects a reparse-point root, descendant reparse
+            # points, and paths that collide under Windows case-insensitive comparison.
+            [void](Get-QualitySanitizedApplicationManifest -Root $sourcePath)
         }
         $reparsePoints = @(Get-ChildItem -LiteralPath $sourcePath -Recurse -Force | Where-Object {
             ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
@@ -491,11 +566,22 @@ try {
         if (-not (Test-Path -LiteralPath $currentPath -PathType Container)) {
             throw "Current IIS physical path does not exist: $currentPath"
         }
+        if (Test-PathContainmentOverlap -FirstPath $releasePath -SecondPath $currentPath) {
+            throw "Release destination and active IIS path cannot contain one another: $currentPath"
+        }
+        if (Test-PathContainmentOverlap -FirstPath $packagePath -SecondPath $currentPath) {
+            throw "PackageRoot and active IIS path cannot contain one another: $currentPath"
+        }
         $productionSettings = Join-Path $currentPath 'appsettings.Production.json'
         if (-not (Test-Path -LiteralPath $productionSettings -PathType Leaf)) {
             throw "Current production settings are missing: $productionSettings"
         }
         Assert-JsonFile -Path $productionSettings
+        if ($application.Name -eq $qualityApplication.Name) {
+            # Full releases carry Production settings forward; they must never perpetuate a
+            # partial Quality SQL configuration. Repair is owned by the scoped Quality deploy.
+            [void](Read-QualityProductionConfiguration -Path $productionSettings)
+        }
         $currentPaths[$application.Name] = $currentPath
     }
 
@@ -563,10 +649,37 @@ if (-not $currentGatewayHealth.Healthy) {
     throw "The current Project Tracker gateway health endpoint is not HTTP 200. No changes were made. $($currentGatewayHealth.Detail)"
 }
 
+$retainedQualitySnapshot = $null
+$packageQualityPath = Join-Path $packagePath $qualityApplication.Folder
+$activeQualityPath = $currentPaths[$qualityApplication.Name]
+if ($RetainVerifiedQuality) {
+    [void](Read-QualityProductionConfiguration -Path (
+        Join-Path $activeQualityPath 'appsettings.Production.json'))
+    Assert-QualitySanitizedApplicationManifestEqual `
+        -SourceRoot $packageQualityPath `
+        -CandidateRoot $activeQualityPath
+    $retainedQualitySnapshot = Get-HubRetainedQualityBoundarySnapshot `
+        -SiteName $qualityApplication.Name `
+        -PoolName $qualityApplication.Name `
+        -MainDll $qualityApplication.MainDll `
+        -HealthUri "http://localhost:$($qualityApplication.Port)/api/health"
+}
+
+$deploymentAction = if ($RetainVerifiedQuality) {
+    'Create a sanitized immutable release for four applications, retain verified Quality without mutation, switch IIS paths including the Project Tracker gateway, and verify health with rollback on failure'
+}
+else {
+    'Create a sanitized immutable release, switch IIS paths including the Project Tracker gateway, and verify health with rollback on failure'
+}
 if (-not $PSCmdlet.ShouldProcess(
         "$ExpectedComputerName release '$releasePath'",
-        'Create a sanitized immutable release, switch IIS paths including the Project Tracker gateway, and verify health with rollback on failure')) {
-    Write-Output 'WHATIF_READY'
+        $deploymentAction)) {
+    if ($RetainVerifiedQuality) {
+        Write-Output 'WHATIF_READY_HUB_RELEASE_WITH_VERIFIED_QUALITY_RETAINED'
+    }
+    else {
+        Write-Output 'WHATIF_READY'
+    }
     return
 }
 
@@ -579,7 +692,7 @@ $pathsSwitchAttempted = $false
 $newPaths = @{}
 try {
     New-Item -ItemType Directory -Path $releasePath -Force | Out-Null
-    foreach ($application in $applications) {
+    foreach ($application in $deploymentApplications) {
         $sourcePath = Join-Path $packagePath $application.Folder
         $candidatePath = Join-Path $releasePath $application.Folder
         Copy-SanitizedApplication -Source $sourcePath -Destination $candidatePath
@@ -608,10 +721,18 @@ try {
         }
         Assert-ValidWebConfig -Path $candidateWebConfig -MainDll $application.MainDll
         Assert-JsonFile -Path $candidateProductionSettings
+        if ($application.Name -eq $qualityApplication.Name) {
+            [void](Read-QualityProductionConfiguration -Path $candidateProductionSettings)
+        }
         $developmentSettings = @(Get-ChildItem -LiteralPath $candidatePath -Recurse -File -Force |
             Where-Object Name -Like 'appsettings.Development*.json')
         if ($developmentSettings.Count -gt 0) {
             throw "Development configuration was found in candidate '$candidatePath'."
+        }
+        if ($RetainVerifiedQuality) {
+            Assert-QualitySanitizedApplicationManifestEqual `
+                -SourceRoot $sourcePath `
+                -CandidateRoot $candidatePath
         }
 
         & icacls.exe $candidatePath /grant "IIS AppPool\$($application.Name):(OI)(CI)RX" /t /c | Out-Null
@@ -628,19 +749,44 @@ try {
     }
 
     # No live IIS state is touched until every immutable candidate is complete and validated.
+    if ($RetainVerifiedQuality) {
+        Assert-RetainedQualityPreserved `
+            -ExpectedSnapshot $retainedQualitySnapshot `
+            -PackageQualityPath $packageQualityPath `
+            -ActiveQualityPath $activeQualityPath `
+            -Phase 'pre-IIS-mutation verification'
+    }
     $liveIisTouched = $true
     Stop-HubApplications
     $pathsSwitchAttempted = $true
     Set-IisPhysicalPaths -PathsBySite $newPaths
     Start-HubApplications
 
-    [pscustomobject]@{
-        Status = 'HUB_RELEASE_DEPLOYED_AND_HEALTHY'
+    if ($RetainVerifiedQuality) {
+        Assert-RetainedQualityPreserved `
+            -ExpectedSnapshot $retainedQualitySnapshot `
+            -PackageQualityPath $packageQualityPath `
+            -ActiveQualityPath $activeQualityPath `
+            -Phase 'successful deployment verification'
+    }
+
+    $successStatus = if ($RetainVerifiedQuality) {
+        'HUB_RELEASE_DEPLOYED_AND_HEALTHY_WITH_VERIFIED_QUALITY_RETAINED'
+    }
+    else {
+        'HUB_RELEASE_DEPLOYED_AND_HEALTHY'
+    }
+    $successResult = [ordered]@{
+        Status = $successStatus
         ReleaseId = $ReleaseId
         ReleasePath = $releasePath
         PortalUrl = "http://$ExpectedComputerName`:5140"
-    } | Format-List
-    Write-Output 'HUB_RELEASE_DEPLOYED_AND_HEALTHY'
+    }
+    if ($RetainVerifiedQuality) {
+        $successResult.RetainedQualityPath = $activeQualityPath
+    }
+    [pscustomobject]$successResult | Format-List
+    Write-Output $successStatus
 }
 catch {
     $deploymentFailure = $_.Exception.Message
@@ -654,6 +800,16 @@ catch {
         try { Set-IisPhysicalPaths -PathsBySite $currentPaths } catch { $rollbackErrors.Add("Paths: $($_.Exception.Message)") }
     }
     try { Start-HubApplications } catch { $rollbackErrors.Add("Start/health: $($_.Exception.Message)") }
+    if ($RetainVerifiedQuality) {
+        try {
+            Assert-RetainedQualityPreserved `
+                -ExpectedSnapshot $retainedQualitySnapshot `
+                -PackageQualityPath $packageQualityPath `
+                -ActiveQualityPath $activeQualityPath `
+                -Phase 'rollback verification'
+        }
+        catch { $rollbackErrors.Add("Retained Quality: $($_.Exception.Message)") }
+    }
 
     if ($rollbackErrors.Count -eq 0) {
         throw "Release deployment failed and all previous IIS paths were restored healthy. The failed release was retained at '$releasePath'. $deploymentFailure"

@@ -135,6 +135,30 @@ settings byte-for-byte, changes only the Quality IIS path/pool, and restores the
 pool state on failure. Run it as an administrator who also has Quality module access, then apply the
 Portal visibility transaction above.
 
+If the current Quality site is healthy but its active Production JSON predates the dedicated
+`QualityDatabase.Provider` and `ConnectionStrings.QualityStore` leaves, do not use
+`-FirstActivation` and do not edit the active file. Use the same scoped transaction with
+`-RepairMissingProductionDatabaseSettings`. This mode accepts only the reviewed legacy state where
+both leaves are genuinely absent, builds an immutable candidate containing exactly those two values
+from the trusted production template, and rechecks the active/candidate hashes before IIS cutover.
+Require these exact markers:
+
+```text
+WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED
+QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED
+```
+
+After that scoped repair succeeds, the same fresh Hub package can deploy the other four applications
+with `Deploy-HubRelease.ps1 -RetainVerifiedQuality`. This recovery mode requires the package Quality
+artifacts to match the now-active Quality artifacts byte-for-byte except for excluded Production and
+Development JSON, and it verifies the Quality path, IIS state, bindings, authentication, runtime
+environment, configuration hash, critical ACLs, and health without copying, stopping, starting,
+re-ACLing, or repointing Quality. Require
+`WHATIF_READY_HUB_RELEASE_WITH_VERIFIED_QUALITY_RETAINED`, then
+`HUB_RELEASE_DEPLOYED_AND_HEALTHY_WITH_VERIFIED_QUALITY_RETAINED`. Normal full-Hub releases remain
+five-application transactions and reject incomplete Quality Production settings; neither mode
+repairs SQL data or replaces the required pre-deployment database backup.
+
 When a release changes **only Project Tracker** and does not require a Portal, Engineering,
 Estimating, Quality, shared-production-configuration, or cross-module database change, use
 `Deploy-ProjectTrackerRelease.ps1` instead. Continue to build a fresh deterministic Hub staging

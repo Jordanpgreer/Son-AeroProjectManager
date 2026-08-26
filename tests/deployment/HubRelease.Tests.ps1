@@ -30,8 +30,27 @@ if ($parseErrors.Count -gt 0) {
 $source = Get-Content -LiteralPath $ScriptPath -Raw
 
 foreach ($required in @(
+    '[switch]$RetainVerifiedQuality',
+    'NT AUTHORITY\SYSTEM',
+    'authorized SON4L domain user',
+    'Test-PathContainmentOverlap',
+    'PackageRoot and the release destination cannot contain one another.',
+    'Release destination and active IIS path cannot contain one another:',
+    'PackageRoot and active IIS path cannot contain one another:',
     'WHATIF_READY',
     'HUB_RELEASE_DEPLOYED_AND_HEALTHY',
+    'WHATIF_READY_HUB_RELEASE_WITH_VERIFIED_QUALITY_RETAINED',
+    'HUB_RELEASE_DEPLOYED_AND_HEALTHY_WITH_VERIFIED_QUALITY_RETAINED',
+    'QualityAssuranceProductionConfiguration.psm1',
+    'HubReleaseRetainedQuality.psm1',
+    'Read-QualityProductionConfiguration',
+    'approved in-process dotnet command and no application arguments',
+    'Assert-QualitySanitizedApplicationManifestEqual',
+    'Get-HubRetainedQualityBoundarySnapshot',
+    'Assert-HubRetainedQualityBoundaryUnchanged',
+    "-Phase 'pre-IIS-mutation verification'",
+    "-Phase 'successful deployment verification'",
+    "-Phase 'rollback verification'",
     'all previous IIS paths were restored healthy',
     'Last results:',
     'Get-HealthResult -Application $application',
@@ -41,6 +60,93 @@ foreach ($required in @(
     'Wait-ApplicationHealth -Targets @($application) -TimeoutSeconds $HealthTimeoutSeconds'
 )) {
     Assert-True $source.Contains($required) "Hub release script is missing required contract: $required"
+}
+
+foreach ($requiredPattern in @(
+    '(?s)\$deploymentApplications\s*=\s*if\s*\(\$RetainVerifiedQuality\)\s*\{.*?Where-Object\s+Name\s+-NE\s+\$qualityApplication\.Name.*?\}\s*else\s*\{\s*@\(\$applications\)\s*\}',
+    '(?s)if\s*\(\$RetainVerifiedQuality\)\s*\{\s*Write-Output\s+''WHATIF_READY_HUB_RELEASE_WITH_VERIFIED_QUALITY_RETAINED''\s*\}\s*else\s*\{\s*Write-Output\s+''WHATIF_READY''\s*\}',
+    '(?s)\$successStatus\s*=\s*if\s*\(\$RetainVerifiedQuality\)\s*\{\s*''HUB_RELEASE_DEPLOYED_AND_HEALTHY_WITH_VERIFIED_QUALITY_RETAINED''\s*\}\s*else\s*\{\s*''HUB_RELEASE_DEPLOYED_AND_HEALTHY''\s*\}',
+    '(?s)New-Item\s+-ItemType\s+Directory\s+-Path\s+\$releasePath.*?foreach\s*\(\$application\s+in\s+\$deploymentApplications\).*?Copy-SanitizedApplication.*?icacls\.exe\s+\$candidatePath',
+    '(?s)function\s+Set-IisPhysicalPaths\s*\{.*?foreach\s*\(\$application\s+in\s+\$deploymentApplications\)',
+    '(?s)function\s+Stop-HubApplications\s*\{.*?foreach\s*\(\$application\s+in\s+\$deploymentApplications\).*?\$poolNames\s*=\s*@\(\$deploymentApplications\.Name\)',
+    '(?s)function\s+Start-HubApplications\s*\{.*?\$tracker\s*=\s*@\(\$deploymentApplications.*?\$remaining\s*=\s*@\(\$deploymentApplications'
+)) {
+    Assert-True ($source -match $requiredPattern) `
+        "Hub release is missing a retained/full-mode scoping contract: $requiredPattern"
+}
+
+$qualityModuleAssignment = $source.IndexOf(
+    '$qualityProductionConfigurationModule = Join-Path $PSScriptRoot ''QualityAssuranceProductionConfiguration.psm1''')
+$qualityModuleImport = $source.IndexOf(
+    'Import-Module $qualityProductionConfigurationModule -Force -ErrorAction Stop')
+$conditionalRetainBlock = $source.IndexOf('if ($RetainVerifiedQuality)')
+Assert-True ($qualityModuleAssignment -ge 0 -and $qualityModuleImport -gt $qualityModuleAssignment -and
+    $qualityModuleImport -lt $conditionalRetainBlock) `
+    'The full-Hub path does not import the Quality production validator unconditionally.'
+
+$activeQualityValidation = $source.IndexOf(
+    '[void](Read-QualityProductionConfiguration -Path $productionSettings)')
+$whatIfGate = $source.IndexOf('if (-not $PSCmdlet.ShouldProcess(')
+$candidateHash = $source.IndexOf(
+    'Copied production settings hash mismatch for ''$($application.Name)''.')
+$candidateQualityValidation = $source.IndexOf(
+    '[void](Read-QualityProductionConfiguration -Path $candidateProductionSettings)')
+$candidateAcl = $source.IndexOf('& icacls.exe $candidatePath')
+Assert-True ($activeQualityValidation -ge 0 -and $activeQualityValidation -lt $whatIfGate) `
+    'Normal full-Hub preflight does not fail closed on the active Quality Production configuration.'
+Assert-True ($candidateHash -ge 0 -and $candidateQualityValidation -gt $candidateHash -and
+    $candidateQualityValidation -lt $candidateAcl) `
+    'Normal full-Hub candidate preparation does not validate copied Quality settings after its hash and before ACL/live mutation.'
+
+$retainedManifestPreflight = $source.IndexOf(
+    'Assert-QualitySanitizedApplicationManifestEqual', $source.IndexOf('$activeQualityPath ='))
+$retainedSnapshot = $source.IndexOf(
+    '$retainedQualitySnapshot = Get-HubRetainedQualityBoundarySnapshot')
+Assert-True ($retainedManifestPreflight -ge 0 -and $retainedSnapshot -gt $retainedManifestPreflight -and
+    $retainedSnapshot -lt $whatIfGate) `
+    'Retained Quality manifest/configuration/boundary verification is not fail-closed before WhatIf approval.'
+Assert-True (([regex]::Matches($source,
+    '(?m)^\s*Assert-RetainedQualityPreserved\s+')).Count -eq 3) `
+    'Retained Quality must be reverified immediately before IIS mutation, after success, and after rollback.'
+
+$retainedModulePath = Join-Path (Split-Path -Parent $ScriptPath) 'HubReleaseRetainedQuality.psm1'
+Assert-True (Test-Path -LiteralPath $retainedModulePath -PathType Leaf) `
+    'The retained Quality read-only boundary module is missing.'
+$retainedModuleSource = Get-Content -LiteralPath $retainedModulePath -Raw
+foreach ($required in @(
+    'Authentication__Mode',
+    'ProductionConfigurationHash',
+    'CriticalAcls',
+    'Bindings',
+    'PoolConfiguration',
+    'AspNetCoreEnvironmentHash',
+    'PoolEnvironmentHash',
+    'MachineOverrideState',
+    'QualityDatabase__Provider',
+    'ConnectionStrings__QualityStore',
+    'EnvironmentVariableTarget]::Machine',
+    'AnonymousEnabled',
+    'WindowsEnabled',
+    'HealthStatus',
+    'Changed fields:'
+)) {
+    Assert-True $retainedModuleSource.Contains($required) `
+        "Retained Quality boundary snapshot omits required evidence '$required'."
+}
+foreach ($forbiddenMutation in @(
+    'Stop-WebAppPool',
+    'Start-WebAppPool',
+    'Stop-Website',
+    'Start-Website',
+    'CommitChanges',
+    'icacls.exe',
+    'Set-Acl',
+    'Copy-Item',
+    'Move-Item',
+    'Remove-Item'
+)) {
+    Assert-True (-not $retainedModuleSource.Contains($forbiddenMutation)) `
+        "Retained Quality boundary module contains mutation command '$forbiddenMutation'."
 }
 Assert-True (-not $source.Contains(
     'Wait-ApplicationHealth -Targets $remaining -TimeoutSeconds $HealthTimeoutSeconds'
@@ -59,8 +165,11 @@ Assert-True ($rollbackStart -ge 0 -and $rollbackStop -gt $rollbackStart -and
     'Rollback no longer stops candidates, restores every prior path, and verifies prior health in order.'
 
 $functionNames = @(
+    'Get-FullPath',
+    'Test-PathContainmentOverlap',
     'Get-HealthResult',
     'Wait-ApplicationHealth',
+    'Stop-HubApplications',
     'Start-HubApplications'
 )
 $definitions = @(
@@ -73,6 +182,14 @@ $definitions = @(
 Assert-True ($definitions.Count -eq $functionNames.Count) `
     'Could not extract the Hub release startup and health functions.'
 Invoke-Expression (($definitions | ForEach-Object { $_.Extent.Text }) -join [Environment]::NewLine)
+
+$pathTestRoot = Join-Path ([IO.Path]::GetTempPath()) 'hub-release-containment-test'
+Assert-True (Test-PathContainmentOverlap `
+    -FirstPath $pathTestRoot -SecondPath (Join-Path $pathTestRoot 'child')) `
+    'Hub release containment guard did not reject a nested destination.'
+Assert-True (-not (Test-PathContainmentOverlap `
+    -FirstPath $pathTestRoot -SecondPath ($pathTestRoot + '-sibling'))) `
+    'Hub release containment guard rejected a non-overlapping sibling destination.'
 
 $applications = @(
     [pscustomobject]@{ Name = 'ProjectTracker'; Port = 5135 },
@@ -87,6 +204,7 @@ $projectTrackerGateway = [pscustomobject]@{
 }
 $HealthTimeoutSeconds = 321
 $script:calls = New-Object System.Collections.Generic.List[string]
+$deploymentApplications = @($applications)
 
 function Start-OneApplication {
     param([object]$Application)
@@ -130,6 +248,31 @@ $expectedCalls = @(
 )
 Assert-True (($script:calls -join '|') -ceq ($expectedCalls -join '|')) `
     "Hub applications were not started and verified serially. Actual: $($script:calls -join '|')"
+
+# Retain mode keeps the verified Quality site and pool completely outside the start sequence,
+# while preserving Project Tracker -> Portal -> gateway ordering for the other four modules.
+$script:calls.Clear()
+$deploymentApplications = @($applications | Where-Object Name -NE 'QualityAssurance')
+Start-HubApplications
+$expectedRetainedCalls = @($expectedCalls | Where-Object { $_ -notmatch 'QualityAssurance' })
+Assert-True (($script:calls -join '|') -ceq ($expectedRetainedCalls -join '|')) `
+    "Retain mode started or health-probed Quality, or changed gateway ordering. Actual: $($script:calls -join '|')"
+
+$script:calls.Clear()
+Stop-HubApplications
+Assert-True (@($script:calls | Where-Object { $_ -match 'QualityAssurance' }).Count -eq 0) `
+    'Retain mode stopped or waited on the verified Quality site or pool.'
+Assert-True (($script:calls -join '|') -like '*request:Pool:ProjectTrackerAdminGateway:Stopped*') `
+    'Retain mode stopped excluding Quality but failed to retain the Project Tracker gateway transaction.'
+
+# The normal full mode remains a five-application transaction.
+$script:calls.Clear()
+$deploymentApplications = @($applications)
+Stop-HubApplications
+Assert-True (@($script:calls | Where-Object {
+    $_ -ceq 'request:Site:QualityAssurance:Stopped' -or
+    $_ -ceq 'request:Pool:QualityAssurance:Stopped'
+}).Count -eq 2) 'Normal full mode no longer stops both the Quality site and pool.'
 
 $script:calls.Clear()
 function Wait-ProjectTrackerGatewayHealth {

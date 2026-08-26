@@ -3,8 +3,9 @@
 
     Use -FirstActivation only when the current Quality application cannot become healthy before the
     corrected SQL Server migration chain is installed. Normal updates require the current endpoint
-    to be healthy. The active Production settings are preserved byte-for-byte, the candidate must
-    become healthy, and a failed cutover restores the exact prior IIS path and pool state.
+    to be healthy. The active Production settings are never modified; normal candidates preserve
+    them byte-for-byte, and repair candidates add only the two reviewed missing database leaves.
+    The candidate must become healthy, and a failed cutover restores the prior IIS path and state.
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
@@ -22,6 +23,8 @@ param(
 
     [switch]$FirstActivation,
 
+    [switch]$RepairMissingProductionDatabaseSettings,
+
     [ValidateRange(30, 600)]
     [int]$HealthTimeoutSeconds = 180
 )
@@ -33,6 +36,33 @@ $packageFolder = 'QualityAssurance'
 $mainDll = 'QualityAssurance.Api.dll'
 $healthUri = 'https://quality.hub.son4l.local/api/health'
 $httpPort = 5170
+$blockedOverrideNames = @(
+    'Authentication__Mode',
+    'Authentication:Mode',
+    'Database__Provider',
+    'Database:Provider',
+    'QualityDatabase__Provider',
+    'QualityDatabase:Provider',
+    'ConnectionStrings__ModuleAccessStore',
+    'ConnectionStrings:ModuleAccessStore',
+    'ConnectionStrings__QualityStore',
+    'ConnectionStrings:QualityStore',
+    'SQLCONNSTR_ModuleAccessStore',
+    'SQLAZURECONNSTR_ModuleAccessStore',
+    'MYSQLCONNSTR_ModuleAccessStore',
+    'CUSTOMCONNSTR_ModuleAccessStore',
+    'SQLCONNSTR_QualityStore',
+    'SQLAZURECONNSTR_QualityStore',
+    'MYSQLCONNSTR_QualityStore',
+    'CUSTOMCONNSTR_QualityStore'
+)
+$environmentSelectorNames = @('ASPNETCORE_ENVIRONMENT', 'DOTNET_ENVIRONMENT')
+$configurationModule = Join-Path $PSScriptRoot 'QualityAssuranceProductionConfiguration.psm1'
+$productionTemplate = Join-Path $PSScriptRoot 'templates\quality-assurance.appsettings.Production.json'
+if (-not (Test-Path -LiteralPath $configurationModule -PathType Leaf)) {
+    throw "Quality Production configuration module is missing: $configurationModule"
+}
+Import-Module $configurationModule -Force -ErrorAction Stop
 
 function Assert-DeploymentIdentity {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -65,6 +95,24 @@ function Test-PathContainmentOverlap {
         $second.StartsWith($first + '\', [StringComparison]::OrdinalIgnoreCase)
 }
 
+function Assert-QualityEnvironmentVariable {
+    param(
+        [AllowEmptyString()][string]$Name,
+        [AllowEmptyString()][string]$Value,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        throw "$Label contains an environment variable without a name."
+    }
+    if ($Name -in $blockedOverrideNames) {
+        throw "$Label must not override '$Name'."
+    }
+    if ($Name -in $environmentSelectorNames -and $Value -cne 'Production') {
+        throw "$Label must not set '$Name' to a non-Production environment."
+    }
+}
+
 function Assert-ValidWebConfig {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -74,33 +122,18 @@ function Assert-ValidWebConfig {
     catch { throw "Invalid web.config XML at '$Path': $($_.Exception.Message)" }
     $nodes = @($configuration.SelectNodes('//aspNetCore'))
     if ($nodes.Count -ne 1) { throw "'$Path' must contain exactly one aspNetCore element." }
-    if ([string]$nodes[0].arguments -notmatch [regex]::Escape($ExpectedMainDll)) {
-        throw "'$Path' does not launch the expected application DLL '$ExpectedMainDll'."
+    if ([string]$nodes[0].processPath -ine 'dotnet' -or
+        [string]$nodes[0].hostingModel -ine 'inprocess' -or
+        ([string]$nodes[0].arguments).Trim() -cne ".\$ExpectedMainDll") {
+        throw "'$Path' must launch only '$ExpectedMainDll' with the approved in-process dotnet command and no application arguments."
     }
-}
-
-function Read-QualityProductionConfiguration {
-    param([Parameter(Mandatory = $true)][string]$Path)
-    try {
-        $content = Get-Content -LiteralPath $Path -Raw
-        if ([string]::IsNullOrWhiteSpace($content)) { throw 'The file is empty.' }
-        $configuration = $content | ConvertFrom-Json -ErrorAction Stop
+    $environmentNodes = @($configuration.SelectNodes('//aspNetCore/environmentVariables/environmentVariable'))
+    foreach ($environmentNode in $environmentNodes) {
+        Assert-QualityEnvironmentVariable `
+            -Name ([string]$environmentNode.name) `
+            -Value ([string]$environmentNode.value) `
+            -Label "Quality web.config '$Path'"
     }
-    catch { throw "Invalid Quality Production JSON at '$Path': $($_.Exception.Message)" }
-
-    if ([string]$configuration.Authentication.Mode -cne 'Windows') {
-        throw "Quality Production configuration must use Windows authentication: $Path"
-    }
-    if ([string]$configuration.Database.Provider -cne 'SqlServer' -or
-        [string]$configuration.QualityDatabase.Provider -cne 'SqlServer') {
-        throw "Quality Production configuration must use SQL Server for both database providers: $Path"
-    }
-    $qualityStore = [string]$configuration.ConnectionStrings.QualityStore
-    if ([string]::IsNullOrWhiteSpace($qualityStore) -or
-        $qualityStore -notmatch '(?i)(?:^|;)\s*(?:Database|Initial Catalog)\s*=\s*QualityAssurance\s*(?:;|$)') {
-        throw "Quality Production configuration must target the QualityAssurance database: $Path"
-    }
-    return $configuration
 }
 
 function Copy-SanitizedApplication {
@@ -213,6 +246,34 @@ function Get-QualityIisBoundary {
             throw "Quality must retain exactly one HTTP binding '*:${httpPort}:'."
         }
         $configuration = $manager.GetApplicationHostConfiguration()
+        $poolSection = $configuration.GetSection('system.applicationHost/applicationPools')
+        $poolElement = @($poolSection.GetCollection() | Where-Object {
+            [string]$_.GetAttributeValue('name') -ieq $poolName
+        })[0]
+        if ($null -eq $poolElement) { throw "Quality pool '$poolName' is missing from IIS configuration." }
+        foreach ($environmentVariable in @($poolElement.GetCollection('environmentVariables'))) {
+            Assert-QualityEnvironmentVariable `
+                -Name ([string]$environmentVariable.GetAttributeValue('name')) `
+                -Value ([string]$environmentVariable.GetAttributeValue('value')) `
+                -Label "Quality IIS pool '$poolName'"
+        }
+        $poolDefaultsElement = $poolSection.GetChildElement('applicationPoolDefaults')
+        if ($null -eq $poolDefaultsElement) {
+            throw 'IIS application-pool defaults configuration is missing.'
+        }
+        foreach ($environmentVariable in @($poolDefaultsElement.GetCollection('environmentVariables'))) {
+            Assert-QualityEnvironmentVariable `
+                -Name ([string]$environmentVariable.GetAttributeValue('name')) `
+                -Value ([string]$environmentVariable.GetAttributeValue('value')) `
+                -Label 'IIS application-pool defaults configuration'
+        }
+        $aspNetCoreSection = $configuration.GetSection('system.webServer/aspNetCore', $siteName)
+        foreach ($environmentVariable in @($aspNetCoreSection.GetCollection('environmentVariables'))) {
+            Assert-QualityEnvironmentVariable `
+                -Name ([string]$environmentVariable.GetAttributeValue('name')) `
+                -Value ([string]$environmentVariable.GetAttributeValue('value')) `
+                -Label "Quality IIS application '$siteName'"
+        }
         $anonymousEnabled = [bool]$configuration.GetSection(
             'system.webServer/security/authentication/anonymousAuthentication', $siteName).GetAttributeValue('enabled')
         $windowsEnabled = [bool]$configuration.GetSection(
@@ -309,6 +370,22 @@ if ($env:COMPUTERNAME -ine $ExpectedComputerName) {
     throw "This script is for $ExpectedComputerName; the current computer is $env:COMPUTERNAME."
 }
 Assert-DeploymentIdentity
+if ($FirstActivation -and $RepairMissingProductionDatabaseSettings) {
+    throw '-FirstActivation and -RepairMissingProductionDatabaseSettings are mutually exclusive.'
+}
+foreach ($blockedOverrideName in $blockedOverrideNames) {
+    if ($null -ne [Environment]::GetEnvironmentVariable(
+            $blockedOverrideName, [EnvironmentVariableTarget]::Machine)) {
+        throw "Machine environment variable '$blockedOverrideName' must not override Quality Production settings."
+    }
+}
+foreach ($environmentSelectorName in $environmentSelectorNames) {
+    $environmentSelectorValue = [Environment]::GetEnvironmentVariable(
+        $environmentSelectorName, [EnvironmentVariableTarget]::Machine)
+    if ($null -ne $environmentSelectorValue -and $environmentSelectorValue -cne 'Production') {
+        throw "Machine environment variable '$environmentSelectorName' must not select a non-Production environment."
+    }
+}
 if ($ReleaseId -in @('.', '..')) { throw 'ReleaseId cannot be a relative-path marker.' }
 $packagePath = Get-FullPath -Path $PackageRoot
 $sourcePath = Join-Path $packagePath $packageFolder
@@ -339,6 +416,7 @@ Assert-ValidWebConfig -Path (Join-Path $sourcePath 'web.config') -ExpectedMainDl
 if (-not (Test-Path -LiteralPath (Join-Path $sourcePath $mainDll) -PathType Leaf)) {
     throw "Package DLL is missing: $mainDll"
 }
+[void](Get-QualitySanitizedApplicationManifest -Root $sourcePath)
 
 $priorWhatIfPreference = $WhatIfPreference
 try { $WhatIfPreference = $false; Import-Module WebAdministration -ErrorAction Stop }
@@ -365,7 +443,15 @@ $currentProductionSettings = Join-Path $currentPath 'appsettings.Production.json
 if (-not (Test-Path -LiteralPath $currentProductionSettings -PathType Leaf)) {
     throw "Quality Production settings are missing: $currentProductionSettings"
 }
-[void](Read-QualityProductionConfiguration -Path $currentProductionSettings)
+$currentProductionHash = (Get-FileHash -LiteralPath $currentProductionSettings -Algorithm SHA256).Hash
+$repairPlan = if ($RepairMissingProductionDatabaseSettings) {
+    New-QualityProductionDatabaseConfigurationRepair -ActivePath $currentProductionSettings `
+        -TemplatePath $productionTemplate
+}
+else {
+    [void](Read-QualityProductionConfiguration -Path $currentProductionSettings)
+    $null
+}
 $priorPoolState = Get-PoolStateValue
 $currentHealth = Get-HealthResult -Uri $healthUri
 $currentHealthy = [bool]$currentHealth.Healthy
@@ -374,8 +460,16 @@ Assert-QualityActivationState -PoolState $priorPoolState -Healthy $currentHealth
 
 if (-not $PSCmdlet.ShouldProcess(
         "$ExpectedComputerName Quality release '$releasePath'",
-        'Create an immutable Quality release, switch only its IIS path, and verify candidate health with exact path/state rollback')) {
-    Write-Output 'WHATIF_READY_QUALITY_ASSURANCE_RELEASE'
+        $(if ($RepairMissingProductionDatabaseSettings) {
+            'Create an immutable Quality release with only the two missing Production database settings, switch only its IIS path, and verify candidate health with exact path/state rollback'
+        }
+        else {
+            'Create an immutable Quality release, switch only its IIS path, and verify candidate health with exact path/state rollback'
+        }))) {
+    if ($RepairMissingProductionDatabaseSettings) {
+        Write-Output 'WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED'
+    }
+    else { Write-Output 'WHATIF_READY_QUALITY_ASSURANCE_RELEASE' }
     return
 }
 if (Test-Path -LiteralPath $releasePath) { throw "Release destination appeared after preflight: $releasePath" }
@@ -384,12 +478,19 @@ try {
     New-Item -ItemType Directory -Path $releaseRootPath -Force | Out-Null
     Copy-SanitizedApplication -Source $sourcePath -Destination $releasePath
     $candidateProductionSettings = Join-Path $releasePath 'appsettings.Production.json'
-    Copy-Item -LiteralPath $currentProductionSettings -Destination $candidateProductionSettings
-    if ((Get-FileHash -Algorithm SHA256 -LiteralPath $currentProductionSettings).Hash -ne
-        (Get-FileHash -Algorithm SHA256 -LiteralPath $candidateProductionSettings).Hash) {
-        throw 'Copied Quality Production settings hash mismatch.'
+    if ($RepairMissingProductionDatabaseSettings) {
+        [IO.File]::WriteAllBytes($candidateProductionSettings, [byte[]]$repairPlan.Utf8Bytes)
+    }
+    else {
+        Copy-Item -LiteralPath $currentProductionSettings -Destination $candidateProductionSettings
+        if ($currentProductionHash -ne
+            (Get-FileHash -Algorithm SHA256 -LiteralPath $candidateProductionSettings).Hash) {
+            throw 'Copied Quality Production settings hash mismatch.'
+        }
     }
     [void](Read-QualityProductionConfiguration -Path $candidateProductionSettings)
+    $candidateProductionHash = (Get-FileHash -LiteralPath $candidateProductionSettings -Algorithm SHA256).Hash
+    Assert-QualitySanitizedApplicationManifestEqual -SourceRoot $sourcePath -CandidateRoot $releasePath
     Assert-ValidWebConfig -Path (Join-Path $releasePath 'web.config') -ExpectedMainDll $mainDll
     if (-not (Test-Path -LiteralPath (Join-Path $releasePath $mainDll) -PathType Leaf)) {
         throw "Candidate application DLL is missing: $mainDll"
@@ -419,14 +520,28 @@ if ((Get-WebsiteState -Name $siteName).Value -ne 'Started') {
 $cutoverHealth = Get-HealthResult -Uri $healthUri
 Assert-QualityActivationState -PoolState (Get-PoolStateValue) -Healthy ([bool]$cutoverHealth.Healthy) `
     -FirstActivationRequested ([bool]$FirstActivation) -Phase 'cutover preflight'
+Assert-QualitySanitizedApplicationManifestEqual -SourceRoot $sourcePath -CandidateRoot $releasePath
+if ((Get-FileHash -LiteralPath $currentProductionSettings -Algorithm SHA256).Hash -ne $currentProductionHash) {
+    throw "Active Quality Production settings changed during candidate preparation. No IIS state was changed; the candidate was retained at '$releasePath'."
+}
+if ((Get-FileHash -LiteralPath $candidateProductionSettings -Algorithm SHA256).Hash -ne $candidateProductionHash) {
+    throw "Candidate Quality Production settings changed after validation. No IIS state was changed; the candidate was retained at '$releasePath'."
+}
 
 Invoke-QualityIisSwitch -CurrentPath $currentPath -CandidatePath $releasePath `
     -PriorPoolState $priorPoolState -PriorWasHealthy $currentHealthy
 
 [pscustomobject]@{
-    Status = 'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY'
+    Status = if ($RepairMissingProductionDatabaseSettings) {
+        'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED'
+    }
+    else { 'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY' }
     ReleaseId = $ReleaseId
     ReleasePath = $releasePath
     FirstActivation = [bool]$FirstActivation
+    ProductionDatabaseSettingsRepaired = [bool]$RepairMissingProductionDatabaseSettings
 } | Format-List
-Write-Output 'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY'
+if ($RepairMissingProductionDatabaseSettings) {
+    Write-Output 'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED'
+}
+else { Write-Output 'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY' }

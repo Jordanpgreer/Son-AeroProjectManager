@@ -22,6 +22,7 @@ $source = Get-Content -LiteralPath $ScriptPath -Raw
 
 foreach ($required in @(
     '[switch]$FirstActivation',
+    '[switch]$RepairMissingProductionDatabaseSettings',
     "[ValidateSet('SON-IIS2')]",
     "`$siteName = 'QualityAssurance'",
     "`$poolName = 'QualityAssurance'",
@@ -34,11 +35,28 @@ foreach ($required in @(
     'Get-FileHash -Algorithm SHA256',
     'IIS AppPool\$poolName',
     'Restore-PriorQualityRuntime',
+    'QualityAssuranceProductionConfiguration.psm1',
+    'Import-Module $configurationModule -Force -ErrorAction Stop',
+    'New-QualityProductionDatabaseConfigurationRepair',
+    'Get-QualitySanitizedApplicationManifest',
+    'Assert-QualitySanitizedApplicationManifestEqual',
+    'Authentication__Mode',
+    'Database__Provider',
+    'ConnectionStrings__ModuleAccessStore',
+    'ConnectionStrings__QualityStore',
+    'SQLCONNSTR_QualityStore',
+    'ASPNETCORE_ENVIRONMENT',
+    'DOTNET_ENVIRONMENT',
+    "GetChildElement('applicationPoolDefaults')",
+    'approved in-process dotnet command and no application arguments',
     'Set-QualityPhysicalPath -Path $CandidatePath',
     'Set-QualityPhysicalPath -Path $PriorPath',
     'Wait-QualityHealth -TimeoutSeconds $HealthTimeoutSeconds',
     'WHATIF_READY_QUALITY_ASSURANCE_RELEASE',
-    'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY'
+    'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY',
+    'WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED',
+    'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED',
+    '-FirstActivation and -RepairMissingProductionDatabaseSettings are mutually exclusive.'
 )) {
     if (-not $source.Contains($required)) {
         throw "Quality release script is missing required guard: $required"
@@ -58,23 +76,63 @@ foreach ($forbidden in @(
     }
 }
 
+$manifestPreflight = $source.IndexOf(
+    '[void](Get-QualitySanitizedApplicationManifest -Root $sourcePath)')
+$productionHash = $source.IndexOf(
+    '$currentProductionHash = (Get-FileHash -LiteralPath $currentProductionSettings -Algorithm SHA256).Hash')
+$repairPlan = $source.IndexOf('$repairPlan = if ($RepairMissingProductionDatabaseSettings)')
 $firstActivationGuard = $source.IndexOf(
     "Assert-QualityActivationState -PoolState `$priorPoolState -Healthy `$currentHealthy")
 $whatIfGate = $source.IndexOf('if (-not $PSCmdlet.ShouldProcess(')
 $releaseCreation = $source.IndexOf('New-Item -ItemType Directory -Path $releaseRootPath -Force')
 $candidateCopy = $source.IndexOf('Copy-SanitizedApplication -Source $sourcePath -Destination $releasePath')
+$candidateConfiguration = $source.IndexOf(
+    '[void](Read-QualityProductionConfiguration -Path $candidateProductionSettings)')
+$candidateManifest = $source.IndexOf(
+    'Assert-QualitySanitizedApplicationManifestEqual -SourceRoot $sourcePath -CandidateRoot $releasePath')
+$activeHashRecheck = $source.IndexOf(
+    '(Get-FileHash -LiteralPath $currentProductionSettings -Algorithm SHA256).Hash -ne $currentProductionHash')
 $cutover = $source.IndexOf('Invoke-QualityIisSwitch -CurrentPath $currentPath -CandidatePath $releasePath')
-if ($firstActivationGuard -lt 0 -or $whatIfGate -lt 0 -or $releaseCreation -lt 0 -or
-    $candidateCopy -lt 0 -or $cutover -lt 0 -or
-    $firstActivationGuard -gt $whatIfGate -or $whatIfGate -gt $releaseCreation -or
-    $releaseCreation -gt $candidateCopy -or $candidateCopy -gt $cutover) {
-    throw 'Quality first-activation, WhatIf, candidate preparation, and cutover ordering is unsafe.'
+if ($manifestPreflight -lt 0 -or $productionHash -lt 0 -or $repairPlan -lt 0 -or
+    $firstActivationGuard -lt 0 -or $whatIfGate -lt 0 -or $releaseCreation -lt 0 -or
+    $candidateCopy -lt 0 -or $candidateConfiguration -lt 0 -or $candidateManifest -lt 0 -or
+    $activeHashRecheck -lt 0 -or $cutover -lt 0 -or
+    $manifestPreflight -gt $productionHash -or $productionHash -gt $repairPlan -or
+    $repairPlan -gt $firstActivationGuard -or $firstActivationGuard -gt $whatIfGate -or
+    $whatIfGate -gt $releaseCreation -or $releaseCreation -gt $candidateCopy -or
+    $candidateCopy -gt $candidateConfiguration -or
+    $candidateConfiguration -gt $candidateManifest -or
+    $candidateManifest -gt $activeHashRecheck -or $activeHashRecheck -gt $cutover) {
+    throw 'Quality configuration, WhatIf, immutable candidate, and cutover ordering is unsafe.'
+}
+
+foreach ($requiredPattern in @(
+    '(?s)if\s*\(\$FirstActivation\s+-and\s+\$RepairMissingProductionDatabaseSettings\)\s*\{\s*throw\s+''-FirstActivation and -RepairMissingProductionDatabaseSettings are mutually exclusive\.''\s*\}',
+    '(?s)\$repairPlan\s*=\s*if\s*\(\$RepairMissingProductionDatabaseSettings\).*?New-QualityProductionDatabaseConfigurationRepair\s+-ActivePath\s+\$currentProductionSettings\s+`?\s*-TemplatePath\s+\$productionTemplate',
+    '(?s)if\s*\(\$RepairMissingProductionDatabaseSettings\)\s*\{\s*\[IO\.File\]::WriteAllBytes\(\$candidateProductionSettings,\s*\[byte\[\]\]\$repairPlan\.Utf8Bytes\)',
+    '(?s)else\s*\{\s*Copy-Item\s+-LiteralPath\s+\$currentProductionSettings\s+-Destination\s+\$candidateProductionSettings.*?Copied Quality Production settings hash mismatch',
+    '(?s)if\s*\(\$RepairMissingProductionDatabaseSettings\)\s*\{\s*Write-Output\s+''WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED''\s*\}\s*else\s*\{\s*Write-Output\s+''WHATIF_READY_QUALITY_ASSURANCE_RELEASE''\s*\}',
+    '(?s)if\s*\(\$RepairMissingProductionDatabaseSettings\)\s*\{\s*Write-Output\s+''QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED''\s*\}\s*else\s*\{\s*Write-Output\s+''QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY''\s*\}'
+)) {
+    if ($source -notmatch $requiredPattern) {
+        throw "Quality release script is missing a bounded repair/normal-mode branch: $requiredPattern"
+    }
+}
+if (([regex]::Matches(
+        $source,
+        '-FirstActivationRequested\s+\(\[bool\]\$FirstActivation\)')).Count -ne 2) {
+    throw 'Repair mode must retain normal healthy-current preflight and cutover semantics; only FirstActivation may admit an unhealthy current release.'
+}
+if ($source -match '(?s)WriteAllBytes\s*\(\s*\$currentProductionSettings' -or
+    $source -match '(?s)Set-Content\s+[^\r\n]*\$currentProductionSettings' -or
+    $source -match '(?s)Out-File\s+[^\r\n]*\$currentProductionSettings') {
+    throw 'Quality repair mode can write the active Production configuration instead of only the offline candidate.'
 }
 
 $functionNames = @(
     'Get-FullPath',
     'Test-PathContainmentOverlap',
-    'Read-QualityProductionConfiguration',
+    'Assert-ValidWebConfig',
     'Assert-QualityActivationState',
     'Invoke-QualityIisSwitch'
 )
@@ -156,29 +214,25 @@ try {
         throw 'Sibling release paths were incorrectly treated as overlapping.'
     }
 
-    $validConfiguration = Join-Path $testRoot 'valid.json'
-    @'
-{
-  "Authentication": { "Mode": "Windows" },
-  "Database": { "Provider": "SqlServer" },
-  "QualityDatabase": { "Provider": "SqlServer" },
-  "ConnectionStrings": { "QualityStore": "Server=SON-SQL2;Database=QualityAssurance;Trusted_Connection=True" }
-}
-'@ | Set-Content -LiteralPath $validConfiguration -Encoding UTF8
-    [void](Read-QualityProductionConfiguration -Path $validConfiguration)
-
-    foreach ($invalidJson in @(
-        '{"Authentication":{"Mode":"Development"},"Database":{"Provider":"SqlServer"},"QualityDatabase":{"Provider":"SqlServer"},"ConnectionStrings":{"QualityStore":"Server=SON-SQL2;Database=QualityAssurance"}}',
-        '{"Authentication":{"Mode":"Windows"},"Database":{"Provider":"Sqlite"},"QualityDatabase":{"Provider":"SqlServer"},"ConnectionStrings":{"QualityStore":"Server=SON-SQL2;Database=QualityAssurance"}}',
-        '{"Authentication":{"Mode":"Windows"},"Database":{"Provider":"SqlServer"},"QualityDatabase":{"Provider":"SqlServer"},"ConnectionStrings":{"QualityStore":"Server=SON-SQL2;Database=WrongDatabase"}}'
-    )) {
-        $invalidPath = Join-Path $testRoot ([Guid]::NewGuid().ToString('N') + '.json')
-        $invalidJson | Set-Content -LiteralPath $invalidPath -Encoding UTF8
-        $failed = $false
-        try { [void](Read-QualityProductionConfiguration -Path $invalidPath) }
-        catch { $failed = $true }
-        if (-not $failed) { throw "Invalid Quality Production settings were accepted: $invalidJson" }
+    $safeWebConfig = Join-Path $testRoot 'safe.web.config'
+    $unsafeWebConfig = Join-Path $testRoot 'unsafe.web.config'
+    [IO.File]::WriteAllText($safeWebConfig, @'
+<configuration><system.webServer><aspNetCore processPath="dotnet" arguments=".\QualityAssurance.Api.dll" hostingModel="inprocess" /></system.webServer></configuration>
+'@)
+    Assert-ValidWebConfig -Path $safeWebConfig -ExpectedMainDll 'QualityAssurance.Api.dll'
+    [IO.File]::WriteAllText($unsafeWebConfig, @'
+<configuration><system.webServer><aspNetCore processPath="dotnet" arguments=".\QualityAssurance.Api.dll --ConnectionStrings:QualityStore=Server=attacker" hostingModel="inprocess" /></system.webServer></configuration>
+'@)
+    $unsafeArgumentsAccepted = $false
+    try {
+        Assert-ValidWebConfig -Path $unsafeWebConfig -ExpectedMainDll 'QualityAssurance.Api.dll'
+        $unsafeArgumentsAccepted = $true
     }
+    catch {}
+    if ($unsafeArgumentsAccepted) {
+        throw 'Quality web.config accepted command-line configuration overrides.'
+    }
+
 }
 finally {
     Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
