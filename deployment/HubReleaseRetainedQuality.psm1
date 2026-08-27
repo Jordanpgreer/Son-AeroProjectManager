@@ -1,4 +1,5 @@
 Set-StrictMode -Version 2.0
+$ErrorActionPreference = 'Stop'
 
 $script:BlockedQualityEnvironmentVariables = @(
     'Authentication__Mode',
@@ -21,6 +22,28 @@ $script:BlockedQualityEnvironmentVariables = @(
     'CUSTOMCONNSTR_QualityStore'
 )
 $script:EnvironmentSelectorVariables = @('ASPNETCORE_ENVIRONMENT', 'DOTNET_ENVIRONMENT')
+
+function Get-RetainedQualityBooleanAttribute {
+    param(
+        [Parameter(Mandatory = $true)]$Element,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    try {
+        $value = $Element.GetAttributeValue($Name)
+    }
+    catch {
+        throw "Unable to read $Label attribute '$Name': $($_.Exception.Message)"
+    }
+    if ($null -eq $value) {
+        throw "$Label attribute '$Name' is missing; retained-boundary evidence is incomplete."
+    }
+    if ($value -isnot [bool]) {
+        throw "$Label attribute '$Name' must be Boolean, not '$($value.GetType().FullName)'."
+    }
+    return [bool]$value
+}
 
 function Get-RetainedQualityEnvironmentHash {
     param(
@@ -243,6 +266,11 @@ function Get-HubRetainedQualityBoundarySnapshot {
             throw "Retained Quality health verification did not return HTTP 200 at '$HealthUri'."
         }
 
+        $rootPreloadEnabled = Get-RetainedQualityBooleanAttribute `
+            -Element $rootApplication `
+            -Name 'preloadEnabled' `
+            -Label 'Retained Quality root application'
+
         return [pscustomobject]@{
             QualityPath = $qualityPath
             SiteId = [uint64]$site.Id
@@ -251,7 +279,7 @@ function Get-HubRetainedQualityBoundarySnapshot {
             PoolState = $poolState
             RootApplicationPool = [string]$rootApplication.ApplicationPoolName
             RootEnabledProtocols = [string]$rootApplication.EnabledProtocols
-            RootPreloadEnabled = [bool]$rootApplication.PreloadEnabled
+            RootPreloadEnabled = $rootPreloadEnabled
             Bindings = @(Get-RetainedQualityBindingRecords -Site $site)
             AnonymousEnabled = $anonymousEnabled
             WindowsEnabled = $windowsEnabled

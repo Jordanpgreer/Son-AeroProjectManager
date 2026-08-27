@@ -663,6 +663,9 @@ if ($RetainVerifiedQuality) {
         -PoolName $qualityApplication.Name `
         -MainDll $qualityApplication.MainDll `
         -HealthUri "http://localhost:$($qualityApplication.Port)/api/health"
+    if ($null -eq $retainedQualitySnapshot) {
+        throw 'Retained Quality boundary snapshot was not captured. No changes were made.'
+    }
 }
 
 $deploymentAction = if ($RetainVerifiedQuality) {

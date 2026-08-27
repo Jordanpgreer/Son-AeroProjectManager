@@ -102,9 +102,14 @@ $retainedManifestPreflight = $source.IndexOf(
     'Assert-QualitySanitizedApplicationManifestEqual', $source.IndexOf('$activeQualityPath ='))
 $retainedSnapshot = $source.IndexOf(
     '$retainedQualitySnapshot = Get-HubRetainedQualityBoundarySnapshot')
+$retainedSnapshotGuard = $source.IndexOf(
+    'if ($null -eq $retainedQualitySnapshot)')
 Assert-True ($retainedManifestPreflight -ge 0 -and $retainedSnapshot -gt $retainedManifestPreflight -and
     $retainedSnapshot -lt $whatIfGate) `
     'Retained Quality manifest/configuration/boundary verification is not fail-closed before WhatIf approval.'
+Assert-True ($retainedSnapshotGuard -gt $retainedSnapshot -and
+    $retainedSnapshotGuard -lt $whatIfGate) `
+    'A missing retained Quality snapshot can reach WhatIf approval.'
 Assert-True (([regex]::Matches($source,
     '(?m)^\s*Assert-RetainedQualityPreserved\s+')).Count -eq 3) `
     'Retained Quality must be reverified immediately before IIS mutation, after success, and after rollback.'
@@ -113,6 +118,14 @@ $retainedModulePath = Join-Path (Split-Path -Parent $ScriptPath) 'HubReleaseReta
 Assert-True (Test-Path -LiteralPath $retainedModulePath -PathType Leaf) `
     'The retained Quality read-only boundary module is missing.'
 $retainedModuleSource = Get-Content -LiteralPath $retainedModulePath -Raw
+$retainedModuleTokens = $null
+$retainedModuleParseErrors = $null
+$retainedModuleAst = [Management.Automation.Language.Parser]::ParseFile(
+    (Resolve-Path $retainedModulePath), [ref]$retainedModuleTokens,
+    [ref]$retainedModuleParseErrors
+)
+Assert-True ($retainedModuleParseErrors.Count -eq 0) `
+    "Retained Quality module has syntax errors: $($retainedModuleParseErrors.Message -join '; ')"
 foreach ($required in @(
     'Authentication__Mode',
     'ProductionConfigurationHash',
@@ -133,6 +146,77 @@ foreach ($required in @(
     Assert-True $retainedModuleSource.Contains($required) `
         "Retained Quality boundary snapshot omits required evidence '$required'."
 }
+Assert-True (-not $retainedModuleSource.Contains('$rootApplication.PreloadEnabled')) `
+    'Retained Quality uses the incompatible direct PreloadEnabled CLR property.'
+Assert-True ($retainedModuleSource.Contains("-Name 'preloadEnabled'")) `
+    'Retained Quality does not read preloadEnabled through the IIS configuration attribute API.'
+Assert-True ($retainedModuleSource.Contains("`$ErrorActionPreference = 'Stop'")) `
+    'Retained Quality snapshot errors are not terminating.'
+
+$booleanAttributeDefinition = @($retainedModuleAst.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Get-RetainedQualityBooleanAttribute'
+}, $true))[0]
+Assert-True ($null -ne $booleanAttributeDefinition) `
+    'Could not extract the retained Quality Boolean-attribute reader.'
+Invoke-Expression $booleanAttributeDefinition.Extent.Text
+
+function New-FakeRetainedQualityApplication {
+    param([AllowNull()]$AttributeValue)
+
+    $application = [pscustomobject]@{ AttributeValue = $AttributeValue }
+    $application | Add-Member -MemberType ScriptMethod -Name GetAttributeValue -Value {
+        param([string]$Name)
+        if ($Name -cne 'preloadEnabled') { return $null }
+        return $this.AttributeValue
+    }
+    return $application
+}
+
+$falsePreload = Get-RetainedQualityBooleanAttribute `
+    -Element (New-FakeRetainedQualityApplication -AttributeValue $false) `
+    -Name 'preloadEnabled' -Label 'Test application'
+$truePreload = Get-RetainedQualityBooleanAttribute `
+    -Element (New-FakeRetainedQualityApplication -AttributeValue $true) `
+    -Name 'preloadEnabled' -Label 'Test application'
+Assert-True (-not $falsePreload -and $truePreload) `
+    'The IIS attribute reader did not preserve Boolean preloadEnabled values.'
+
+$missingAttributeFailure = ''
+try {
+    [void](Get-RetainedQualityBooleanAttribute `
+        -Element (New-FakeRetainedQualityApplication -AttributeValue $null) `
+        -Name 'preloadEnabled' -Label 'Test application')
+}
+catch { $missingAttributeFailure = $_.Exception.Message }
+Assert-True ($missingAttributeFailure -like '*evidence is incomplete*') `
+    'A missing preloadEnabled attribute did not fail closed.'
+
+$invalidAttributeFailure = ''
+try {
+    [void](Get-RetainedQualityBooleanAttribute `
+        -Element (New-FakeRetainedQualityApplication -AttributeValue 'false') `
+        -Name 'preloadEnabled' -Label 'Test application')
+}
+catch { $invalidAttributeFailure = $_.Exception.Message }
+Assert-True ($invalidAttributeFailure -like '*must be Boolean*') `
+    'A non-Boolean preloadEnabled attribute did not fail closed.'
+
+$unreadableApplication = [pscustomobject]@{}
+$unreadableApplication | Add-Member -MemberType ScriptMethod -Name GetAttributeValue -Value {
+    param([string]$Name)
+    throw "Simulated IIS attribute read failure for '$Name'."
+}
+$unreadableAttributeFailure = ''
+try {
+    [void](Get-RetainedQualityBooleanAttribute `
+        -Element $unreadableApplication `
+        -Name 'preloadEnabled' -Label 'Test application')
+}
+catch { $unreadableAttributeFailure = $_.Exception.Message }
+Assert-True ($unreadableAttributeFailure -like '*Unable to read Test application*Simulated IIS attribute read failure*') `
+    'An unreadable preloadEnabled attribute did not fail closed with diagnostic context.'
 foreach ($forbiddenMutation in @(
     'Stop-WebAppPool',
     'Start-WebAppPool',
