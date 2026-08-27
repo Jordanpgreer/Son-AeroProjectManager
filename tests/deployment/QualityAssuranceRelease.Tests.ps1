@@ -24,6 +24,7 @@ foreach ($required in @(
     '[switch]$FirstActivation',
     '[switch]$RepairMissingProductionDatabaseSettings',
     '[switch]$UseServerLocalSqlite',
+    '[switch]$ResumeServerLocalSqlitePreparation',
     "[ValidateSet('SON-IIS2')]",
     "`$siteName = 'QualityAssurance'",
     "`$poolName = 'QualityAssurance'",
@@ -41,6 +42,8 @@ foreach ($required in @(
     'New-QualityProductionDatabaseConfigurationRepair',
     'New-QualityServerLocalSqliteConfiguration',
     'Assert-QualitySqliteDataPathBoundary',
+    'Assert-QualitySqliteDataDirectoryEmpty',
+    'Assert-QualitySqliteDataDirectoryAcl',
     'Initialize-QualitySqliteDataDirectory',
     'C:\ProgramData\SonAero\deployment-state\quality-assurance-data',
     '[IO.FileMode]::CreateNew',
@@ -70,12 +73,19 @@ foreach ($required in @(
     'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED',
     'WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_SERVER_LOCAL_SQLITE',
     'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_SERVER_LOCAL_SQLITE',
+    'WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_SERVER_LOCAL_SQLITE_RESUME',
+    'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_SERVER_LOCAL_SQLITE_RESUME',
+    'Get-QualityServerLocalSqliteModifyRights',
+    '-RequireAbsent',
+    '-RequireExistingEmpty',
+    '-ResumePreparedDirectory:$ResumeServerLocalSqlitePreparation',
     'ProcessModel.MaxProcesses -ne 1',
     'ProcessModelIdentityType]::ApplicationPoolIdentity',
     'Set-QualityDisallowOverlappingRotation -Enabled $true',
     '-PriorDisallowOverlappingRotation $priorDisallowOverlappingRotation',
     '-FirstActivation and -RepairMissingProductionDatabaseSettings are mutually exclusive.',
-    '-UseServerLocalSqlite is mutually exclusive with -FirstActivation and -RepairMissingProductionDatabaseSettings.'
+    '-UseServerLocalSqlite is mutually exclusive with -FirstActivation and -RepairMissingProductionDatabaseSettings.',
+    '-ResumeServerLocalSqlitePreparation requires -UseServerLocalSqlite.'
 )) {
     if (-not $source.Contains($required)) {
         throw "Quality release script is missing required guard: $required"
@@ -101,7 +111,10 @@ $productionHash = $source.IndexOf(
     '$currentProductionHash = (Get-FileHash -LiteralPath $currentProductionSettings -Algorithm SHA256).Hash')
 $repairPlan = $source.IndexOf('$repairPlan = if ($RepairMissingProductionDatabaseSettings)')
 $sqlitePlan = $source.IndexOf('$sqlitePlan = if ($UseServerLocalSqlite)')
-$sqlitePathPreflight = $source.IndexOf('-Path $sqlitePlan.DataDirectory -RequireEmpty')
+$sqliteResumePathPreflight = $source.IndexOf(
+    '-Path $sqlitePlan.DataDirectory -RequireExistingEmpty')
+$sqliteFreshPathPreflight = $source.IndexOf(
+    '-Path $sqlitePlan.DataDirectory -RequireAbsent')
 $firstActivationGuard = $source.IndexOf(
     "Assert-QualityActivationState -PoolState `$priorPoolState -Healthy `$currentHealthy")
 $whatIfGate = $source.IndexOf('if (-not $PSCmdlet.ShouldProcess(')
@@ -112,23 +125,31 @@ $candidateConfiguration = $source.IndexOf(
 $candidateManifest = $source.IndexOf(
     'Assert-QualitySanitizedApplicationManifestEqual -SourceRoot $sourcePath -CandidateRoot $releasePath')
 $sqliteInitialization = $source.IndexOf(
-    '[void](Initialize-QualitySqliteDataDirectory -Path $sqlitePlan.DataDirectory)')
+    '[void](Initialize-QualitySqliteDataDirectory `')
+$sqliteResumeForwarding = $source.IndexOf(
+    '-ResumePreparedDirectory:$ResumeServerLocalSqlitePreparation',
+    $sqliteInitialization)
 $activeHashRecheck = $source.IndexOf(
     '(Get-FileHash -LiteralPath $currentProductionSettings -Algorithm SHA256).Hash -ne $currentProductionHash')
 $cutover = $source.IndexOf('Invoke-QualityIisSwitch -CurrentPath $currentPath -CandidatePath $releasePath')
 if ($manifestPreflight -lt 0 -or $productionHash -lt 0 -or $repairPlan -lt 0 -or
-    $sqlitePlan -lt 0 -or $sqlitePathPreflight -lt 0 -or
+    $sqlitePlan -lt 0 -or $sqliteResumePathPreflight -lt 0 -or
+    $sqliteFreshPathPreflight -lt 0 -or
     $firstActivationGuard -lt 0 -or $whatIfGate -lt 0 -or $releaseCreation -lt 0 -or
     $candidateCopy -lt 0 -or $candidateConfiguration -lt 0 -or $candidateManifest -lt 0 -or
-    $sqliteInitialization -lt 0 -or $activeHashRecheck -lt 0 -or $cutover -lt 0 -or
+    $sqliteInitialization -lt 0 -or $sqliteResumeForwarding -lt 0 -or
+    $activeHashRecheck -lt 0 -or $cutover -lt 0 -or
     $manifestPreflight -gt $productionHash -or $productionHash -gt $repairPlan -or
-    $repairPlan -gt $sqlitePlan -or $sqlitePlan -gt $sqlitePathPreflight -or
-    $sqlitePathPreflight -gt $firstActivationGuard -or
+    $repairPlan -gt $sqlitePlan -or $sqlitePlan -gt $sqliteResumePathPreflight -or
+    $sqliteResumePathPreflight -gt $sqliteFreshPathPreflight -or
+    $sqliteFreshPathPreflight -gt $firstActivationGuard -or
     $firstActivationGuard -gt $whatIfGate -or
     $whatIfGate -gt $releaseCreation -or $releaseCreation -gt $candidateCopy -or
     $candidateCopy -gt $candidateConfiguration -or
     $candidateConfiguration -gt $candidateManifest -or
     $candidateManifest -gt $sqliteInitialization -or
+    $sqliteInitialization -gt $sqliteResumeForwarding -or
+    $sqliteResumeForwarding -gt $activeHashRecheck -or
     $sqliteInitialization -gt $activeHashRecheck -or $activeHashRecheck -gt $cutover) {
     throw 'Quality configuration, WhatIf, immutable candidate, and cutover ordering is unsafe.'
 }
@@ -136,13 +157,14 @@ if ($manifestPreflight -lt 0 -or $productionHash -lt 0 -or $repairPlan -lt 0 -or
 foreach ($requiredPattern in @(
     '(?s)if\s*\(\$FirstActivation\s+-and\s+\$RepairMissingProductionDatabaseSettings\)\s*\{\s*throw\s+''-FirstActivation and -RepairMissingProductionDatabaseSettings are mutually exclusive\.''\s*\}',
     '(?s)if\s*\(\$UseServerLocalSqlite\s+-and\s*\(\$FirstActivation\s+-or\s+\$RepairMissingProductionDatabaseSettings\)\)\s*\{\s*throw\s+''-UseServerLocalSqlite is mutually exclusive with -FirstActivation and -RepairMissingProductionDatabaseSettings\.''\s*\}',
+    '(?s)if\s*\(\$ResumeServerLocalSqlitePreparation\s+-and\s+-not\s+\$UseServerLocalSqlite\)\s*\{\s*throw\s+''-ResumeServerLocalSqlitePreparation requires -UseServerLocalSqlite\.''\s*\}',
     '(?s)\$repairPlan\s*=\s*if\s*\(\$RepairMissingProductionDatabaseSettings\).*?New-QualityProductionDatabaseConfigurationRepair\s+-ActivePath\s+\$currentProductionSettings\s+`?\s*-TemplatePath\s+\$productionTemplate',
     '(?s)\$sqlitePlan\s*=\s*if\s*\(\$UseServerLocalSqlite\).*?New-QualityServerLocalSqliteConfiguration\s+-ActivePath\s+\$currentProductionSettings',
     '(?s)if\s*\(\$RepairMissingProductionDatabaseSettings\)\s*\{\s*\[IO\.File\]::WriteAllBytes\(\$candidateProductionSettings,\s*\[byte\[\]\]\$repairPlan\.Utf8Bytes\)',
     '(?s)elseif\s*\(\$UseServerLocalSqlite\)\s*\{\s*\[IO\.File\]::WriteAllBytes\(\$candidateProductionSettings,\s*\[byte\[\]\]\$sqlitePlan\.Utf8Bytes\)',
     '(?s)else\s*\{\s*Copy-Item\s+-LiteralPath\s+\$currentProductionSettings\s+-Destination\s+\$candidateProductionSettings.*?Copied Quality Production settings hash mismatch',
-    '(?s)if\s*\(\$RepairMissingProductionDatabaseSettings\)\s*\{\s*Write-Output\s+''WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED''\s*\}\s*elseif\s*\(\$UseServerLocalSqlite\)\s*\{\s*Write-Output\s+''WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_SERVER_LOCAL_SQLITE''\s*\}\s*else\s*\{\s*Write-Output\s+''WHATIF_READY_QUALITY_ASSURANCE_RELEASE''\s*\}',
-    '(?s)if\s*\(\$RepairMissingProductionDatabaseSettings\)\s*\{\s*Write-Output\s+''QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED''\s*\}\s*elseif\s*\(\$UseServerLocalSqlite\)\s*\{\s*Write-Output\s+''QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_SERVER_LOCAL_SQLITE''\s*\}\s*else\s*\{\s*Write-Output\s+''QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY''\s*\}'
+    '(?s)if\s*\(\$RepairMissingProductionDatabaseSettings\)\s*\{\s*Write-Output\s+''WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED''\s*\}\s*elseif\s*\(\$ResumeServerLocalSqlitePreparation\)\s*\{\s*Write-Output\s+''WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_SERVER_LOCAL_SQLITE_RESUME''\s*\}\s*elseif\s*\(\$UseServerLocalSqlite\)\s*\{\s*Write-Output\s+''WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_SERVER_LOCAL_SQLITE''\s*\}\s*else\s*\{\s*Write-Output\s+''WHATIF_READY_QUALITY_ASSURANCE_RELEASE''\s*\}',
+    '(?s)if\s*\(\$RepairMissingProductionDatabaseSettings\)\s*\{\s*Write-Output\s+''QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED''\s*\}\s*elseif\s*\(\$ResumeServerLocalSqlitePreparation\)\s*\{\s*Write-Output\s+''QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_SERVER_LOCAL_SQLITE_RESUME''\s*\}\s*elseif\s*\(\$UseServerLocalSqlite\)\s*\{\s*Write-Output\s+''QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_SERVER_LOCAL_SQLITE''\s*\}\s*else\s*\{\s*Write-Output\s+''QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY''\s*\}'
 )) {
     if ($source -notmatch $requiredPattern) {
         throw "Quality release script is missing a bounded repair/normal-mode branch: $requiredPattern"
@@ -166,6 +188,7 @@ $functionNames = @(
     'Get-FullPath',
     'Test-PathContainmentOverlap',
     'Assert-ValidWebConfig',
+    'Assert-QualitySqliteDataDirectoryEmpty',
     'Assert-QualityActivationState',
     'Invoke-QualityIisSwitch'
 )
@@ -254,6 +277,20 @@ try {
     }
     if (Test-PathContainmentOverlap -FirstPath $root -SecondPath $sibling) {
         throw 'Sibling release paths were incorrectly treated as overlapping.'
+    }
+
+    $resumeDirectory = Join-Path $testRoot 'resume-empty'
+    New-Item -ItemType Directory -Path $resumeDirectory -Force | Out-Null
+    Assert-QualitySqliteDataDirectoryEmpty -Path $resumeDirectory
+    [IO.File]::WriteAllText((Join-Path $resumeDirectory '.unexpected'), 'stop')
+    $nonemptyResumeAccepted = $false
+    try {
+        Assert-QualitySqliteDataDirectoryEmpty -Path $resumeDirectory
+        $nonemptyResumeAccepted = $true
+    }
+    catch {}
+    if ($nonemptyResumeAccepted) {
+        throw 'SQLite resume accepted a directory containing an unexpected item.'
     }
 
     $safeWebConfig = Join-Path $testRoot 'safe.web.config'

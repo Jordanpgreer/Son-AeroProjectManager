@@ -166,6 +166,27 @@ WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_SERVER_LOCAL_SQLITE
 QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_SERVER_LOCAL_SQLITE
 ```
 
+Windows records an allowed `Modify` ACE as the exact canonical
+`Modify, Synchronize` mask. The deployment validates that exact representation; it does not use a
+subset match and does not admit permission-management or ownership rights. If an older deployment
+stopped before IIS changed after creating only the protected empty data directory, do not delete or
+re-ACL that directory and do not reuse the retained application candidate. Build a fresh package,
+choose a fresh release ID, and add `-ResumeServerLocalSqlitePreparation` together with
+`-UseServerLocalSqlite`. Resume is accepted only when the approved directory already exists, is not
+a reparse point, contains zero entries including hidden entries, is owned by Administrators with
+inheritance disabled, and has exactly the explicit Administrators/SYSTEM FullControl and Quality
+application-pool `Modify, Synchronize` rules. It never repairs unexpected state. Require these
+distinct markers:
+
+```text
+WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_SERVER_LOCAL_SQLITE_RESUME
+QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_SERVER_LOCAL_SQLITE_RESUME
+```
+
+Any missing, nonempty, or differently secured directory is a stop condition. Preserve the old
+candidate and report the exact output instead of deleting state or retrying with the ordinary
+one-time switch.
+
 After the transition succeeds, omit `-UseServerLocalSqlite` on ordinary Quality releases. Both the
 targeted and full-Hub transactions revalidate the persistent path, file, ACL, single-worker pool,
 and non-overlapping recycle boundary whenever this explicit storage mode is active. Do not delete,

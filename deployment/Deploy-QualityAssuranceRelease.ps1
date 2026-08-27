@@ -29,6 +29,8 @@ param(
 
     [switch]$UseServerLocalSqlite,
 
+    [switch]$ResumeServerLocalSqlitePreparation,
+
     [ValidateRange(30, 600)]
     [int]$HealthTimeoutSeconds = 180
 )
@@ -349,9 +351,13 @@ function Assert-QualityProtectedDeploymentStateRoot {
 function Assert-QualitySqliteDataPathBoundary {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
-        [switch]$RequireEmpty
+        [switch]$RequireAbsent,
+        [switch]$RequireExistingEmpty
     )
 
+    if ($RequireAbsent -and $RequireExistingEmpty) {
+        throw 'Quality SQLite path cannot be required to be both absent and an existing empty directory.'
+    }
     $resolvedPath = Get-FullPath -Path $Path
     if ($resolvedPath -ine 'C:\ProgramData\SonAero\deployment-state\quality-assurance-data') {
         throw "Quality SQLite data directory is not the approved ProgramData path: $resolvedPath"
@@ -375,8 +381,15 @@ function Assert-QualitySqliteDataPathBoundary {
     if (Test-Path -LiteralPath $resolvedPath -PathType Leaf) {
         throw "Quality SQLite data path is a file: $resolvedPath"
     }
-    if ($RequireEmpty -and (Test-Path -LiteralPath $resolvedPath)) {
+    if ($RequireAbsent -and (Test-Path -LiteralPath $resolvedPath)) {
         throw "Initial Quality SQLite data directory must not already exist: $resolvedPath"
+    }
+    if ($RequireExistingEmpty) {
+        if (-not (Test-Path -LiteralPath $resolvedPath -PathType Container)) {
+            throw "Resumed Quality SQLite data directory does not exist: $resolvedPath"
+        }
+        Assert-QualitySqliteDataDirectoryEmpty -Path $resolvedPath
+        Assert-QualitySqliteDataDirectoryAcl -Path $resolvedPath
     }
 
     try {
@@ -389,43 +402,34 @@ function Assert-QualitySqliteDataPathBoundary {
     return $resolvedPath
 }
 
-function Initialize-QualitySqliteDataDirectory {
+function Assert-QualitySqliteDataDirectoryEmpty {
     param([Parameter(Mandatory = $true)][string]$Path)
 
-    $resolvedPath = Assert-QualitySqliteDataPathBoundary -Path $Path -RequireEmpty
+    $items = @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction Stop)
+    if ($items.Count -ne 0) {
+        throw "Resumed Quality SQLite data directory must be empty; found '$($items[0].Name)'."
+    }
+}
+
+function Assert-QualitySqliteDataDirectoryAcl {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
     $administrators = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
     $system = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
     $poolIdentity = (New-Object Security.Principal.NTAccount(
         'IIS AppPool', $poolName)).Translate([Security.Principal.SecurityIdentifier])
-    $directorySecurity = New-Object Security.AccessControl.DirectorySecurity
-    $directorySecurity.SetAccessRuleProtection($true, $false)
-    $directorySecurity.SetOwner($administrators)
     $inheritance = [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
     $propagation = [Security.AccessControl.PropagationFlags]::None
-    $allow = [Security.AccessControl.AccessControlType]::Allow
-    foreach ($grant in @(
-        [pscustomobject]@{ Identity = $administrators; Rights = [Security.AccessControl.FileSystemRights]::FullControl },
-        [pscustomobject]@{ Identity = $system; Rights = [Security.AccessControl.FileSystemRights]::FullControl },
-        [pscustomobject]@{ Identity = $poolIdentity; Rights = [Security.AccessControl.FileSystemRights]::Modify }
-    )) {
-        $rule = New-Object Security.AccessControl.FileSystemAccessRule(
-            $grant.Identity, $grant.Rights, $inheritance, $propagation, $allow)
-        $directorySecurity.SetAccessRule($rule)
+    $expectedRights = @{
+        $administrators.Value = [Security.AccessControl.FileSystemRights]::FullControl
+        $system.Value = [Security.AccessControl.FileSystemRights]::FullControl
+        $poolIdentity.Value = Get-QualityServerLocalSqliteModifyRights
     }
-    [void][IO.Directory]::CreateDirectory($resolvedPath, $directorySecurity)
-    [void](Assert-QualitySqliteDataPathBoundary -Path $resolvedPath)
-    Set-Acl -LiteralPath $resolvedPath -AclObject $directorySecurity
-
-    $actualAcl = Get-Acl -LiteralPath $resolvedPath
+    $actualAcl = Get-Acl -LiteralPath $Path -ErrorAction Stop
     if (-not $actualAcl.AreAccessRulesProtected -or
         $actualAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne
             $administrators.Value) {
         throw 'Quality SQLite data directory ownership or inheritance protection is incorrect.'
-    }
-    $expectedRights = @{
-        $administrators.Value = [Security.AccessControl.FileSystemRights]::FullControl
-        $system.Value = [Security.AccessControl.FileSystemRights]::FullControl
-        $poolIdentity.Value = [Security.AccessControl.FileSystemRights]::Modify
     }
     $actualRules = @($actualAcl.GetAccessRules(
         $true, $true, [Security.Principal.SecurityIdentifier]))
@@ -443,6 +447,52 @@ function Initialize-QualitySqliteDataDirectory {
             throw "Quality SQLite data directory contains an unexpected access rule for '$sid'."
         }
     }
+}
+
+function Initialize-QualitySqliteDataDirectory {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [switch]$ResumePreparedDirectory
+    )
+
+    $resolvedPath = if ($ResumePreparedDirectory) {
+        Assert-QualitySqliteDataPathBoundary -Path $Path -RequireExistingEmpty
+    }
+    else {
+        Assert-QualitySqliteDataPathBoundary -Path $Path -RequireAbsent
+    }
+    $administrators = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
+    $system = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
+    $poolIdentity = (New-Object Security.Principal.NTAccount(
+        'IIS AppPool', $poolName)).Translate([Security.Principal.SecurityIdentifier])
+    $inheritance = [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+    $propagation = [Security.AccessControl.PropagationFlags]::None
+    $allow = [Security.AccessControl.AccessControlType]::Allow
+    $expectedRights = @{
+        $administrators.Value = [Security.AccessControl.FileSystemRights]::FullControl
+        $system.Value = [Security.AccessControl.FileSystemRights]::FullControl
+        $poolIdentity.Value = Get-QualityServerLocalSqliteModifyRights
+    }
+
+    if (-not $ResumePreparedDirectory) {
+        $directorySecurity = New-Object Security.AccessControl.DirectorySecurity
+        $directorySecurity.SetAccessRuleProtection($true, $false)
+        $directorySecurity.SetOwner($administrators)
+        foreach ($grant in @(
+            [pscustomobject]@{ Identity = $administrators; Rights = [Security.AccessControl.FileSystemRights]::FullControl },
+            [pscustomobject]@{ Identity = $system; Rights = [Security.AccessControl.FileSystemRights]::FullControl },
+            [pscustomobject]@{ Identity = $poolIdentity; Rights = [Security.AccessControl.FileSystemRights]::Modify }
+        )) {
+            $rule = New-Object Security.AccessControl.FileSystemAccessRule(
+                $grant.Identity, $grant.Rights, $inheritance, $propagation, $allow)
+            $directorySecurity.SetAccessRule($rule)
+        }
+        [void][IO.Directory]::CreateDirectory($resolvedPath, $directorySecurity)
+        [void](Assert-QualitySqliteDataPathBoundary -Path $resolvedPath)
+        Set-Acl -LiteralPath $resolvedPath -AclObject $directorySecurity
+    }
+    Assert-QualitySqliteDataDirectoryEmpty -Path $resolvedPath
+    Assert-QualitySqliteDataDirectoryAcl -Path $resolvedPath
 
     $dataFile = Join-Path $resolvedPath 'quality-assurance.db'
     $fileStream = $null
@@ -611,6 +661,9 @@ if ($UseServerLocalSqlite -and
     ($FirstActivation -or $RepairMissingProductionDatabaseSettings)) {
     throw '-UseServerLocalSqlite is mutually exclusive with -FirstActivation and -RepairMissingProductionDatabaseSettings.'
 }
+if ($ResumeServerLocalSqlitePreparation -and -not $UseServerLocalSqlite) {
+    throw '-ResumeServerLocalSqlitePreparation requires -UseServerLocalSqlite.'
+}
 foreach ($blockedOverrideName in $blockedOverrideNames) {
     if ($null -ne [Environment]::GetEnvironmentVariable(
             $blockedOverrideName, [EnvironmentVariableTarget]::Machine)) {
@@ -705,8 +758,14 @@ if (-not $UseServerLocalSqlite -and $script:QualitySqliteStorageValidationRequir
     [void](Assert-QualityServerLocalSqliteStorage -PoolName $poolName)
 }
 if ($UseServerLocalSqlite) {
-    [void](Assert-QualitySqliteDataPathBoundary `
-        -Path $sqlitePlan.DataDirectory -RequireEmpty)
+    if ($ResumeServerLocalSqlitePreparation) {
+        [void](Assert-QualitySqliteDataPathBoundary `
+            -Path $sqlitePlan.DataDirectory -RequireExistingEmpty)
+    }
+    else {
+        [void](Assert-QualitySqliteDataPathBoundary `
+            -Path $sqlitePlan.DataDirectory -RequireAbsent)
+    }
 }
 $priorPoolState = Get-PoolStateValue
 $currentHealth = Get-HealthResult -Uri $healthUri
@@ -719,6 +778,9 @@ if (-not $PSCmdlet.ShouldProcess(
         $(if ($RepairMissingProductionDatabaseSettings) {
             'Create an immutable Quality release with only the two missing Production database settings, switch only its IIS path, and verify candidate health with exact path/state rollback'
         }
+        elseif ($ResumeServerLocalSqlitePreparation) {
+            'Resume the reviewed server-local SQLite transition from only the exact empty protected directory left by a failed pre-IIS preparation, create a fresh immutable Quality release, enforce non-overlapping single-worker execution, switch only its IIS path, and verify candidate health with exact path/state rollback'
+        }
         elseif ($UseServerLocalSqlite) {
             'Create an immutable Quality release using the reviewed persistent server-local SQLite bridge, enforce non-overlapping single-worker execution, switch only its IIS path, and verify candidate health with exact path/state rollback'
         }
@@ -727,6 +789,9 @@ if (-not $PSCmdlet.ShouldProcess(
         }))) {
     if ($RepairMissingProductionDatabaseSettings) {
         Write-Output 'WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED'
+    }
+    elseif ($ResumeServerLocalSqlitePreparation) {
+        Write-Output 'WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_SERVER_LOCAL_SQLITE_RESUME'
     }
     elseif ($UseServerLocalSqlite) {
         Write-Output 'WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_SERVER_LOCAL_SQLITE'
@@ -766,7 +831,9 @@ try {
         throw 'Development configuration was found in the Quality candidate release.'
     }
     if ($UseServerLocalSqlite) {
-        [void](Initialize-QualitySqliteDataDirectory -Path $sqlitePlan.DataDirectory)
+        [void](Initialize-QualitySqliteDataDirectory `
+            -Path $sqlitePlan.DataDirectory `
+            -ResumePreparedDirectory:$ResumeServerLocalSqlitePreparation)
     }
     & icacls.exe $releasePath /grant "IIS AppPool\$poolName`:(OI)(CI)RX" /t /c | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Read/execute permission assignment failed for '$poolName'." }
@@ -804,6 +871,9 @@ Invoke-QualityIisSwitch -CurrentPath $currentPath -CandidatePath $releasePath `
     Status = if ($RepairMissingProductionDatabaseSettings) {
         'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED'
     }
+    elseif ($ResumeServerLocalSqlitePreparation) {
+        'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_SERVER_LOCAL_SQLITE_RESUME'
+    }
     elseif ($UseServerLocalSqlite) {
         'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_SERVER_LOCAL_SQLITE'
     }
@@ -813,9 +883,13 @@ Invoke-QualityIisSwitch -CurrentPath $currentPath -CandidatePath $releasePath `
     FirstActivation = [bool]$FirstActivation
     ProductionDatabaseSettingsRepaired = [bool]$RepairMissingProductionDatabaseSettings
     ServerLocalSqliteEnabled = [bool]$UseServerLocalSqlite
+    ServerLocalSqlitePreparationResumed = [bool]$ResumeServerLocalSqlitePreparation
 } | Format-List
 if ($RepairMissingProductionDatabaseSettings) {
     Write-Output 'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED'
+}
+elseif ($ResumeServerLocalSqlitePreparation) {
+    Write-Output 'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_SERVER_LOCAL_SQLITE_RESUME'
 }
 elseif ($UseServerLocalSqlite) {
     Write-Output 'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_SERVER_LOCAL_SQLITE'

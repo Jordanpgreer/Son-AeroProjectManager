@@ -73,6 +73,8 @@ foreach ($required in @(
     'New-QualityProductionDatabaseConfigurationRepair',
     'New-QualityServerLocalSqliteConfiguration',
     'Test-QualityProductionConfigurationUsesServerLocalSqlite',
+    'Get-QualityServerLocalSqliteModifyRights',
+    'Assert-QualityServerLocalSqliteExactAcl',
     'Assert-QualityServerLocalSqliteStorage',
     'Get-QualitySanitizedApplicationManifest',
     'Assert-QualitySanitizedApplicationManifestEqual',
@@ -83,7 +85,8 @@ foreach ($required in @(
     'appsettings.Production.json',
     'appsettings.Development*.json',
     'SHA256',
-    'ReparsePoint'
+    'ReparsePoint',
+    'Modify, Synchronize'
 )) {
     Assert-True $moduleSource.Contains($required) `
         "Quality production configuration module is missing fail-closed contract '$required'."
@@ -97,6 +100,7 @@ foreach ($commandName in @(
     'New-QualityProductionDatabaseConfigurationRepair',
     'New-QualityServerLocalSqliteConfiguration',
     'Test-QualityProductionConfigurationUsesServerLocalSqlite',
+    'Get-QualityServerLocalSqliteModifyRights',
     'Assert-QualityServerLocalSqliteStorage',
     'Get-QualitySanitizedApplicationManifest',
     'Assert-QualitySanitizedApplicationManifestEqual'
@@ -105,10 +109,91 @@ foreach ($commandName in @(
         "Quality production configuration module did not export '$commandName'."
 }
 
+$expectedModifyRights = Get-QualityServerLocalSqliteModifyRights
+$canonicalModifyRule = New-Object Security.AccessControl.FileSystemAccessRule(
+    (New-Object Security.Principal.SecurityIdentifier('S-1-5-18')),
+    [Security.AccessControl.FileSystemRights]::Modify,
+    [Security.AccessControl.AccessControlType]::Allow)
+Assert-True ([long]$expectedModifyRights -eq 1245631) `
+    'The approved app-pool ACL mask is not the exact Windows Modify, Synchronize value.'
+Assert-True ([long]$canonicalModifyRule.FileSystemRights -eq
+    [long]$expectedModifyRights) `
+    'Windows canonicalized an allowed Modify ACE differently from the validated app-pool ACL mask.'
+Assert-True (($expectedModifyRights -band
+    [Security.AccessControl.FileSystemRights]::ChangePermissions) -eq 0 -and
+    ($expectedModifyRights -band
+        [Security.AccessControl.FileSystemRights]::TakeOwnership) -eq 0) `
+    'The approved app-pool ACL mask admits ACL-management or ownership rights.'
+
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) `
     ('quality-production-config-test-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
 try {
+    $aclDirectory = Join-Path $testRoot 'canonical-acl'
+    New-Item -ItemType Directory -Path $aclDirectory -Force | Out-Null
+    $currentUserSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    $systemSid = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
+    $thirdSid = New-Object Security.Principal.SecurityIdentifier('S-1-5-19')
+    $inheritance = [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+    $propagation = [Security.AccessControl.PropagationFlags]::None
+    $allow = [Security.AccessControl.AccessControlType]::Allow
+    $acl = New-Object Security.AccessControl.DirectorySecurity
+    $acl.SetAccessRuleProtection($true, $false)
+    $acl.SetOwner($currentUserSid)
+    foreach ($grant in @(
+        [pscustomobject]@{ Identity = $currentUserSid; Rights = [Security.AccessControl.FileSystemRights]::FullControl },
+        [pscustomobject]@{ Identity = $systemSid; Rights = [Security.AccessControl.FileSystemRights]::FullControl },
+        [pscustomobject]@{ Identity = $thirdSid; Rights = [Security.AccessControl.FileSystemRights]::Modify }
+    )) {
+        $acl.SetAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
+            $grant.Identity, $grant.Rights, $inheritance, $propagation, $allow)))
+    }
+    Set-Acl -LiteralPath $aclDirectory -AclObject $acl
+    $exactRights = @{}
+    $exactRights[$currentUserSid.Value] = [Security.AccessControl.FileSystemRights]::FullControl
+    $exactRights[$systemSid.Value] = [Security.AccessControl.FileSystemRights]::FullControl
+    $exactRights[$thirdSid.Value] = Get-QualityServerLocalSqliteModifyRights
+    $exactExpectation = [pscustomobject]@{
+        Administrators = $currentUserSid
+        Rights = $exactRights
+    }
+    $configurationModule = Get-Module QualityAssuranceProductionConfiguration
+    & $configurationModule {
+        param($Path, $Expectation)
+        Assert-QualityServerLocalSqliteExactAcl `
+            -Path $Path -Expectation $Expectation -Directory $true
+    } $aclDirectory $exactExpectation
+
+    $rawModifyRights = @{}
+    foreach ($key in $exactRights.Keys) { $rawModifyRights[$key] = $exactRights[$key] }
+    $rawModifyRights[$thirdSid.Value] = [Security.AccessControl.FileSystemRights]::Modify
+    $rawModifyExpectation = [pscustomobject]@{
+        Administrators = $currentUserSid
+        Rights = $rawModifyRights
+    }
+    Assert-Throws {
+        & $configurationModule {
+            param($Path, $Expectation)
+            Assert-QualityServerLocalSqliteExactAcl `
+                -Path $Path -Expectation $Expectation -Directory $true
+        } $aclDirectory $rawModifyExpectation
+    } 'Exact ACL validation accepted the noncanonical raw Modify mask.'
+
+    $broadRights = @{}
+    foreach ($key in $exactRights.Keys) { $broadRights[$key] = $exactRights[$key] }
+    $broadRights[$thirdSid.Value] = [Security.AccessControl.FileSystemRights]::FullControl
+    $broadExpectation = [pscustomobject]@{
+        Administrators = $currentUserSid
+        Rights = $broadRights
+    }
+    Assert-Throws {
+        & $configurationModule {
+            param($Path, $Expectation)
+            Assert-QualityServerLocalSqliteExactAcl `
+                -Path $Path -Expectation $Expectation -Directory $true
+        } $aclDirectory $broadExpectation
+    } 'Exact ACL validation accepted broader app-pool rights.'
+
     $valid = New-ValidProductionConfiguration
     $validPath = Join-Path $testRoot 'valid.json'
     Write-TestJson -Path $validPath -Value $valid

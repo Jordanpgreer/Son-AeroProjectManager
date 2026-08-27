@@ -267,6 +267,13 @@ function Test-QualityProductionConfigurationUsesServerLocalSqlite {
             $script:ServerLocalSqliteStorageMode
 }
 
+function Get-QualityServerLocalSqliteModifyRights {
+    # FileSystemAccessRule canonicalizes an allowed Modify ACE by adding
+    # Synchronize. Compare against that exact Windows representation so the
+    # verified app-pool rule is accepted without admitting any extra rights.
+    return [Security.AccessControl.FileSystemRights]'Modify, Synchronize'
+}
+
 function Get-QualityServerLocalSqliteAclExpectation {
     param([Parameter(Mandatory = $true)][string]$PoolName)
 
@@ -283,7 +290,7 @@ function Get-QualityServerLocalSqliteAclExpectation {
     $rights = @{}
     $rights[$administrators.Value] = [Security.AccessControl.FileSystemRights]::FullControl
     $rights[$system.Value] = [Security.AccessControl.FileSystemRights]::FullControl
-    $rights[$poolIdentity.Value] = [Security.AccessControl.FileSystemRights]::Modify
+    $rights[$poolIdentity.Value] = Get-QualityServerLocalSqliteModifyRights
     return [pscustomobject]@{
         Administrators = $administrators
         Rights = $rights
@@ -473,6 +480,7 @@ Export-ModuleMember -Function @(
     'New-QualityProductionDatabaseConfigurationRepair',
     'New-QualityServerLocalSqliteConfiguration',
     'Test-QualityProductionConfigurationUsesServerLocalSqlite',
+    'Get-QualityServerLocalSqliteModifyRights',
     'Assert-QualityServerLocalSqliteStorage',
     'Get-QualitySanitizedApplicationManifest',
     'Assert-QualitySanitizedApplicationManifestEqual'

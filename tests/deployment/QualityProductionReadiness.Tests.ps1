@@ -127,6 +127,7 @@ foreach ($requiredExport in @(
     'New-QualityProductionDatabaseConfigurationRepair',
     'New-QualityServerLocalSqliteConfiguration',
     'Test-QualityProductionConfigurationUsesServerLocalSqlite',
+    'Get-QualityServerLocalSqliteModifyRights',
     'Assert-QualityServerLocalSqliteStorage',
     'Get-QualitySanitizedApplicationManifest',
     'Assert-QualitySanitizedApplicationManifestEqual'
@@ -144,8 +145,12 @@ Assert-True ($qualityReleaseSource -match
     'The targeted Quality release does not import the shared production configuration policy.'
 foreach ($requiredBridgeContract in @(
     '[switch]$UseServerLocalSqlite',
+    '[switch]$ResumeServerLocalSqlitePreparation',
     'WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_SERVER_LOCAL_SQLITE',
     'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_SERVER_LOCAL_SQLITE',
+    'WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_SERVER_LOCAL_SQLITE_RESUME',
+    'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_SERVER_LOCAL_SQLITE_RESUME',
+    'Modify, Synchronize',
     'C:\ProgramData\SonAero\deployment-state\quality-assurance-data'
 )) {
     Assert-True ($qualityReleaseSource.Contains($requiredBridgeContract) -or
