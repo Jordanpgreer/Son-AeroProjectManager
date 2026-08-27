@@ -148,6 +148,31 @@ WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRE
 QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED
 ```
 
+If SON-SQL2 cannot provision the dedicated `QualityAssurance` database and the production Quality
+module is confirmed to contain no data that must be retained, the scoped transaction also provides
+an explicit one-time server-local bridge. Use `-UseServerLocalSqlite` only for that reviewed empty
+Quality state. It keeps shared users, groups, and permissions on SON-SQL2 `ProjectTracker`, while
+placing only Quality operational data in the protected persistent file
+`C:\ProgramData\SonAero\deployment-state\quality-assurance-data\quality-assurance.db`.
+The connection uses `Mode=ReadWrite`, so a missing file is a hard startup failure rather than a
+silently recreated empty database. The transition pre-creates the file, grants only Administrators,
+SYSTEM, and `IIS AppPool\QualityAssurance`, requires one pool worker, disables overlapping recycle,
+and rolls the prior IIS path and recycle setting back if candidate verification fails.
+
+Require these exact one-time markers:
+
+```text
+WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_SERVER_LOCAL_SQLITE
+QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_SERVER_LOCAL_SQLITE
+```
+
+After the transition succeeds, omit `-UseServerLocalSqlite` on ordinary Quality releases. Both the
+targeted and full-Hub transactions revalidate the persistent path, file, ACL, single-worker pool,
+and non-overlapping recycle boundary whenever this explicit storage mode is active. Do not delete,
+move, replace, or reuse the SQLite file after a failed apply. A rollback message is a stop condition.
+Once Quality begins receiving production records, include this file in the approved backup and
+restore process until the dedicated SON-SQL2 database and a reviewed data migration are available.
+
 After that scoped repair succeeds, the same fresh Hub package can deploy the other four applications
 with `Deploy-HubRelease.ps1 -RetainVerifiedQuality`. This recovery mode requires the package Quality
 artifacts to match the now-active Quality artifacts byte-for-byte except for excluded Production and

@@ -4,8 +4,10 @@
     Use -FirstActivation only when the current Quality application cannot become healthy before the
     corrected SQL Server migration chain is installed. Normal updates require the current endpoint
     to be healthy. The active Production settings are never modified; normal candidates preserve
-    them byte-for-byte, and repair candidates add only the two reviewed missing database leaves.
-    The candidate must become healthy, and a failed cutover restores the prior IIS path and state.
+    them byte-for-byte, repair candidates add only the two reviewed missing database leaves, and
+    the explicit server-local SQLite transition changes only the three reviewed Quality-store
+    leaves. The candidate must become healthy, and a failed cutover restores the prior IIS path
+    and state.
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
@@ -25,6 +27,8 @@ param(
 
     [switch]$RepairMissingProductionDatabaseSettings,
 
+    [switch]$UseServerLocalSqlite,
+
     [ValidateRange(30, 600)]
     [int]$HealthTimeoutSeconds = 180
 )
@@ -43,6 +47,8 @@ $blockedOverrideNames = @(
     'Database:Provider',
     'QualityDatabase__Provider',
     'QualityDatabase:Provider',
+    'QualityDatabase__StorageMode',
+    'QualityDatabase:StorageMode',
     'ConnectionStrings__ModuleAccessStore',
     'ConnectionStrings:ModuleAccessStore',
     'ConnectionStrings__QualityStore',
@@ -57,6 +63,7 @@ $blockedOverrideNames = @(
     'CUSTOMCONNSTR_QualityStore'
 )
 $environmentSelectorNames = @('ASPNETCORE_ENVIRONMENT', 'DOTNET_ENVIRONMENT')
+$script:QualitySqliteStorageValidationRequired = $false
 $configurationModule = Join-Path $PSScriptRoot 'QualityAssuranceProductionConfiguration.psm1'
 $productionTemplate = Join-Path $PSScriptRoot 'templates\quality-assurance.appsettings.Production.json'
 if (-not (Test-Path -LiteralPath $configurationModule -PathType Leaf)) {
@@ -235,6 +242,13 @@ function Get-QualityIisBoundary {
         $site = $manager.Sites[$siteName]
         $pool = $manager.ApplicationPools[$poolName]
         if ($null -eq $site -or $null -eq $pool) { throw 'Required Quality IIS site or pool is missing.' }
+        if ($pool.ProcessModel.IdentityType -ne
+            [Microsoft.Web.Administration.ProcessModelIdentityType]::ApplicationPoolIdentity) {
+            throw "Quality pool '$poolName' must use ApplicationPoolIdentity."
+        }
+        if ([long]$pool.ProcessModel.MaxProcesses -ne 1) {
+            throw "Quality pool '$poolName' must use exactly one worker process."
+        }
         $application = $site.Applications['/']
         if ($null -eq $application -or $application.ApplicationPoolName -ine $poolName) {
             throw "Quality root application must use pool '$poolName'."
@@ -295,9 +309,196 @@ function Get-QualityIisBoundary {
         return [pscustomobject]@{
             QualityPath = Get-FullPath -Path $virtualDirectory.PhysicalPath
             AllApplicationPaths = @($allApplicationPaths | Sort-Object -Unique)
+            DisallowOverlappingRotation =
+                [bool]$pool.Recycling.DisallowOverlappingRotation
         }
     }
     finally { $manager.Dispose() }
+}
+
+function Assert-QualityProtectedDeploymentStateRoot {
+    $protectedRoot = 'C:\ProgramData\SonAero\deployment-state'
+    $item = Get-Item -LiteralPath $protectedRoot -Force -ErrorAction Stop
+    if (-not $item.PSIsContainer -or
+        ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Protected deployment-state root is missing, is not a directory, or is a reparse point: $protectedRoot"
+    }
+    $acl = Get-Acl -LiteralPath $protectedRoot -ErrorAction Stop
+    $allowedSids = @('S-1-5-18', 'S-1-5-32-544')
+    $ownerSid = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+    $rules = @($acl.GetAccessRules(
+        $true, $true, [Security.Principal.SecurityIdentifier]))
+    $expectedInheritance = [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+    if (-not $acl.AreAccessRulesProtected -or $ownerSid -notin $allowedSids -or
+        $rules.Count -ne 2) {
+        throw "Protected deployment-state root has an unsafe owner, inheritance state, or rule count: $protectedRoot"
+    }
+    foreach ($rule in $rules) {
+        if ($rule.IdentityReference.Value -notin $allowedSids -or
+            $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+            $rule.IsInherited -or
+            [long]$rule.FileSystemRights -ne
+                [long][Security.AccessControl.FileSystemRights]::FullControl -or
+            $rule.InheritanceFlags -ne $expectedInheritance -or
+            $rule.PropagationFlags -ne [Security.AccessControl.PropagationFlags]::None) {
+            throw "Protected deployment-state root contains an unsafe access rule: $protectedRoot"
+        }
+    }
+}
+
+function Assert-QualitySqliteDataPathBoundary {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [switch]$RequireEmpty
+    )
+
+    $resolvedPath = Get-FullPath -Path $Path
+    if ($resolvedPath -ine 'C:\ProgramData\SonAero\deployment-state\quality-assurance-data') {
+        throw "Quality SQLite data directory is not the approved ProgramData path: $resolvedPath"
+    }
+    Assert-QualityProtectedDeploymentStateRoot
+
+    $currentPath = [IO.Path]::GetPathRoot($resolvedPath)
+    $relativePath = $resolvedPath.Substring($currentPath.Length)
+    foreach ($segment in @($relativePath.Split('\') | Where-Object { $_.Length -gt 0 })) {
+        $currentPath = Join-Path $currentPath $segment
+        if (-not (Test-Path -LiteralPath $currentPath)) { break }
+        $item = Get-Item -LiteralPath $currentPath -Force -ErrorAction Stop
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Quality SQLite data path contains a reparse point: $currentPath"
+        }
+        if ($currentPath -ine $resolvedPath -and -not $item.PSIsContainer) {
+            throw "Quality SQLite data path contains a non-directory component: $currentPath"
+        }
+    }
+
+    if (Test-Path -LiteralPath $resolvedPath -PathType Leaf) {
+        throw "Quality SQLite data path is a file: $resolvedPath"
+    }
+    if ($RequireEmpty -and (Test-Path -LiteralPath $resolvedPath)) {
+        throw "Initial Quality SQLite data directory must not already exist: $resolvedPath"
+    }
+
+    try {
+        [void](New-Object Security.Principal.NTAccount('IIS AppPool', $poolName)).Translate(
+            [Security.Principal.SecurityIdentifier])
+    }
+    catch {
+        throw "Unable to resolve the Quality IIS application-pool identity: $($_.Exception.Message)"
+    }
+    return $resolvedPath
+}
+
+function Initialize-QualitySqliteDataDirectory {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $resolvedPath = Assert-QualitySqliteDataPathBoundary -Path $Path -RequireEmpty
+    $administrators = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
+    $system = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
+    $poolIdentity = (New-Object Security.Principal.NTAccount(
+        'IIS AppPool', $poolName)).Translate([Security.Principal.SecurityIdentifier])
+    $directorySecurity = New-Object Security.AccessControl.DirectorySecurity
+    $directorySecurity.SetAccessRuleProtection($true, $false)
+    $directorySecurity.SetOwner($administrators)
+    $inheritance = [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+    $propagation = [Security.AccessControl.PropagationFlags]::None
+    $allow = [Security.AccessControl.AccessControlType]::Allow
+    foreach ($grant in @(
+        [pscustomobject]@{ Identity = $administrators; Rights = [Security.AccessControl.FileSystemRights]::FullControl },
+        [pscustomobject]@{ Identity = $system; Rights = [Security.AccessControl.FileSystemRights]::FullControl },
+        [pscustomobject]@{ Identity = $poolIdentity; Rights = [Security.AccessControl.FileSystemRights]::Modify }
+    )) {
+        $rule = New-Object Security.AccessControl.FileSystemAccessRule(
+            $grant.Identity, $grant.Rights, $inheritance, $propagation, $allow)
+        $directorySecurity.SetAccessRule($rule)
+    }
+    [void][IO.Directory]::CreateDirectory($resolvedPath, $directorySecurity)
+    [void](Assert-QualitySqliteDataPathBoundary -Path $resolvedPath)
+    Set-Acl -LiteralPath $resolvedPath -AclObject $directorySecurity
+
+    $actualAcl = Get-Acl -LiteralPath $resolvedPath
+    if (-not $actualAcl.AreAccessRulesProtected -or
+        $actualAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne
+            $administrators.Value) {
+        throw 'Quality SQLite data directory ownership or inheritance protection is incorrect.'
+    }
+    $expectedRights = @{
+        $administrators.Value = [Security.AccessControl.FileSystemRights]::FullControl
+        $system.Value = [Security.AccessControl.FileSystemRights]::FullControl
+        $poolIdentity.Value = [Security.AccessControl.FileSystemRights]::Modify
+    }
+    $actualRules = @($actualAcl.GetAccessRules(
+        $true, $true, [Security.Principal.SecurityIdentifier]))
+    if ($actualRules.Count -ne $expectedRights.Count) {
+        throw 'Quality SQLite data directory must contain exactly three protected access rules.'
+    }
+    foreach ($rule in $actualRules) {
+        $sid = $rule.IdentityReference.Value
+        if (-not $expectedRights.ContainsKey($sid) -or
+            $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+            $rule.IsInherited -or
+            [long]$rule.FileSystemRights -ne [long]$expectedRights[$sid] -or
+            $rule.InheritanceFlags -ne $inheritance -or
+            $rule.PropagationFlags -ne $propagation) {
+            throw "Quality SQLite data directory contains an unexpected access rule for '$sid'."
+        }
+    }
+
+    $dataFile = Join-Path $resolvedPath 'quality-assurance.db'
+    $fileStream = $null
+    try {
+        $fileStream = [IO.File]::Open(
+            $dataFile,
+            [IO.FileMode]::CreateNew,
+            [IO.FileAccess]::ReadWrite,
+            [IO.FileShare]::None)
+    }
+    finally {
+        if ($null -ne $fileStream) { $fileStream.Dispose() }
+    }
+    $dataFileItem = Get-Item -LiteralPath $dataFile -Force -ErrorAction Stop
+    if (($dataFileItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        $dataFileItem.PSIsContainer -or $dataFileItem.Length -ne 0) {
+        throw "The initial Quality SQLite data file is not a new empty regular file: $dataFile"
+    }
+
+    $fileSecurity = New-Object Security.AccessControl.FileSecurity
+    $fileSecurity.SetAccessRuleProtection($true, $false)
+    $fileSecurity.SetOwner($administrators)
+    foreach ($grant in @(
+        [pscustomobject]@{ Identity = $administrators; Rights = [Security.AccessControl.FileSystemRights]::FullControl },
+        [pscustomobject]@{ Identity = $system; Rights = [Security.AccessControl.FileSystemRights]::FullControl },
+        [pscustomobject]@{ Identity = $poolIdentity; Rights = [Security.AccessControl.FileSystemRights]::Modify }
+    )) {
+        $rule = New-Object Security.AccessControl.FileSystemAccessRule(
+            $grant.Identity, $grant.Rights, $allow)
+        $fileSecurity.SetAccessRule($rule)
+    }
+    Set-Acl -LiteralPath $dataFile -AclObject $fileSecurity
+
+    $actualFileAcl = Get-Acl -LiteralPath $dataFile
+    if (-not $actualFileAcl.AreAccessRulesProtected -or
+        $actualFileAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne
+            $administrators.Value) {
+        throw 'Quality SQLite data file ownership or inheritance protection is incorrect.'
+    }
+    $actualFileRules = @($actualFileAcl.GetAccessRules(
+        $true, $true, [Security.Principal.SecurityIdentifier]))
+    if ($actualFileRules.Count -ne $expectedRights.Count) {
+        throw 'Quality SQLite data file must contain exactly three protected access rules.'
+    }
+    foreach ($rule in $actualFileRules) {
+        $sid = $rule.IdentityReference.Value
+        if (-not $expectedRights.ContainsKey($sid) -or
+            $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+            $rule.IsInherited -or
+            [long]$rule.FileSystemRights -ne [long]$expectedRights[$sid] -or
+            $rule.InheritanceFlags -ne [Security.AccessControl.InheritanceFlags]::None -or
+            $rule.PropagationFlags -ne [Security.AccessControl.PropagationFlags]::None) {
+            throw "Quality SQLite data file contains an unexpected access rule for '$sid'."
+        }
+    }
+    return $dataFile
 }
 
 function Set-QualityPhysicalPath {
@@ -312,6 +513,28 @@ function Set-QualityPhysicalPath {
     finally { $manager.Dispose() }
 }
 
+function Set-QualityDisallowOverlappingRotation {
+    param([Parameter(Mandatory = $true)][bool]$Enabled)
+
+    $manager = New-Object Microsoft.Web.Administration.ServerManager
+    try {
+        $pool = $manager.ApplicationPools[$poolName]
+        if ($null -eq $pool) { throw "Quality pool '$poolName' disappeared during deployment." }
+        $pool.Recycling.DisallowOverlappingRotation = $Enabled
+        $manager.CommitChanges()
+    }
+    finally { $manager.Dispose() }
+
+    $verificationManager = New-Object Microsoft.Web.Administration.ServerManager
+    try {
+        $actual = [bool]$verificationManager.ApplicationPools[$poolName].Recycling.DisallowOverlappingRotation
+        if ($actual -ne $Enabled) {
+            throw "Quality pool '$poolName' overlapping-rotation setting did not become '$Enabled'."
+        }
+    }
+    finally { $verificationManager.Dispose() }
+}
+
 function Assert-QualityPhysicalPath {
     param([Parameter(Mandatory = $true)][string]$ExpectedPath)
     $actualPath = (Get-QualityIisBoundary).QualityPath
@@ -324,11 +547,14 @@ function Restore-PriorQualityRuntime {
     param(
         [Parameter(Mandatory = $true)][string]$PriorPath,
         [Parameter(Mandatory = $true)][ValidateSet('Started', 'Stopped')][string]$PriorPoolState,
-        [Parameter(Mandatory = $true)][bool]$PriorWasHealthy
+        [Parameter(Mandatory = $true)][bool]$PriorWasHealthy,
+        [Parameter(Mandatory = $true)][bool]$PriorDisallowOverlappingRotation
     )
     Request-QualityPoolState -State Stopped
     Set-QualityPhysicalPath -Path $PriorPath
     Assert-QualityPhysicalPath -ExpectedPath $PriorPath
+    Set-QualityDisallowOverlappingRotation `
+        -Enabled $PriorDisallowOverlappingRotation
     Request-QualityPoolState -State $PriorPoolState
     if ($PriorPoolState -eq 'Started' -and $PriorWasHealthy) {
         Wait-QualityHealth -TimeoutSeconds $HealthTimeoutSeconds
@@ -341,14 +567,21 @@ function Invoke-QualityIisSwitch {
         [Parameter(Mandatory = $true)][string]$CurrentPath,
         [Parameter(Mandatory = $true)][string]$CandidatePath,
         [Parameter(Mandatory = $true)][ValidateSet('Started', 'Stopped')][string]$PriorPoolState,
-        [Parameter(Mandatory = $true)][bool]$PriorWasHealthy
+        [Parameter(Mandatory = $true)][bool]$PriorWasHealthy,
+        [Parameter(Mandatory = $true)][bool]$PriorDisallowOverlappingRotation
     )
     try {
         Request-QualityPoolState -State Stopped
+        if ($script:QualitySqliteStorageValidationRequired) {
+            Set-QualityDisallowOverlappingRotation -Enabled $true
+        }
         Set-QualityPhysicalPath -Path $CandidatePath
         Assert-QualityPhysicalPath -ExpectedPath $CandidatePath
         Request-QualityPoolState -State Started
         Wait-QualityHealth -TimeoutSeconds $HealthTimeoutSeconds
+        if ($script:QualitySqliteStorageValidationRequired) {
+            [void](Assert-QualityServerLocalSqliteStorage -PoolName $poolName)
+        }
         Assert-QualityPhysicalPath -ExpectedPath $CandidatePath
     }
     catch {
@@ -356,7 +589,8 @@ function Invoke-QualityIisSwitch {
         $rollbackErrors = New-Object System.Collections.Generic.List[string]
         try {
             Restore-PriorQualityRuntime -PriorPath $CurrentPath -PriorPoolState $PriorPoolState `
-                -PriorWasHealthy $PriorWasHealthy
+                -PriorWasHealthy $PriorWasHealthy `
+                -PriorDisallowOverlappingRotation $PriorDisallowOverlappingRotation
         }
         catch { $rollbackErrors.Add($_.Exception.Message) }
         if ($rollbackErrors.Count -eq 0) {
@@ -372,6 +606,10 @@ if ($env:COMPUTERNAME -ine $ExpectedComputerName) {
 Assert-DeploymentIdentity
 if ($FirstActivation -and $RepairMissingProductionDatabaseSettings) {
     throw '-FirstActivation and -RepairMissingProductionDatabaseSettings are mutually exclusive.'
+}
+if ($UseServerLocalSqlite -and
+    ($FirstActivation -or $RepairMissingProductionDatabaseSettings)) {
+    throw '-UseServerLocalSqlite is mutually exclusive with -FirstActivation and -RepairMissingProductionDatabaseSettings.'
 }
 foreach ($blockedOverrideName in $blockedOverrideNames) {
     if ($null -ne [Environment]::GetEnvironmentVariable(
@@ -431,6 +669,7 @@ if ((Get-WebsiteState -Name $siteName).Value -ne 'Started') {
 }
 $boundary = Get-QualityIisBoundary
 $currentPath = $boundary.QualityPath
+$priorDisallowOverlappingRotation = [bool]$boundary.DisallowOverlappingRotation
 foreach ($activePath in $boundary.AllApplicationPaths) {
     if (Test-PathContainmentOverlap -FirstPath $releasePath -SecondPath $activePath) {
         throw "Quality release destination '$releasePath' overlaps active IIS path '$activePath'."
@@ -444,13 +683,30 @@ if (-not (Test-Path -LiteralPath $currentProductionSettings -PathType Leaf)) {
     throw "Quality Production settings are missing: $currentProductionSettings"
 }
 $currentProductionHash = (Get-FileHash -LiteralPath $currentProductionSettings -Algorithm SHA256).Hash
+$activeProductionConfiguration = $null
 $repairPlan = if ($RepairMissingProductionDatabaseSettings) {
     New-QualityProductionDatabaseConfigurationRepair -ActivePath $currentProductionSettings `
         -TemplatePath $productionTemplate
 }
 else {
-    [void](Read-QualityProductionConfiguration -Path $currentProductionSettings)
+    $activeProductionConfiguration = Read-QualityProductionConfiguration `
+        -Path $currentProductionSettings
     $null
+}
+$sqlitePlan = if ($UseServerLocalSqlite) {
+    New-QualityServerLocalSqliteConfiguration -ActivePath $currentProductionSettings
+}
+else { $null }
+$script:QualitySqliteStorageValidationRequired = [bool]$UseServerLocalSqlite -or
+    ($null -ne $activeProductionConfiguration -and
+        (Test-QualityProductionConfigurationUsesServerLocalSqlite `
+            -Configuration $activeProductionConfiguration))
+if (-not $UseServerLocalSqlite -and $script:QualitySqliteStorageValidationRequired) {
+    [void](Assert-QualityServerLocalSqliteStorage -PoolName $poolName)
+}
+if ($UseServerLocalSqlite) {
+    [void](Assert-QualitySqliteDataPathBoundary `
+        -Path $sqlitePlan.DataDirectory -RequireEmpty)
 }
 $priorPoolState = Get-PoolStateValue
 $currentHealth = Get-HealthResult -Uri $healthUri
@@ -463,11 +719,17 @@ if (-not $PSCmdlet.ShouldProcess(
         $(if ($RepairMissingProductionDatabaseSettings) {
             'Create an immutable Quality release with only the two missing Production database settings, switch only its IIS path, and verify candidate health with exact path/state rollback'
         }
+        elseif ($UseServerLocalSqlite) {
+            'Create an immutable Quality release using the reviewed persistent server-local SQLite bridge, enforce non-overlapping single-worker execution, switch only its IIS path, and verify candidate health with exact path/state rollback'
+        }
         else {
             'Create an immutable Quality release, switch only its IIS path, and verify candidate health with exact path/state rollback'
         }))) {
     if ($RepairMissingProductionDatabaseSettings) {
         Write-Output 'WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED'
+    }
+    elseif ($UseServerLocalSqlite) {
+        Write-Output 'WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_SERVER_LOCAL_SQLITE'
     }
     else { Write-Output 'WHATIF_READY_QUALITY_ASSURANCE_RELEASE' }
     return
@@ -480,6 +742,9 @@ try {
     $candidateProductionSettings = Join-Path $releasePath 'appsettings.Production.json'
     if ($RepairMissingProductionDatabaseSettings) {
         [IO.File]::WriteAllBytes($candidateProductionSettings, [byte[]]$repairPlan.Utf8Bytes)
+    }
+    elseif ($UseServerLocalSqlite) {
+        [IO.File]::WriteAllBytes($candidateProductionSettings, [byte[]]$sqlitePlan.Utf8Bytes)
     }
     else {
         Copy-Item -LiteralPath $currentProductionSettings -Destination $candidateProductionSettings
@@ -499,6 +764,9 @@ try {
         Where-Object Name -Like 'appsettings.Development*.json')
     if ($developmentSettings.Count -gt 0) {
         throw 'Development configuration was found in the Quality candidate release.'
+    }
+    if ($UseServerLocalSqlite) {
+        [void](Initialize-QualitySqliteDataDirectory -Path $sqlitePlan.DataDirectory)
     }
     & icacls.exe $releasePath /grant "IIS AppPool\$poolName`:(OI)(CI)RX" /t /c | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Read/execute permission assignment failed for '$poolName'." }
@@ -529,19 +797,27 @@ if ((Get-FileHash -LiteralPath $candidateProductionSettings -Algorithm SHA256).H
 }
 
 Invoke-QualityIisSwitch -CurrentPath $currentPath -CandidatePath $releasePath `
-    -PriorPoolState $priorPoolState -PriorWasHealthy $currentHealthy
+    -PriorPoolState $priorPoolState -PriorWasHealthy $currentHealthy `
+    -PriorDisallowOverlappingRotation $priorDisallowOverlappingRotation
 
 [pscustomobject]@{
     Status = if ($RepairMissingProductionDatabaseSettings) {
         'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED'
+    }
+    elseif ($UseServerLocalSqlite) {
+        'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_SERVER_LOCAL_SQLITE'
     }
     else { 'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY' }
     ReleaseId = $ReleaseId
     ReleasePath = $releasePath
     FirstActivation = [bool]$FirstActivation
     ProductionDatabaseSettingsRepaired = [bool]$RepairMissingProductionDatabaseSettings
+    ServerLocalSqliteEnabled = [bool]$UseServerLocalSqlite
 } | Format-List
 if ($RepairMissingProductionDatabaseSettings) {
     Write-Output 'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_PRODUCTION_DATABASE_SETTINGS_REPAIRED'
+}
+elseif ($UseServerLocalSqlite) {
+    Write-Output 'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_SERVER_LOCAL_SQLITE'
 }
 else { Write-Output 'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY' }

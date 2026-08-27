@@ -71,10 +71,15 @@ $moduleSource = Get-Content -LiteralPath $resolvedModule -Raw
 foreach ($required in @(
     'Read-QualityProductionConfiguration',
     'New-QualityProductionDatabaseConfigurationRepair',
+    'New-QualityServerLocalSqliteConfiguration',
+    'Test-QualityProductionConfigurationUsesServerLocalSqlite',
+    'Assert-QualityServerLocalSqliteStorage',
     'Get-QualitySanitizedApplicationManifest',
     'Assert-QualitySanitizedApplicationManifestEqual',
     'QualityDatabase.Provider',
     'ConnectionStrings.QualityStore',
+    'ServerLocalSqlite',
+    'C:\ProgramData\SonAero\deployment-state\quality-assurance-data',
     'appsettings.Production.json',
     'appsettings.Development*.json',
     'SHA256',
@@ -90,6 +95,9 @@ Import-Module $resolvedModule -Force -ErrorAction Stop
 foreach ($commandName in @(
     'Read-QualityProductionConfiguration',
     'New-QualityProductionDatabaseConfigurationRepair',
+    'New-QualityServerLocalSqliteConfiguration',
+    'Test-QualityProductionConfigurationUsesServerLocalSqlite',
+    'Assert-QualityServerLocalSqliteStorage',
     'Get-QualitySanitizedApplicationManifest',
     'Assert-QualitySanitizedApplicationManifestEqual'
 )) {
@@ -107,6 +115,62 @@ try {
     $readValid = Read-QualityProductionConfiguration -Path $validPath
     Assert-True ($readValid.QualityDatabase.Provider -ceq 'SqlServer') `
         'A valid explicit Quality SQL Server provider was not returned.'
+    Assert-True (-not (Test-QualityProductionConfigurationUsesServerLocalSqlite `
+        -Configuration $readValid)) `
+        'A dedicated SQL Server configuration was mistaken for server-local SQLite.'
+
+    $validBefore = [IO.File]::ReadAllBytes($validPath)
+    $sqlitePlan = New-QualityServerLocalSqliteConfiguration -ActivePath $validPath
+    Assert-True ((@($sqlitePlan.ChangedPaths) -join '|') -ceq
+        'QualityDatabase.Provider|QualityDatabase.StorageMode|ConnectionStrings.QualityStore') `
+        'Server-local SQLite transition did not report exactly the three reviewed leaves.'
+    Assert-True ($sqlitePlan.Configuration.Database.Provider -ceq 'SqlServer' -and
+        $sqlitePlan.Configuration.QualityDatabase.Provider -ceq 'Sqlite' -and
+        $sqlitePlan.Configuration.QualityDatabase.StorageMode -ceq 'ServerLocalSqlite') `
+        'Server-local SQLite transition changed the shared provider or did not select the explicit Quality storage mode.'
+    $approvedSqliteStore = 'Data Source=C:\ProgramData\SonAero\deployment-state\quality-assurance-data\quality-assurance.db;Mode=ReadWrite;Default Timeout=30;Foreign Keys=True;Pooling=True'
+    Assert-True ($sqlitePlan.Configuration.ConnectionStrings.QualityStore -ceq
+        $approvedSqliteStore -and
+        $sqlitePlan.DataDirectory -ceq 'C:\ProgramData\SonAero\deployment-state\quality-assurance-data' -and
+        $sqlitePlan.DataFile -ceq
+            'C:\ProgramData\SonAero\deployment-state\quality-assurance-data\quality-assurance.db') `
+        'Server-local SQLite transition did not use the exact approved persistent path and options.'
+    $sqliteOutsideApprovedLeaves = Copy-TestObject $sqlitePlan.Configuration
+    $sqliteOutsideApprovedLeaves.QualityDatabase.Provider = 'SqlServer'
+    $sqliteOutsideApprovedLeaves.QualityDatabase.PSObject.Properties.Remove('StorageMode')
+    $sqliteOutsideApprovedLeaves.ConnectionStrings.QualityStore =
+        $valid.ConnectionStrings.QualityStore
+    Assert-True (($sqliteOutsideApprovedLeaves | ConvertTo-Json -Depth 30 -Compress) -ceq
+        ($valid | ConvertTo-Json -Depth 30 -Compress)) `
+        'Server-local SQLite transition changed configuration outside the three reviewed leaves.'
+    Assert-True ($sqlitePlan.Utf8Bytes -is [byte[]] -and
+        $sqlitePlan.Utf8Bytes.Length -gt 0 -and
+        -not ($sqlitePlan.Utf8Bytes.Length -ge 3 -and
+            $sqlitePlan.Utf8Bytes[0] -eq 0xEF -and
+            $sqlitePlan.Utf8Bytes[1] -eq 0xBB -and
+            $sqlitePlan.Utf8Bytes[2] -eq 0xBF)) `
+        'Server-local SQLite transition did not return BOM-free UTF-8 candidate bytes.'
+    $secondSqlitePlan = New-QualityServerLocalSqliteConfiguration -ActivePath $validPath
+    Assert-True ([Convert]::ToBase64String($sqlitePlan.Utf8Bytes) -ceq
+        [Convert]::ToBase64String($secondSqlitePlan.Utf8Bytes)) `
+        'Server-local SQLite transition bytes are not deterministic for identical input.'
+    Assert-True ([Convert]::ToBase64String([IO.File]::ReadAllBytes($validPath)) -ceq
+        [Convert]::ToBase64String($validBefore)) `
+        'Server-local SQLite planning modified the active Production configuration.'
+    $sqliteCandidatePath = Join-Path $testRoot 'sqlite-candidate.json'
+    [IO.File]::WriteAllBytes($sqliteCandidatePath, [byte[]]$sqlitePlan.Utf8Bytes)
+    $readSqlite = Read-QualityProductionConfiguration -Path $sqliteCandidatePath
+    Assert-True ($readSqlite.QualityDatabase.Provider -ceq 'Sqlite' -and
+        $readSqlite.QualityDatabase.StorageMode -ceq 'ServerLocalSqlite' -and
+        $readSqlite.ConnectionStrings.QualityStore -ceq $approvedSqliteStore) `
+        'The validated server-local SQLite candidate could not be read back safely.'
+    Assert-True (Test-QualityProductionConfigurationUsesServerLocalSqlite `
+        -Configuration $readSqlite) `
+        'The explicit server-local SQLite configuration was not detected.'
+    Assert-Throws {
+        [void](New-QualityServerLocalSqliteConfiguration `
+            -ActivePath $sqliteCandidatePath)
+    } 'An already-transitioned SQLite configuration accepted a second transition.'
 
     $templatePath = Join-Path $testRoot 'template.json'
     Write-TestJson -Path $templatePath -Value $valid
@@ -168,6 +232,11 @@ try {
         { param($c) $c.Authentication.Mode = 'Development' },
         { param($c) $c.Database.Provider = 'Sqlite' },
         { param($c) $c.QualityDatabase.Provider = 'Sqlite' },
+        { param($c) $c.QualityDatabase | Add-Member -NotePropertyName StorageMode -NotePropertyValue 'ServerLocalSqlite' },
+        { param($c) $c.QualityDatabase.Provider = 'Sqlite'; $c.QualityDatabase | Add-Member -NotePropertyName StorageMode -NotePropertyValue 'Unknown'; $c.ConnectionStrings.QualityStore = $approvedSqliteStore },
+        { param($c) $c.QualityDatabase.Provider = 'Sqlite'; $c.QualityDatabase | Add-Member -NotePropertyName StorageMode -NotePropertyValue 'ServerLocalSqlite'; $c.ConnectionStrings.QualityStore = 'Data Source=quality-assurance.db;Mode=ReadWrite;Default Timeout=30;Foreign Keys=True;Pooling=True' },
+        { param($c) $c.QualityDatabase.Provider = 'Sqlite'; $c.QualityDatabase | Add-Member -NotePropertyName StorageMode -NotePropertyValue 'ServerLocalSqlite'; $c.ConnectionStrings.QualityStore = $approvedSqliteStore + ';Cache=Shared' },
+        { param($c) $c.QualityDatabase.Provider = 'Sqlite'; $c.QualityDatabase | Add-Member -NotePropertyName StorageMode -NotePropertyValue 'ServerLocalSqlite'; $c.QualityDatabase | Add-Member -NotePropertyName Unexpected -NotePropertyValue 'unsafe'; $c.ConnectionStrings.QualityStore = $approvedSqliteStore },
         { param($c) $c.QualityDatabase.Provider = '' },
         { param($c) $c.ConnectionStrings.ModuleAccessStore = 'Data Source=project-tracker-dev.db' },
         { param($c) $c.ConnectionStrings.ModuleAccessStore = 'Server=tcp:OTHER,1433;Database=ProjectTracker;Integrated Security=True;Encrypt=True;TrustServerCertificate=True' },

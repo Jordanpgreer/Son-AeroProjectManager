@@ -3,6 +3,13 @@ $ErrorActionPreference = 'Stop'
 $script:ExpectedSqlServer = 'tcp:SON-SQL2,1433'
 $script:ExpectedModuleAccessDatabase = 'ProjectTracker'
 $script:ExpectedQualityDatabase = 'QualityAssurance'
+$script:ServerLocalSqliteStorageMode = 'ServerLocalSqlite'
+$script:ServerLocalSqliteDataDirectory = `
+    'C:\ProgramData\SonAero\deployment-state\quality-assurance-data'
+$script:ServerLocalSqliteDataFile = Join-Path `
+    $script:ServerLocalSqliteDataDirectory 'quality-assurance.db'
+$script:ServerLocalSqliteConnectionString =
+    "Data Source=$($script:ServerLocalSqliteDataFile);Mode=ReadWrite;Default Timeout=30;Foreign Keys=True;Pooling=True"
 
 function Read-JsonObject {
     param(
@@ -94,9 +101,20 @@ function Assert-QualityProductionConfigurationObject {
     if ([string]$Configuration.Authentication.Mode -cne 'Windows') {
         throw "$Label must use Windows authentication."
     }
-    if ([string]$Configuration.Database.Provider -cne 'SqlServer' -or
-        [string]$Configuration.QualityDatabase.Provider -cne 'SqlServer') {
-        throw "$Label must use SQL Server for both database providers."
+    if ([string]$Configuration.Database.Provider -cne 'SqlServer') {
+        throw "$Label must use SQL Server for the shared access database provider."
+    }
+    if ($null -eq $Configuration.QualityDatabase -or
+        $Configuration.QualityDatabase.GetType() -ne
+            [System.Management.Automation.PSCustomObject]) {
+        throw "$Label must contain one QualityDatabase object."
+    }
+    $qualityDatabaseProperties = @($Configuration.QualityDatabase.PSObject.Properties)
+    $unexpectedQualityDatabaseProperties = @($qualityDatabaseProperties | Where-Object {
+        $_.Name -notin @('Provider', 'StorageMode')
+    })
+    if ($unexpectedQualityDatabaseProperties.Count -gt 0) {
+        throw "$Label QualityDatabase contains unsupported setting '$($unexpectedQualityDatabaseProperties[0].Name)'."
     }
     if ($null -eq $Configuration.ConnectionStrings -or
         $Configuration.ConnectionStrings.GetType() -ne
@@ -106,9 +124,25 @@ function Assert-QualityProductionConfigurationObject {
     Assert-ApprovedSqlConnectionString `
         -ConnectionString ([string]$Configuration.ConnectionStrings.ModuleAccessStore) `
         -ExpectedDatabase $script:ExpectedModuleAccessDatabase -Label "$Label ModuleAccessStore"
-    Assert-ApprovedSqlConnectionString `
-        -ConnectionString ([string]$Configuration.ConnectionStrings.QualityStore) `
-        -ExpectedDatabase $script:ExpectedQualityDatabase -Label "$Label QualityStore"
+    $storageModeProperty = $Configuration.QualityDatabase.PSObject.Properties['StorageMode']
+    if ($null -eq $storageModeProperty) {
+        if ([string]$Configuration.QualityDatabase.Provider -cne 'SqlServer') {
+            throw "$Label must use SQL Server for Quality data unless the reviewed server-local SQLite storage mode is explicit."
+        }
+        Assert-ApprovedSqlConnectionString `
+            -ConnectionString ([string]$Configuration.ConnectionStrings.QualityStore) `
+            -ExpectedDatabase $script:ExpectedQualityDatabase -Label "$Label QualityStore"
+        return
+    }
+
+    if ([string]$storageModeProperty.Value -cne $script:ServerLocalSqliteStorageMode -or
+        [string]$Configuration.QualityDatabase.Provider -cne 'Sqlite') {
+        throw "$Label QualityDatabase.StorageMode and Provider do not select the reviewed server-local SQLite mode."
+    }
+    if ([string]$Configuration.ConnectionStrings.QualityStore -cne
+        $script:ServerLocalSqliteConnectionString) {
+        throw "$Label server-local SQLite QualityStore must use the exact approved persistent ProgramData path and options."
+    }
 }
 
 function Read-QualityProductionConfiguration {
@@ -190,6 +224,187 @@ function New-QualityProductionDatabaseConfigurationRepair {
     }
 }
 
+function New-QualityServerLocalSqliteConfiguration {
+    param([Parameter(Mandatory = $true)][string]$ActivePath)
+
+    $active = Read-JsonObject -Path $ActivePath -Label 'active Quality Production'
+    Assert-QualityProductionConfigurationObject -Configuration $active `
+        -Label "Active Quality Production configuration '$ActivePath'"
+    if ($null -ne $active.QualityDatabase.PSObject.Properties['StorageMode']) {
+        throw "Active Quality Production configuration '$ActivePath' already uses server-local SQLite. Omit the transition switch for ordinary deployments."
+    }
+
+    $clone = ($active | ConvertTo-Json -Depth 100) | ConvertFrom-Json -ErrorAction Stop
+    $clone.QualityDatabase.Provider = 'Sqlite'
+    $clone.QualityDatabase | Add-Member -NotePropertyName StorageMode `
+        -NotePropertyValue $script:ServerLocalSqliteStorageMode
+    $clone.ConnectionStrings.QualityStore = $script:ServerLocalSqliteConnectionString
+
+    Assert-QualityProductionConfigurationObject -Configuration $clone `
+        -Label 'Server-local SQLite Quality Production configuration'
+    $json = ($clone | ConvertTo-Json -Depth 100) + [Environment]::NewLine
+    $bytes = (New-Object Text.UTF8Encoding($false)).GetBytes($json)
+    return [pscustomobject]@{
+        Configuration = $clone
+        Utf8Bytes = $bytes
+        DataDirectory = $script:ServerLocalSqliteDataDirectory
+        DataFile = $script:ServerLocalSqliteDataFile
+        ChangedPaths = @(
+            'QualityDatabase.Provider',
+            'QualityDatabase.StorageMode',
+            'ConnectionStrings.QualityStore'
+        )
+    }
+}
+
+function Test-QualityProductionConfigurationUsesServerLocalSqlite {
+    param([Parameter(Mandatory = $true)]$Configuration)
+
+    return $null -ne $Configuration.QualityDatabase -and
+        [string]$Configuration.QualityDatabase.Provider -ceq 'Sqlite' -and
+        $null -ne $Configuration.QualityDatabase.PSObject.Properties['StorageMode'] -and
+        [string]$Configuration.QualityDatabase.StorageMode -ceq
+            $script:ServerLocalSqliteStorageMode
+}
+
+function Get-QualityServerLocalSqliteAclExpectation {
+    param([Parameter(Mandatory = $true)][string]$PoolName)
+
+    $administrators = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
+    $system = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
+    try {
+        $poolIdentity = (New-Object Security.Principal.NTAccount(
+            'IIS AppPool', $PoolName)).Translate(
+                [Security.Principal.SecurityIdentifier])
+    }
+    catch {
+        throw "Unable to resolve the Quality IIS application-pool identity: $($_.Exception.Message)"
+    }
+    $rights = @{}
+    $rights[$administrators.Value] = [Security.AccessControl.FileSystemRights]::FullControl
+    $rights[$system.Value] = [Security.AccessControl.FileSystemRights]::FullControl
+    $rights[$poolIdentity.Value] = [Security.AccessControl.FileSystemRights]::Modify
+    return [pscustomobject]@{
+        Administrators = $administrators
+        Rights = $rights
+    }
+}
+
+function Assert-QualityServerLocalSqliteExactAcl {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)]$Expectation,
+        [Parameter(Mandatory = $true)][bool]$Directory
+    )
+
+    $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    if (-not $acl.AreAccessRulesProtected -or
+        $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne
+            $Expectation.Administrators.Value) {
+        throw "Quality SQLite path ownership or inheritance protection is incorrect: $Path"
+    }
+    $rules = @($acl.GetAccessRules(
+        $true, $true, [Security.Principal.SecurityIdentifier]))
+    if ($rules.Count -ne $Expectation.Rights.Count) {
+        throw "Quality SQLite path must contain exactly three protected access rules: $Path"
+    }
+    $expectedInheritance = if ($Directory) {
+        [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+    }
+    else { [Security.AccessControl.InheritanceFlags]::None }
+    foreach ($rule in $rules) {
+        $sid = $rule.IdentityReference.Value
+        if (-not $Expectation.Rights.ContainsKey($sid) -or
+            $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+            $rule.IsInherited -or
+            [long]$rule.FileSystemRights -ne [long]$Expectation.Rights[$sid] -or
+            $rule.InheritanceFlags -ne $expectedInheritance -or
+            $rule.PropagationFlags -ne [Security.AccessControl.PropagationFlags]::None) {
+            throw "Quality SQLite path contains an unexpected access rule for '$sid': $Path"
+        }
+    }
+}
+
+function Assert-QualityServerLocalSqliteStorage {
+    param([string]$PoolName = 'QualityAssurance')
+
+    $protectedRoot = 'C:\ProgramData\SonAero\deployment-state'
+    $protectedRootItem = Get-Item -LiteralPath $protectedRoot -Force -ErrorAction Stop
+    if (-not $protectedRootItem.PSIsContainer -or
+        ($protectedRootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Protected deployment-state root is missing, is not a directory, or is a reparse point: $protectedRoot"
+    }
+    $protectedRootAcl = Get-Acl -LiteralPath $protectedRoot -ErrorAction Stop
+    $protectedRootAllowedSids = @('S-1-5-18', 'S-1-5-32-544')
+    $protectedRootOwner = $protectedRootAcl.GetOwner(
+        [Security.Principal.SecurityIdentifier]).Value
+    $protectedRootRules = @($protectedRootAcl.GetAccessRules(
+        $true, $true, [Security.Principal.SecurityIdentifier]))
+    $protectedRootInheritance =
+        [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'
+    if (-not $protectedRootAcl.AreAccessRulesProtected -or
+        $protectedRootOwner -notin $protectedRootAllowedSids -or
+        $protectedRootRules.Count -ne 2) {
+        throw "Protected deployment-state root has an unsafe owner, inheritance state, or rule count: $protectedRoot"
+    }
+    foreach ($rule in $protectedRootRules) {
+        if ($rule.IdentityReference.Value -notin $protectedRootAllowedSids -or
+            $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+            $rule.IsInherited -or
+            [long]$rule.FileSystemRights -ne
+                [long][Security.AccessControl.FileSystemRights]::FullControl -or
+            $rule.InheritanceFlags -ne $protectedRootInheritance -or
+            $rule.PropagationFlags -ne [Security.AccessControl.PropagationFlags]::None) {
+            throw "Protected deployment-state root contains an unsafe access rule: $protectedRoot"
+        }
+    }
+
+    $dataDirectory = [IO.Path]::GetFullPath(
+        $script:ServerLocalSqliteDataDirectory).TrimEnd('\')
+    $currentPath = [IO.Path]::GetPathRoot($dataDirectory)
+    $relativePath = $dataDirectory.Substring($currentPath.Length)
+    foreach ($segment in @($relativePath.Split('\') | Where-Object { $_.Length -gt 0 })) {
+        $currentPath = Join-Path $currentPath $segment
+        if (-not (Test-Path -LiteralPath $currentPath)) {
+            throw "Quality SQLite data path is missing: $currentPath"
+        }
+        $item = Get-Item -LiteralPath $currentPath -Force -ErrorAction Stop
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+            -not $item.PSIsContainer) {
+            throw "Quality SQLite data path component is not a regular directory: $currentPath"
+        }
+    }
+
+    $allowedNames = @(
+        'quality-assurance.db',
+        'quality-assurance.db-journal',
+        'quality-assurance.db-shm',
+        'quality-assurance.db-wal'
+    )
+    $items = @(Get-ChildItem -LiteralPath $dataDirectory -Force -ErrorAction Stop)
+    foreach ($item in $items) {
+        if ($item.Name -cnotin $allowedNames -or $item.PSIsContainer -or
+            ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Quality SQLite data directory contains an unapproved item: $($item.FullName)"
+        }
+    }
+    $dataFileItem = @($items | Where-Object Name -CEQ 'quality-assurance.db')
+    if ($dataFileItem.Count -ne 1 -or $dataFileItem[0].Length -le 0) {
+        throw "Quality SQLite database is missing or empty: $($script:ServerLocalSqliteDataFile)"
+    }
+
+    $expectation = Get-QualityServerLocalSqliteAclExpectation -PoolName $PoolName
+    Assert-QualityServerLocalSqliteExactAcl -Path $dataDirectory `
+        -Expectation $expectation -Directory $true
+    Assert-QualityServerLocalSqliteExactAcl -Path $script:ServerLocalSqliteDataFile `
+        -Expectation $expectation -Directory $false
+    return [pscustomobject]@{
+        DataDirectory = $dataDirectory
+        DataFile = $script:ServerLocalSqliteDataFile
+        DataFileLength = [long]$dataFileItem[0].Length
+    }
+}
+
 function Get-QualitySanitizedApplicationManifest {
     param([Parameter(Mandatory = $true)][string]$Root)
 
@@ -256,6 +471,9 @@ function Assert-QualitySanitizedApplicationManifestEqual {
 Export-ModuleMember -Function @(
     'Read-QualityProductionConfiguration',
     'New-QualityProductionDatabaseConfigurationRepair',
+    'New-QualityServerLocalSqliteConfiguration',
+    'Test-QualityProductionConfigurationUsesServerLocalSqlite',
+    'Assert-QualityServerLocalSqliteStorage',
     'Get-QualitySanitizedApplicationManifest',
     'Assert-QualitySanitizedApplicationManifestEqual'
 )

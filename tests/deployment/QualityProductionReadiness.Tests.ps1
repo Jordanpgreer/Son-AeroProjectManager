@@ -92,6 +92,8 @@ if ($qualityTemplate.Database.Provider -cne 'SqlServer' -or
     $qualityTemplate.QualityDatabase.Provider -cne 'SqlServer') {
     throw 'Quality production configuration must select SQL Server for both shared access and Quality data.'
 }
+Assert-True ($null -eq $qualityTemplate.QualityDatabase.PSObject.Properties['StorageMode']) `
+    'The normal Quality Production template must remain the dedicated SQL Server target, not the temporary SQLite bridge.'
 if ($qualityTemplate.ConnectionStrings.QualityStore -notmatch 'Database=QualityAssurance(?:;|$)') {
     throw 'Quality production configuration does not target the QualityAssurance database.'
 }
@@ -123,6 +125,9 @@ $qualityModuleSource = Get-Content -LiteralPath $qualityConfigurationModule -Raw
 foreach ($requiredExport in @(
     'Read-QualityProductionConfiguration',
     'New-QualityProductionDatabaseConfigurationRepair',
+    'New-QualityServerLocalSqliteConfiguration',
+    'Test-QualityProductionConfigurationUsesServerLocalSqlite',
+    'Assert-QualityServerLocalSqliteStorage',
     'Get-QualitySanitizedApplicationManifest',
     'Assert-QualitySanitizedApplicationManifestEqual'
 )) {
@@ -137,6 +142,16 @@ $hubReleaseSource = Get-Content -LiteralPath `
 Assert-True ($qualityReleaseSource -match
     'Import-Module\s+\$configurationModule') `
     'The targeted Quality release does not import the shared production configuration policy.'
+foreach ($requiredBridgeContract in @(
+    '[switch]$UseServerLocalSqlite',
+    'WHATIF_READY_QUALITY_ASSURANCE_RELEASE_WITH_SERVER_LOCAL_SQLITE',
+    'QUALITY_ASSURANCE_RELEASE_DEPLOYED_AND_HEALTHY_WITH_SERVER_LOCAL_SQLITE',
+    'C:\ProgramData\SonAero\deployment-state\quality-assurance-data'
+)) {
+    Assert-True ($qualityReleaseSource.Contains($requiredBridgeContract) -or
+        $qualityModuleSource.Contains($requiredBridgeContract)) `
+        "The explicit server-local Quality bridge is missing contract '$requiredBridgeContract'."
+}
 Assert-True ($hubReleaseSource -match
     'Import-Module\s+\$qualityProductionConfigurationModule') `
     'The full Hub release does not import the shared production configuration policy.'

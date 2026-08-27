@@ -44,6 +44,12 @@ foreach ($required in @(
     'QualityAssuranceProductionConfiguration.psm1',
     'HubReleaseRetainedQuality.psm1',
     'Read-QualityProductionConfiguration',
+    'Test-QualityProductionConfigurationUsesServerLocalSqlite',
+    'Assert-QualityServerLocalSqliteStorage',
+    'QualityDatabase__StorageMode',
+    'EnvironmentVariableTarget]::Machine',
+    'ProcessModelIdentityType]::ApplicationPoolIdentity',
+    'DisallowOverlappingRotation',
     'approved in-process dotnet command and no application arguments',
     'Assert-QualitySanitizedApplicationManifestEqual',
     'Get-HubRetainedQualityBoundarySnapshot',
@@ -85,7 +91,7 @@ Assert-True ($qualityModuleAssignment -ge 0 -and $qualityModuleImport -gt $quali
     'The full-Hub path does not import the Quality production validator unconditionally.'
 
 $activeQualityValidation = $source.IndexOf(
-    '[void](Read-QualityProductionConfiguration -Path $productionSettings)')
+    '$qualityProductionConfiguration = Read-QualityProductionConfiguration')
 $whatIfGate = $source.IndexOf('if (-not $PSCmdlet.ShouldProcess(')
 $candidateHash = $source.IndexOf(
     'Copied production settings hash mismatch for ''$($application.Name)''.')
@@ -136,6 +142,8 @@ foreach ($required in @(
     'PoolEnvironmentHash',
     'MachineOverrideState',
     'QualityDatabase__Provider',
+    'QualityDatabase__StorageMode',
+    'QualityDatabase:StorageMode',
     'ConnectionStrings__QualityStore',
     'EnvironmentVariableTarget]::Machine',
     'AnonymousEnabled',

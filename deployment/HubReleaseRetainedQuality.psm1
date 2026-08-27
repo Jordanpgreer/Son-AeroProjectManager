@@ -8,6 +8,8 @@ $script:BlockedQualityEnvironmentVariables = @(
     'Database:Provider',
     'QualityDatabase__Provider',
     'QualityDatabase:Provider',
+    'QualityDatabase__StorageMode',
+    'QualityDatabase:StorageMode',
     'ConnectionStrings__ModuleAccessStore',
     'ConnectionStrings:ModuleAccessStore',
     'ConnectionStrings__QualityStore',

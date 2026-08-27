@@ -24,6 +24,29 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$qualityBlockedOverrideNames = @(
+    'Authentication__Mode',
+    'Authentication:Mode',
+    'Database__Provider',
+    'Database:Provider',
+    'QualityDatabase__Provider',
+    'QualityDatabase:Provider',
+    'QualityDatabase__StorageMode',
+    'QualityDatabase:StorageMode',
+    'ConnectionStrings__ModuleAccessStore',
+    'ConnectionStrings:ModuleAccessStore',
+    'ConnectionStrings__QualityStore',
+    'ConnectionStrings:QualityStore',
+    'SQLCONNSTR_ModuleAccessStore',
+    'SQLAZURECONNSTR_ModuleAccessStore',
+    'MYSQLCONNSTR_ModuleAccessStore',
+    'CUSTOMCONNSTR_ModuleAccessStore',
+    'SQLCONNSTR_QualityStore',
+    'SQLAZURECONNSTR_QualityStore',
+    'MYSQLCONNSTR_QualityStore',
+    'CUSTOMCONNSTR_QualityStore'
+)
+$environmentSelectorNames = @('ASPNETCORE_ENVIRONMENT', 'DOTNET_ENVIRONMENT')
 
 $portalCatalogModule = Join-Path $PSScriptRoot 'PortalApplicationCatalog.psm1'
 if (-not (Test-Path -LiteralPath $portalCatalogModule -PathType Leaf)) {
@@ -146,6 +169,20 @@ function Assert-ValidWebConfig {
         [string]$aspNetCoreNodes[0].hostingModel -ine 'inprocess' -or
         $arguments -cne ".\$MainDll") {
         throw "'$Path' must launch only '$MainDll' with the approved in-process dotnet command and no application arguments."
+    }
+    foreach ($environmentNode in @($configuration.SelectNodes(
+            '//aspNetCore/environmentVariables/environmentVariable'))) {
+        $name = [string]$environmentNode.name
+        $value = [string]$environmentNode.value
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            throw "'$Path' contains an environment variable without a name."
+        }
+        if ($name -in $qualityBlockedOverrideNames) {
+            throw "'$Path' must not override protected Production setting '$name'."
+        }
+        if ($name -in $environmentSelectorNames -and $value -cne 'Production') {
+            throw "'$Path' must not select non-Production environment '$value'."
+        }
     }
 }
 
@@ -440,8 +477,13 @@ function Assert-RetainedQualityPreserved {
         [Parameter(Mandatory = $true)][string]$Phase
     )
 
-    [void](Read-QualityProductionConfiguration -Path (
-        Join-Path $ActiveQualityPath 'appsettings.Production.json'))
+    $retainedQualityConfiguration = Read-QualityProductionConfiguration -Path (
+        Join-Path $ActiveQualityPath 'appsettings.Production.json')
+    if (Test-QualityProductionConfigurationUsesServerLocalSqlite `
+            -Configuration $retainedQualityConfiguration) {
+        [void](Assert-QualityServerLocalSqliteStorage `
+            -PoolName $qualityApplication.Name)
+    }
     Assert-QualitySanitizedApplicationManifestEqual `
         -SourceRoot $PackageQualityPath `
         -CandidateRoot $ActiveQualityPath
@@ -458,6 +500,20 @@ if ($env:COMPUTERNAME -ine $ExpectedComputerName) {
     throw "This script is for $ExpectedComputerName; the current computer is $env:COMPUTERNAME."
 }
 Assert-DeploymentIdentity
+foreach ($blockedOverrideName in $qualityBlockedOverrideNames) {
+    if ($null -ne [Environment]::GetEnvironmentVariable(
+            $blockedOverrideName, [EnvironmentVariableTarget]::Machine)) {
+        throw "Machine environment variable '$blockedOverrideName' must not override Quality Production settings."
+    }
+}
+foreach ($environmentSelectorName in $environmentSelectorNames) {
+    $environmentSelectorValue = [Environment]::GetEnvironmentVariable(
+        $environmentSelectorName, [EnvironmentVariableTarget]::Machine)
+    if ($null -ne $environmentSelectorValue -and
+        $environmentSelectorValue -cne 'Production') {
+        throw "Machine environment variable '$environmentSelectorName' must not select a non-Production environment."
+    }
+}
 
 if ($ReleaseId -in @('.', '..')) { throw 'ReleaseId cannot be a relative-path marker.' }
 $packagePath = Get-FullPath -Path $PackageRoot
@@ -580,7 +636,23 @@ try {
         if ($application.Name -eq $qualityApplication.Name) {
             # Full releases carry Production settings forward; they must never perpetuate a
             # partial Quality SQL configuration. Repair is owned by the scoped Quality deploy.
-            [void](Read-QualityProductionConfiguration -Path $productionSettings)
+            $qualityProductionConfiguration = Read-QualityProductionConfiguration `
+                -Path $productionSettings
+            if (Test-QualityProductionConfigurationUsesServerLocalSqlite `
+                    -Configuration $qualityProductionConfiguration) {
+                if ($pool.ProcessModel.IdentityType -ne
+                    [Microsoft.Web.Administration.ProcessModelIdentityType]::ApplicationPoolIdentity) {
+                    throw "Quality pool '$($application.Name)' must use ApplicationPoolIdentity while server-local SQLite is active."
+                }
+                if ([long]$pool.ProcessModel.MaxProcesses -ne 1) {
+                    throw "Quality pool '$($application.Name)' must use exactly one worker process while server-local SQLite is active."
+                }
+                if (-not $pool.Recycling.DisallowOverlappingRotation) {
+                    throw "Quality pool '$($application.Name)' must disallow overlapping rotation while server-local SQLite is active."
+                }
+                [void](Assert-QualityServerLocalSqliteStorage `
+                    -PoolName $application.Name)
+            }
         }
         $currentPaths[$application.Name] = $currentPath
     }
