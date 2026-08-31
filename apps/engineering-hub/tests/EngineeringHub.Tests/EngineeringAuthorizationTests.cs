@@ -264,6 +264,37 @@ public sealed class EngineeringAuthorizationTests
         Assert.Equal(["Engineering"], me.Groups);
     }
 
+    [Theory]
+    [InlineData("Jordan Renamed", "Jordan Renamed")]
+    [InlineData("   ", "Jordan Greer")]
+    public void AttachAccess_ReplacesUntrustedDisplayNameWithTrustedValue(
+        string storedDisplayName,
+        string expectedDisplayName)
+    {
+        var service = new EngineeringUserService(
+            new ConfigurationBuilder().Build(),
+            new StubRoleStore(null));
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(
+            [
+                new Claim(ClaimTypes.Name, "SONAERO\\jordan.greer"),
+                new Claim(EngineeringAuthorization.DisplayNameClaimType, "Spoofed Name")
+            ],
+            "Test"));
+        var access = new EngineeringModuleAccess(
+            ApplicationRoles.Editor,
+            true,
+            [EngineeringPermissions.ModuleView],
+            ["Engineering"],
+            "SONAERO\\jordan.greer",
+            storedDisplayName);
+
+        var attached = service.AttachAccess(principal, access);
+
+        var displayName = Assert.Single(attached.Claims.Where(claim =>
+            claim.Type == EngineeringAuthorization.DisplayNameClaimType));
+        Assert.Equal(expectedDisplayName, displayName.Value);
+    }
+
     [Fact]
     public async Task Unassigned_windows_user_has_no_module_access()
     {
@@ -423,6 +454,7 @@ public sealed class EngineeringAuthorizationTests
             ("POST", "/api/drawings/{id:int}/mylars", EngineeringPermissions.MylarManage),
             ("POST", "/api/drawings/{id:int}/validations", EngineeringPermissions.ValidationsManage),
             ("PUT", "/api/tools/{id:int}/archive", EngineeringPermissions.ToolingArchiveManage),
+            ("POST", "/api/tools/{id:int}/checkout", EngineeringPermissions.ToolingCustodyManage),
             ("GET", "/api/drawing-documents/{id:int}/file", EngineeringPermissions.SupportingDocumentsView)
         };
         foreach (var (method, route, permission) in protectedRoutes)

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
   AlertTriangle,
   Archive,
@@ -27,6 +27,7 @@ import {
   X,
 } from 'lucide-react'
 import HighlightedText from './HighlightedText'
+import { SearchableToolLocation, ToolOverview } from './ToolingRecordComponents'
 import { engineeringPermissionKeys, hasEngineeringPermission } from './permissions'
 import './tooling.css'
 
@@ -128,6 +129,13 @@ interface ToolCatalogReview {
 }
 
 interface ToolCatalogApplyResult { added: number; updated: number; skipped: number; fieldChanges: number }
+
+export interface ToolRecordHeader {
+  toolNumber: string
+  name: string
+  custodyStatus: ToolSummary['custodyStatus']
+  isArchived: boolean
+}
 
 type DialogKind = 'create' | 'edit' | 'archive' | 'restore' | 'checkout' | 'checkin' | 'document' | 'locations' | 'import' | null
 type ToolFilter = 'active' | 'checkedOut' | 'outsideProcessing' | 'auditAttention'
@@ -277,12 +285,26 @@ function ToolFields({ detail, locations }: { detail?: ToolDetail | null; locatio
   </div>
 }
 
-export default function ToolingManagement({ toolId, actorName, permissions, onOpenTool, onBack }: {
+export default function ToolingManagement({
+  toolId,
+  actorName,
+  permissions,
+  onOpenTool,
+  onBack,
+  onRecordChange,
+  editRequest,
+  auditRequest,
+  archiveRequest,
+}: {
   toolId: number | null
   actorName: string
   permissions: string[]
   onOpenTool: (id: number) => void
   onBack: () => void
+  onRecordChange: (header: ToolRecordHeader | null) => void
+  editRequest: number
+  auditRequest: number
+  archiveRequest: number
 }) {
   const [dashboard, setDashboard] = useState<ToolDashboard | null>(null)
   const [detail, setDetail] = useState<ToolDetail | null>(null)
@@ -299,10 +321,15 @@ export default function ToolingManagement({ toolId, actorName, permissions, onOp
   const [confirmCatalogErrors, setConfirmCatalogErrors] = useState(false)
   const [dialog, setDialog] = useState<DialogKind>(null)
   const [destinationType, setDestinationType] = useState<'location' | 'vendor'>('location')
+  const [destinationLocationId, setDestinationLocationId] = useState<number | null>(null)
+  const [checkoutFeedback, setCheckoutFeedback] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const handledEditRequest = useRef(0)
+  const handledAuditRequest = useRef(0)
+  const handledArchiveRequest = useRef(0)
   const can = (permission: string) => hasEngineeringPermission(permissions, permission)
 
   async function loadLocations() {
@@ -318,6 +345,47 @@ export default function ToolingManagement({ toolId, actorName, permissions, onOp
   }
 
   useEffect(() => { void loadLocations().catch(() => setLocations([])) }, [])
+
+  useEffect(() => {
+    if (!toolId || !detail) {
+      onRecordChange(null)
+      return
+    }
+    onRecordChange({
+      toolNumber: detail.tool.toolNumber,
+      name: detail.tool.name,
+      custodyStatus: detail.tool.custodyStatus,
+      isArchived: detail.tool.isArchived,
+    })
+    return () => onRecordChange(null)
+  }, [detail, onRecordChange, toolId])
+
+  useEffect(() => {
+    if (editRequest <= handledEditRequest.current) {
+      handledEditRequest.current = editRequest
+      return
+    }
+    handledEditRequest.current = editRequest
+    if (detail) setDialog('edit')
+  }, [detail, editRequest])
+
+  useEffect(() => {
+    if (auditRequest <= handledAuditRequest.current) {
+      handledAuditRequest.current = auditRequest
+      return
+    }
+    handledAuditRequest.current = auditRequest
+    if (detail) setAuditOpen(true)
+  }, [auditRequest, detail])
+
+  useEffect(() => {
+    if (archiveRequest <= handledArchiveRequest.current) {
+      handledArchiveRequest.current = archiveRequest
+      return
+    }
+    handledArchiveRequest.current = archiveRequest
+    if (detail) setDialog(detail.tool.isArchived ? 'restore' : 'archive')
+  }, [archiveRequest, detail])
 
   useEffect(() => {
     if (previewId === null && !auditOpen) return
@@ -415,11 +483,16 @@ export default function ToolingManagement({ toolId, actorName, permissions, onOp
     event.preventDefault()
     if (!detail) return
     const values = new FormData(event.currentTarget)
+    if (destinationType === 'location' && !destinationLocationId) {
+      setCheckoutFeedback('Select an active destination from the filtered list.')
+      return
+    }
+    setCheckoutFeedback(null)
     void runAction(async () => {
       await api(`/api/tools/${detail.tool.id}/checkout`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
           destinationType,
-          locationId: Number(values.get('locationId')) || null,
+          locationId: destinationType === 'location' ? destinationLocationId : null,
           vendor: String(values.get('vendor') ?? ''),
           person: String(values.get('person') ?? ''),
           purpose: String(values.get('purpose') ?? ''),
@@ -428,6 +501,13 @@ export default function ToolingManagement({ toolId, actorName, permissions, onOp
         })
       })
     }, destinationType === 'vendor' ? 'Tool released to outside processing.' : 'Tool checked out.')
+  }
+
+  function openCheckout() {
+    setDestinationType('location')
+    setDestinationLocationId(null)
+    setCheckoutFeedback(null)
+    setDialog('checkout')
   }
 
   function updateArchiveStatus(isArchived: boolean) {
@@ -544,13 +624,8 @@ export default function ToolingManagement({ toolId, actorName, permissions, onOp
           <p>{tool.name}</p>
         </div>
         <div className="tool-record-actions">
-          {can(engineeringPermissionKeys.toolingRecordsManage) && <button className="button ghost" onClick={() => setDialog('edit')}><Wrench size={14}/> Edit record</button>}
-          <button className="button ghost" type="button" onClick={() => setAuditOpen(true)}><History size={14}/> History</button>
-          {can(engineeringPermissionKeys.toolingArchiveManage) && (tool.isArchived
-            ? <button className="button ghost" type="button" onClick={() => setDialog('restore')}><RotateCcw size={14}/> Restore tool</button>
-            : <button className="button danger" type="button" disabled={tool.custodyStatus !== 'InStorage'} title={tool.custodyStatus !== 'InStorage' ? 'Check the tool into storage before archiving it.' : 'Archive this tool'} onClick={() => setDialog('archive')}><Archive size={14}/> Archive tool</button>)}
           {can(engineeringPermissionKeys.toolingCustodyManage) && !tool.isArchived && (tool.custodyStatus === 'InStorage'
-            ? <button className="button" onClick={() => { setDestinationType('location'); setDialog('checkout') }}><ArrowUpRight size={14}/> Pull tool out</button>
+            ? <button className="button" onClick={openCheckout}><ArrowUpRight size={14}/> Pull tool out</button>
             : <button className="button" onClick={() => setDialog('checkin')}><PackageCheck size={14}/> Check in</button>)}
         </div>
       </section>
@@ -560,21 +635,7 @@ export default function ToolingManagement({ toolId, actorName, permissions, onOp
       {tool.isArchived && <div className="tool-archived-notice" role="status"><Archive size={19}/><div><strong>Archived tool</strong><p>This record is retained for history, but the tool cannot be checked out or released until a permitted manager restores it.</p></div></div>}
 
       <section className="tool-record-grid">
-        <article className="panel tool-overview-card">
-          <header><div><span className="eyebrow">Current assignment</span><h2>Tool overview</h2></div><ShieldCheck size={20}/></header>
-          <dl className="tool-facts">
-            <div><dt>Type</dt><dd>{tool.toolType}</dd></div>
-            <div><dt>Owner</dt><dd>{tool.owner}</dd></div>
-            <div><dt>Default check-in location</dt><dd className="technical-id">{tool.homeLocation ?? 'Not assigned'}</dd></div>
-            <div><dt>{tool.custodyStatus === 'OutsideProcessing' ? 'Vendor' : 'Location'}</dt><dd className="technical-id">{destination(tool)}</dd></div>
-            <div><dt>Responsible person</dt><dd>{tool.currentHolder ?? (tool.custodyStatus === 'InStorage' ? 'Tool crib custody' : 'Not specified')}</dd></div>
-            <div><dt>Last physical audit</dt><dd>{shortDate(tool.lastAuditDate)}</dd></div>
-            <div><dt>Documents</dt><dd>{tool.documentCount}</dd></div>
-          </dl>
-          <div className="tool-linked-parts"><strong>Associated part numbers</strong><div>{tool.partNumbers.map(part => <span className="tool-part-tag" key={part}>{part}</span>)}</div></div>
-          {detail.description && <p className="tool-description">{detail.description}</p>}
-          {tool.notes && <div className="tool-note"><strong>Searchable notes</strong><p>{tool.notes}</p></div>}
-        </article>
+        <ToolOverview tool={tool} description={detail.description} destination={destination(tool)} shortDate={shortDate} longDate={longDate}/>
 
         <article className="panel tool-documents-card">
           <header>
@@ -608,8 +669,8 @@ export default function ToolingManagement({ toolId, actorName, permissions, onOp
         <aside className="tool-audit-drawer" role="dialog" aria-modal="true" aria-labelledby="tool-audit-title">
           <header className="tool-audit-drawer-header">
             <span className="tool-audit-drawer-icon" aria-hidden="true"><History size={19}/></span>
-            <div><span className="eyebrow">Tool record history</span><h2 id="tool-audit-title">Activity log</h2><span className="technical-id">{tool.toolNumber}</span></div>
-            <button type="button" className="tool-dialog-close" aria-label="Close tool history" onClick={() => setAuditOpen(false)}><X size={18}/></button>
+            <div><span className="eyebrow">Tool record audit</span><h2 id="tool-audit-title">Audit trail</h2><span className="technical-id">{tool.toolNumber}</span></div>
+            <button type="button" className="tool-dialog-close" aria-label="Close tool audit" onClick={() => setAuditOpen(false)}><X size={18}/></button>
           </header>
           <div className="tool-audit-drawer-body">
             <div className="tool-audit-summary"><span>Permanent audit trail</span><strong>{detail.auditHistory.length}</strong><small>edits and controlled actions</small></div>
@@ -633,13 +694,16 @@ export default function ToolingManagement({ toolId, actorName, permissions, onOp
       {dialog === 'checkout' && <NativeDialog title="Pull tool out" eyebrow="Inspection & custody sign-off" onClose={() => setDialog(null)}>
         <form onSubmit={submitCheckout}>
           <div className="inspection-warning"><ClipboardCheck size={22}/><div><strong>Inspection reminder</strong><p>Inspect the tool before it leaves storage. This sign-off becomes part of the permanent custody history.</p></div></div>
-          <div className="tool-destination-toggle"><button type="button" className={destinationType === 'location' ? 'active' : ''} onClick={() => setDestinationType('location')}><MapPin size={15}/> Internal location</button><button type="button" className={destinationType === 'vendor' ? 'active' : ''} onClick={() => setDestinationType('vendor')}><Building2 size={15}/> Outside processing</button></div>
+          <div className="tool-destination-toggle"><button type="button" className={destinationType === 'location' ? 'active' : ''} onClick={() => { setDestinationType('location'); setCheckoutFeedback(null) }}><MapPin size={15}/> Internal location</button><button type="button" className={destinationType === 'vendor' ? 'active' : ''} onClick={() => { setDestinationType('vendor'); setCheckoutFeedback(null) }}><Building2 size={15}/> Outside processing</button></div>
           <div className="tool-dialog-fields">
-            {destinationType === 'location' ? <label>Destination location<select name="locationId" required defaultValue=""><option value="" disabled>Select destination</option>{locations.filter(x => x.isActive).map(location => <option value={location.id} key={location.id}>{location.code} · {location.description ?? 'No description'}</option>)}</select></label> : <label>Outside processing vendor<input name="vendor" required placeholder="Vendor company name"/></label>}
-            <label>Responsible person<input name="person" required defaultValue={actorName}/></label>
+            {destinationType === 'location'
+              ? <SearchableToolLocation locations={locations} selectedId={destinationLocationId} onSelect={id => { setDestinationLocationId(id); setCheckoutFeedback(null) }}/>
+              : <label>Outside processing vendor<input name="vendor" required placeholder="Search or enter vendor company name"/></label>}
+            <label>Responsible person<input name="person" required defaultValue={actorName} readOnly={!can(engineeringPermissionKeys.toolingCustodyAssigneeManage)} aria-describedby="responsible-person-help"/><small id="responsible-person-help" className="tool-field-help">{can(engineeringPermissionKeys.toolingCustodyAssigneeManage) ? 'You have permission to assign custody to another person.' : 'Defaults to your Engineering display name. Additional permission is required to change it.'}</small></label>
             <label>Purpose<input name="purpose" placeholder="Work order, operation, or reason"/></label>
             <label>Inspection notes<textarea name="inspectionNotes" rows={3} placeholder="Condition observed before release"/></label>
           </div>
+          {checkoutFeedback && <div className="tool-inline-error" role="alert"><AlertTriangle size={15}/>{checkoutFeedback}</div>}
           <label className="inspection-confirm"><input type="checkbox" name="inspectionConfirmed" required/><span><strong>I inspected this tool before release</strong><small>Digital sign-off: {actorName}</small></span></label>
           <div className="tool-dialog-actions"><button type="button" className="button ghost" onClick={() => setDialog(null)}>Cancel</button><button className="button" disabled={busy}><UserRoundCheck size={14}/>{busy ? 'Recording...' : 'Sign off & release'}</button></div>
         </form>

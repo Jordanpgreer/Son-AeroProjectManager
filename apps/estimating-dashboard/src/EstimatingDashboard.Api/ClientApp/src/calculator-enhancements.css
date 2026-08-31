@@ -1,4 +1,62 @@
 .context-card:not([open]) { padding-bottom: 0; }
+
+.quote-revision-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 16px;
+  background: color-mix(in srgb, var(--steel-tint) 62%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--steel) 28%, var(--line-2));
+  border-left: 4px solid var(--steel);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+}
+
+.quote-revision-summary {
+  display: grid;
+  gap: 3px;
+}
+
+.quote-revision-summary .toolbar-label { margin: 0; }
+.quote-revision-summary strong { color: var(--ink); font-size: 15px; }
+.quote-revision-summary small { color: var(--muted); font-size: 10.5px; line-height: 1.4; }
+
+.quote-revision-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.quote-version-picker {
+  display: grid;
+  gap: 4px;
+}
+
+.quote-version-picker > span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.quote-version-picker select {
+  min-width: 190px;
+  min-height: 38px;
+  padding: 7px 30px 7px 9px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.quote-status-picker select { min-width: 112px; }
 .context-card > summary { cursor: pointer; list-style: none; }
 .context-card > summary::-webkit-details-marker { display: none; }
 .context-card > summary:hover { background: var(--surface-2); }
@@ -360,6 +418,10 @@
 }
 
 @media (max-width: 720px) {
+  .quote-revision-bar { align-items: stretch; flex-direction: column; }
+  .quote-revision-actions { align-items: stretch; justify-content: stretch; }
+  .quote-version-picker { flex: 1; }
+  .quote-version-picker select { width: 100%; }
   .quote-save-controls { width: 100%; padding: 10px 0 0; border-top: 1px solid var(--line); border-left: 0; }
   .quote-save-controls label { flex: 1; }
   .quote-save-controls select { width: 100%; }

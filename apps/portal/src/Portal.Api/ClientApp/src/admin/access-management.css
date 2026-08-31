@@ -25,6 +25,21 @@
 .access-group-search,
 .access-wizard-search { width: 100%; margin: 10px 0; }
 
+.admin-group-template-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 13px;
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border-bottom: 1px solid var(--line);
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+.admin-group-template-note svg { flex: none; margin-top: 1px; }
+.admin-group-template-note strong { color: var(--ink-2); }
+
 .admin-access-grid.people-only,
 .admin-access-grid.groups-only { grid-template-columns: minmax(0, 1fr); }
 

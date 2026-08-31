@@ -45,13 +45,13 @@ public static class EstimatingPermissions
     [
         .. ViewerPermissions,
         ManageQuotes,
-        ManageInputs,
-        ImportHistory
+        ManageInputs
     ];
 
     private static readonly IReadOnlyList<string> AdminPermissions =
     [
         .. EditorPermissions,
+        ImportHistory,
         ManageHistory,
         AdministerRates,
         AdministerSettings

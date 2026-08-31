@@ -31,6 +31,7 @@ public static class EngineeringPermissions
     public const string ToolingRecordsManage = "engineering.tooling.records.manage";
     public const string ToolingArchiveManage = "engineering.tooling.archive.manage";
     public const string ToolingCustodyManage = "engineering.tooling.custody.manage";
+    public const string ToolingCustodyAssigneeManage = "engineering.tooling.custody.assignee.manage";
     public const string ToolingDocumentsManage = "engineering.tooling.documents.manage";
     public const string ToolingLocationsManage = "engineering.tooling.locations.manage";
     public const string ToolingAuditImport = "engineering.tooling.audit.import";
@@ -71,6 +72,7 @@ public static class EngineeringPermissions
         Permission(ToolingRecordsManage, "Manage tool records", "Create and update tool identity, ownership, notes, and part-number assignments.", "Tooling control"),
         Permission(ToolingArchiveManage, "Archive or restore tools", "Archive in-storage tools or restore archived tools to active service. Intended for managers and administrators.", "Tooling control"),
         Permission(ToolingCustodyManage, "Manage tool custody", "Check tools in or out and record required inspection sign-off.", "Tooling control"),
+        Permission(ToolingCustodyAssigneeManage, "Assign tool custody to others", "Change the responsible person when pulling a tool out. Without this permission, custody defaults to the signed-in user.", "Tooling control"),
         Permission(ToolingDocumentsManage, "Manage tool documents", "Upload receiving and shipping documents to permanent tool history.", "Tooling control"),
         Permission(ToolingLocationsManage, "Manage tool locations", "Create and activate physical tooling bin locations.", "Tooling control"),
         Permission(ToolingAuditImport, "Import tooling audit dates", "Mass update last-audit dates from a controlled CSV import.", "Tooling control"),
@@ -110,6 +112,7 @@ public static class EngineeringPermissions
         AddDependency(expanded, ValidationsManage, ValidationsView);
         AddDependency(expanded, ToolingRecordsManage, ToolingView);
         AddDependency(expanded, ToolingArchiveManage, ToolingView);
+        AddDependency(expanded, ToolingCustodyAssigneeManage, ToolingCustodyManage);
         AddDependency(expanded, ToolingCustodyManage, ToolingView);
         AddDependency(expanded, ToolingDocumentsManage, ToolingView);
         AddDependency(expanded, ToolingLocationsManage, ToolingView);

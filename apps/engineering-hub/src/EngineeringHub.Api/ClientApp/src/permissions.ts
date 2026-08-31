@@ -28,6 +28,7 @@ export const engineeringPermissionKeys = {
   toolingRecordsManage: 'engineering.tooling.records.manage',
   toolingArchiveManage: 'engineering.tooling.archive.manage',
   toolingCustodyManage: 'engineering.tooling.custody.manage',
+  toolingCustodyAssigneeManage: 'engineering.tooling.custody.assignee.manage',
   toolingDocumentsManage: 'engineering.tooling.documents.manage',
   toolingLocationsManage: 'engineering.tooling.locations.manage',
   toolingAuditImport: 'engineering.tooling.audit.import',

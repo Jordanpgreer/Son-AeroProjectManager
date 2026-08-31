@@ -97,6 +97,8 @@ public sealed record UserGroupAssignmentDto(IReadOnlyList<int> GroupIds);
 
 public sealed record AccessGroupUpsertDto(string? Name, string? Description, bool IsSystemGroup, IReadOnlyList<string>? Permissions);
 
+public sealed record EstimatingHistoryImportAccessUpdateDto(bool Enabled);
+
 public sealed record AccessGroupDeleteConflictDto(
     string Code,
     string Message,

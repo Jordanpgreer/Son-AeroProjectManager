@@ -70,6 +70,17 @@
   font-weight: 600;
 }
 
+.quote-storage-error {
+  margin: 0;
+  padding: 11px 14px;
+  color: var(--risk-700);
+  background: var(--risk-tint);
+  border: 1px solid color-mix(in srgb, var(--risk) 34%, var(--line));
+  border-radius: var(--r-sm);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
 .quote-kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -215,6 +226,19 @@
 
 .quote-table tbody th {
   color: var(--ink);
+}
+
+.quote-revision-cell {
+  color: var(--ink);
+  font-weight: 750;
+}
+
+.quote-revision-cell small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 650;
 }
 
 .quote-table tbody tr:hover {

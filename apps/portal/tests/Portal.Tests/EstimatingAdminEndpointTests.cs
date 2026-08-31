@@ -43,6 +43,29 @@ public sealed class EstimatingAdminEndpointTests
     }
 
     [Fact]
+    public void Import_logs_permission_is_opt_in_for_editors_and_on_for_administrators()
+    {
+        const string permissionKey = "estimating.history.import";
+
+        var editor = ApplicationModuleCatalog
+            .PermissionsFor(ApplicationModules.Estimating, ApplicationRoles.Editor)
+            .Select(permission => permission.Key)
+            .ToList();
+        var administrator = ApplicationModuleCatalog
+            .PermissionsFor(ApplicationModules.Estimating, ApplicationRoles.Admin)
+            .Select(permission => permission.Key)
+            .ToList();
+        var permission = ApplicationModuleCatalog
+            .PermissionsForModule(ApplicationModules.Estimating)
+            .Single(candidate => candidate.Key == permissionKey);
+
+        Assert.DoesNotContain(permissionKey, editor);
+        Assert.Contains(permissionKey, administrator);
+        Assert.Equal("Import Estimating Logs", permission.Label);
+        Assert.Contains("Validate and import", permission.Description);
+    }
+
+    [Fact]
     public void Portal_context_maps_persistent_estimator_settings()
     {
         var options = new DbContextOptionsBuilder<PortalRoleDbContext>()

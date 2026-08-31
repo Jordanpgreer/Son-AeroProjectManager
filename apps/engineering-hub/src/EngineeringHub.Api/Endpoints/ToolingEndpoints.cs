@@ -1,4 +1,5 @@
 using System.Globalization;
+using EngineeringHub.Api.Auth;
 using EngineeringHub.Api.Data;
 using EngineeringHub.Api.Dtos;
 using EngineeringHub.Api.Models;
@@ -333,6 +334,22 @@ public static class ToolingEndpoints
             return Results.BadRequest(new ErrorDto("InspectionRequired", "Confirm the tool was inspected before release and sign off on the movement."));
         if (string.IsNullOrWhiteSpace(dto.Person))
             return Results.BadRequest(new ErrorDto("PersonRequired", "Enter the person responsible for the tool."));
+        var responsiblePerson = dto.Person.Trim();
+        if (responsiblePerson.Length > 200)
+            return Results.BadRequest(new ErrorDto("PersonTooLong", "Enter a responsible person up to 200 characters."));
+
+        var currentDisplayName = DisplayActor(http);
+        if (!http.User.HasClaim(
+                EngineeringAuthorization.PermissionClaimType,
+                EngineeringPermissions.ToolingCustodyAssigneeManage)
+            && !string.Equals(responsiblePerson, currentDisplayName, StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.Json(
+                new ErrorDto(
+                    "ResponsiblePersonPermissionRequired",
+                    "You do not have permission to assign tool custody to another person."),
+                statusCode: StatusCodes.Status403Forbidden);
+        }
 
         var outside = string.Equals(dto.DestinationType, "vendor", StringComparison.OrdinalIgnoreCase);
         ToolLocation? location = null;
@@ -353,7 +370,7 @@ public static class ToolingEndpoints
         var now = DateTime.UtcNow;
         tool.CustodyStatus = outside ? ToolCustodyStatus.OutsideProcessing : ToolCustodyStatus.CheckedOut;
         tool.CurrentLocation = location;
-        tool.CurrentHolder = dto.Person.Trim();
+        tool.CurrentHolder = responsiblePerson;
         tool.CurrentVendor = outside ? vendor : null;
         tool.CheckedOutAt = now;
         tool.UpdatedBy = actor;
@@ -365,7 +382,7 @@ public static class ToolingEndpoints
             Location = location,
             LocationCode = location?.Code,
             Vendor = outside ? vendor : null,
-            Person = dto.Person.Trim(),
+            Person = responsiblePerson,
             Purpose = Clean(dto.Purpose),
             InspectionConfirmed = true,
             InspectionNotes = Clean(dto.InspectionNotes),
@@ -373,7 +390,7 @@ public static class ToolingEndpoints
             RecordedAt = now
         });
         var destination = outside ? $"vendor {vendor}" : $"location {location!.Code}";
-        tool.AuditEntries.Add(Audit(tool, "ToolReleased", $"Released to {destination} after inspection sign-off by {actor}.", actor));
+        tool.AuditEntries.Add(Audit(tool, "ToolReleased", $"Released to {destination} for {responsiblePerson} after inspection sign-off by {actor}.", actor));
         await db.SaveChangesAsync(cancellationToken);
         return Results.Ok(new { tool.Id, status = tool.CustodyStatus.ToString(), tool.Version });
     }
@@ -676,5 +693,13 @@ public static class ToolingEndpoints
     private static string Normalize(string value) => string.Concat(value.Trim().ToUpperInvariant().Where(char.IsLetterOrDigit));
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static string Actor(HttpContext http) => http.User.Identity?.Name ?? "Unknown";
+
+    private static string DisplayActor(HttpContext http)
+    {
+        var displayName = http.User.FindFirst(EngineeringAuthorization.DisplayNameClaimType)?.Value?.Trim();
+        return string.IsNullOrWhiteSpace(displayName)
+            ? WindowsAccountNames.DisplayName(Actor(http))
+            : displayName;
+    }
 
 }

@@ -219,6 +219,47 @@ public sealed class ToolingControlTests
     }
 
     [Fact]
+    public async Task ToolCheckout_UsesRenamedDisplayNameAndRequiresExplicitPermissionToAssignSomeoneElse()
+    {
+        await using var fixture = await ToolingFixture.CreateAsync();
+        var location = CreateLocation();
+        var selfCheckout = CreateTool(location, "TL-SELF", "PN-SELF");
+        var blockedReassignment = CreateTool(location, "TL-BLOCKED", "PN-BLOCKED");
+        var permittedReassignment = CreateTool(location, "TL-PERMITTED", "PN-PERMITTED");
+        fixture.Db.Tools.AddRange(selfCheckout, blockedReassignment, permittedReassignment);
+        await fixture.Db.SaveChangesAsync();
+
+        await using var app = CreateToolingApp(fixture.Db);
+        var selfResponse = await InvokeJsonAsync(
+            app, "POST", "/api/tools/{id:int}/checkout", selfCheckout.Id,
+            new ToolCheckoutDto("location", location.Id, null, "Jordan Greer", "Self checkout", true, null),
+            displayName: "Jordan Greer");
+        Assert.Equal(StatusCodes.Status200OK, selfResponse.StatusCode);
+
+        var blockedResponse = await InvokeJsonAsync(
+            app, "POST", "/api/tools/{id:int}/checkout", blockedReassignment.Id,
+            new ToolCheckoutDto("location", location.Id, null, "Taylor Reed", "Reassignment", true, null),
+            displayName: "Jordan Greer");
+        Assert.Equal(StatusCodes.Status403Forbidden, blockedResponse.StatusCode);
+
+        var permittedResponse = await InvokeJsonAsync(
+            app, "POST", "/api/tools/{id:int}/checkout", permittedReassignment.Id,
+            new ToolCheckoutDto("location", location.Id, null, "Taylor Reed", "Permitted reassignment", true, null),
+            displayName: "Jordan Greer",
+            permissions: [EngineeringPermissions.ToolingCustodyAssigneeManage]);
+        Assert.Equal(StatusCodes.Status200OK, permittedResponse.StatusCode);
+
+        fixture.Db.ChangeTracker.Clear();
+        Assert.Equal("Jordan Greer", (await fixture.Db.Tools.SingleAsync(tool => tool.Id == selfCheckout.Id)).CurrentHolder);
+        Assert.Equal(ToolCustodyStatus.InStorage, (await fixture.Db.Tools.SingleAsync(tool => tool.Id == blockedReassignment.Id)).CustodyStatus);
+        Assert.False(await fixture.Db.ToolMovements.AnyAsync(movement =>
+            movement.ToolRecordId == blockedReassignment.Id));
+        Assert.False(await fixture.Db.ToolAuditEntries.AnyAsync(entry =>
+            entry.ToolRecordId == blockedReassignment.Id));
+        Assert.Equal("Taylor Reed", (await fixture.Db.Tools.SingleAsync(tool => tool.Id == permittedReassignment.Id)).CurrentHolder);
+    }
+
+    [Fact]
     public async Task ToolDocuments_AreStoredInReservedFolderAndRemainAppendOnly()
     {
         await using var fixture = await ToolingFixture.CreateAsync();
@@ -472,6 +513,7 @@ public sealed class ToolingControlTests
         Assert.Contains(EngineeringPermissions.ToolingRecordsManage, engineering);
         Assert.Contains(EngineeringPermissions.ToolingCustodyManage, engineering);
         Assert.Contains(EngineeringPermissions.ToolingDocumentsManage, engineering);
+        Assert.DoesNotContain(EngineeringPermissions.ToolingCustodyAssigneeManage, engineering);
         Assert.DoesNotContain(EngineeringPermissions.ToolingArchiveManage, engineering);
         Assert.DoesNotContain(EngineeringPermissions.ToolingLocationsManage, engineering);
         Assert.DoesNotContain(EngineeringPermissions.ToolingAuditImport, engineering);
@@ -489,6 +531,14 @@ public sealed class ToolingControlTests
         ]);
         Assert.Contains(EngineeringPermissions.ToolingView, importOnly);
         Assert.Equal(ApplicationRoles.Editor, EngineeringPermissions.RoleFor(importOnly));
+
+        var assigneeOnly = EngineeringPermissions.Expand([
+            EngineeringPermissions.ModuleView,
+            EngineeringPermissions.ToolingCustodyAssigneeManage
+        ]);
+        Assert.Contains(EngineeringPermissions.ToolingCustodyManage, assigneeOnly);
+        Assert.Contains(EngineeringPermissions.ToolingView, assigneeOnly);
+        Assert.Equal(ApplicationRoles.Editor, EngineeringPermissions.RoleFor(assigneeOnly));
     }
 
     [Fact]
@@ -519,6 +569,7 @@ public sealed class ToolingControlTests
         Assert.Contains(administrator.Permissions, permission => permission.PermissionKey == EngineeringPermissions.ToolingArchiveManage);
         Assert.Contains(administrator.Permissions, permission => permission.PermissionKey == EngineeringPermissions.ToolingAuditImport);
         Assert.Contains(administrator.Permissions, permission => permission.PermissionKey == EngineeringPermissions.ToolingLocationsManage);
+        Assert.Contains(administrator.Permissions, permission => permission.PermissionKey == EngineeringPermissions.ToolingCustodyAssigneeManage);
 
         var managers = await db.Groups.Include(group => group.Permissions)
             .SingleAsync(group => group.Name == "Managers");
@@ -587,7 +638,9 @@ public sealed class ToolingControlTests
         string method,
         string route,
         int id,
-        T body)
+        T body,
+        string? displayName = null,
+        IReadOnlyList<string>? permissions = null)
     {
         var endpoint = ((IEndpointRouteBuilder)app).DataSources
             .SelectMany(source => source.Endpoints)
@@ -599,12 +652,15 @@ public sealed class ToolingControlTests
         var content = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(
             body,
             new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        var claims = new List<Claim> { new(ClaimTypes.Name, "TEST\\Manager") };
+        if (!string.IsNullOrWhiteSpace(displayName))
+            claims.Add(new Claim(EngineeringAuthorization.DisplayNameClaimType, displayName));
+        claims.AddRange((permissions ?? []).Select(permission =>
+            new Claim(EngineeringAuthorization.PermissionClaimType, permission)));
         var context = new DefaultHttpContext
         {
             RequestServices = scope.ServiceProvider,
-            User = new ClaimsPrincipal(new ClaimsIdentity(
-                [new Claim(ClaimTypes.Name, "TEST\\Manager")],
-                "Test"))
+            User = new ClaimsPrincipal(new ClaimsIdentity(claims, "Test"))
         };
         context.Request.Method = method;
         context.Request.RouteValues["id"] = id.ToString();

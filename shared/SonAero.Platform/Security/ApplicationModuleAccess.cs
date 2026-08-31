@@ -180,7 +180,7 @@ public static class ApplicationModuleCatalog
                     [view, calculate, viewHistory]),
                 new ApplicationModuleRoleDefinition(
                     ApplicationRoles.Editor,
-                    [view, calculate, manageQuotes, manageInputs, viewHistory, importHistory]),
+                    [view, calculate, manageQuotes, manageInputs, viewHistory]),
                 new ApplicationModuleRoleDefinition(
                     ApplicationRoles.Admin,
                     [view, calculate, manageQuotes, manageInputs, viewHistory, importHistory, manageHistory, administerRates, administerSettings])

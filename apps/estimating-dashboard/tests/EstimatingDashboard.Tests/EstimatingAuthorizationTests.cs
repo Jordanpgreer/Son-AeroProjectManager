@@ -7,7 +7,7 @@ public sealed class EstimatingAuthorizationTests
 {
     [Theory]
     [InlineData(EstimatingRoles.Viewer, 3)]
-    [InlineData(EstimatingRoles.Editor, 6)]
+    [InlineData(EstimatingRoles.Editor, 5)]
     [InlineData(EstimatingRoles.Admin, 9)]
     public void PermissionsAreCumulativeByRole(string role, int expectedCount)
     {
@@ -50,6 +50,7 @@ public sealed class EstimatingAuthorizationTests
         var permissions = EstimatingPermissions.ForRole(EstimatingRoles.Editor);
 
         Assert.DoesNotContain(EstimatingPermissions.ManageHistory, permissions);
+        Assert.DoesNotContain(EstimatingPermissions.ImportHistory, permissions);
     }
 
     [Fact]

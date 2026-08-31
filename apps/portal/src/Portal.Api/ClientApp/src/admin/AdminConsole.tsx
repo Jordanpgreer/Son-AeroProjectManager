@@ -19,6 +19,7 @@ import { AdminModuleTabs, ArdaAccessTabs } from './AdminNavigation'
 import { ADMIN_MODULES, ARDA_ACCESS_SECTIONS } from './adminNavigationModel'
 import EngineeringStoragePanel from './EngineeringStoragePanel'
 import EstimatorSettingsPanel from './EstimatorSettingsPanel'
+import EstimatingImportAccessPanel from './EstimatingImportAccessPanel'
 import QualityAssignmentRulesPanel from './QualityAssignmentRulesPanel'
 import WalkthroughSettingsPanel from './WalkthroughSettingsPanel'
 import { toErrorMessage, trackerApi } from './api'
@@ -225,6 +226,7 @@ export default function AdminConsole({
   const canPreviewAccess = currentPortalRole === 'Admin'
   const canManageQualityRules = granted.has('quality-assurance.rules.manage')
   const canManageEstimatingSettings = granted.has('estimating.settings.admin')
+  const canManageEstimatingImportAccess = canManageGroups
   const canManageWorkCenters = granted.has(PERMISSIONS.workCenters)
   const canImportWorkCenters = granted.has(PERMISSIONS.workCenterImports)
   const isAdministrator = trackerUser?.groups.some(
@@ -456,8 +458,15 @@ export default function AdminConsole({
           {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && canManageQualityRules && <QualityAssignmentRulesPanel />}
           {route.module === 'estimating' && permissionsLoading && <div className="admin-loading" role="status">Checking Estimating permissions...</div>}
           {route.module === 'estimating' && !permissionsLoading && permissionsError && <NoAccess detail={permissionsError} />}
-          {route.module === 'estimating' && !permissionsLoading && !permissionsError && !canManageEstimatingSettings && <NoAccess detail="Your groups do not grant permission to administer Estimating settings." />}
-          {route.module === 'estimating' && !permissionsLoading && !permissionsError && canManageEstimatingSettings && <EstimatorSettingsPanel />}
+          {route.module === 'estimating' && !permissionsLoading && !permissionsError && !canManageEstimatingSettings && !canManageEstimatingImportAccess && <NoAccess detail="Your groups do not grant permission to administer Estimating settings or group import access." />}
+          {route.module === 'estimating' && !permissionsLoading && !permissionsError && (canManageEstimatingSettings || canManageEstimatingImportAccess) && (
+            <div className="estimating-admin-stack">
+              {canManageEstimatingImportAccess && <EstimatingImportAccessPanel />}
+              {canManageEstimatingSettings
+                ? <EstimatorSettingsPanel />
+                : <p className="admin-readonly-note">Active estimator settings require the Administer Estimating Settings permission.</p>}
+            </div>
+          )}
         </div>
       </section>
     </main>

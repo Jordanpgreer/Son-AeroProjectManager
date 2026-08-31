@@ -10,6 +10,10 @@ namespace ProjectTracker.Api.Endpoints;
 
 public static class UserEndpoints
 {
+    private const string EstimatingViewPermission = "estimating.view";
+    private const string EstimatingHistoryViewPermission = "estimating.history.view";
+    private const string EstimatingHistoryImportPermission = "estimating.history.import";
+
     public static RouteGroupBuilder MapUserEndpoints(this RouteGroupBuilder api)
     {
         api.MapGet("/walkthrough/bootstrap", async (
@@ -172,6 +176,11 @@ public static class UserEndpoints
         api.MapPost("/admin/groups", CreateGroupAsync).RequireAuthorization("ManageGroups");
 
         api.MapPut("/admin/groups/{id:int}", UpdateGroupAsync).RequireAuthorization("ManageGroups");
+
+        api.MapPut(
+                "/admin/groups/{id:int}/estimating-history-import",
+                UpdateEstimatingHistoryImportAccessAsync)
+            .RequireAuthorization("ManageGroups");
 
         api.MapDelete("/admin/groups/{id:int}", DeleteGroupAsync).RequireAuthorization("ManageGroups");
 
@@ -444,6 +453,60 @@ public static class UserEndpoints
         {
             return Results.BadRequest("At least one active user must retain both user-management and group-management access.");
         }
+        await db.SaveChangesAsync(cancellationToken);
+        await SyncLegacyRolesForGroupAsync(db, group.Id, cancellationToken);
+        return Results.Ok(await ToAccessGroupDtoAsync(db, group.Id, cancellationToken));
+    }
+
+    public static async Task<IResult> UpdateEstimatingHistoryImportAccessAsync(
+        int id,
+        EstimatingHistoryImportAccessUpdateDto dto,
+        ProjectTrackerDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var group = await db.Groups
+            .Include(candidate => candidate.Permissions)
+            .FirstOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+        if (group is null)
+        {
+            return Results.NotFound();
+        }
+
+        var currentPermissions = group.Permissions
+            .Select(permission => permission.PermissionKey)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (dto.Enabled
+            && (!currentPermissions.Contains(EstimatingViewPermission)
+                || !currentPermissions.Contains(EstimatingHistoryViewPermission)))
+        {
+            return Results.BadRequest(
+                "View estimating and View Estimating Logs must be granted before import access can be enabled.");
+        }
+
+        if (dto.Enabled)
+        {
+            if (!currentPermissions.Contains(EstimatingHistoryImportPermission))
+            {
+                group.Permissions.Add(new AppGroupPermission
+                {
+                    PermissionKey = EstimatingHistoryImportPermission
+                });
+            }
+        }
+        else
+        {
+            foreach (var permission in group.Permissions
+                         .Where(permission => string.Equals(
+                             permission.PermissionKey,
+                             EstimatingHistoryImportPermission,
+                             StringComparison.OrdinalIgnoreCase))
+                         .ToList())
+            {
+                group.Permissions.Remove(permission);
+            }
+        }
+
+        group.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
         await SyncLegacyRolesForGroupAsync(db, group.Id, cancellationToken);
         return Results.Ok(await ToAccessGroupDtoAsync(db, group.Id, cancellationToken));

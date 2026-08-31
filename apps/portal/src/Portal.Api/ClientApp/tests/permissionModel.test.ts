@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  availablePermissionKeysForGroup,
   filterPermissions,
   permissionIsAvailable,
   permissionModules,
   setPermissionScope,
+  validateUniqueGroupName,
 } from '../src/admin/permissionModel'
 import type { PermissionDefinition } from '../src/admin/types'
 
@@ -46,6 +48,27 @@ describe('permission availability', () => {
     expect(permissionIsAvailable(controlledImport, 'Managers')).toBe(false)
     expect(permissionIsAvailable(controlledImport, ' administrators ')).toBe(true)
     expect(permissionIsAvailable(projectView, 'Managers')).toBe(true)
+  })
+
+  it('filters administrator-only permissions from a duplicated non-administrator group', () => {
+    const controlledImport = permission('import.manage', 'Run controlled imports', 'Administration', 'project-tracker', 'Project Tracker')
+    const archiveDelete = permission('archived.delete', 'Delete archived projects', 'Archive', 'project-tracker', 'Project Tracker')
+
+    expect(availablePermissionKeysForGroup(
+      [projectView, controlledImport, archiveDelete],
+      ['project.view', 'import.manage', 'archived.delete'],
+      '',
+    )).toEqual(['project.view'])
+  })
+})
+
+describe('permission group names', () => {
+  it('requires a new unique name before a duplicated group can continue', () => {
+    const names = ['Administrators', 'Estimating Editors']
+
+    expect(validateUniqueGroupName('', names)).toContain('Enter a new group name')
+    expect(validateUniqueGroupName(' estimating editors ', names)).toContain('already in use')
+    expect(validateUniqueGroupName('Estimating Importers', names)).toBeNull()
   })
 })
 

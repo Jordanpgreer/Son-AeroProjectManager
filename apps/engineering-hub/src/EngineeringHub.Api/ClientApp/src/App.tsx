@@ -15,6 +15,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   RefreshCw,
+  RotateCcw,
   Settings,
   ShieldCheck,
   Wrench,
@@ -27,6 +28,7 @@ import DrawingWorkspace from './DrawingWorkspace'
 import type { DrawingRecordHeader } from './DrawingWorkspace'
 import EngineeringDashboard from './EngineeringDashboard'
 import ToolingManagement from './ToolingManagement'
+import type { ToolRecordHeader } from './ToolingManagement'
 import type { EngineeringSearchResult } from './EngineeringDashboard'
 import { engineeringPermissionKeys, hasEngineeringPermission } from './permissions'
 
@@ -222,6 +224,10 @@ export default function App() {
   const [drawingArchiveRequest, setDrawingArchiveRequest] = useState(0)
   const [drawingAuditRequest, setDrawingAuditRequest] = useState(0)
   const [toolingRecordId, setToolingRecordId] = useState<number | null>(null)
+  const [toolingHeader, setToolingHeader] = useState<ToolRecordHeader | null>(null)
+  const [toolingEditRequest, setToolingEditRequest] = useState(0)
+  const [toolingAuditRequest, setToolingAuditRequest] = useState(0)
+  const [toolingArchiveRequest, setToolingArchiveRequest] = useState(0)
   const [selectedModuleRecord, setSelectedModuleRecord] = useState<EngineeringSearchResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -278,11 +284,19 @@ export default function App() {
       const route = window.location.hash.replace(/^#\/?/, '')
       const toolingMatch = route.match(/^tooling-record\/(\d+)$/)
       if (toolingMatch) {
+        setToolingHeader(null)
+        setToolingEditRequest(0)
+        setToolingAuditRequest(0)
+        setToolingArchiveRequest(0)
         setActiveSectionId('tooling-management')
         setToolingRecordId(Number(toolingMatch[1]))
         return
       }
       if (route === 'tooling-dashboard') {
+        setToolingHeader(null)
+        setToolingEditRequest(0)
+        setToolingAuditRequest(0)
+        setToolingArchiveRequest(0)
         setActiveSectionId('tooling-management')
         setToolingRecordId(null)
         return
@@ -434,6 +448,10 @@ export default function App() {
 
     setSelectedModuleRecord(result)
     if (result.category === 'tools' && result.toolId) {
+      setToolingHeader(null)
+      setToolingEditRequest(0)
+      setToolingAuditRequest(0)
+      setToolingArchiveRequest(0)
       setActiveSectionId('tooling-management')
       setToolingRecordId(result.toolId)
       window.location.hash = `tooling-record/${result.toolId}`
@@ -447,6 +465,7 @@ export default function App() {
 
   const showingDrawingRecord = activeSection?.id === 'drawing-document-control' && drawingScreen === 'record'
   const showingDrawingRegister = activeSection?.id === 'drawing-document-control' && drawingScreen === 'dashboard'
+  const showingToolingRecord = activeSection?.id === 'tooling-management' && toolingRecordId !== null
 
   return (
     <div className={`engineering-shell engineering-app ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${me?.isPreview ? 'access-preview-active' : ''}`.trim()}>
@@ -545,7 +564,7 @@ export default function App() {
           </div>
           <a href="/access-preview/end" target="_top">Return to Admin</a>
         </section>}
-        <header className={`topbar ${showingDrawingRecord ? 'drawing-record-topbar' : ''}`.trim()}>
+        <header className={`topbar ${showingDrawingRecord ? 'drawing-record-topbar' : ''} ${showingToolingRecord ? 'tooling-record-topbar' : ''}`.trim()}>
           <div className="topbar-title-area">
             <div className={`page-title-block ${showingDrawingRecord ? 'drawing-record-page-title' : ''}`.trim()}>
             {showingDrawingRecord ? (
@@ -639,7 +658,28 @@ export default function App() {
                     <Archive size={14}/> Archive
                   </button>}
                 </>
-              : <button className="button ghost" type="button" onClick={() => window.location.reload()}>
+              : showingToolingRecord
+                ? <>
+                    {toolingHeader && can(engineeringPermissionKeys.toolingRecordsManage) && <button className="button ghost record-header-edit" type="button" onClick={() => setToolingEditRequest(current => current + 1)}>
+                      <Edit3 size={14}/> Edit record
+                    </button>}
+                    {toolingHeader && <button className="button ghost record-header-audit" type="button" onClick={() => setToolingAuditRequest(current => current + 1)}>
+                      <History size={14}/> Audit
+                    </button>}
+                    {toolingHeader && can(engineeringPermissionKeys.toolingArchiveManage) && <button
+                      className={`button record-header-archive ${toolingHeader.isArchived ? 'ghost' : 'danger'}`.trim()}
+                      type="button"
+                      disabled={!toolingHeader.isArchived && toolingHeader.custodyStatus !== 'InStorage'}
+                      title={!toolingHeader.isArchived && toolingHeader.custodyStatus !== 'InStorage' ? 'Check the tool into storage before archiving it.' : undefined}
+                      onClick={() => setToolingArchiveRequest(current => current + 1)}
+                    >
+                      {toolingHeader.isArchived ? <RotateCcw size={14}/> : <Archive size={14}/>} {toolingHeader.isArchived ? 'Restore tool' : 'Archive tool'}
+                    </button>}
+                    <button className="button ghost" type="button" onClick={() => window.location.reload()}>
+                      <RefreshCw size={15} /> Refresh
+                    </button>
+                  </>
+                : <button className="button ghost" type="button" onClick={() => window.location.reload()}>
                   <RefreshCw size={15} /> Refresh
                 </button>}
           </div>
@@ -703,13 +743,25 @@ export default function App() {
                 ) : activeSection.id === 'tooling-management' ? (
                   <ToolingManagement
                     toolId={toolingRecordId}
-                    actorName={me?.accountName || me?.displayName || 'Signed-in user'}
+                    actorName={me?.displayName || me?.accountName || 'Signed-in user'}
                     permissions={permissions}
+                    onRecordChange={setToolingHeader}
+                    editRequest={toolingEditRequest}
+                    auditRequest={toolingAuditRequest}
+                    archiveRequest={toolingArchiveRequest}
                     onOpenTool={(id) => {
+                      setToolingHeader(null)
+                      setToolingEditRequest(0)
+                      setToolingAuditRequest(0)
+                      setToolingArchiveRequest(0)
                       setToolingRecordId(id)
                       window.location.hash = `tooling-record/${id}`
                     }}
                     onBack={() => {
+                      setToolingHeader(null)
+                      setToolingEditRequest(0)
+                      setToolingAuditRequest(0)
+                      setToolingArchiveRequest(0)
                       setToolingRecordId(null)
                       window.location.hash = 'tooling-dashboard'
                     }}

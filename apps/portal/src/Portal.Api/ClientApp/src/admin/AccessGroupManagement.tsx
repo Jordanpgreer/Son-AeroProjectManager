@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Copy,
   PencilLine,
   Plus,
   Save,
@@ -15,16 +16,24 @@ import {
   X,
 } from 'lucide-react'
 import {
+  availablePermissionKeysForGroup,
   filterPermissions,
   permissionIsAvailable,
   permissionModules,
   setPermissionScope,
+  validateUniqueGroupName,
 } from './permissionModel'
 import type { PermissionModule } from './permissionModel'
 import type { AccessGroup, PermissionDefinition } from './types'
 
 export interface NewAccessGroup {
   name: string
+  description: string
+  permissions: string[]
+}
+
+export interface AccessGroupTemplate {
+  sourceName: string
   description: string
   permissions: string[]
 }
@@ -150,11 +159,15 @@ function PermissionModuleEditor({
 
 export function GroupCreationWizard({
   permissions,
+  existingGroupNames,
+  template,
   creating,
   onCreate,
   onCancel,
 }: {
   permissions: PermissionDefinition[]
+  existingGroupNames: string[]
+  template?: AccessGroupTemplate | null
   creating: boolean
   onCreate: (group: NewAccessGroup) => Promise<void>
   onCancel: () => void
@@ -162,10 +175,17 @@ export function GroupCreationWizard({
   const [step, setStep] = useState(0)
   const [moduleIndex, setModuleIndex] = useState(0)
   const [query, setQuery] = useState('')
-  const [draft, setDraft] = useState<NewAccessGroup>({ name: '', description: '', permissions: [] })
+  const [draft, setDraft] = useState<NewAccessGroup>(() => ({
+    name: '',
+    description: template?.description ?? '',
+    permissions: template
+      ? availablePermissionKeysForGroup(permissions, template.permissions, '')
+      : [],
+  }))
   const headingRef = useRef<HTMLHeadingElement>(null)
   const modules = useMemo(() => permissionModules(permissions), [permissions])
   const selectedModule = modules[Math.min(moduleIndex, Math.max(0, modules.length - 1))]
+  const nameError = validateUniqueGroupName(draft.name, existingGroupNames)
 
   useEffect(() => {
     headingRef.current?.focus()
@@ -173,7 +193,7 @@ export function GroupCreationWizard({
 
   function continueFromDetails(event: FormEvent) {
     event.preventDefault()
-    if (!draft.name.trim()) return
+    if (nameError) return
     setStep(1)
   }
 
@@ -182,7 +202,11 @@ export function GroupCreationWizard({
     await onCreate({
       name: draft.name.trim(),
       description: draft.description.trim(),
-      permissions: draft.permissions,
+      permissions: availablePermissionKeysForGroup(
+        permissions,
+        draft.permissions,
+        draft.name,
+      ),
     })
   }
 
@@ -204,20 +228,36 @@ export function GroupCreationWizard({
         ))}
       </ol>
 
+      {template && (
+        <p className="admin-group-template-note">
+          <Copy size={15} aria-hidden="true" />
+          <span><strong>Duplicating {template.sourceName}</strong> Description and available permissions are copied. Enter a unique name before continuing; people are never copied.</span>
+        </p>
+      )}
+
       {step === 0 && (
         <form className="admin-group-wizard-body" onSubmit={continueFromDetails}>
           <p>Use a short role-based name so administrators can recognize who belongs here.</p>
           <label>
             <span>Group name</span>
-            <input autoFocus required maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Example: Project coordinators" />
-            <small>Up to 80 characters. Group names must be unique.</small>
+            <input
+              autoFocus
+              required
+              maxLength={80}
+              value={draft.name}
+              aria-invalid={Boolean(draft.name && nameError)}
+              aria-describedby="new-group-name-help"
+              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+              placeholder={template ? `New name for ${template.sourceName}` : 'Example: Project coordinators'}
+            />
+            <small id="new-group-name-help">{draft.name && nameError ? nameError : 'Up to 80 characters. Group names must be unique.'}</small>
           </label>
           <label>
             <span>Description</span>
             <input maxLength={240} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} placeholder="What this group is responsible for" />
             <small>Explain who should be assigned and why.</small>
           </label>
-          <footer><button className="solid-button" type="submit">Choose permissions <ArrowRight size={15} aria-hidden="true" /></button></footer>
+          <footer><button className="solid-button" type="submit" disabled={Boolean(nameError)}>Choose permissions <ArrowRight size={15} aria-hidden="true" /></button></footer>
         </form>
       )}
 
@@ -279,6 +319,7 @@ export function GroupEditor({
   pendingCount,
   hasPendingUserAssignments,
   onChange,
+  onDuplicate,
   onDelete,
   onSave,
 }: {
@@ -291,6 +332,7 @@ export function GroupEditor({
   pendingCount: number
   hasPendingUserAssignments: boolean
   onChange: (permissions: string[]) => void
+  onDuplicate: () => void
   onDelete: () => Promise<boolean>
   onSave: () => Promise<void>
 }) {
@@ -441,6 +483,9 @@ export function GroupEditor({
 
           <footer className="access-dialog-footer">
             <div className="access-dialog-maintenance">
+              <button className="ghost-button" type="button" disabled={disabled || Boolean(groupChangeCount)} onClick={() => { closeEditor(); onDuplicate() }}>
+                <Copy size={15} aria-hidden="true" /> Duplicate group
+              </button>
               <button className="ghost-button danger" type="button" disabled={disabled || deleting || Boolean(deletionReason)} aria-describedby={`group-delete-note-${group.id}`} onClick={() => setConfirmingDelete(true)}>
                 <Trash2 size={15} aria-hidden="true" /> Delete group
               </button>

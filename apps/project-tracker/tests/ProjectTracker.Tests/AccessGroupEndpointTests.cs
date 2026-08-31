@@ -41,6 +41,32 @@ public sealed class AccessGroupEndpointTests
     }
 
     [Fact]
+    public void EstimatingHistoryImportRoute_RequiresManageGroupsPolicyAndPut()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddAuthorization();
+        builder.Services.AddHttpContextAccessor();
+        builder.Services.AddScoped<CurrentUserService>();
+        builder.Services.AddScoped<ModuleAccessService>();
+        builder.Services.AddDbContext<ProjectTrackerDbContext>(options => options.UseSqlite("Data Source=:memory:"));
+        var app = builder.Build();
+        app.MapGroup("/api").MapUserEndpoints();
+
+        var endpoint = ((IEndpointRouteBuilder)app).DataSources
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Single(candidate => candidate.RoutePattern.RawText ==
+                "/api/admin/groups/{id:int}/estimating-history-import");
+
+        Assert.Contains(
+            endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
+            authorization => authorization.Policy == "ManageGroups");
+        Assert.Equal(
+            ["PUT"],
+            endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods);
+    }
+
+    [Fact]
     public async Task CreateGroup_RejectsClientCreatedSystemGroupsAndInvalidPermissions()
     {
         await using var fixture = await DatabaseFixture.CreateAsync();
@@ -107,6 +133,104 @@ public sealed class AccessGroupEndpointTests
         Assert.Equal("Project Coordinators", group.Name);
         Assert.Equal("Coordinates active projects", group.Description);
         Assert.Equal(ApplicationPermissions.ModuleView, Assert.Single(group.Permissions).PermissionKey);
+    }
+
+    [Fact]
+    public async Task EstimatingHistoryImportUpdate_ChangesOnlyImportAndPreservesCurrentPermissions()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync();
+        var group = new AppGroup
+        {
+            Name = "Estimating Importers",
+            Permissions =
+            [
+                new AppGroupPermission { PermissionKey = "estimating.view" },
+                new AppGroupPermission { PermissionKey = "estimating.history.view" },
+                new AppGroupPermission { PermissionKey = ApplicationPermissions.ProjectCreate }
+            ]
+        };
+        fixture.Db.Groups.Add(group);
+        await fixture.Db.SaveChangesAsync();
+
+        // This grant represents a permission added after the Portal loaded its overview.
+        group.Permissions.Add(new AppGroupPermission
+        {
+            PermissionKey = EngineeringPermissions.ModuleView
+        });
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.ChangeTracker.Clear();
+
+        var enabled = await UserEndpoints.UpdateEstimatingHistoryImportAccessAsync(
+            group.Id,
+            new EstimatingHistoryImportAccessUpdateDto(true),
+            fixture.Db,
+            CancellationToken.None);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Ok<AccessGroupDto>>(enabled);
+
+        var enabledPermissions = await fixture.Db.GroupPermissions
+            .Where(permission => permission.AppGroupId == group.Id)
+            .Select(permission => permission.PermissionKey)
+            .ToListAsync();
+        Assert.Contains(ApplicationPermissions.ProjectCreate, enabledPermissions);
+        Assert.Contains(EngineeringPermissions.ModuleView, enabledPermissions);
+        Assert.Contains("estimating.history.import", enabledPermissions);
+
+        var enabledAgain = await UserEndpoints.UpdateEstimatingHistoryImportAccessAsync(
+            group.Id,
+            new EstimatingHistoryImportAccessUpdateDto(true),
+            fixture.Db,
+            CancellationToken.None);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Ok<AccessGroupDto>>(enabledAgain);
+        Assert.Equal(1, await fixture.Db.GroupPermissions.CountAsync(permission =>
+            permission.AppGroupId == group.Id
+            && permission.PermissionKey == "estimating.history.import"));
+
+        var disabled = await UserEndpoints.UpdateEstimatingHistoryImportAccessAsync(
+            group.Id,
+            new EstimatingHistoryImportAccessUpdateDto(false),
+            fixture.Db,
+            CancellationToken.None);
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Ok<AccessGroupDto>>(disabled);
+
+        var disabledPermissions = await fixture.Db.GroupPermissions
+            .Where(permission => permission.AppGroupId == group.Id)
+            .Select(permission => permission.PermissionKey)
+            .ToListAsync();
+        Assert.Contains(ApplicationPermissions.ProjectCreate, disabledPermissions);
+        Assert.Contains(EngineeringPermissions.ModuleView, disabledPermissions);
+        Assert.DoesNotContain("estimating.history.import", disabledPermissions);
+    }
+
+    [Fact]
+    public async Task EstimatingHistoryImportUpdate_RequiresModuleAndHistoryViewBeforeEnable()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync();
+        var group = new AppGroup
+        {
+            Name = "Incomplete Estimating Access",
+            Permissions =
+            [
+                new AppGroupPermission { PermissionKey = "estimating.view" },
+                new AppGroupPermission { PermissionKey = ApplicationPermissions.ProjectCreate }
+            ]
+        };
+        fixture.Db.Groups.Add(group);
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await UserEndpoints.UpdateEstimatingHistoryImportAccessAsync(
+            group.Id,
+            new EstimatingHistoryImportAccessUpdateDto(true),
+            fixture.Db,
+            CancellationToken.None);
+
+        var badRequest = Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.BadRequest<string>>(result);
+        Assert.Contains("View Estimating Logs", badRequest.Value);
+        Assert.False(await fixture.Db.GroupPermissions.AnyAsync(permission =>
+            permission.AppGroupId == group.Id
+            && permission.PermissionKey == "estimating.history.import"));
+        Assert.True(await fixture.Db.GroupPermissions.AnyAsync(permission =>
+            permission.AppGroupId == group.Id
+            && permission.PermissionKey == ApplicationPermissions.ProjectCreate));
     }
 
     [Fact]

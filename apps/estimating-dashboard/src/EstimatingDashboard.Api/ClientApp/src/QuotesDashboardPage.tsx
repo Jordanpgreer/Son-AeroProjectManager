@@ -12,14 +12,19 @@ import { calculateEstimate } from './calculations'
 import { createEstimateDefaults } from './estimateDefaults'
 import {
   deleteQuote,
+  discardQuoteRevisionDraft,
+  getQuoteStoreError,
+  getLatestPublishedRevision,
   listQuotes,
-  saveQuote,
-  type QuoteRecord,
-  type QuoteStatus,
+  saveQuoteDraft,
+  type QuoteRevision,
 } from './quoteStore'
+import {
+  quoteDashboardStatus,
+  quoteDashboardVersion,
+  type QuoteDashboardFilter,
+} from './quoteDashboardModel'
 import './quote-dashboard.css'
-
-type QuoteFilter = 'all' | QuoteStatus
 
 function currency(value: number) {
   return value.toLocaleString('en-US', {
@@ -29,16 +34,17 @@ function currency(value: number) {
   })
 }
 
-function quoteTitle(quote: QuoteRecord) {
-  return quote.estimate.metadata.quoteLogNumber
-    || quote.estimate.metadata.partNumber
+function quoteTitle(version: QuoteRevision | null) {
+  return version?.estimate.metadata.quoteLogNumber
+    || version?.estimate.metadata.partNumber
     || 'Untitled quote'
 }
 
-function quoteValue(quote: QuoteRecord) {
-  const result = calculateEstimate(quote.estimate)
+function quoteValue(version: QuoteRevision | null) {
+  if (!version) return 0
+  const result = calculateEstimate(version.estimate)
   return result.ok
-    ? result.quantities[quote.selectedQuantity]?.extendedValue ?? 0
+    ? result.quantities[version.selectedQuantity]?.extendedValue ?? 0
     : 0
 }
 
@@ -59,44 +65,53 @@ export default function QuotesDashboardPage({
 }) {
   const [revision, setRevision] = useState(0)
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<QuoteFilter>('all')
+  const [filter, setFilter] = useState<QuoteDashboardFilter>('all')
+  const [actionError, setActionError] = useState<string | null>(null)
   const quotes = useMemo(
     () => listQuotes(ownerAccountName),
     [ownerAccountName, revision],
   )
+  const storageError = getQuoteStoreError()
   const filteredQuotes = useMemo(() => {
     const query = search.trim().toLocaleLowerCase()
     return quotes.filter((quote) => {
-      if (filter !== 'all' && quote.status !== filter) return false
+      const version = quoteDashboardVersion(quote, filter)
+      if (!version) return false
+      if (filter === 'draft' && !quote.draft) return false
+      if (filter !== 'all' && filter !== 'draft' && quote.status !== filter) return false
       if (!query) return true
       return [
-        quote.estimate.metadata.quoteLogNumber,
-        quote.estimate.metadata.customer,
-        quote.estimate.metadata.partNumber,
-        quote.estimate.metadata.rfqNumber,
-        quote.estimate.metadata.estimator,
+        version.estimate.metadata.quoteLogNumber,
+        version.estimate.metadata.customer,
+        version.estimate.metadata.partNumber,
+        version.estimate.metadata.rfqNumber,
+        version.estimate.metadata.estimator,
       ].some((value) => value.toLocaleLowerCase().includes(query))
     })
   }, [filter, quotes, search])
   const counts = {
-    draft: quotes.filter((quote) => quote.status === 'draft').length,
+    draft: quotes.filter((quote) => Boolean(quote.draft)).length,
     current: quotes.filter((quote) => quote.status === 'current').length,
     past: quotes.filter((quote) => quote.status === 'past').length,
   }
   const currentValue = quotes
     .filter((quote) => quote.status === 'current')
-    .reduce((total, quote) => total + quoteValue(quote), 0)
+    .reduce((total, quote) => total + quoteValue(getLatestPublishedRevision(quote)), 0)
 
   const createQuote = () => {
-    if (!canManageQuotes) return
+    if (!canManageQuotes || storageError) return
+    setActionError(null)
     const estimate = createEstimateDefaults('standard')
-    const record = saveQuote({
+    const record = saveQuoteDraft({
       ownerAccountName,
-      status: 'draft',
       estimate,
       selectedQuantity: estimate.quantities[0],
     })
-    if (record) window.location.hash = `/calculator?quote=${record.id}`
+    if (record) {
+      window.location.hash = `/calculator?quote=${record.id}`
+      return
+    }
+    setActionError(getQuoteStoreError() ?? 'The quote draft could not be created in this browser.')
   }
 
   return (
@@ -110,14 +125,18 @@ export default function QuotesDashboardPage({
         <button
           type="button"
           className="primary-action-button"
-          disabled={!canManageQuotes}
-          title={canManageQuotes ? 'Create a quote' : 'Editor access is required'}
+          disabled={!canManageQuotes || Boolean(storageError)}
+          title={storageError ?? (canManageQuotes ? 'Create a quote' : 'Editor access is required')}
           onClick={createQuote}
         >
           <Plus size={17} aria-hidden="true" />
           New quote
         </button>
       </section>
+
+      {(storageError || actionError) && (
+        <p className="quote-storage-error" role="alert">{storageError ?? actionError}</p>
+      )}
 
       <section className="quote-kpi-grid" aria-label="Quote portfolio summary">
         <button type="button" onClick={() => setFilter('draft')}>
@@ -187,7 +206,8 @@ export default function QuotesDashboardPage({
                 <tr>
                   <th scope="col">Quote</th>
                   <th scope="col">Customer</th>
-                  <th scope="col">Part / Rev</th>
+                  <th scope="col">Part / Drawing Rev</th>
+                  <th scope="col">Quote Rev</th>
                   <th scope="col">Status</th>
                   <th scope="col">Quantities</th>
                   <th scope="col">Value</th>
@@ -196,48 +216,85 @@ export default function QuotesDashboardPage({
                 </tr>
               </thead>
               <tbody>
-                {filteredQuotes.map((quote) => (
-                  <tr key={quote.id}>
-                    <th scope="row">{quoteTitle(quote)}</th>
-                    <td>{quote.estimate.metadata.customer || '—'}</td>
-                    <td>
-                      {quote.estimate.metadata.partNumber || '—'}
-                      {quote.estimate.metadata.revision
-                        ? ` / ${quote.estimate.metadata.revision}`
-                        : ''}
-                    </td>
-                    <td><span className={`quote-status status-${quote.status}`}>{quote.status}</span></td>
-                    <td>{quote.estimate.quantities.join(', ')}</td>
-                    <td>{currency(quoteValue(quote))}</td>
-                    <td>{formatDate(quote.updatedAt)}</td>
-                    <td>
-                      <div className="quote-row-actions">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            window.location.hash = `/calculator?quote=${quote.id}`
-                          }}
-                        >
-                          Open
-                        </button>
-                        {canManageQuotes && quote.status === 'draft' && (
+                {filteredQuotes.map((quote) => {
+                  const displayVersion = quoteDashboardVersion(quote, filter)
+                  if (!displayVersion) return null
+                  const rowStatus = quoteDashboardStatus(quote, filter)
+                  const isDraftVersion = quote.draft?.id === displayVersion.id
+                  return (
+                    <tr key={quote.id}>
+                      <th scope="row">{quoteTitle(displayVersion)}</th>
+                      <td>{displayVersion.estimate.metadata.customer || '—'}</td>
+                      <td>
+                        {displayVersion.estimate.metadata.partNumber || '—'}
+                        {displayVersion.estimate.metadata.revision
+                          ? ` / ${displayVersion.estimate.metadata.revision}`
+                          : ''}
+                      </td>
+                      <td className="quote-revision-cell">
+                        R{displayVersion.revisionNumber}
+                        <small>{isDraftVersion ? 'Draft' : 'Published'}</small>
+                        {!isDraftVersion && quote.draft && (
+                          <small>R{quote.draft.revisionNumber} draft available</small>
+                        )}
+                      </td>
+                      <td>
+                        <span className={`quote-status status-${rowStatus}`}>
+                          {rowStatus}
+                        </span>
+                      </td>
+                      <td>{displayVersion.estimate.quantities.join(', ')}</td>
+                      <td>{currency(quoteValue(displayVersion))}</td>
+                      <td>{formatDate(quote.updatedAt)}</td>
+                      <td>
+                        <div className="quote-row-actions">
                           <button
                             type="button"
-                            className="danger-link"
                             onClick={() => {
-                              if (window.confirm(`Delete ${quoteTitle(quote)}?`)) {
-                                deleteQuote(quote.id, ownerAccountName)
-                                setRevision((current) => current + 1)
-                              }
+                              window.location.hash = `/calculator?quote=${quote.id}`
                             }}
                           >
-                            Delete
+                            {quote.draft ? 'Continue draft' : 'View'}
                           </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          {canManageQuotes && quote.draft && quote.revisions.length === 0 && (
+                            <button
+                              type="button"
+                              className="danger-link"
+                              onClick={() => {
+                                if (!window.confirm(`Delete ${quoteTitle(displayVersion)}?`)) return
+                                setActionError(null)
+                                if (deleteQuote(quote.id, ownerAccountName)) {
+                                  setRevision((current) => current + 1)
+                                } else {
+                                  setActionError(getQuoteStoreError() ?? 'The draft could not be deleted.')
+                                }
+                              }}
+                            >
+                              Delete
+                            </button>
+                          )}
+                          {canManageQuotes && quote.draft && quote.revisions.length > 0 && (
+                            <button
+                              type="button"
+                              className="danger-link"
+                              onClick={() => {
+                                if (!window.confirm(`Discard the R${quote.draft?.revisionNumber} draft? Published revisions will be kept.`)) return
+                                setActionError(null)
+                                if (discardQuoteRevisionDraft(quote.id, ownerAccountName)) {
+                                  setRevision((current) => current + 1)
+                                } else {
+                                  setActionError(getQuoteStoreError() ?? 'The revision draft could not be discarded.')
+                                }
+                              }}
+                            >
+                              Discard draft
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

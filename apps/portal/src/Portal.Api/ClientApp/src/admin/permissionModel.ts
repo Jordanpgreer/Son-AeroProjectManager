@@ -31,6 +31,32 @@ export function permissionIsAvailable(permission: PermissionDefinition, groupNam
   return !['import.manage', 'archived.delete'].includes(permission.key) || administrators
 }
 
+export function validateUniqueGroupName(name: string, existingNames: string[]) {
+  const normalized = name.trim()
+  if (!normalized) return 'Enter a new group name before continuing.'
+  if (normalized.length > 80) return 'Group names cannot exceed 80 characters.'
+  if (existingNames.some((existing) => existing.trim().localeCompare(
+    normalized,
+    undefined,
+    { sensitivity: 'accent' },
+  ) === 0)) {
+    return 'That group name is already in use. Choose a different name.'
+  }
+  return null
+}
+
+export function availablePermissionKeysForGroup(
+  permissions: PermissionDefinition[],
+  selected: string[],
+  groupName: string,
+) {
+  const selectedKeys = new Set(selected)
+  return permissions
+    .filter((permission) => selectedKeys.has(permission.key) && permissionIsAvailable(permission, groupName))
+    .map((permission) => permission.key)
+    .sort((left, right) => left.localeCompare(right))
+}
+
 export function filterPermissions(
   permissions: PermissionDefinition[],
   query: string,

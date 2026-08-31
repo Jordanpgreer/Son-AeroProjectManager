@@ -38,6 +38,8 @@ public sealed class AccessControlSeederTests
             permission.PermissionKey == ProjectTrackerPermissions.ArchivedDelete);
         Assert.Contains(administratorGroup.Permissions, permission =>
             permission.PermissionKey == ProjectTrackerPermissions.WorkCentersImport);
+        Assert.Contains(administratorGroup.Permissions, permission =>
+            permission.PermissionKey == "estimating.history.import");
         var managerGroup = await fixture.Db.Groups
             .Include(group => group.Permissions)
             .SingleAsync(group => group.Name == ApplicationGroups.Managers);
@@ -48,6 +50,8 @@ public sealed class AccessControlSeederTests
             permission.PermissionKey == ProjectTrackerPermissions.ArchivedDelete);
         Assert.DoesNotContain(managerGroup.Permissions, permission =>
             permission.PermissionKey == ProjectTrackerPermissions.WorkCentersImport);
+        Assert.DoesNotContain(managerGroup.Permissions, permission =>
+            permission.PermissionKey == "estimating.history.import");
         Assert.Contains(managerGroup.Permissions, permission =>
             permission.PermissionKey == ProjectTrackerPermissions.OperationScheduleConfirm);
         var engineeringGroup = await fixture.Db.Groups
@@ -81,6 +85,105 @@ public sealed class AccessControlSeederTests
         Assert.Equal(ApplicationGroups.Administrators, remainingGroup.Name);
         Assert.True(remainingGroup.IsSystemGroup);
         Assert.False(await fixture.Db.Users.AnyAsync(user => user.AccountName == "DOMAIN\\configured.editor"));
+    }
+
+    [Fact]
+    public async Task Seed_MakesDefaultAndLegacyEditorHistoryImportOptInWithoutChangingCustomGroups()
+    {
+        await using var fixture = await AccessFixture.CreateAsync();
+        fixture.Db.Groups.AddRange(
+            new AppGroup
+            {
+                Name = ApplicationGroups.Managers,
+                Permissions =
+                [
+                    new AppGroupPermission { PermissionKey = "estimating.view" },
+                    new AppGroupPermission { PermissionKey = "estimating.history.view" },
+                    new AppGroupPermission { PermissionKey = "estimating.history.import" }
+                ]
+            },
+            new AppGroup
+            {
+                Name = "Estimating Editor Access",
+                Description = "Migrated Editor access for Estimating.",
+                Permissions =
+                [
+                    new AppGroupPermission { PermissionKey = "estimating.view" },
+                    new AppGroupPermission { PermissionKey = "estimating.history.view" },
+                    new AppGroupPermission { PermissionKey = "estimating.history.import" }
+                ]
+            },
+            new AppGroup
+            {
+                Name = "Custom Estimating Importers",
+                Permissions =
+                [
+                    new AppGroupPermission { PermissionKey = "estimating.view" },
+                    new AppGroupPermission { PermissionKey = "estimating.history.view" },
+                    new AppGroupPermission { PermissionKey = "estimating.history.import" }
+                ]
+            });
+        await fixture.Db.SaveChangesAsync();
+
+        await new AccessControlSeeder().SeedAsync(fixture.Db, Configuration());
+
+        var managerPermissions = await fixture.Db.Groups
+            .Where(group => group.Name == ApplicationGroups.Managers)
+            .SelectMany(group => group.Permissions)
+            .Select(permission => permission.PermissionKey)
+            .ToListAsync();
+        var customPermissions = await fixture.Db.Groups
+            .Where(group => group.Name == "Custom Estimating Importers")
+            .SelectMany(group => group.Permissions)
+            .Select(permission => permission.PermissionKey)
+            .ToListAsync();
+        var legacyEditorPermissions = await fixture.Db.Groups
+            .Where(group => group.Name == "Estimating Editor Access")
+            .SelectMany(group => group.Permissions)
+            .Select(permission => permission.PermissionKey)
+            .ToListAsync();
+        Assert.DoesNotContain("estimating.history.import", managerPermissions);
+        Assert.DoesNotContain("estimating.history.import", legacyEditorPermissions);
+        Assert.Contains("estimating.history.import", customPermissions);
+    }
+
+    [Fact]
+    public async Task Seed_PreservesHistoryImportRegrantedAfterVersionedMigration()
+    {
+        await using var fixture = await AccessFixture.CreateAsync();
+        var legacyEditorGroup = new AppGroup
+        {
+            Name = "Estimating Editor Access",
+            Description = "Migrated Editor access for Estimating.",
+            Permissions =
+            [
+                new AppGroupPermission { PermissionKey = "estimating.view" },
+                new AppGroupPermission { PermissionKey = "estimating.history.view" },
+                new AppGroupPermission { PermissionKey = "estimating.history.import" }
+            ]
+        };
+        fixture.Db.Groups.Add(legacyEditorGroup);
+        await fixture.Db.SaveChangesAsync();
+
+        var seeder = new AccessControlSeeder();
+        await seeder.SeedAsync(fixture.Db, Configuration());
+        Assert.False(await fixture.Db.GroupPermissions.AnyAsync(permission =>
+            permission.AppGroupId == legacyEditorGroup.Id
+            && permission.PermissionKey == "estimating.history.import"));
+
+        fixture.Db.GroupPermissions.Add(new AppGroupPermission
+        {
+            AppGroupId = legacyEditorGroup.Id,
+            PermissionKey = "estimating.history.import"
+        });
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.ChangeTracker.Clear();
+
+        await seeder.SeedAsync(fixture.Db, Configuration());
+
+        Assert.Equal(1, await fixture.Db.GroupPermissions.CountAsync(permission =>
+            permission.AppGroupId == legacyEditorGroup.Id
+            && permission.PermissionKey == "estimating.history.import"));
     }
 
     [Fact]

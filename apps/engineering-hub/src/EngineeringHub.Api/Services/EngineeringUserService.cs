@@ -36,7 +36,7 @@ public sealed class EngineeringUserService(
 
         return new MeDto(
             effectiveAccountName,
-            access.DisplayName ?? ToDisplayName(effectiveAccountName),
+            ResolveDisplayName(access.DisplayName, effectiveAccountName),
             access.Role,
             access.Permissions,
             access.Groups,
@@ -74,9 +74,14 @@ public sealed class EngineeringUserService(
         var claims = principal.Claims.ToList();
         claims.RemoveAll(claim => claim.Type == ClaimTypes.Role);
         claims.RemoveAll(claim => claim.Type == EngineeringAuthorization.PermissionClaimType);
+        claims.RemoveAll(claim => claim.Type == EngineeringAuthorization.DisplayNameClaimType);
         claims.RemoveAll(claim => claim.Type == ApplicationClaimTypes.Group);
         claims.RemoveAll(claim => claim.Type.StartsWith("sonaero.access-preview.", StringComparison.Ordinal));
         claims.Add(new Claim(ClaimTypes.Role, access.Role));
+        var effectiveAccountName = access.AccountName ?? principal.Identity?.Name ?? "Signed-in user";
+        claims.Add(new Claim(
+            EngineeringAuthorization.DisplayNameClaimType,
+            ResolveDisplayName(access.DisplayName, effectiveAccountName)));
         claims.AddRange(access.Permissions
             .Select(permission => new Claim(EngineeringAuthorization.PermissionClaimType, permission)));
         claims.AddRange(access.Groups
@@ -113,4 +118,9 @@ public sealed class EngineeringUserService(
             .Select(word => char.ToUpperInvariant(word[0]) + word[1..]);
         return string.Join(' ', words);
     }
+
+    private static string ResolveDisplayName(string? displayName, string accountName) =>
+        string.IsNullOrWhiteSpace(displayName)
+            ? ToDisplayName(accountName)
+            : displayName.Trim();
 }

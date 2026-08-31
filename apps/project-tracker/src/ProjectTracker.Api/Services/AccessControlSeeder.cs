@@ -15,6 +15,8 @@ public sealed class AccessControlSeeder
     private const string ArchivedDeletePermissionVersion = "project-archived-delete-permission-v1";
     private const string OperationScheduleConfirmationPermissionVersion = "operation-schedule-confirmation-permission-v1";
     private const string WorkCenterImportPermissionVersion = "work-center-import-permission-v1";
+    private const string EstimatingHistoryImportPermissionVersion = "estimating-history-import-permission-v1";
+    private const string LegacyEstimatingEditorCompatibilityGroup = "Estimating Editor Access";
 
     public async Task SeedAsync(
         ProjectTrackerDbContext db,
@@ -107,6 +109,35 @@ public sealed class AccessControlSeeder
             }
             await RecordVersionAsync(db, WorkCenterImportPermissionVersion, cancellationToken);
         }
+        var makeEstimatingHistoryImportOptIn = !await HasVersionAsync(
+            db,
+            EstimatingHistoryImportPermissionVersion,
+            cancellationToken);
+        if (makeEstimatingHistoryImportOptIn)
+        {
+            if (groupIds.TryGetValue(ApplicationGroups.Administrators, out var administratorGroupId))
+            {
+                await AddPermissionsToGroupAsync(
+                    db,
+                    administratorGroupId,
+                    ["estimating.history.import"],
+                    cancellationToken);
+            }
+            foreach (var groupName in new[]
+                     {
+                         ApplicationGroups.Managers,
+                         LegacyEstimatingEditorCompatibilityGroup
+                     })
+            {
+                if (!groupIds.TryGetValue(groupName, out var groupId)) continue;
+                await RemovePermissionsFromGroupAsync(
+                    db,
+                    groupId,
+                    ["estimating.history.import"],
+                    cancellationToken);
+            }
+            await RecordVersionAsync(db, EstimatingHistoryImportPermissionVersion, cancellationToken);
+        }
         var existingUsers = await db.Users
             .Include(user => user.GroupMemberships)
             .ToDictionaryAsync(user => user.AccountName, StringComparer.OrdinalIgnoreCase, cancellationToken);
@@ -146,6 +177,25 @@ public sealed class AccessControlSeeder
                      !string.Equals(existing.PermissionKey, permission, StringComparison.OrdinalIgnoreCase))))
         {
             group.Permissions.Add(new AppGroupPermission { PermissionKey = permission });
+        }
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static async Task RemovePermissionsFromGroupAsync(
+        ProjectTrackerDbContext db,
+        int groupId,
+        IReadOnlyCollection<string> permissions,
+        CancellationToken cancellationToken)
+    {
+        var permissionKeys = permissions.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var group = await db.Groups
+            .Include(candidate => candidate.Permissions)
+            .SingleAsync(candidate => candidate.Id == groupId, cancellationToken);
+        foreach (var permission in group.Permissions
+                     .Where(existing => permissionKeys.Contains(existing.PermissionKey))
+                     .ToList())
+        {
+            group.Permissions.Remove(permission);
         }
         await db.SaveChangesAsync(cancellationToken);
     }

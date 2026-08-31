@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import { toErrorMessage, trackerApi } from './api'
 import { GroupCreationWizard, GroupEditor } from './AccessGroupManagement'
-import type { NewAccessGroup } from './AccessGroupManagement'
+import type { AccessGroupTemplate, NewAccessGroup } from './AccessGroupManagement'
 import type {
   AccessGroup,
   AccessOverview,
@@ -75,6 +75,7 @@ export default function AccessPanel({
   const [groupDrafts, setGroupDrafts] = useState<Record<number, string[]>>({})
   const [newUser, setNewUser] = useState({ accountName: '', displayName: '' })
   const [showGroupWizard, setShowGroupWizard] = useState(false)
+  const [groupTemplate, setGroupTemplate] = useState<AccessGroupTemplate | null>(null)
   const [creatingGroup, setCreatingGroup] = useState(false)
   const [deletingGroupId, setDeletingGroupId] = useState<number | null>(null)
 
@@ -188,7 +189,10 @@ export default function AccessPanel({
         }),
       })
       setShowGroupWizard(false)
-      setMessage(`${group.name} was created with ${group.permissions.length} permissions. Assign people from the Registered users directory.`)
+      setGroupTemplate(null)
+      setMessage(groupTemplate
+        ? `${group.name} was duplicated from ${groupTemplate.sourceName} with ${group.permissions.length} permissions. No people were assigned.`
+        : `${group.name} was created with ${group.permissions.length} permissions. Assign people from the Registered users directory.`)
       await load(true)
     } catch (cause) {
       setError(toErrorMessage(cause))
@@ -403,15 +407,20 @@ export default function AccessPanel({
               <ShieldCheck size={19} aria-hidden="true" />
             </div>
             {canManageGroups ? (
-              showGroupWizard ? (
+              showGroupWizard || groupTemplate ? (
                 <GroupCreationWizard
                   permissions={overview.permissions}
+                  existingGroupNames={overview.groups.map((group) => group.name)}
+                  template={groupTemplate}
                   creating={creatingGroup}
                   onCreate={createGroup}
-                  onCancel={() => setShowGroupWizard(false)}
+                  onCancel={() => {
+                    setShowGroupWizard(false)
+                    setGroupTemplate(null)
+                  }}
                 />
               ) : (
-                <button className="solid-button admin-start-group-button" type="button" onClick={() => setShowGroupWizard(true)}>
+                <button className="solid-button admin-start-group-button" type="button" onClick={() => { setGroupTemplate(null); setShowGroupWizard(true) }}>
                   <Plus size={15} aria-hidden="true" /> Add permission group
                 </button>
               )
@@ -439,6 +448,14 @@ export default function AccessPanel({
                     ...current,
                     [group.id]: permissions,
                   }))}
+                  onDuplicate={() => {
+                    setShowGroupWizard(false)
+                    setGroupTemplate({
+                      sourceName: group.name,
+                      description: group.description ?? '',
+                      permissions: group.permissions,
+                    })
+                  }}
                   onDelete={() => deleteGroup(group)}
                   onSave={saveAll}
                 />
