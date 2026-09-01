@@ -88,6 +88,32 @@ function Set-PortalTemplateAllowedRolesPolicy {
     }
 }
 
+function Set-PortalTemplateUrlPolicy {
+    param(
+        [Parameter(Mandatory = $true)][object]$ProductionApplication,
+        [Parameter(Mandatory = $true)][object]$TemplateApplication,
+        [Parameter(Mandatory = $true)][string]$ApplicationId
+    )
+
+    $templateUrl = $TemplateApplication.PSObject.Properties['Url']
+    if (-not $templateUrl -or
+        $templateUrl.Value -isnot [string] -or
+        [string]::IsNullOrWhiteSpace([string]$templateUrl.Value)) {
+        throw "Portal production template URL policy for '$ApplicationId' must be a non-empty string."
+    }
+
+    $productionUrl = $ProductionApplication.PSObject.Properties['Url']
+    if ($productionUrl) {
+        $productionUrl.Value = [string]$templateUrl.Value
+    }
+    else {
+        $ProductionApplication | Add-Member `
+            -MemberType NoteProperty `
+            -Name Url `
+            -Value ([string]$templateUrl.Value)
+    }
+}
+
 function Sync-PortalProductionApplicationCatalog {
     <#
         Reorders the carried-forward production catalog by application Id and adds any new
@@ -114,6 +140,7 @@ function Sync-PortalProductionApplicationCatalog {
     $template = Read-PortalCatalogJson -Path $ProductionTemplatePath
 
     $templateOwnedAllowedRolesIds = @('engineering-hub', 'quality-assurance')
+    $templateOwnedUrlIds = @('admin-console')
     $baseApplications = @($base.Portal.Applications)
     if ($baseApplications.Count -eq 0) {
         throw "Portal base configuration has no Portal.Applications entries: $basePath"
@@ -143,6 +170,15 @@ function Sync-PortalProductionApplicationCatalog {
                 # production file retains the reviewed active policy. Other first-party
                 # and custom application role policies remain untouched.
                 Set-PortalTemplateAllowedRolesPolicy `
+                    -ProductionApplication $productionApplication `
+                    -TemplateApplication $templateMap[$id] `
+                    -ApplicationId $id
+            }
+            if ($templateMap.ContainsKey($id) -and $id -in $templateOwnedUrlIds) {
+                # The Admin Console route is shipped with the Portal application. Carrying a
+                # legacy module-specific route forward makes an otherwise healthy release
+                # unusable, so its reviewed template URL is release-owned as well.
+                Set-PortalTemplateUrlPolicy `
                     -ProductionApplication $productionApplication `
                     -TemplateApplication $templateMap[$id] `
                     -ApplicationId $id

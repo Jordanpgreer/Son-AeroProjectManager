@@ -31,7 +31,7 @@ try {
       { "Id": "project-tracker", "Name": "Project Tracker", "Url": "http://SON-IIS2:5135", "AllowedRoles": [ "Viewer" ] },
       { "Id": "engineering-hub", "Name": "Engineering Hub", "Url": "http://SON-IIS2:5150", "AllowedRoles": [], "ServerNote": "retain me" },
       { "Id": "estimating-dashboard", "Name": "Estimating Dashboard", "Url": "http://SON-IIS2:5160" },
-      { "Id": "admin-console", "Name": "Admin Console", "Url": "/#/admin/access" },
+      { "Id": "admin-console", "Name": "Admin Console", "Url": "/#/admin/project-tracker/access" },
       { "Id": "custom-tool", "Name": "Custom Tool", "Url": "http://SON-IIS2:5180", "AllowedRoles": [ "Admin" ] }
     ]
   }
@@ -73,6 +73,10 @@ try {
     if (@($ids | Where-Object { $_ -eq 'admin-console' }).Count -ne 1) {
         throw 'The synchronized catalog did not contain exactly one Admin Console.'
     }
+    $adminConsole = @($updated.Portal.Applications | Where-Object Id -eq 'admin-console')[0]
+    if ($adminConsole.Url -cne '/#/admin/access') {
+        throw "The legacy Admin Console route was not migrated to the reviewed production route: $($adminConsole.Url)"
+    }
     $quality = @($updated.Portal.Applications | Where-Object Id -eq 'quality-assurance')
     if ($quality.Count -ne 1 -or $quality[0].Url -ne 'http://SON-IIS2:5170') {
         throw 'Quality Assurance was not added from the production template.'
@@ -101,6 +105,33 @@ try {
     if ((@($custom.AllowedRoles) -join '|') -ne 'Admin' -or $custom.Url -ne 'http://SON-IIS2:5180') {
         throw 'The synchronization changed a custom application visibility policy or URL.'
     }
+
+    $beforeInvalidUrlTest = Get-Content -LiteralPath (Join-Path $candidate 'appsettings.Production.json') -Raw
+    $invalidUrlTemplate = Get-Content -LiteralPath $template -Raw | ConvertFrom-Json
+    $invalidUrlApplication = @($invalidUrlTemplate.Portal.Applications |
+        Where-Object Id -eq 'admin-console')[0]
+    $invalidUrlApplication.Url = ''
+    $invalidUrlTemplate | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $template -Encoding UTF8
+    $invalidUrlFailed = $false
+    try {
+        Sync-PortalProductionApplicationCatalog `
+            -CandidatePortalPath $candidate `
+            -ProductionTemplatePath $template | Out-Null
+    }
+    catch {
+        $invalidUrlFailed = $_.Exception.Message -match 'URL policy.*must be a non-empty string'
+    }
+    if (-not $invalidUrlFailed) {
+        throw 'An empty Admin Console template URL policy was not rejected.'
+    }
+    $afterInvalidUrlTest = Get-Content -LiteralPath (Join-Path $candidate 'appsettings.Production.json') -Raw
+    if ($afterInvalidUrlTest -cne $beforeInvalidUrlTest) {
+        throw 'Invalid template URL policy validation changed the production configuration.'
+    }
+
+    # Restore the reviewed route before testing the AllowedRoles policy boundary.
+    $invalidUrlApplication.Url = '/#/admin/access'
+    $invalidUrlTemplate | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $template -Encoding UTF8
 
     $beforeInvalidPolicyTest = Get-Content -LiteralPath (Join-Path $candidate 'appsettings.Production.json') -Raw
     $invalidTemplate = Get-Content -LiteralPath $template -Raw | ConvertFrom-Json
