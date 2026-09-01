@@ -444,7 +444,8 @@ public static class DrawingOperationalEndpoints
 
     private static async Task<IResult> GetReviewQueueAsync(
         EngineeringDbContext db,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromServices] IEngineeringRoleStore? roleStore = null)
     {
         var queue = await db.DrawingRevisions.AsNoTracking()
             .Where(x => x.Status == DrawingRevisionStatus.UnderReview)
@@ -463,7 +464,11 @@ public static class DrawingOperationalEndpoints
                 x.Notes,
                 x.FileSize > 0 && x.StoredFilePath != string.Empty))
             .ToListAsync(cancellationToken);
-        return Results.Ok(queue);
+        var displayNames = await EngineeringDisplayNames.LoadAsync(
+            roleStore,
+            queue.Select(item => item.UploadedBy),
+            cancellationToken);
+        return Results.Ok(queue.Select(item => item with { UploadedBy = displayNames.Resolve(item.UploadedBy) }).ToList());
     }
 
     private static async Task<IResult> ArchiveDrawingAsync(

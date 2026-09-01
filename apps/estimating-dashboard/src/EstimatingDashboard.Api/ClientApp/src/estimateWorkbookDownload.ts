@@ -198,17 +198,23 @@ export async function buildCleanEstimateWorkbook(
   writeQuantities(sheet, totalsRow, estimate.quantities, (quantity) => result.quantities[quantity].rawMaterial)
   applyGrid(sheet, processHeader, totalsRow)
 
-  const facilitiesRow = totalsRow + 3
-  cell(sheet, facilitiesRow - 1, 2, 'Sales/Management Markup')
-  cell(sheet, facilitiesRow - 1, 5, estimate.salesMarkup)
-  sheet.getCell(facilitiesRow - 1, 5).numFmt = '0.0%'
-  cell(sheet, facilitiesRow, 4, 'Facilities')
-  writeQuantities(sheet, facilitiesRow, estimate.quantities, (quantity) => estimate.facilitiesByQuantity[quantity] ?? 0)
+  const perQuantityMarginRow = totalsRow + 3
+  cell(sheet, perQuantityMarginRow - 1, 2, 'Sales/Management Markup')
+  cell(sheet, perQuantityMarginRow - 1, 5, estimate.salesMarkup)
+  sheet.getCell(perQuantityMarginRow - 1, 5).numFmt = '0.0%'
+  cell(sheet, perQuantityMarginRow, 4, 'Per Quantity Margin %')
+  writeQuantities(
+    sheet,
+    perQuantityMarginRow,
+    estimate.quantities,
+    (quantity) => estimate.perQuantityMarginByQuantity[quantity] ?? 0,
+  )
 
-  const pricingSection = facilitiesRow + 2
+  const pricingSection = perQuantityMarginRow + 2
   sectionHeading(sheet, pricingSection, 'CALCULATED PRICING')
   const pricingRows: Array<[string, (quantity: QuantityTier) => number, string]> = [
     ['Sell Price', (quantity) => result.quantities[quantity].sellPrice, '$#,##0.00'],
+    ['Per Quantity Margin', (quantity) => result.quantities[quantity].perQuantityMargin, '$#,##0.00'],
     ['Extended Value', (quantity) => result.quantities[quantity].extendedValue, '$#,##0.00'],
     ['Gross Margin', (quantity) => result.quantities[quantity].grossMargin ?? 0, '0.0%'],
     ['Material % of Price', (quantity) => result.quantities[quantity].materialPercentOfPrice ?? 0, '0.0%'],
@@ -233,8 +239,9 @@ export async function buildCleanEstimateWorkbook(
   sheet.getColumn(5).numFmt = '$#,##0.00'
   QUANTITY_COLUMNS.forEach((column) => { sheet.getColumn(column).numFmt = '$#,##0.00' })
   sheet.getColumn(15).alignment = { wrapText: true, vertical: 'top' }
-  sheet.getCell(facilitiesRow, 4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: LIGHT_BLUE } }
-  sheet.getCell(facilitiesRow, 4).font = { bold: true, color: { argb: RED } }
+  QUANTITY_COLUMNS.forEach((column) => { sheet.getCell(perQuantityMarginRow, column).numFmt = '0.0%' })
+  sheet.getCell(perQuantityMarginRow, 4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: LIGHT_BLUE } }
+  sheet.getCell(perQuantityMarginRow, 4).font = { bold: true, color: { argb: RED } }
   workbook.calcProperties.fullCalcOnLoad = false
   return workbook.xlsx.writeBuffer()
 }

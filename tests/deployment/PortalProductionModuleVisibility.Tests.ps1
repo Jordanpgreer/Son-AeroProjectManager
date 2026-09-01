@@ -77,7 +77,7 @@ $configuration = @'
       { "Id": "engineering-hub", "AllowedRoles": ["Admin"] },
       { "Id": "estimating-dashboard", "AllowedRoles": [] },
       { "Id": "quality-assurance", "AllowedRoles": ["__production-disabled__"] },
-      { "Id": "admin-console", "AllowedRoles": [] }
+      { "Id": "admin-console", "AllowedRoles": ["Admin"] }
     ]
   }
 }
@@ -90,10 +90,13 @@ if (-not (Test-VisibleApplicationPolicy -Configuration $configuration `
     throw 'The activated-module policy was not recognized after it was applied.'
 }
 $map = Get-ApplicationMap -Configuration $configuration
-foreach ($id in @('project-tracker', 'engineering-hub', 'estimating-dashboard', 'quality-assurance', 'admin-console')) {
+foreach ($id in @('project-tracker', 'engineering-hub', 'estimating-dashboard', 'quality-assurance')) {
     if (@(Get-NormalizedAllowedRoles -Application $map[$id] -ApplicationId $id).Count -ne 0) {
         throw "The visibility policy did not leave '$id' visible."
     }
+}
+if ((@(Get-NormalizedAllowedRoles -Application $map['admin-console'] -ApplicationId 'admin-console') -join '|') -cne 'Admin') {
+    throw 'The module activation policy changed the Admin Console Admin-only visibility policy.'
 }
 
 $visibleCatalog = @(

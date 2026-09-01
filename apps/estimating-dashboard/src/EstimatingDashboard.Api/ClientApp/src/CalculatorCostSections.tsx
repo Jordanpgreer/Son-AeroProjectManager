@@ -1,4 +1,5 @@
-import { Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, Plus, Trash2 } from 'lucide-react'
+import { useState } from 'react'
 
 import { SafeNumberInput } from './CalculatorInputSections'
 import type {
@@ -299,76 +300,62 @@ export function ProcessesSection({
   )
 }
 
-interface FacilitiesSectionProps {
-  values: EstimateInput['facilitiesByQuantity']
+interface PerQuantityMarginSectionProps {
+  values: EstimateInput['perQuantityMarginByQuantity']
   quantities?: readonly QuantityTier[]
   idPrefix?: string
   context?: 'estimate' | 'subassembly'
   onChange: (quantity: QuantityTier, value: number) => void
 }
 
-export function FacilitiesSection({
+export function PerQuantityMarginSection({
   values,
   quantities = QUANTITY_TIERS,
   idPrefix = '',
   context = 'estimate',
   onChange,
-}: FacilitiesSectionProps) {
-  const headingId = `${idPrefix}facilities-heading`
-  const descriptionId = `${idPrefix}facilities-description`
+}: PerQuantityMarginSectionProps) {
+  const headingId = `${idPrefix}per-quantity-margin-heading`
   const isSubassembly = context === 'subassembly'
+  const [open, setOpen] = useState(() => Object.values(values).some((value) => value !== 0))
 
   return (
-    <section
+    <details
       className="calc-card facilities-card"
-      aria-labelledby={headingId}
-      aria-describedby={descriptionId}
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <div className="calc-section-heading">
+      <summary className="calc-section-heading">
         <div>
-          <span className="section-kicker">
-            {isSubassembly ? 'Optional child-cost margin' : 'Optional per-quantity margin'}
-          </span>
+          <span className="section-kicker">Percentage adjustment by tier</span>
           <h2 id={headingId}>
-            {isSubassembly ? 'Subassembly Facilities Margin' : 'Facilities Margin (Optional)'}
+            {isSubassembly ? 'Subassembly Per Quantity Margin' : 'Per Quantity Margin'}
           </h2>
         </div>
-        <span className="facilities-impact-badge">
-          {isSubassembly ? 'Added to child cost' : 'Added after markup'}
+        <span className="context-summary-actions">
+          <span className="facilities-impact-badge">Percent by tier</span>
+          <ChevronDown className="facilities-chevron" size={18} aria-hidden="true" />
         </span>
-      </div>
-      <div className="facilities-explainer" id={descriptionId}>
-        <strong>Use only when needed</strong>
-        {isSubassembly ? (
-          <p>
-            Adds an extra dollar margin to this child&apos;s unit cost at each quantity.
-            The adjusted child cost rolls into the parent as a process cost and then follows the
-            parent&apos;s normal pricing calculation.
-          </p>
-        ) : (
-          <p>
-            Enter an optional extra margin amount per unit for each quantity. It is added directly
-            to the sell price after G&amp;A, profit, yield, and sales markup, so each quantity can have
-            its own adjustment. Leave every value at $0 when no facilities margin is needed.
-          </p>
-        )}
-      </div>
+      </summary>
       <div className="facilities-grid">
         {quantities.map((quantity) => (
           <label key={quantity}>
             <span>Qty {quantity.toLocaleString()}</span>
-            <span className="currency-input">
-              <span aria-hidden="true">$</span>
+            <span className="input-with-suffix">
               <SafeNumberInput
                 value={values[quantity] ?? 0}
                 onValueChange={(value) => onChange(quantity, value)}
-                label={`${isSubassembly ? 'Subassembly facilities margin' : 'Optional facilities margin'} per unit at quantity ${quantity}`}
-                testId={`${idPrefix}facilities-${quantity}`}
+                label={`${isSubassembly ? 'Subassembly per quantity margin' : 'Per quantity margin'} percentage at quantity ${quantity}`}
+                max={1000}
+                step={0.1}
+                scale={100}
+                testId={`${idPrefix}per-quantity-margin-${quantity}`}
               />
+              <span aria-hidden="true">%</span>
             </span>
           </label>
         ))}
       </div>
-    </section>
+    </details>
   )
 }

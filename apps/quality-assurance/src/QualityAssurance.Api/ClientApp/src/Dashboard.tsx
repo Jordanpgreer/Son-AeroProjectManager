@@ -30,7 +30,7 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
         if (!active) return
         setData(next)
         setSelectedTeam((current) => current ?? (
-          next.unassignedQueue.open > 0
+          next.canReviewUnassigned && next.unassignedQueue.open > 0
             ? 'unassigned'
             : next.groupQueue.open > 0
               ? 'group'
@@ -46,7 +46,7 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
     const metrics = [
       ...data.teamQueues.map((person) => person.metrics),
       data.groupQueue,
-      data.unassignedQueue,
+      ...(data.canReviewUnassigned ? [data.unassignedQueue] : []),
     ]
     const visibleValues = metrics.map((item) => item.openDollarValue).filter((value): value is number => value != null)
     return {
@@ -58,7 +58,7 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
 
   if (error) return <section className="panel error-panel"><AlertTriangle size={20} /><div><h2>Dashboard unavailable</h2><p>{error}</p></div></section>
   if (!data) return <div className="loading-panel" role="status">Loading your shipping queue...</div>
-  const includesUnassigned = data.unassignedQueue.open > 0
+  const includesUnassigned = data.canReviewUnassigned && data.unassignedQueue.open > 0
   const selectedPerson = typeof selectedTeam === 'number'
     ? data.teamQueues.find((person) => person.userId === selectedTeam) ?? null
     : null
@@ -79,7 +79,7 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
       : selectedPerson?.openShipments ?? []
   const maxTeamOpen = Math.max(
     1,
-    data.unassignedQueue.open,
+    data.canReviewUnassigned ? data.unassignedQueue.open : 0,
     data.groupQueue.open,
     ...data.teamQueues.map((person) => person.metrics.open),
   )
@@ -134,18 +134,18 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
               <div className={teamTotals.overdue ? 'is-risk' : ''}><span>Team past due</span><strong>{teamTotals.overdue.toLocaleString()}</strong></div>
               <div><span>Open dollar value</span><strong>{teamTotals.openDollarValue == null ? 'Restricted' : formatCurrency(teamTotals.openDollarValue)}</strong></div>
               <div><span>Group queue</span><strong>{data.groupQueue.open.toLocaleString()}</strong></div>
-              <div><span>Needs assignment</span><strong>{data.unassignedQueue.open.toLocaleString()}</strong></div>
+              {data.canReviewUnassigned && <div><span>Needs assignment</span><strong>{data.unassignedQueue.open.toLocaleString()}</strong></div>}
             </div>
 
             <div className="team-stat-grid" aria-label="Team queue statistics">
-              {data.unassignedQueue.open > 0 && (
-                <TeamStatCard label="Needs assignment" account="Manager review" metrics={data.unassignedQueue} selected={selectedTeam === 'unassigned'} maxOpen={maxTeamOpen} onClick={() => setSelectedTeam('unassigned')} unassigned />
+              {data.canReviewUnassigned && data.unassignedQueue.open > 0 && (
+                <TeamStatCard label="Needs assignment" description="Manager review" metrics={data.unassignedQueue} selected={selectedTeam === 'unassigned'} maxOpen={maxTeamOpen} onClick={() => setSelectedTeam('unassigned')} unassigned />
               )}
               {data.groupQueue.open > 0 && (
-                <TeamStatCard label="Group queue" account="Awaiting an individual owner" metrics={data.groupQueue} selected={selectedTeam === 'group'} maxOpen={maxTeamOpen} onClick={() => setSelectedTeam('group')} groupQueue />
+                <TeamStatCard label="Group queue" description="Awaiting an individual owner" metrics={data.groupQueue} selected={selectedTeam === 'group'} maxOpen={maxTeamOpen} onClick={() => setSelectedTeam('group')} groupQueue />
               )}
               {data.teamQueues.map((person) => (
-                <TeamStatCard key={person.userId} label={person.displayName} account={person.accountName} metrics={person.metrics} selected={selectedTeam === person.userId} maxOpen={maxTeamOpen} onClick={() => setSelectedTeam(person.userId)} />
+                <TeamStatCard key={person.userId} label={person.displayName} description="Quality team member" metrics={person.metrics} selected={selectedTeam === person.userId} maxOpen={maxTeamOpen} onClick={() => setSelectedTeam(person.userId)} />
               ))}
             </div>
 
@@ -178,9 +178,9 @@ export default function Dashboard({ reloadKey }: { reloadKey: number }) {
   )
 }
 
-function TeamStatCard({ label, account, metrics, selected, maxOpen, onClick, unassigned = false, groupQueue = false }: {
+function TeamStatCard({ label, description, metrics, selected, maxOpen, onClick, unassigned = false, groupQueue = false }: {
   label: string
-  account: string
+  description: string
   metrics: PersonQueue['metrics']
   selected: boolean
   maxOpen: number
@@ -190,7 +190,7 @@ function TeamStatCard({ label, account, metrics, selected, maxOpen, onClick, una
 }) {
   return (
     <button className={`team-stat-card ${selected ? 'is-selected' : ''} ${unassigned ? 'is-unassigned' : ''} ${groupQueue ? 'is-group-queue' : ''}`.trim()} type="button" aria-pressed={selected} onClick={onClick}>
-      <span className="team-stat-card-head"><span className="team-avatar">{unassigned ? '?' : groupQueue ? 'GQ' : label.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</span><span><strong>{label}</strong><small>{account}</small></span></span>
+      <span className="team-stat-card-head"><span className="team-avatar">{unassigned ? '?' : groupQueue ? 'GQ' : label.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}</span><span><strong>{label}</strong><small>{description}</small></span></span>
       <span className="team-stat-values"><span><small>Open</small><b>{metrics.open}</b></span><span className={metrics.overdue ? 'is-risk' : ''}><small>Past due</small><b>{metrics.overdue}</b></span><span><small>Open value</small><b>{formatMetricCurrency(metrics.openDollarValue)}</b></span><span><small>Avg. time</small><b>{formatDuration(metrics.averageCompletionHours)}</b></span></span>
       <span className="team-load-track" aria-hidden="true"><i style={{ width: `${Math.max(metrics.open ? 8 : 0, metrics.open / maxOpen * 100)}%` }} /></span>
     </button>

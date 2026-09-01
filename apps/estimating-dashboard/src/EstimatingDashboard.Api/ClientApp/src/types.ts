@@ -1,4 +1,4 @@
-export const QUANTITY_TIERS = [10, 25, 50, 75, 100, 250, 500, 1000] as const
+export const QUANTITY_TIERS = [10, 25, 50, 75, 100] as const
 
 export type QuantityTier = number
 export type QuantityValues<T> = Record<number, T>
@@ -74,7 +74,10 @@ interface BaseEstimateInput {
   operations: EstimateOperationInput[]
   materials: MaterialInput[]
   processes: ProcessInput[]
-  facilitiesByQuantity: QuantityValues<number>
+  /** Decimal rate applied to each tier's otherwise-complete top-level unit price. */
+  perQuantityMarginByQuantity: QuantityValues<number>
+  /** Legacy dollar add-ons retained only while older saved estimates are migrated. */
+  facilitiesByQuantity?: QuantityValues<number>
 }
 
 export interface StandardEstimateInput extends BaseEstimateInput {
@@ -97,7 +100,10 @@ export interface SubassemblyInput {
   operations: EstimateOperationInput[]
   materials: MaterialInput[]
   processes: ProcessInput[]
-  facilitiesByQuantity: QuantityValues<number>
+  /** Decimal rate applied to each tier's child unit cost before parent roll-up. */
+  perQuantityMarginByQuantity: QuantityValues<number>
+  /** Legacy dollar add-ons retained only while older saved estimates are migrated. */
+  facilitiesByQuantity?: QuantityValues<number>
 }
 
 export interface SubassemblyEstimateInput extends BaseEstimateInput {
@@ -109,6 +115,116 @@ export type EstimateInput =
   | StandardEstimateInput
   | RubberEstimateInput
   | SubassemblyEstimateInput
+
+function validateQuantityTiers(quantities: readonly QuantityTier[]) {
+  if (quantities.length === 0) throw new Error('At least one quantity tier is required.')
+  if (quantities.length > MAX_QUANTITY_TIERS) {
+    throw new Error(`No more than ${MAX_QUANTITY_TIERS} quantity tiers are supported.`)
+  }
+  if (quantities.some((quantity) => !Number.isInteger(quantity) || quantity <= 0)) {
+    throw new Error('Quantity tiers must be positive whole numbers.')
+  }
+  if (new Set(quantities).size !== quantities.length) {
+    throw new Error('Each quantity tier must be unique.')
+  }
+}
+
+function quantityReplacementSources(
+  current: readonly QuantityTier[],
+  next: readonly QuantityTier[],
+) {
+  const sources = new Map<QuantityTier, QuantityTier>()
+  for (let index = 0; index < Math.min(current.length, next.length); index += 1) {
+    const previousQuantity = current[index]
+    const nextQuantity = next[index]
+    if (
+      previousQuantity !== nextQuantity
+      && !next.includes(previousQuantity)
+      && !current.includes(nextQuantity)
+    ) {
+      sources.set(nextQuantity, previousQuantity)
+    }
+  }
+  return sources
+}
+
+function remapSparseQuantityValues<T>(
+  values: QuantityValues<T>,
+  current: readonly QuantityTier[],
+  next: readonly QuantityTier[],
+  replacements: ReadonlyMap<QuantityTier, QuantityTier>,
+  addedValue?: (quantity: QuantityTier) => T,
+) {
+  const remapped: QuantityValues<T> = {}
+  const hasValue = (quantity: QuantityTier) => (
+    Object.prototype.hasOwnProperty.call(values, quantity)
+  )
+
+  for (const quantity of next) {
+    if (hasValue(quantity)) {
+      remapped[quantity] = values[quantity]
+      continue
+    }
+    const previousQuantity = replacements.get(quantity)
+    if (previousQuantity !== undefined) {
+      if (hasValue(previousQuantity)) remapped[quantity] = values[previousQuantity]
+      continue
+    }
+    if (!current.includes(quantity) && addedValue !== undefined) {
+      remapped[quantity] = addedValue(quantity)
+    }
+  }
+  return remapped
+}
+
+/**
+ * Replace quote quantity tiers without detaching any tier-indexed pricing data.
+ * QuantityEditor performs one add, remove, or rename at a time; a rename carries
+ * the value at that position to its new key while retained keys remain stable.
+ */
+export function replaceEstimateQuantities(
+  input: EstimateInput,
+  nextQuantities: readonly QuantityTier[],
+): EstimateInput {
+  validateQuantityTiers(nextQuantities)
+  const quantities = [...nextQuantities]
+  const replacements = quantityReplacementSources(input.quantities, quantities)
+  const remapMargins = (values: QuantityValues<number>) => remapSparseQuantityValues(
+    values,
+    input.quantities,
+    quantities,
+    replacements,
+    () => 0,
+  )
+  const remapLegacyFacilities = (values: QuantityValues<number> | undefined) => (
+    values === undefined
+      ? undefined
+      : remapSparseQuantityValues(values, input.quantities, quantities, replacements)
+  )
+  const shared = {
+    ...input,
+    quantities,
+    perQuantityMarginByQuantity: remapMargins(input.perQuantityMarginByQuantity),
+    facilitiesByQuantity: remapLegacyFacilities(input.facilitiesByQuantity),
+  }
+  if (shared.kind !== 'subassembly') return shared
+
+  return {
+    ...shared,
+    subassemblies: shared.subassemblies.map((child) => ({
+      ...child,
+      quantitiesByParentQuantity: remapSparseQuantityValues(
+        child.quantitiesByParentQuantity,
+        input.quantities,
+        quantities,
+        replacements,
+        (quantity) => quantity,
+      ),
+      perQuantityMarginByQuantity: remapMargins(child.perQuantityMarginByQuantity),
+      facilitiesByQuantity: remapLegacyFacilities(child.facilitiesByQuantity),
+    })),
+  }
+}
 
 export interface AnnualLaborRateRow {
   sourceRow: number
@@ -200,7 +316,8 @@ export interface SubassemblyQuantityCalculationAudit {
   rawProcess: number
   rawOneTimeNre: number
   amortizedNre: number
-  facilities: number
+  perQuantityMarginRate: number
+  perQuantityMargin: number
   unitCost: number
 }
 
@@ -239,7 +356,8 @@ export interface QuantityCalculationAudit {
   oneTimeNre: number
   amortizedNre: number
   yieldAdjustment: number
-  facilities: number
+  perQuantityMarginRate: number
+  perQuantityMargin: number
   salesMarkup: number
   sellPrice: number
   grossMargin: number | null

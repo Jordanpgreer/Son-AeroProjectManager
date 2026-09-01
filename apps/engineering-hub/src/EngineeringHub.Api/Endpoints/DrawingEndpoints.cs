@@ -144,7 +144,12 @@ public static class DrawingEndpoints
         return Results.Ok(records);
     }
 
-    private static async Task<IResult> GetAsync(int id, EngineeringDbContext db, HttpContext http, CancellationToken ct)
+    private static async Task<IResult> GetAsync(
+        int id,
+        EngineeringDbContext db,
+        HttpContext http,
+        CancellationToken ct,
+        [FromServices] IEngineeringRoleStore? roleStore = null)
     {
         var drawing = await db.Drawings.AsNoTracking()
             .Include(x => x.Parts).Include(x => x.Revisions).Include(x => x.DocumentLinks)
@@ -156,7 +161,8 @@ public static class DrawingEndpoints
         if (drawing.CurrentApprovedRevisionId is null && !drawing.IsObsolete &&
             !HasPermission(http, EngineeringPermissions.PendingRevisionsView))
             return Results.NotFound();
-        return Results.Ok(ToDetail(drawing, http));
+        var displayNames = await EngineeringDisplayNames.LoadAsync(roleStore, IdentityValues(drawing), ct);
+        return Results.Ok(ToDetail(drawing, http, displayNames));
     }
 
     private static async Task<IResult> GetDesignAuthoritiesAsync(
@@ -181,7 +187,8 @@ public static class DrawingEndpoints
         EngineeringDbContext db,
         IDrawingFileStore files,
         HttpContext http,
-        CancellationToken ct)
+        CancellationToken ct,
+        [FromServices] IEngineeringRoleStore? roleStore = null)
     {
         if (string.IsNullOrWhiteSpace(dto.DrawingNumber) || string.IsNullOrWhiteSpace(dto.Title) || string.IsNullOrWhiteSpace(dto.Customer))
             return Results.BadRequest(new ErrorDto("RequiredFields", "Drawing number, title / description, and design authority are required."));
@@ -246,7 +253,8 @@ public static class DrawingEndpoints
         drawing.AuditEntries.Add(Audit(drawing, null, "DrawingCreated", $"Created drawing {drawing.DrawingNumber} for {drawing.Customer}.", actor));
         db.Drawings.Add(drawing);
         await db.SaveChangesAsync(ct);
-        return Results.Created($"/api/drawings/{drawing.Id}", ToDetail(drawing, http));
+        var displayNames = await EngineeringDisplayNames.LoadAsync(roleStore, IdentityValues(drawing), ct);
+        return Results.Created($"/api/drawings/{drawing.Id}", ToDetail(drawing, http, displayNames));
     }
 
     private static async Task<IResult> DeleteDrawingAsync(int id, [FromBody] DrawingDeleteDto dto, EngineeringDbContext db, CancellationToken ct)
@@ -823,14 +831,19 @@ public static class DrawingEndpoints
         MylarRegisterDto dto,
         MylarCustodyService custody,
         HttpContext http,
-        CancellationToken ct)
+        CancellationToken ct,
+        [FromServices] IEngineeringRoleStore? roleStore = null)
     {
         var result = await custody.RegisterAsync(id, dto.MylarNumber, dto.Location, dto.Note, Actor(http), ct);
         if (!result.Succeeded) return MylarError(result);
         var mylar = result.Mylar!;
+        var displayNames = await EngineeringDisplayNames.LoadAsync(
+            roleStore,
+            [mylar.CheckedOutBy, mylar.CreatedBy],
+            ct);
         return Results.Created(
             $"/api/drawings/{id}/mylars/{mylar.Id}",
-            ToMylarDto(mylar));
+            ToMylarDto(mylar, displayNames));
     }
 
     private static async Task<IResult> RecordMylarMovementAsync(
@@ -861,7 +874,10 @@ public static class DrawingEndpoints
         return Results.NoContent();
     }
 
-    private static DrawingDetailDto ToDetail(Drawing x, HttpContext http)
+    private static DrawingDetailDto ToDetail(
+        Drawing x,
+        HttpContext http,
+        EngineeringDisplayNames displayNames)
     {
         var canViewPending = HasPermission(http, EngineeringPermissions.PendingRevisionsView);
         var canViewHistory = HasPermission(http, EngineeringPermissions.RevisionHistoryView);
@@ -898,18 +914,18 @@ public static class DrawingEndpoints
             x.EffectiveDate, x.IsObsolete, canViewFiles ? x.FileLocation : null, x.Notes,
             canViewMylar && x.Mylars.Count == 1 ? x.Mylars[0].CurrentLocation : null,
             canViewMylar && x.Mylars.Any(m => m.IsCheckedOut),
-            canViewMylar && x.Mylars.Count(m => m.IsCheckedOut) == 1 ? x.Mylars.Single(m => m.IsCheckedOut).CheckedOutBy : null,
+            canViewMylar && x.Mylars.Count(m => m.IsCheckedOut) == 1 ? displayNames.ResolveNullable(x.Mylars.Single(m => m.IsCheckedOut).CheckedOutBy) : null,
             canViewMylar ? x.Mylars.Where(m => m.IsCheckedOut).Max(m => (DateTime?)m.CheckedOutAt) : null,
             canViewMylar ? x.Mylars.Count : 0,
             canViewMylar ? x.Mylars.Count(m => m.IsCheckedOut) : 0,
-            x.CreatedBy, x.CreatedAt, x.ApprovedBy, x.ApprovedAt,
+            displayNames.Resolve(x.CreatedBy), x.CreatedAt, displayNames.ResolveNullable(x.ApprovedBy), x.ApprovedAt,
             x.CurrentApprovedRevisionId,
             visibleRevisions.Select(r => new DrawingRevisionDto(
                 r.Id, r.RevisionNumber, r.RevisionDate, r.UploadedAt, r.EffectiveDate, r.ApprovalDate,
                 r.ChangeDescription, r.Status.ToString(), r.OriginalFileName, r.FileType, r.FileSize, r.FileHash,
                 canViewFiles && r.FileSize > 0 && r.StoredFilePath != string.Empty,
                 canViewFiles ? ControlledFilePath(r.StoredFilePath) : null,
-                canViewFiles && r.SourceStoredFilePath != null, r.UploadedBy, r.ApprovedBy, r.ApprovalComments,
+                canViewFiles && r.SourceStoredFilePath != null, displayNames.Resolve(r.UploadedBy), displayNames.ResolveNullable(r.ApprovedBy), r.ApprovalComments,
                 r.SupersededOrObsoleteAt, r.Notes)).ToList(),
             x.DocumentLinks
                 .Where(document =>
@@ -919,35 +935,44 @@ public static class DrawingEndpoints
                 .Select(d => new DrawingDocumentLinkDto(d.Id, d.DrawingRevisionId, d.Kind.ToString(), d.ReferenceNumber, d.Title, d.Location))
                 .ToList(),
             canViewValidations
-                ? x.Validations.OrderByDescending(v => v.ValidatedAt).Select(v => new DrawingValidationDto(v.Id, v.ValidationType, v.Result, v.Notes, v.ValidatedBy, v.ValidatedAt)).ToList()
+                ? x.Validations.OrderByDescending(v => v.ValidatedAt).Select(v => new DrawingValidationDto(v.Id, v.ValidationType, v.Result, v.Notes, displayNames.Resolve(v.ValidatedBy), v.ValidatedAt)).ToList()
                 : [],
-            canViewMylar ? x.Mylars.OrderBy(m => m.MylarNumber).Select(ToMylarDto).ToList() : [],
+            canViewMylar ? x.Mylars.OrderBy(m => m.MylarNumber).Select(mylar => ToMylarDto(mylar, displayNames)).ToList() : [],
             canViewMylar
                 ? x.MylarTransactions.OrderByDescending(m => m.RecordedAt).Select(m => new MylarTransactionDto(
                     m.Id,
                     m.DrawingMylarId,
                     x.Mylars.SingleOrDefault(mylar => mylar.Id == m.DrawingMylarId)?.MylarNumber ?? "Legacy Mylar",
                     m.Type.ToString(),
-                    m.RecordedBy,
+                    displayNames.Resolve(m.RecordedBy),
                     m.Purpose,
                     m.Location,
                     m.RecordedAt)).ToList()
                 : [],
             canViewAudit
-                ? x.AuditEntries.OrderByDescending(a => a.OccurredAt).Select(a => new DrawingAuditDto(a.Id, a.RevisionNumber, a.Action, a.Details, a.Actor, a.OccurredAt)).ToList()
+                ? x.AuditEntries.OrderByDescending(a => a.OccurredAt).Select(a => new DrawingAuditDto(
+                    a.Id, a.RevisionNumber, a.Action, displayNames.ResolveEmbeddedAccounts(a.Details), displayNames.Resolve(a.Actor), a.OccurredAt)).ToList()
                 : []);
     }
 
-    private static DrawingMylarDto ToMylarDto(DrawingMylar mylar) => new(
+    private static DrawingMylarDto ToMylarDto(DrawingMylar mylar, EngineeringDisplayNames displayNames) => new(
         mylar.Id,
         mylar.MylarNumber,
         mylar.IsCheckedOut,
         mylar.CurrentLocation,
-        mylar.CheckedOutBy,
+        displayNames.ResolveNullable(mylar.CheckedOutBy),
         mylar.CheckedOutAt,
-        mylar.CreatedBy,
+        displayNames.Resolve(mylar.CreatedBy),
         mylar.CreatedAt,
         mylar.Transactions.Count);
+
+    private static IEnumerable<string?> IdentityValues(Drawing drawing) =>
+        new[] { drawing.CreatedBy, drawing.ApprovedBy }
+            .Concat(drawing.Revisions.SelectMany(revision => new[] { revision.UploadedBy, revision.ApprovedBy }))
+            .Concat(drawing.Validations.Select(validation => validation.ValidatedBy))
+            .Concat(drawing.Mylars.SelectMany(mylar => new[] { mylar.CheckedOutBy, mylar.CreatedBy }))
+            .Concat(drawing.MylarTransactions.Select(transaction => transaction.RecordedBy))
+            .Concat(drawing.AuditEntries.Select(entry => entry.Actor));
 
     private static DrawingAuditEntry Audit(Drawing drawing, string? revision, string action, string details, string actor) => new() { Drawing = drawing, RevisionNumber = revision, Action = action, Details = details, Actor = actor, OccurredAt = DateTime.UtcNow };
     private static string? ControlledFilePath(string? relativePath)

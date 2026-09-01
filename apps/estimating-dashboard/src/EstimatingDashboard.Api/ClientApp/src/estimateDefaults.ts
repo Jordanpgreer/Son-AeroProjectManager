@@ -154,7 +154,7 @@ function createBaseDefaults() {
     salesMarkup: 0,
     materials: createMaterials(),
     processes: createProcesses(),
-    facilitiesByQuantity: createQuantityValues(() => 0),
+    perQuantityMarginByQuantity: createQuantityValues(() => 0),
   }
 }
 
@@ -189,7 +189,7 @@ export function createSubassemblyDefaults(index = 0): SubassemblyInput {
     operations: createOperations(SUBASSEMBLY_CHILD_OPERATION_DEFINITIONS, idPrefix),
     materials: createMaterials(idPrefix),
     processes: createProcesses(5, idPrefix),
-    facilitiesByQuantity: createQuantityValues(() => 0),
+    perQuantityMarginByQuantity: createQuantityValues(() => 0),
   }
 }
 

@@ -1,4 +1,4 @@
-ARDA HUB EMPLOYEE INSTALLER
+ARDA EMPLOYEE INSTALLER
 ================================
 
 Before installing
@@ -18,7 +18,7 @@ The installer will:
 - verify the signed-in Windows identity with the Hub;
 - show the employee's current Hub and module roles;
 - request administrator approval for the shared desktop shortcut; and
-- create or update the Arda Hub shortcut for all users of the computer.
+- create or update the Arda shortcut for all users of the computer.
 
 Expected final message
 ----------------------

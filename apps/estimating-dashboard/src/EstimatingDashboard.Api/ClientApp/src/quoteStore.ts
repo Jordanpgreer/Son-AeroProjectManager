@@ -1,4 +1,5 @@
-import type { EstimateInput } from './types'
+import { ESTIMATE_YEARS, type EstimateInput } from './types.ts'
+import { normalizePerQuantityMargins } from './calculations.ts'
 
 export type QuoteStatus = 'draft' | 'current' | 'past'
 
@@ -53,10 +54,127 @@ function cloneEstimate(estimate: EstimateInput): EstimateInput {
   return JSON.parse(JSON.stringify(estimate)) as EstimateInput
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isFiniteNumber(value: unknown, min = 0, max = Number.MAX_SAFE_INTEGER) {
+  return typeof value === 'number'
+    && Number.isFinite(value)
+    && value >= min
+    && value <= max
+}
+
+function isQuantityValues(value: unknown, { integer = false, min = 0, max = 10 } = {}) {
+  return isRecord(value) && Object.values(value).every((candidate) => (
+    isFiniteNumber(candidate, min, max) && (!integer || Number.isInteger(candidate))
+  ))
+}
+
+function isEstimateMetadata(value: unknown) {
+  if (!isRecord(value)) return false
+  return [
+    'customer',
+    'partNumber',
+    'revision',
+    'nsn',
+    'quoteLogNumber',
+    'solicitationNumber',
+    'rfqNumber',
+    'quoteDate',
+    'estimator',
+    'comments',
+  ].every((field) => typeof value[field] === 'string')
+}
+
+function isEstimateOperation(value: unknown) {
+  if (!isRecord(value)) return false
+  return typeof value.id === 'string'
+    && typeof value.name === 'string'
+    && (value.notes === undefined || typeof value.notes === 'string')
+    && ['fixed', 'rate-list'].includes(String(value.nameControl))
+    && isFiniteNumber(value.setupMinutes)
+    && isFiniteNumber(value.runMinutes)
+    && ['production', 'nre', 'conditional-tooling-nre'].includes(String(value.costTreatment))
+    && typeof value.amortizeNre === 'boolean'
+}
+
+function isMaterial(value: unknown) {
+  if (!isRecord(value)) return false
+  return typeof value.id === 'string'
+    && typeof value.description === 'string'
+    && typeof value.unitOfMeasure === 'string'
+    && isFiniteNumber(value.partsQuantity)
+    && isFiniteNumber(value.unitPrice)
+    && typeof value.amortizeMinBuy === 'boolean'
+}
+
+function isProcess(value: unknown) {
+  if (!isRecord(value)) return false
+  return typeof value.id === 'string'
+    && typeof value.description === 'string'
+    && isFiniteNumber(value.setupCost)
+    && isFiniteNumber(value.runCostEach)
+    && (value.subassemblyId === undefined || typeof value.subassemblyId === 'string')
+    && (value.quantityPerParent === undefined || isFiniteNumber(value.quantityPerParent, 0.000001))
+}
+
+function hasValidCostCollections(value: Record<string, unknown>) {
+  return Array.isArray(value.operations)
+    && value.operations.every(isEstimateOperation)
+    && Array.isArray(value.materials)
+    && value.materials.every(isMaterial)
+    && Array.isArray(value.processes)
+    && value.processes.every(isProcess)
+    && (value.perQuantityMarginByQuantity === undefined
+      || isQuantityValues(value.perQuantityMarginByQuantity))
+    && (value.facilitiesByQuantity === undefined
+      || isQuantityValues(value.facilitiesByQuantity, { max: Number.MAX_SAFE_INTEGER }))
+}
+
+function isSubassembly(value: unknown) {
+  if (!isRecord(value)) return false
+  return typeof value.id === 'string'
+    && typeof value.partNumber === 'string'
+    && typeof value.revision === 'string'
+    && isQuantityValues(
+      value.quantitiesByParentQuantity,
+      { integer: true, min: 1, max: Number.MAX_SAFE_INTEGER },
+    )
+    && hasValidCostCollections(value)
+}
+
 function isEstimate(value: unknown): value is EstimateInput {
-  if (!value || typeof value !== 'object') return false
-  const candidate = value as Partial<EstimateInput>
-  return Array.isArray(candidate.quantities) && Boolean(candidate.metadata)
+  if (!isRecord(value)) return false
+  const quantities = value.quantities
+  if (
+    !['standard', 'rubber', 'subassembly'].includes(String(value.kind))
+    || !isEstimateMetadata(value.metadata)
+    || !Array.isArray(quantities)
+    || quantities.length === 0
+    || quantities.length > 8
+    || !quantities.every((quantity) => isFiniteNumber(quantity, 1) && Number.isInteger(quantity))
+    || new Set(quantities).size !== quantities.length
+    || !ESTIMATE_YEARS.includes(value.rateYear as (typeof ESTIMATE_YEARS)[number])
+    || !isFiniteNumber(value.yield, 0, 1)
+    || !isFiniteNumber(value.salesMarkup, 0, 10)
+    || !hasValidCostCollections(value)
+  ) return false
+
+  if (value.kind === 'rubber') {
+    return (
+      value.difficulty === null
+      || (isFiniteNumber(value.difficulty, 1, 5) && Number.isInteger(value.difficulty))
+    )
+      && isFiniteNumber(value.cavities)
+      && Number.isInteger(value.cavities)
+      && isFiniteNumber(value.toolingMarkup, 0, 10)
+  }
+  if (value.kind === 'subassembly') {
+    return Array.isArray(value.subassemblies)
+      && value.subassemblies.every(isSubassembly)
+  }
+  return true
 }
 
 function isQuoteRevision(value: unknown): value is QuoteRevision {
@@ -142,7 +260,7 @@ function migrateLegacyQuote(legacy: LegacyQuoteRecord): QuoteRecord {
     createdAt: legacy.createdAt,
     updatedAt: legacy.updatedAt,
     publishedAt: legacy.status === 'draft' ? null : legacy.updatedAt,
-    estimate: cloneEstimate(legacy.estimate),
+    estimate: cloneEstimate(normalizePerQuantityMargins(legacy.estimate)),
     selectedQuantity: legacy.selectedQuantity,
   }
 
@@ -154,6 +272,18 @@ function migrateLegacyQuote(legacy: LegacyQuoteRecord): QuoteRecord {
     updatedAt: legacy.updatedAt,
     draft: legacy.status === 'draft' ? version : null,
     revisions: legacy.status === 'draft' ? [] : [version],
+  }
+}
+
+function normalizeQuoteMargins(quote: QuoteRecord): QuoteRecord {
+  const normalizeRevision = (revision: QuoteRevision): QuoteRevision => ({
+    ...revision,
+    estimate: normalizePerQuantityMargins(revision.estimate),
+  })
+  return {
+    ...quote,
+    draft: quote.draft ? normalizeRevision(quote.draft) : null,
+    revisions: quote.revisions.map(normalizeRevision),
   }
 }
 
@@ -169,7 +299,12 @@ function readAllQuotes(): QuoteRecord[] {
       quoteStoreError = STORAGE_RECOVERY_MESSAGE
       return []
     }
-    return stored.values
+    try {
+      return stored.values.map(normalizeQuoteMargins)
+    } catch {
+      quoteStoreError = STORAGE_RECOVERY_MESSAGE
+      return []
+    }
   }
 
   const legacy = readArray(LEGACY_STORAGE_KEY)
@@ -181,7 +316,13 @@ function readAllQuotes(): QuoteRecord[] {
     return []
   }
 
-  const migrated = legacy.values.map(migrateLegacyQuote)
+  let migrated: QuoteRecord[]
+  try {
+    migrated = legacy.values.map(migrateLegacyQuote).map(normalizeQuoteMargins)
+  } catch {
+    quoteStoreError = STORAGE_RECOVERY_MESSAGE
+    return []
+  }
   // Keep v1 intact as a rollback backup; all subsequent writes use v2.
   writeAllQuotes(migrated)
   return migrated

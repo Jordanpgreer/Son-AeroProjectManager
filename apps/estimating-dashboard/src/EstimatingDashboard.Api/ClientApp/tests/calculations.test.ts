@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { calculateEstimate, safeDivide } from '../src/calculations.ts'
+import {
+  calculateEstimate,
+  normalizePerQuantityMargins,
+  safeDivide,
+} from '../src/calculations.ts'
 import {
   createRubberEstimateDefaults,
   createStandardEstimateDefaults,
@@ -18,7 +22,9 @@ import type {
   EstimateCalculationResult,
   EstimateCalculationSuccess,
 } from '../src/types.ts'
-import { QUANTITY_TIERS } from '../src/types.ts'
+import { QUANTITY_TIERS, replaceEstimateQuantities } from '../src/types.ts'
+
+const ALL_EIGHT_QUANTITY_TIERS = [10, 25, 50, 75, 100, 250, 500, 1000]
 
 function mustSucceed(result: EstimateCalculationResult): EstimateCalculationSuccess {
   assert.equal(result.ok, true, result.ok ? undefined : result.errors[0]?.message)
@@ -72,6 +78,7 @@ test('defaults reproduce the Standard, Rubber, and Subassembly workbook row stru
   assert.equal(standard.processes.length, 5)
   assert.deepEqual(standard.quantities, [...QUANTITY_TIERS])
   assert.deepEqual(rubber.quantities, [...QUANTITY_TIERS])
+  assert.equal(standard.quantities.length, 5)
   assert.equal(rubber.toolingMarkup, 0.12)
   assert.equal(rubber.difficulty, null)
   assert.equal(rubber.cavities, 0)
@@ -102,7 +109,7 @@ test('matches the one-child Subassembly workbook roll-up without child G&A or pr
   estimate.salesMarkup = 0
   const child = createSubassemblyDefaults()
   child.partNumber = 'CHILD-001'
-  child.facilitiesByQuantity[10] = 0.25
+  child.perQuantityMarginByQuantity[10] = 0.1
 
   const program = child.operations.find((operation) => operation.name === 'Program')
   const mill = child.operations.find((operation) => operation.name === 'Metals - Mills')
@@ -131,15 +138,17 @@ test('matches the one-child Subassembly workbook roll-up without child G&A or pr
   assertNear(childAtTen.rawProcess, 3)
   assertNear(childAtTen.rawOneTimeNre, 124.8)
   assertNear(childAtTen.amortizedNre, 12.48)
-  assertNear(childAtTen.facilities, 0.25)
-  assertNear(childAtTen.unitCost, 26.24438333333333)
+  const childBase = 5.014383333333334 + 5.5 + 3 + 12.48
+  assertNear(childAtTen.perQuantityMarginRate, 0.1)
+  assertNear(childAtTen.perQuantityMargin, childBase * 0.1)
+  assertNear(childAtTen.unitCost, childBase * 1.1)
 
   assertNear(result.processes[0].unitCostByQuantity[10], childAtTen.unitCost)
   assertNear(result.quantities[10].rawProcess, childAtTen.unitCost)
   assertNear(result.quantities[10].process.ga, childAtTen.unitCost * 0.2)
   assertNear(result.quantities[10].process.profit, childAtTen.unitCost * 1.2 * 0.2)
   assertNear(result.quantities[10].process.loaded, childAtTen.unitCost * 1.2 * 1.2)
-  assertNear(result.quantities[10].sellPrice, 39.10413116666667)
+  assertNear(result.quantities[10].sellPrice, childAtTen.unitCost * 1.49)
 })
 
 test('rolls up multiple ordered children and applies quantity-per-parent multipliers', () => {
@@ -150,8 +159,12 @@ test('rolls up multiple ordered children and applies quantity-per-parent multipl
   const second = createSubassemblyDefaults(1)
   first.partNumber = 'FIRST'
   second.partNumber = 'SECOND'
-  first.facilitiesByQuantity[10] = 2
-  second.facilitiesByQuantity[10] = 3
+  delete (first as unknown as { perQuantityMarginByQuantity?: Record<number, number> })
+    .perQuantityMarginByQuantity
+  delete (second as unknown as { perQuantityMarginByQuantity?: Record<number, number> })
+    .perQuantityMarginByQuantity
+  first.facilitiesByQuantity = { 10: 2 }
+  second.facilitiesByQuantity = { 10: 3 }
   estimate.subassemblies.push(first, second)
   estimate.processes[0].subassemblyId = first.id
   estimate.processes[0].quantityPerParent = 2
@@ -234,7 +247,71 @@ test('editable quantity tiers drive every calculation and audit map', () => {
     audit?.unitCostByQuantity[7] ?? null,
     (35 / 7 + 3) * (laborRate as number),
   )
-  assert.equal(result.quantities[7].facilities, 0)
+  assert.equal(result.quantities[7].perQuantityMargin, 0)
+})
+
+test('renaming a quantity tier re-keys every parent and child quantity map', () => {
+  const estimate = createSubassemblyEstimateDefaults()
+  estimate.quantities = [10, 25]
+  estimate.perQuantityMarginByQuantity = { 10: 0.1, 25: 0.2 }
+  estimate.facilitiesByQuantity = { 10: 1, 25: 2 }
+  const child = createSubassemblyDefaults()
+  child.quantitiesByParentQuantity = { 10: 5, 25: 8 }
+  child.perQuantityMarginByQuantity = { 10: 0.3, 25: 0.4 }
+  child.facilitiesByQuantity = { 10: 3, 25: 4 }
+  estimate.subassemblies = [child]
+
+  const renamed = replaceEstimateQuantities(estimate, [12, 25])
+  assert.equal(renamed.kind, 'subassembly')
+  if (renamed.kind !== 'subassembly') return
+
+  assert.deepEqual(renamed.quantities, [12, 25])
+  assert.deepEqual(renamed.perQuantityMarginByQuantity, { 12: 0.1, 25: 0.2 })
+  assert.deepEqual(renamed.facilitiesByQuantity, { 12: 1, 25: 2 })
+  assert.deepEqual(renamed.subassemblies[0].quantitiesByParentQuantity, { 12: 5, 25: 8 })
+  assert.deepEqual(renamed.subassemblies[0].perQuantityMarginByQuantity, { 12: 0.3, 25: 0.4 })
+  assert.deepEqual(renamed.subassemblies[0].facilitiesByQuantity, { 12: 3, 25: 4 })
+})
+
+test('adding and removing tiers initializes or drops all associated quantity values', () => {
+  const estimate = createSubassemblyEstimateDefaults()
+  estimate.quantities = [10, 25]
+  estimate.perQuantityMarginByQuantity = { 10: 0.1, 25: 0.2 }
+  const child = createSubassemblyDefaults()
+  child.quantitiesByParentQuantity = { 10: 5, 25: 8 }
+  child.perQuantityMarginByQuantity = { 10: 0.3, 25: 0.4 }
+  estimate.subassemblies = [child]
+
+  const added = replaceEstimateQuantities(estimate, [10, 25, 50])
+  assert.equal(added.kind, 'subassembly')
+  if (added.kind !== 'subassembly') return
+  assert.deepEqual(added.perQuantityMarginByQuantity, { 10: 0.1, 25: 0.2, 50: 0 })
+  assert.deepEqual(
+    added.subassemblies[0].perQuantityMarginByQuantity,
+    { 10: 0.3, 25: 0.4, 50: 0 },
+  )
+  assert.deepEqual(
+    added.subassemblies[0].quantitiesByParentQuantity,
+    { 10: 5, 25: 8, 50: 50 },
+  )
+
+  const removed = replaceEstimateQuantities(added, [10, 50])
+  assert.equal(removed.kind, 'subassembly')
+  if (removed.kind !== 'subassembly') return
+  assert.deepEqual(removed.perQuantityMarginByQuantity, { 10: 0.1, 50: 0 })
+  assert.deepEqual(removed.subassemblies[0].perQuantityMarginByQuantity, { 10: 0.3, 50: 0 })
+  assert.deepEqual(removed.subassemblies[0].quantitiesByParentQuantity, { 10: 5, 50: 50 })
+})
+
+test('quantity replacement rejects empty, duplicate, fractional, and over-limit tiers', () => {
+  const estimate = createStandardEstimateDefaults()
+  assert.throws(() => replaceEstimateQuantities(estimate, []), /at least one/i)
+  assert.throws(() => replaceEstimateQuantities(estimate, [10, 10]), /unique/i)
+  assert.throws(() => replaceEstimateQuantities(estimate, [10, 2.5]), /positive whole/i)
+  assert.throws(
+    () => replaceEstimateQuantities(estimate, [1, 2, 3, 4, 5, 6, 7, 8, 9]),
+    /no more than 8/i,
+  )
 })
 
 test('appended operation, material, and process rows participate in pricing', () => {
@@ -280,6 +357,7 @@ test('appended operation, material, and process rows participate in pricing', ()
 
 test('matches the Standard 2026 Metals - Mills golden values without rounding', () => {
   const estimate = createStandardEstimateDefaults()
+  estimate.quantities = [...ALL_EIGHT_QUANTITY_TIERS]
   estimate.yield = 0.95
   estimate.salesMarkup = 0.1
   const operation = estimate.operations.find(
@@ -294,6 +372,98 @@ test('matches the Standard 2026 Metals - Mills golden values without rounding', 
   assertNear(result.quantities[10].sellPrice, 32.77400946666667)
   assertNear(result.quantities[1000].sellPrice, 8.439307437666667)
   assertNear(result.quantities[10].grossMargin, 0.3574051407588739)
+})
+
+test('per-quantity margin stores a decimal rate and audits its dollar contribution', () => {
+  const estimate = createStandardEstimateDefaults()
+  estimate.quantities = [10]
+  estimate.salesMarkup = 0.1
+  estimate.perQuantityMarginByQuantity = { 10: 0.15 }
+  const operation = estimate.operations.find(
+    (candidate) => candidate.name === 'Metals - Mills',
+  )
+  assert.ok(operation)
+  operation.setupMinutes = 60
+  operation.runMinutes = 2
+
+  const result = mustSucceed(calculateEstimate(estimate))
+  const audit = result.quantities[10]
+  const priceBeforeMargin = audit.sellPrice - audit.perQuantityMargin
+
+  assert.equal(audit.perQuantityMarginRate, 0.15)
+  assertNear(audit.perQuantityMargin, priceBeforeMargin * 0.15)
+  assertNear(audit.sellPrice, priceBeforeMargin * 1.15)
+})
+
+test('legacy Facilities dollars migrate to equivalent rates without changing price', () => {
+  const legacy = createStandardEstimateDefaults()
+  legacy.quantities = [10]
+  delete (legacy as unknown as { perQuantityMarginByQuantity?: Record<number, number> })
+    .perQuantityMarginByQuantity
+  legacy.facilitiesByQuantity = { 10: 2 }
+  const operation = legacy.operations.find(
+    (candidate) => candidate.name === 'Metals - Mills',
+  )
+  assert.ok(operation)
+  operation.setupMinutes = 60
+
+  const legacyResult = mustSucceed(calculateEstimate(legacy))
+  const migrated = normalizePerQuantityMargins(legacy)
+  const migratedResult = mustSucceed(calculateEstimate(migrated))
+
+  assertNear(migrated.perQuantityMarginByQuantity[10], 2 / (legacyResult.quantities[10].sellPrice - 2))
+  assertNear(migratedResult.quantities[10].perQuantityMargin, 2)
+  assertNear(migratedResult.quantities[10].sellPrice, legacyResult.quantities[10].sellPrice)
+  assert.equal(migrated.facilitiesByQuantity, undefined)
+})
+
+test('legacy Facilities dollars remain lossless when calculation errors prevent rate conversion', () => {
+  const legacy = createStandardEstimateDefaults()
+  legacy.quantities = [10]
+  delete (legacy as unknown as { perQuantityMarginByQuantity?: Record<number, number> })
+    .perQuantityMarginByQuantity
+  legacy.facilitiesByQuantity = { 10: 7.5 }
+  const operation = legacy.operations.find(
+    (candidate) => candidate.name === 'Metals - Mills',
+  )
+  assert.ok(operation)
+  operation.name = 'Unknown imported labor rate'
+
+  const failed = calculateEstimate(legacy)
+  assert.equal(failed.ok, false)
+  const migrated = normalizePerQuantityMargins(legacy)
+
+  assert.deepEqual(migrated.perQuantityMarginByQuantity, {})
+  assert.deepEqual(migrated.facilitiesByQuantity, { 10: 7.5 })
+
+  const repaired = {
+    ...migrated,
+    operations: migrated.operations.map((candidate) => (
+      candidate.id === operation.id
+        ? { ...candidate, name: 'Metals - Mills' }
+        : candidate
+    )),
+  }
+  const repairedResult = mustSucceed(calculateEstimate(repaired))
+  assertNear(repairedResult.quantities[10].perQuantityMargin, 7.5)
+})
+
+test('legacy Facilities dollars remain lossless when the percentage divisor is zero', () => {
+  const legacy = createStandardEstimateDefaults()
+  legacy.quantities = [10]
+  delete (legacy as unknown as { perQuantityMarginByQuantity?: Record<number, number> })
+    .perQuantityMarginByQuantity
+  legacy.facilitiesByQuantity = { 10: 2 }
+
+  const legacyResult = mustSucceed(calculateEstimate(legacy))
+  const migrated = normalizePerQuantityMargins(legacy)
+  const migratedResult = mustSucceed(calculateEstimate(migrated))
+
+  assert.deepEqual(migrated.perQuantityMarginByQuantity, {})
+  assert.deepEqual(migrated.facilitiesByQuantity, { 10: 2 })
+  assertNear(legacyResult.quantities[10].sellPrice, 2)
+  assertNear(migratedResult.quantities[10].perQuantityMargin, 2)
+  assertNear(migratedResult.quantities[10].sellPrice, legacyResult.quantities[10].sellPrice)
 })
 
 test('switching the selected year changes both the resolved rate and sell price', () => {
@@ -319,6 +489,7 @@ test('switching the selected year changes both the resolved rate and sell price'
 
 test('material rows implement both minimum-buy allocation branches', () => {
   const estimate = createStandardEstimateDefaults()
+  estimate.quantities = [...ALL_EIGHT_QUANTITY_TIERS]
   const material = estimate.materials[0]
   material.partsQuantity = 2
   material.unitPrice = 5
@@ -337,6 +508,7 @@ test('material rows implement both minimum-buy allocation branches', () => {
 
 test('outside process rows allocate setup and add run cost per unit', () => {
   const estimate = createStandardEstimateDefaults()
+  estimate.quantities = [...ALL_EIGHT_QUANTITY_TIERS]
   estimate.processes[0].setupCost = 100
   estimate.processes[0].runCostEach = 3
 
@@ -390,6 +562,7 @@ test('loads raw operation NRE with labor G&A and profit before amortization', ()
 
 test('matches the complete Standard workbook fixture across every quantity tier', () => {
   const estimate = createStandardEstimateDefaults()
+  estimate.quantities = [...ALL_EIGHT_QUANTITY_TIERS]
   estimate.rateYear = 2026
   estimate.yield = 0.95
   estimate.salesMarkup = 0.05
@@ -415,24 +588,24 @@ test('matches the complete Standard workbook fixture across every quantity tier'
   estimate.materials[1].amortizeMinBuy = false
   estimate.processes[0].setupCost = 100
   estimate.processes[0].runCostEach = 2
-  for (const quantity of QUANTITY_TIERS) {
-    estimate.facilitiesByQuantity[quantity] = 0.25
+  for (const quantity of ALL_EIGHT_QUANTITY_TIERS) {
+    estimate.perQuantityMarginByQuantity[quantity] = 0
   }
 
   const result = mustSucceed(calculateEstimate(estimate))
   const expected: Record<number, readonly [number, number]> = {
-    10: [68.5360055667, 685.360055667],
-    25: [40.1137054767, 1002.84263692],
-    50: [30.6396054467, 1531.98027233],
-    75: [27.4815721033, 2061.11790775],
-    100: [25.9025554317, 2590.25554317],
-    250: [23.0603254227, 5765.08135567],
-    500: [22.1129154197, 11056.4577098],
-    1000: [21.6392104182, 21639.2104182],
+    10: [68.2860055667, 682.860055667],
+    25: [39.8637054767, 996.592636918],
+    50: [30.3896054467, 1519.48027233],
+    75: [27.2315721033, 2042.36790775],
+    100: [25.6525554317, 2565.25554317],
+    250: [22.8103254227, 5702.58135567],
+    500: [21.8629154197, 10931.4577098],
+    1000: [21.3892104182, 21389.2104182],
   }
 
   assertNear(result.oneTimeNre, 179.712)
-  for (const quantity of QUANTITY_TIERS) {
+  for (const quantity of ALL_EIGHT_QUANTITY_TIERS) {
     assertNear(result.quantities[quantity].sellPrice, expected[quantity][0], 1e-8)
     assertNear(result.quantities[quantity].extendedValue, expected[quantity][1], 1e-6)
   }

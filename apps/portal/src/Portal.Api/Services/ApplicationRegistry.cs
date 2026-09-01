@@ -8,6 +8,7 @@ namespace Portal.Api.Services;
 /// </summary>
 public sealed class ApplicationRegistry
 {
+    public const string AdminConsoleApplicationId = "admin-console";
     private readonly IReadOnlyList<ApplicationEntry> _applications;
 
     public ApplicationRegistry(IConfiguration configuration)
@@ -30,8 +31,16 @@ public sealed class ApplicationRegistry
             .ToList();
 
     public static bool IsVisibleTo(ApplicationEntry application, string role)
-        => application.AllowedRoles is null or { Count: 0 }
-           || application.AllowedRoles.Any(allowed => string.Equals(allowed, role, StringComparison.OrdinalIgnoreCase));
+    {
+        if (string.Equals(application.Id, AdminConsoleApplicationId, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(role, SonAero.Platform.Security.ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return application.AllowedRoles is null or { Count: 0 }
+            || application.AllowedRoles.Any(allowed => string.Equals(allowed, role, StringComparison.OrdinalIgnoreCase));
+    }
 
     public static bool IsModuleVisibleTo(
         ApplicationEntry application,

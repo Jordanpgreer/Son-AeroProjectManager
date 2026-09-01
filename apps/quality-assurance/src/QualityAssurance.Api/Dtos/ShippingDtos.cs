@@ -114,6 +114,7 @@ public sealed record QualityDashboardDto(
     IReadOnlyList<QualityShipmentDto> GroupShipments,
     QualityQueueMetricsDto UnassignedQueue,
     IReadOnlyList<QualityShipmentDto> UnassignedShipments,
+    bool CanReviewUnassigned,
     bool CanViewTeam,
     bool CanViewAssignment,
     bool CanAssign,

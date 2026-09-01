@@ -20,13 +20,16 @@ function exactArrayBuffer(bytes: Uint8Array) {
 }
 
 test('quantity tiers stop at the eight-column workbook limit', () => {
+  const defaults = createStandardEstimateDefaults().quantities
+  assert.equal(defaults.length, 5)
+  assert.equal(appendQuantityTier(defaults).length, 6)
   const seven = [1, 2, 3, 4, 5, 6, 7]
   assert.deepEqual(appendQuantityTier(seven), [1, 2, 3, 4, 5, 6, 7, 14])
   const eight = Array.from({ length: MAX_QUANTITY_TIERS }, (_, index) => index + 1)
   assert.deepEqual(appendQuantityTier(eight), eight)
 })
 
-test('clean standard workbook round-trips custom quantities, facilities, and Column O notes', async () => {
+test('clean standard workbook round-trips custom quantities, per-quantity margin rates, and Column O notes', async () => {
   const estimate = createStandardEstimateDefaults()
   estimate.metadata.customer = 'Round Trip Customer'
   estimate.metadata.partNumber = 'PART-100'
@@ -50,7 +53,7 @@ test('clean standard workbook round-trips custom quantities, facilities, and Col
     setupCost: 40,
     runCostEach: 1.25,
   }
-  estimate.facilitiesByQuantity = { 1: 2, 3: 1, 20: 0.5, 125: 0.25 }
+  estimate.perQuantityMarginByQuantity = { 1: 0.2, 3: 0.1, 20: 0.05, 125: 0.025 }
 
   const result = calculateEstimate(estimate)
   assert.equal(result.ok, true)
@@ -67,7 +70,10 @@ test('clean standard workbook round-trips custom quantities, facilities, and Col
   assert.equal(imported.estimate.yield, 0.92)
   assert.equal(imported.estimate.operations[3].notes, 'SEQ 20 — verify first article')
   assert.equal(imported.operationNoteCount, 1)
-  assert.deepEqual(imported.estimate.facilitiesByQuantity, { 1: 2, 3: 1, 20: 0.5, 125: 0.25 })
+  assert.deepEqual(
+    imported.estimate.perQuantityMarginByQuantity,
+    { 1: 0.2, 3: 0.1, 20: 0.05, 125: 0.025 },
+  )
   assert.equal(imported.estimate.materials[0].description, 'Plate')
   assert.equal(imported.estimate.processes[0].description, 'Anodize')
 })
@@ -84,6 +90,8 @@ test('subassembly workbook round-trips parent notes, child batch quantities, and
   child.operations[2].setupMinutes = 60
   child.operations[2].runMinutes = 2
   child.operations[2].notes = 'SEQ 30'
+  estimate.perQuantityMarginByQuantity = { 1: 0.05, 2: 0.04, 5: 0.03, 20: 0.02 }
+  child.perQuantityMarginByQuantity = { 1: 0.1, 2: 0.08, 5: 0.06, 20: 0.04 }
   estimate.subassemblies.push(child)
   estimate.processes[0] = {
     ...estimate.processes[0],
@@ -111,7 +119,45 @@ test('subassembly workbook round-trips parent notes, child batch quantities, and
   )
   assert.equal(imported.estimate.processes[0].subassemblyId, imported.estimate.subassemblies[0].id)
   assert.equal(imported.estimate.processes[0].quantityPerParent, 0.25)
+  assert.deepEqual(imported.estimate.perQuantityMarginByQuantity, estimate.perQuantityMarginByQuantity)
+  assert.deepEqual(
+    imported.estimate.subassemblies[0].perQuantityMarginByQuantity,
+    child.perQuantityMarginByQuantity,
+  )
   assert.equal(imported.operationNoteCount, 2)
+})
+
+test('legacy Facilities workbook dollars migrate without changing their dollar contribution', async () => {
+  const estimate = createStandardEstimateDefaults()
+  estimate.quantities = [10]
+  const operation = estimate.operations.find((candidate) => candidate.name === 'Metals - Mills')
+  assert.ok(operation)
+  operation.setupMinutes = 60
+  const result = calculateEstimate(estimate)
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+
+  const output = await buildCleanEstimateWorkbook(estimate, result)
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(output)
+  const sheet = workbook.worksheets[0]
+  let marginRow: ExcelJS.Row | undefined
+  sheet.eachRow((row) => {
+    if (row.getCell(4).text === 'Per Quantity Margin %') marginRow = row
+  })
+  assert.ok(marginRow)
+  marginRow.getCell(4).value = 'Facilities'
+  marginRow.getCell(6).value = 2
+
+  const imported = await importEstimateWorkbook(exactArrayBuffer(await workbook.xlsx.writeBuffer()))
+  const importedResult = calculateEstimate(imported.estimate)
+  assert.equal(importedResult.ok, true)
+  if (!importedResult.ok) return
+
+  assert.match(imported.warnings.join(' '), /converted to equivalent per-quantity margin percentages/i)
+  assert.equal(imported.estimate.facilitiesByQuantity, undefined)
+  assert.ok(imported.estimate.perQuantityMarginByQuantity[10] > 0)
+  assert.ok(Math.abs(importedResult.quantities[10].perQuantityMargin - 2) < 1e-10)
 })
 
 test('subassembly child setup and NRE allocation use imported child batch quantities', () => {

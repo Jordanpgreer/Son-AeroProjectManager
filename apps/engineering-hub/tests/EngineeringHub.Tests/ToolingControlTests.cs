@@ -260,6 +260,49 @@ public sealed class ToolingControlTests
     }
 
     [Fact]
+    public async Task ToolDetail_UsesDirectoryDisplayNamesWithoutExposingWindowsAccounts()
+    {
+        await using var fixture = await ToolingFixture.CreateAsync();
+        var location = CreateLocation();
+        var tool = CreateTool(location);
+        tool.CurrentHolder = @"TEST\Manager";
+        tool.Movements.Add(new ToolMovement
+        {
+            Type = ToolMovementType.CheckedOut,
+            Location = location,
+            LocationCode = location.Code,
+            Person = @"TEST\Manager",
+            SignedOffBy = @"TEST\Manager",
+            RecordedAt = DateTime.UtcNow
+        });
+        tool.AuditEntries.Add(new ToolAuditEntry
+        {
+            Tool = tool,
+            Action = "ToolReleased",
+            Details = @"Inspection sign-off by TEST\Manager.",
+            Actor = @"TEST\Manager",
+            OccurredAt = DateTime.UtcNow
+        });
+        fixture.Db.Tools.Add(tool);
+        await fixture.Db.SaveChangesAsync();
+
+        var access = new EngineeringModuleAccess(
+            ApplicationRoles.Editor,
+            true,
+            [EngineeringPermissions.ModuleView, EngineeringPermissions.ToolingView],
+            ["Engineering"],
+            @"TEST\Manager",
+            "Jordan Greer");
+        await using var app = CreateToolingApp(fixture.Db, new StaticRoleStore(access));
+
+        var response = await InvokeGetAsync(app, "/api/tools/{id:int}", tool.Id);
+
+        Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
+        Assert.Contains("Jordan Greer", response.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain(@"TEST\\Manager", response.Body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task ToolDocuments_AreStoredInReservedFolderAndRemainAppendOnly()
     {
         await using var fixture = await ToolingFixture.CreateAsync();
@@ -619,10 +662,13 @@ public sealed class ToolingControlTests
         return tool;
     }
 
-    private static WebApplication CreateToolingApp(EngineeringDbContext db)
+    private static WebApplication CreateToolingApp(
+        EngineeringDbContext db,
+        IEngineeringRoleStore? roleStore = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.Services.AddSingleton(db);
+        if (roleStore is not null) builder.Services.AddSingleton(roleStore);
         builder.Services.AddSingleton<ToolCatalogReviewStore>();
         builder.Services.AddScoped<ToolCatalogWorkbookService>();
         builder.Services.Configure<DrawingStorageOptions>(options =>
@@ -631,6 +677,36 @@ public sealed class ToolingControlTests
         var app = builder.Build();
         app.MapGroup("/api").MapToolingEndpoints();
         return app;
+    }
+
+    private static async Task<EndpointResponse> InvokeGetAsync(
+        WebApplication app,
+        string route,
+        int id)
+    {
+        var endpoint = ((IEndpointRouteBuilder)app).DataSources
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Single(candidate =>
+                candidate.RoutePattern.RawText == route &&
+                candidate.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains("GET") == true);
+        await using var scope = app.Services.CreateAsyncScope();
+        var context = new DefaultHttpContext
+        {
+            RequestServices = scope.ServiceProvider,
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.Name, @"TEST\Manager")],
+                "Test"))
+        };
+        context.Request.Method = "GET";
+        context.Request.RouteValues["id"] = id.ToString();
+        context.Response.Body = new MemoryStream();
+
+        await endpoint.RequestDelegate!(context);
+
+        context.Response.Body.Position = 0;
+        using var reader = new StreamReader(context.Response.Body);
+        return new EndpointResponse(context.Response.StatusCode, await reader.ReadToEndAsync());
     }
 
     private static async Task<EndpointResponse> InvokeJsonAsync<T>(
@@ -683,6 +759,15 @@ public sealed class ToolingControlTests
     }
 
     private sealed record EndpointResponse(int StatusCode, string Body);
+
+    private sealed class StaticRoleStore(EngineeringModuleAccess access) : IEngineeringRoleStore
+    {
+        public Task<EngineeringModuleAccess?> FindAccessAsync(
+            string accountName,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<EngineeringModuleAccess?>(
+                WindowsAccountNames.Equals(accountName, access.AccountName) ? access : null);
+    }
 
     private sealed class ToolingFixture : IAsyncDisposable
     {

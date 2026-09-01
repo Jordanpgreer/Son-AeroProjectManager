@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, CheckCircle2, GraduationCap, MessageCircleQuestion, Save, ShieldCheck } from 'lucide-react'
 import { toErrorMessage, trackerApi } from './api'
 import type { AdminAccessPreviewTarget } from './types'
 import WalkthroughPreviewLauncher from './WalkthroughPreviewLauncher'
+import BennyRageOverlay from './BennyRageOverlay'
 
 type WalkthroughSettings = {
   enabled: boolean
@@ -29,6 +30,7 @@ export default function WalkthroughSettingsPanel({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [assistantProvoked, setAssistantProvoked] = useState(false)
 
   useEffect(() => {
     void trackerApi<WalkthroughSettings>('/api/settings/walkthrough')
@@ -42,6 +44,8 @@ export default function WalkthroughSettingsPanel({
       })
       .catch((cause) => setError(toErrorMessage(cause)))
   }, [])
+
+  const calmAssistant = useCallback(() => setAssistantProvoked(false), [])
 
   const assistantName = draft.assistantName.trim()
   const nameError = assistantName.length === 0
@@ -135,6 +139,8 @@ export default function WalkthroughSettingsPanel({
                   onChange={(event) => {
                     setDraft((current) => ({ ...current, assistantEnabled: event.target.checked }))
                     setMessage(null)
+                    // Switching the assistant off is not something he takes well.
+                    if (!event.target.checked) setAssistantProvoked(true)
                   }}
                 />
                 <span>
@@ -170,6 +176,10 @@ export default function WalkthroughSettingsPanel({
       ) : null}
 
       <WalkthroughPreviewLauncher onLaunch={onPreviewWalkthrough} />
+
+      {assistantProvoked && (
+        <BennyRageOverlay assistantName={assistantName || 'Benny'} onFinished={calmAssistant} />
+      )}
     </section>
   )
 }

@@ -1,7 +1,7 @@
 import { Layers3, Plus, Trash2 } from 'lucide-react'
 
 import {
-  FacilitiesSection,
+  PerQuantityMarginSection,
   MaterialsSection,
   ProcessesSection,
 } from './CalculatorCostSections'
@@ -168,7 +168,7 @@ export default function SubassembliesSection({
               </button>
             </div>
             <div className="subassembly-rollup-note">
-              Child labor, material, process, amortized NRE, and facilities roll into the parent as one process cost. Parent process G&amp;A and profit are applied once.
+              Child labor, material, process, amortized NRE, and per-quantity margin roll into the parent as one process cost. Parent process G&amp;A and profit are applied once.
             </div>
             <section className="subassembly-build-quantities" aria-labelledby={`${selected.id}-build-quantities`}>
               <div>
@@ -266,15 +266,15 @@ export default function SubassembliesSection({
                 processes: current.processes.filter((process) => process.id !== processId),
               }))}
             />
-            <FacilitiesSection
-              values={selected.facilitiesByQuantity}
+            <PerQuantityMarginSection
+              values={selected.perQuantityMarginByQuantity}
               quantities={quantities}
               idPrefix={idPrefix}
               context="subassembly"
               onChange={(quantity, value) => onChange(selected.id, (current) => ({
                 ...current,
-                facilitiesByQuantity: {
-                  ...current.facilitiesByQuantity,
+                perQuantityMarginByQuantity: {
+                  ...current.perQuantityMarginByQuantity,
                   [quantity]: value,
                 },
               }))}

@@ -120,6 +120,31 @@ public sealed class QualityShipmentCommentServiceTests
             fixture.Service.ListAsync(shipment.Id, null, otherQueue));
     }
 
+    [Fact]
+    public async Task Unassigned_comment_thread_requires_quality_manager_permission_not_team_statistics()
+    {
+        await using var fixture = await CommentFixture.CreateAsync();
+        var shipment = await fixture.AddShipmentAsync(comments: "Needs manager review", assignedUserId: null);
+        shipment.AssignedGroupId = null;
+        await fixture.Db.SaveChangesAsync();
+        var teamViewer = fixture.Access(
+            2,
+            "TEST\\two",
+            "Person Two",
+            canEdit: false,
+            teamAccess: true);
+        var manager = teamViewer with
+        {
+            Permissions = [.. teamViewer.Permissions, QualityAssurancePermissions.ManagerReview]
+        };
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            fixture.Service.ListAsync(shipment.Id, null, teamViewer));
+        var comments = await fixture.Service.ListAsync(shipment.Id, null, manager);
+        Assert.NotNull(comments);
+        Assert.Single(comments);
+    }
+
     private sealed class CommentFixture : IAsyncDisposable
     {
         private readonly SqliteConnection connection;

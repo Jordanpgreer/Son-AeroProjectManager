@@ -6,6 +6,7 @@ public static class QualityAssurancePermissions
     public const string ShipmentsView = "quality-assurance.shipments.view";
     public const string ShipmentsViewAll = "quality-assurance.shipments.view-all";
     public const string TeamDashboardView = "quality-assurance.dashboard.team-view";
+    public const string ManagerReview = "quality-assurance.dashboard.manager-review";
     public const string ShipmentCreate = "quality-assurance.shipments.create";
     public const string ShipmentImport = "quality-assurance.shipments.import";
     public const string AssignmentView = "quality-assurance.assignments.view";
@@ -90,6 +91,7 @@ public static class QualityAssurancePermissions
         Permission(ShipmentsView, "View own shipping queue", "View shipments assigned directly to the current user.", "Shipping workflow"),
         Permission(ShipmentsViewAll, "View all shipments", "View open and past shipments across all groups and users.", "Shipping workflow"),
         Permission(TeamDashboardView, "View team queue statistics", "View queue volume and completion statistics for other users.", "Shipping workflow"),
+        Permission(ManagerReview, "Quality manager", "Review fully unassigned shipments that require manager assignment.", "Shipping workflow"),
         Permission(ShipmentCreate, "Create shipments", "Add new Shipping Status records.", "Shipping workflow"),
         Permission(ShipmentImport, "Import shipping status", "Import controlled Shipping Status records from the Complete List worksheet in an Excel workbook.", "Shipping workflow"),
         Permission(AssignmentView, "View assignments", "View assigned groups and individual owners.", "Assignments"),
@@ -115,6 +117,18 @@ public static class QualityAssurancePermissions
         All.Select(permission => permission.Key)
             .Where(permission => permission is not AssignmentEligible and not ResponsibleGroupEligible)
             .ToArray();
+
+    public static IReadOnlySet<string> Expand(IEnumerable<string> permissions)
+    {
+        var expanded = permissions.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (expanded.Contains(ManagerReview))
+        {
+            expanded.Add(ModuleView);
+            expanded.Add(ShipmentsView);
+            expanded.Add(AssignmentView);
+        }
+        return expanded;
+    }
 
     private static PermissionDefinition Field(string key, string label, string description) =>
         Permission(key, label, description, key.EndsWith(".view", StringComparison.Ordinal) ? "Shipping fields - view" : "Shipping fields - edit");

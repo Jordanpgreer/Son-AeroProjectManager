@@ -1,0 +1,351 @@
+/* Benny rage mode: the admin-only reaction to disabling the keyword assistant.
+   Timeline is 4200ms - manifest, swell, roar, vanish - and every effect is
+   cosmetic. Flash rate is kept below 3Hz and the whole sequence collapses to a
+   still frame under prefers-reduced-motion. */
+
+.benny-rage-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.benny-rage-stage > * { grid-area: 1 / 1; }
+
+.benny-rage-scrim {
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at 50% 46%, rgba(120, 4, 4, 0.58), rgba(5, 2, 3, 0.94) 68%);
+  opacity: 0;
+  animation: benny-rage-scrim 4200ms ease-out forwards;
+}
+
+@keyframes benny-rage-scrim {
+  0% { opacity: 0; }
+  12% { opacity: 0.55; }
+  50% { opacity: 0.88; }
+  88% { opacity: 0.95; }
+  96% { opacity: 0.82; }
+  100% { opacity: 0; }
+}
+
+/* ---- Benny ---- */
+
+.benny-rage-tremble {
+  display: grid;
+  place-items: center;
+  animation: benny-rage-tremble 4200ms linear forwards;
+}
+
+@keyframes benny-rage-tremble {
+  0%, 24% { transform: translate3d(0, 0, 0); }
+  30% { transform: translate3d(-2px, 1px, 0); }
+  36% { transform: translate3d(2px, -1px, 0); }
+  42% { transform: translate3d(-4px, 2px, 0); }
+  48% { transform: translate3d(4px, -2px, 0); }
+  54% { transform: translate3d(-7px, 3px, 0); }
+  60% { transform: translate3d(7px, -3px, 0); }
+  66% { transform: translate3d(-11px, 5px, 0); }
+  72% { transform: translate3d(11px, -4px, 0); }
+  78% { transform: translate3d(-14px, 6px, 0); }
+  84% { transform: translate3d(13px, -5px, 0); }
+  90% { transform: translate3d(-8px, 3px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
+.benny-rage-figure {
+  width: min(56vmin, 560px);
+  height: auto;
+  transform: scale(0.16);
+  opacity: 0;
+  animation: benny-rage-swell 4200ms cubic-bezier(0.34, 0, 0.25, 1) forwards;
+  will-change: transform, filter;
+}
+
+@keyframes benny-rage-swell {
+  0% { transform: scale(0.16) rotate(0deg); opacity: 0; filter: drop-shadow(0 0 0 rgba(255, 62, 40, 0)); }
+  9% { transform: scale(0.34) rotate(0deg); opacity: 1; }
+  22% { transform: scale(0.5) rotate(-1.5deg); filter: drop-shadow(0 0 18px rgba(255, 54, 30, 0.35)); }
+  36% { transform: scale(0.74) rotate(1.5deg); }
+  48% { transform: scale(1) rotate(-2deg); filter: drop-shadow(0 0 44px rgba(255, 40, 18, 0.6)); }
+  60% { transform: scale(1.22) rotate(2deg); }
+  70% { transform: scale(1.42) rotate(-1.5deg); filter: drop-shadow(0 0 78px rgba(255, 28, 10, 0.8)); }
+  80% { transform: scale(1.6) rotate(1deg); }
+  86% { transform: scale(1.66) rotate(0deg); filter: drop-shadow(0 0 104px rgba(255, 22, 6, 0.92)); }
+  93% { transform: scale(1.62) rotate(0deg); opacity: 1; }
+  100% { transform: scale(0.02) rotate(0deg); opacity: 0; filter: drop-shadow(0 0 0 rgba(255, 62, 40, 0)); }
+}
+
+/* Everyday Benny burning off into the rage palette. */
+.benny-rage-calm-skin { animation: benny-rage-burn 4200ms ease-in forwards; }
+
+@keyframes benny-rage-burn {
+  0%, 10% { opacity: 1; }
+  40% { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+.benny-rage-eyes { fill: #f9f9f9; animation: benny-rage-glare 4200ms ease-in forwards; }
+
+@keyframes benny-rage-glare {
+  0%, 16% { fill: #f9f9f9; }
+  44% { fill: #ffe9a4; }
+  100% { fill: #fff3bd; }
+}
+
+/* Brows start clear of the head, then slam down into a glare. */
+.benny-rage-brows {
+  transform: translateY(-84px);
+  animation: benny-rage-brows 4200ms cubic-bezier(0.6, -0.5, 0.2, 1.6) forwards;
+}
+
+@keyframes benny-rage-brows {
+  0%, 30% { transform: translateY(-84px); }
+  40%, 100% { transform: translateY(0); }
+}
+
+.benny-rage-mouth {
+  fill: #fff3bd;
+  transform-box: fill-box;
+  transform-origin: top center;
+  transform: scaleY(0);
+  animation: benny-rage-snarl 4200ms cubic-bezier(0.3, 1.5, 0.4, 1) forwards;
+}
+
+@keyframes benny-rage-snarl {
+  0%, 42% { transform: scaleY(0); }
+  52%, 100% { transform: scaleY(1); }
+}
+
+/* ---- The shout ---- */
+
+.benny-rage-shout {
+  z-index: 2;
+  margin: 0;
+  padding: 0 4vw;
+  max-width: 100%;
+  color: #fff;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: clamp(2.2rem, 9.6vw, 9.5rem);
+  font-weight: 800;
+  line-height: 0.86;
+  letter-spacing: -0.025em;
+  text-align: center;
+  text-transform: uppercase;
+  text-wrap: balance;
+  opacity: 0;
+  animation: benny-rage-shout 4200ms linear forwards;
+}
+
+@keyframes benny-rage-shout {
+  0%, 56% { opacity: 0; transform: scale(1.5); }
+  60% { opacity: 1; transform: scale(1); }
+  64% { opacity: 0.25; }
+  68% { opacity: 1; transform: scale(1.02); }
+  74% { opacity: 0.4; }
+  78%, 92% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.25); }
+}
+
+/* Chromatic split, drawn from the same text so it always matches. */
+.benny-rage-shout-line {
+  position: relative;
+  display: block;
+  text-shadow:
+    0 3px 0 rgba(58, 0, 0, 0.9),
+    0 0 16px rgba(0, 0, 0, 0.85),
+    0 0 46px rgba(255, 40, 16, 0.7);
+}
+
+.benny-rage-shout-line::before,
+.benny-rage-shout-line::after {
+  position: absolute;
+  inset: 0;
+  content: attr(data-text);
+  /* Screen keeps the base glyphs white and lets the offset copies fringe them. */
+  mix-blend-mode: screen;
+  opacity: 0.9;
+  text-shadow: none;
+}
+
+.benny-rage-shout-line::before {
+  color: #ff2d5e;
+  animation: benny-rage-split-a 4200ms steps(1, end) forwards;
+}
+
+.benny-rage-shout-line::after {
+  color: #21e6ff;
+  animation: benny-rage-split-b 4200ms steps(1, end) forwards;
+}
+
+@keyframes benny-rage-split-a {
+  0%, 58% { transform: translate3d(0, 0, 0); }
+  62% { transform: translate3d(-9px, 3px, 0); }
+  70% { transform: translate3d(6px, -2px, 0); }
+  78% { transform: translate3d(-5px, 4px, 0); }
+  86% { transform: translate3d(4px, -3px, 0); }
+  94%, 100% { transform: translate3d(0, 0, 0); }
+}
+
+@keyframes benny-rage-split-b {
+  0%, 58% { transform: translate3d(0, 0, 0); }
+  62% { transform: translate3d(9px, -3px, 0); }
+  70% { transform: translate3d(-6px, 2px, 0); }
+  78% { transform: translate3d(5px, -4px, 0); }
+  86% { transform: translate3d(-4px, 3px, 0); }
+  94%, 100% { transform: translate3d(0, 0, 0); }
+}
+
+.benny-rage-signature {
+  display: block;
+  margin-top: 2.4vh;
+  color: rgba(255, 226, 226, 0.88);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: clamp(0.7rem, 1.5vw, 1.1rem);
+  font-weight: 500;
+  letter-spacing: 0.42em;
+  /* Lands on top of Benny himself, so it carries its own halo. */
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.9), 0 0 12px rgba(0, 0, 0, 0.88);
+}
+
+/* ---- Screen glitch ---- */
+
+.benny-rage-scanlines {
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.32) 0,
+    rgba(0, 0, 0, 0.32) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+  opacity: 0;
+  animation: benny-rage-scanlines 4200ms linear forwards;
+}
+
+@keyframes benny-rage-scanlines {
+  0%, 52% { opacity: 0; background-position-y: 0; }
+  56% { opacity: 0.55; }
+  92% { opacity: 0.4; background-position-y: 120px; }
+  100% { opacity: 0; background-position-y: 140px; }
+}
+
+/* Horizontal tears that drag the real console through a colour shift. */
+.benny-rage-tear {
+  z-index: 4;
+  width: 100%;
+  height: 100%;
+  background: rgba(255, 30, 60, 0.06);
+  opacity: 0;
+  backdrop-filter: hue-rotate(85deg) saturate(2.6) contrast(1.25);
+  animation-duration: 4200ms;
+  animation-timing-function: steps(1, end);
+  animation-fill-mode: forwards;
+}
+
+.benny-rage-tear-a {
+  clip-path: inset(18% 0 74% 0);
+  animation-name: benny-rage-tear-a;
+}
+
+.benny-rage-tear-b {
+  clip-path: inset(52% 0 41% 0);
+  backdrop-filter: hue-rotate(-120deg) saturate(3) invert(0.08);
+  animation-name: benny-rage-tear-b;
+}
+
+.benny-rage-tear-c {
+  clip-path: inset(78% 0 14% 0);
+  backdrop-filter: hue-rotate(160deg) saturate(2.2);
+  animation-name: benny-rage-tear-c;
+}
+
+@keyframes benny-rage-tear-a {
+  0%, 53% { opacity: 0; transform: translateX(0); }
+  55% { opacity: 1; transform: translateX(-26px); }
+  59% { opacity: 0; }
+  67% { opacity: 1; transform: translateX(18px); }
+  70% { opacity: 0; }
+  84% { opacity: 1; transform: translateX(-12px); }
+  87%, 100% { opacity: 0; }
+}
+
+@keyframes benny-rage-tear-b {
+  0%, 56% { opacity: 0; transform: translateX(0); }
+  58% { opacity: 1; transform: translateX(34px); }
+  62% { opacity: 0; }
+  75% { opacity: 1; transform: translateX(-22px); }
+  79% { opacity: 0; }
+  89% { opacity: 1; transform: translateX(14px); }
+  92%, 100% { opacity: 0; }
+}
+
+@keyframes benny-rage-tear-c {
+  0%, 60% { opacity: 0; transform: translateX(0); }
+  63% { opacity: 1; transform: translateX(-30px); }
+  66% { opacity: 0; }
+  80% { opacity: 1; transform: translateX(24px); }
+  83%, 100% { opacity: 0; }
+}
+
+/* The console itself takes the hit. #root only - the overlay is portalled to
+   <body>, so this transform never drags it out of place. */
+.benny-rage-screen { animation: benny-rage-screen 900ms linear 2350ms 2; }
+
+@keyframes benny-rage-screen {
+  0%, 100% { transform: none; filter: none; }
+  4% { transform: translate3d(-11px, 4px, 0) skewX(-1.6deg); filter: saturate(2.6) hue-rotate(-24deg); }
+  9% { transform: translate3d(9px, -3px, 0) skewX(1.1deg); filter: saturate(1.4); }
+  16% { transform: none; filter: none; }
+  33% { transform: translate3d(14px, 2px, 0) skewX(2deg); filter: invert(0.14) saturate(2.2); }
+  38% { transform: translate3d(-6px, -4px, 0); filter: hue-rotate(40deg) saturate(1.8); }
+  45% { transform: none; filter: none; }
+  66% { transform: translate3d(-16px, 5px, 0) skewX(-2.4deg); filter: saturate(3) hue-rotate(-50deg); }
+  71% { transform: translate3d(7px, -2px, 0); filter: brightness(1.5) saturate(0.4); }
+  78% { transform: none; filter: none; }
+}
+
+/* ---- Reduced motion: one still, silent glare. No shake, no strobe. ---- */
+
+.benny-rage-stage.is-still .benny-rage-scrim { animation: benny-rage-still-fade 2400ms ease forwards; }
+
+.benny-rage-stage.is-still .benny-rage-tremble { animation: none; }
+
+.benny-rage-stage.is-still .benny-rage-scanlines,
+.benny-rage-stage.is-still .benny-rage-tear {
+  opacity: 0;
+  animation: none;
+}
+
+.benny-rage-stage.is-still .benny-rage-figure {
+  transform: scale(1.35);
+  opacity: 1;
+  filter: drop-shadow(0 0 60px rgba(255, 30, 12, 0.7));
+  animation: benny-rage-still-fade 2400ms ease forwards;
+}
+
+.benny-rage-stage.is-still .benny-rage-calm-skin { opacity: 0; animation: none; }
+.benny-rage-stage.is-still .benny-rage-eyes { fill: #fff3bd; animation: none; }
+.benny-rage-stage.is-still .benny-rage-brows { transform: translateY(0); animation: none; }
+.benny-rage-stage.is-still .benny-rage-mouth { transform: scaleY(1); animation: none; }
+
+.benny-rage-stage.is-still .benny-rage-shout {
+  transform: none;
+  animation: benny-rage-still-fade 2400ms ease forwards;
+}
+
+.benny-rage-stage.is-still .benny-rage-shout-line::before,
+.benny-rage-stage.is-still .benny-rage-shout-line::after {
+  opacity: 0;
+  animation: none;
+}
+
+@keyframes benny-rage-still-fade {
+  0% { opacity: 0; }
+  12%, 82% { opacity: 1; }
+  100% { opacity: 0; }
+}

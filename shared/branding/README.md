@@ -11,7 +11,8 @@ controlled reports and other material that still requires company identification
 | `web/arda-lockup.png`, `web/arda-mark.png` | Transparent Arda wordmark and compact application mark for light identity bands |
 | `web/arda-lockup-reversed.png`, `web/arda-mark-reversed.png` | High-contrast transparent artwork for dark identity bands |
 | `web/arda-favicon.png` | Theme-neutral browser and touch icon with a light visibility plate |
-| `arda.ico` | Multi-resolution Windows desktop icon generated from the official theme-neutral Arda favicon |
+| `arda-transparent.ico` | Multi-resolution Windows desktop icon generated from the official transparent Arda mark, without a background plate or border |
+| `arda.ico` | Compatibility copy retained for existing deployment packages |
 | `SON-AERO_logo-transparent.png`, `SON-AERO_logo-white-07.png`, `SON-AERO_jpg_SON-AERO SQ 2.gif` | Legacy corporate source logos retained for controlled uses |
 | `son-aero.ico` | Legacy corporate icon retained for historical packages and controlled corporate uses |
 | `web/` | Web-ready source assets; the sync script allowlists the Arda application assets |

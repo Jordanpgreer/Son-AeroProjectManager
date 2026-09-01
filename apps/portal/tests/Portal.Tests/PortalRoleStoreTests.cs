@@ -93,6 +93,46 @@ public sealed class PortalRoleStoreTests
     }
 
     [Fact]
+    public async Task FindModuleRolesAsync_QualityEntryPermissionIsEnoughForLiveCatalogVisibility()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<PortalRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new PortalRoleDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        db.Users.Add(new PortalRoleRecord
+        {
+            AccountName = "SONAERO\\Quality.One",
+            DisplayName = "Quality One",
+            Role = ApplicationRoles.Viewer,
+            IsActive = true,
+            ProjectTrackerGroupMemberships =
+            [
+                new PortalProjectTrackerMembershipRecord
+                {
+                    Group = new PortalProjectTrackerGroupRecord
+                    {
+                        Name = "Quality Module Access",
+                        Permissions =
+                        [
+                            new PortalProjectTrackerPermissionRecord
+                            {
+                                PermissionKey = QualityAssurancePermissions.ModuleView
+                            }
+                        ]
+                    }
+                }
+            ]
+        });
+        await db.SaveChangesAsync();
+
+        var store = new PortalRoleStore(db, NullLogger<PortalRoleStore>.Instance);
+        var roles = await store.FindModuleRolesAsync("sonaero/quality.one");
+
+        Assert.Equal(ApplicationRoles.Viewer, roles[ApplicationModules.QualityAssurance]);
+    }
+
+    [Fact]
     public async Task FindRoleAsync_DoesNotReturnRoleForInactiveUser()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

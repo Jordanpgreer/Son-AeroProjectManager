@@ -26,7 +26,11 @@ import { persistTheme, readThemePreference } from './theme'
 import type { AppTheme } from './theme'
 import AdminConsole from './admin/AdminConsole'
 import { isAdminHash } from './admin/api'
-import { applicationNavigationMode } from './navigation'
+import {
+  applicationNavigationMode,
+  canLaunchAccessPreview,
+  canOpenAdminConsole,
+} from './navigation'
 import type { AdminAccessPreviewLaunch, AdminAccessPreviewTarget } from './admin/types'
 
 type AppStatus = 'active' | 'comingSoon' | 'maintenance'
@@ -187,7 +191,8 @@ export default function App() {
   }, [])
 
   const catalogApps = accessPreview?.applications ?? apps
-  const adminRoute = isAdminHash(locationHash)
+  const requestedAdminRoute = isAdminHash(locationHash)
+  const adminRoute = requestedAdminRoute && canOpenAdminConsole(me?.role)
 
   useEffect(() => {
     if (!adminRoute) document.title = 'Arda · Applications'
@@ -196,6 +201,12 @@ export default function App() {
   useEffect(() => {
     if (adminRoute) setAccessPreview(null)
   }, [adminRoute])
+
+  useEffect(() => {
+    if (requestedAdminRoute && me && !canOpenAdminConsole(me.role)) {
+      window.location.hash = '#/'
+    }
+  }, [me, requestedAdminRoute])
 
   async function launchApplication(application: PortalApp, event: ReactMouseEvent<HTMLAnchorElement>) {
     if (!accessPreview && (event.metaKey || event.ctrlKey || event.shiftKey || event.button === 1 || prefersReducedMotion())) return
@@ -323,7 +334,7 @@ export default function App() {
                 <div className="portal-user-text">
                   <span className="portal-user-name">{me.displayName}</span>
                 </div>
-                <span className="portal-avatar" title={me.accountName}>
+                <span className="portal-avatar" title={me.displayName}>
                   {initials(me.displayName)}
                 </span>
               </>
@@ -477,7 +488,8 @@ function ApplicationCard({
 }) {
   const Icon = iconFor(application.icon)
   const available = application.status === 'active' && application.url.length > 0
-  const openable = available
+  const previewAvailable = !previewMode || canLaunchAccessPreview(application.id)
+  const openable = available && previewAvailable
   const content = (
     <>
       <div className="catalog-card-top">
@@ -506,8 +518,14 @@ function ApplicationCard({
       {available && (
         <div className="catalog-card-footer">
           <span className="catalog-open">
-            {launching ? 'Opening...' : previewMode ? 'Open read-only preview' : 'Open application'}
-            {previewMode ? <Eye size={16} aria-hidden="true" /> : <ArrowUpRight size={16} aria-hidden="true" />}
+            {launching
+              ? 'Opening...'
+              : previewMode
+                ? previewAvailable ? 'Open read-only preview' : 'Visible to this user · Full preview unavailable'
+                : 'Open application'}
+            {previewMode
+              ? previewAvailable && <Eye size={16} aria-hidden="true" />
+              : <ArrowUpRight size={16} aria-hidden="true" />}
           </span>
         </div>
       )}

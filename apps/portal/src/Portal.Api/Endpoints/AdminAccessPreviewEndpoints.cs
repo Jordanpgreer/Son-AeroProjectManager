@@ -225,13 +225,13 @@ public static class AdminAccessPreviewEndpoints
             .SelectMany(membership => membership.Group.Permissions)
             .Select(permission => permission.PermissionKey)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var assignedModules = user.ModuleAccessAssignments
+            .Where(access => ApplicationModuleRoles.Normalize(access.Role) is not null)
+            .Select(access => access.ModuleKey)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var role = ApplicationRoles.Normalize(user.Role) ?? ApplicationRoles.Viewer;
-        var applications = ApplicationsForPermissions(registry, permissions)
-            .Where(application => ApplicationRegistry.IsVisibleTo(
-                registry.All.Single(entry => entry.Id == application.Id),
-                role))
-            .ToList();
+        var applications = ApplicationsForAccess(registry, permissions, assignedModules, role);
         return new AdminAccessPreviewTargetDto(
             $"user:{user.Id}",
             AccessPreviewTargetKinds.User,
@@ -246,13 +246,16 @@ public static class AdminAccessPreviewEndpoints
         ApplicationRegistry registry)
     {
         var permissions = group.Permissions.Select(permission => permission.PermissionKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var role = string.Equals(group.Name, ApplicationGroups.Administrators, StringComparison.OrdinalIgnoreCase)
+            ? ApplicationRoles.Admin
+            : "Shared group";
         return new AdminAccessPreviewTargetDto(
             $"{AccessPreviewTargetKinds.ProjectTrackerGroup}:{group.Id}",
             "group",
             group.Name,
             group.Description ?? "Shared permission group",
-            "Shared group",
-            ApplicationsForPermissions(registry, permissions));
+            role,
+            ApplicationsForAccess(registry, permissions, role: role));
     }
 
     private static AdminAccessPreviewTargetDto ToEngineeringGroupTarget(
@@ -278,20 +281,31 @@ public static class AdminAccessPreviewEndpoints
         return application is null ? [] : [ToApplicationDto(application)];
     }
 
-    private static IReadOnlyList<ApplicationDto> ApplicationsForPermissions(
+    internal static IReadOnlyList<ApplicationDto> ApplicationsForAccess(
         ApplicationRegistry registry,
-        IReadOnlySet<string> permissions)
+        IReadOnlySet<string> permissions,
+        IReadOnlySet<string>? assignedModules = null,
+        string? role = null)
     {
         var visibleIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (permissions.Contains(ApplicationPermissions.ModuleView))
             visibleIds.Add(AccessPreviewApplications.ProjectTracker);
-        if (EngineeringPermissions.RoleFor(permissions) is not null)
+        if (permissions.Contains(EngineeringPermissions.ModuleView)
+            || assignedModules?.Contains(ApplicationModules.Engineering) == true)
             visibleIds.Add(AccessPreviewApplications.Engineering);
-        if (ApplicationModuleCatalog.RoleForPermissions(ApplicationModules.Estimating, permissions) is not null)
+        if (permissions.Contains("estimating.view")
+            || assignedModules?.Contains(ApplicationModules.Estimating) == true)
             visibleIds.Add(AccessPreviewApplications.Estimating);
+        if (permissions.Contains(QualityAssurancePermissions.ModuleView)
+            || assignedModules?.Contains(ApplicationModules.QualityAssurance) == true)
+            visibleIds.Add(AccessPreviewApplications.QualityAssurance);
+        if (IsAdmin(role ?? string.Empty))
+            visibleIds.Add(ApplicationRegistry.AdminConsoleApplicationId);
 
         return registry.All
-            .Where(application => visibleIds.Contains(application.Id))
+            .Where(application =>
+                visibleIds.Contains(application.Id)
+                && ApplicationRegistry.IsVisibleTo(application, role ?? ApplicationRoles.Viewer))
             .OrderBy(application => application.Order)
             .Select(ToApplicationDto)
             .ToList();

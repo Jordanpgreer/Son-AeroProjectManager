@@ -17,7 +17,7 @@ try {
       { "Id": "engineering-hub", "Name": "Engineering Hub", "Url": "http://localhost:5150" },
       { "Id": "estimating-dashboard", "Name": "Estimating Dashboard", "Url": "http://localhost:5160" },
       { "Id": "quality-assurance", "Name": "Quality Assurance", "Url": "http://localhost:5170" },
-      { "Id": "admin-console", "Name": "Admin Console", "Url": "/#/admin/access" }
+      { "Id": "admin-console", "Name": "Admin Console", "Url": "/#/admin/access", "AllowedRoles": [ "Admin" ] }
     ]
   }
 }
@@ -47,7 +47,7 @@ try {
       { "Id": "engineering-hub", "Name": "Engineering Hub", "Url": "https://engineering.hub.son4l.local", "AllowedRoles": [] },
       { "Id": "estimating-dashboard", "Name": "Estimating Dashboard", "Url": "http://SON-IIS2:5160" },
       { "Id": "quality-assurance", "Name": "Quality Assurance", "Url": "http://SON-IIS2:5170", "AllowedRoles": [] },
-      { "Id": "admin-console", "Name": "Admin Console", "Url": "/#/admin/access" }
+      { "Id": "admin-console", "Name": "Admin Console", "Url": "/#/admin/access", "AllowedRoles": [ "Admin" ] }
     ]
   }
 }
@@ -76,6 +76,9 @@ try {
     $adminConsole = @($updated.Portal.Applications | Where-Object Id -eq 'admin-console')[0]
     if ($adminConsole.Url -cne '/#/admin/access') {
         throw "The legacy Admin Console route was not migrated to the reviewed production route: $($adminConsole.Url)"
+    }
+    if ((@($adminConsole.AllowedRoles) -join '|') -cne 'Admin') {
+        throw 'The Admin Console did not retain the template-owned Admin-only visibility policy.'
     }
     $quality = @($updated.Portal.Applications | Where-Object Id -eq 'quality-assurance')
     if ($quality.Count -ne 1 -or $quality[0].Url -ne 'http://SON-IIS2:5170') {

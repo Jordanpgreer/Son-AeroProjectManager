@@ -23,6 +23,7 @@ interface SafeNumberInputProps {
   testId?: string
   allowExpression?: boolean
   integer?: boolean
+  disabled?: boolean
 }
 
 export function SafeNumberInput({
@@ -36,6 +37,7 @@ export function SafeNumberInput({
   testId,
   allowExpression = false,
   integer = false,
+  disabled = false,
 }: SafeNumberInputProps) {
   const errorId = useId()
   const displayValue = value * scale
@@ -87,6 +89,7 @@ export function SafeNumberInput({
         aria-invalid={invalid}
         aria-describedby={invalid ? errorId : undefined}
         data-testid={testId}
+        disabled={disabled}
         onChange={(event) => {
           const nextDraft = event.currentTarget.value
           setDraft(nextDraft)
@@ -146,7 +149,6 @@ interface EstimateContextFieldsProps {
   estimate: EstimateInput
   onMetadataChange: (field: keyof EstimateMetadata, value: string) => void
   onYieldChange: (value: number) => void
-  onSalesMarkupChange: (value: number) => void
   onRubberFieldChange: (
     field: 'difficulty' | 'cavities' | 'toolingMarkup',
     value: number | null,
@@ -180,7 +182,6 @@ export function EstimateContextFields({
   estimate,
   onMetadataChange,
   onYieldChange,
-  onSalesMarkupChange,
   onRubberFieldChange,
 }: EstimateContextFieldsProps) {
   const optionalMetadataPanelId = useId()
@@ -278,22 +279,6 @@ export function EstimateContextFields({
               step={0.1}
               scale={100}
               testId="yield-input"
-            />
-            <span aria-hidden="true">%</span>
-          </div>
-        </label>
-        <label>
-          <span>Sales markup</span>
-          <div className="input-with-suffix">
-            <SafeNumberInput
-              value={estimate.salesMarkup}
-              onValueChange={onSalesMarkupChange}
-              label="Sales markup percentage"
-              min={0}
-              max={1000}
-              step={0.1}
-              scale={100}
-              testId="sales-markup-input"
             />
             <span aria-hidden="true">%</span>
           </div>

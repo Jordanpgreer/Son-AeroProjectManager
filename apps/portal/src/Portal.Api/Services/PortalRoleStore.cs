@@ -96,7 +96,7 @@ public sealed class PortalRoleStore(PortalRoleDbContext db, ILogger<PortalRoleSt
             if (engineeringRole is not null) roles[ApplicationModules.Engineering] = engineeringRole;
             foreach (var moduleKey in new[] { ApplicationModules.Estimating, ApplicationModules.QualityAssurance })
             {
-                var role = ApplicationModuleCatalog.RoleForPermissions(moduleKey, permissions);
+                var role = RoleForGrantedModulePermissions(moduleKey, permissions);
                 if (role is not null) roles[moduleKey] = role;
             }
 
@@ -109,5 +109,19 @@ public sealed class PortalRoleStore(PortalRoleDbContext db, ILogger<PortalRoleSt
                 "The shared module access store is unavailable; module cards will use the safe fallback.");
             return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
+    }
+
+    private static string? RoleForGrantedModulePermissions(
+        string moduleKey,
+        IReadOnlyCollection<string> permissions)
+    {
+        var role = ApplicationModuleCatalog.RoleForPermissions(moduleKey, permissions);
+        if (role is not null) return role;
+        var entryPermission = moduleKey == ApplicationModules.QualityAssurance
+            ? QualityAssurancePermissions.ModuleView
+            : "estimating.view";
+        return permissions.Contains(entryPermission, StringComparer.OrdinalIgnoreCase)
+            ? ApplicationRoles.Viewer
+            : null;
     }
 }

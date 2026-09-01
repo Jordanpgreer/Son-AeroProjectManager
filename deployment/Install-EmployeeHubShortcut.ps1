@@ -1,12 +1,13 @@
 <#
-    Installs a shared Arda Hub desktop shortcut for all users of a workstation.
+    Installs a shared Arda desktop shortcut for all users of a workstation.
     Run elevated locally, through an endpoint-management tool, or as Local System.
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 param(
     [string]$HubUri = 'https://hub.son4l.local',
-    [string]$ShortcutName = 'Arda Hub',
-    [string]$IconSource
+    [string]$ShortcutName = 'Arda',
+    [string]$IconSource,
+    [string]$DesktopPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -59,15 +60,19 @@ if ([IO.Path]::GetExtension($resolvedIconSource) -ine '.ico') {
     throw 'IconSource must be a Windows .ico file.'
 }
 
-$commonDesktop = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonDesktopDirectory)
-if ([string]::IsNullOrWhiteSpace($commonDesktop)) {
-    throw 'Windows did not return a Common Desktop directory.'
+$commonDesktop = if ([string]::IsNullOrWhiteSpace($DesktopPath)) {
+    [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonDesktopDirectory)
+} else {
+    [IO.Path]::GetFullPath($DesktopPath)
+}
+if ([string]::IsNullOrWhiteSpace($commonDesktop) -or
+    -not (Test-Path -LiteralPath $commonDesktop -PathType Container)) {
+    throw "Common Desktop directory was not found: $commonDesktop"
 }
 
 $brandingDirectory = Join-Path $env:ProgramData 'Arda'
 $installedIcon = Join-Path $brandingDirectory 'arda.ico'
 $shortcutPath = Join-Path $commonDesktop ($shortcutLeaf + '.url')
-$legacyShortcutPath = Join-Path $commonDesktop 'Son-Aero Hub.url'
 $normalizedUri = $parsedUri.AbsoluteUri
 $shortcutContent = @(
     '[InternetShortcut]'
@@ -77,27 +82,58 @@ $shortcutContent = @(
 ) -join "`r`n"
 $shortcutContent += "`r`n"
 
-# Migrate only the exact legacy shortcut when it points at the same approved Hub origin.
-# A same-named file with another destination is preserved as user-owned content.
-$removeLegacyShortcut = $false
-if ($shortcutLeaf -ieq 'Arda Hub' -and
-    $legacyShortcutPath -ine $shortcutPath -and
-    (Test-Path -LiteralPath $legacyShortcutPath -PathType Leaf)) {
-    $legacyUrlLine = @([IO.File]::ReadAllLines($legacyShortcutPath) | Where-Object {
-        $_ -match '^URL=(.+)$'
-    })
-    $removeLegacyShortcut = $legacyUrlLine.Count -eq 1 -and
-        $legacyUrlLine[0].Substring(4).Trim() -ieq $normalizedUri
+# Migrate only exact shortcut payloads written by prior versions of this installer.
+# Same-named files with any different content are user-owned and must be preserved.
+$legacySonAeroIcon = Join-Path (Join-Path $env:ProgramData 'SonAero') 'son-aero.ico'
+$legacySonAeroContent = @(
+    '[InternetShortcut]'
+    "URL=$normalizedUri"
+    "IconFile=$legacySonAeroIcon"
+    'IconIndex=0'
+) -join "`r`n"
+$legacySonAeroContent += "`r`n"
+$legacyShortcutDefinitions = @(
+    [pscustomobject]@{
+        Path = Join-Path $commonDesktop 'Arda Hub.url'
+        ApprovedContent = @($shortcutContent)
+    },
+    [pscustomobject]@{
+        Path = Join-Path $commonDesktop 'Son-Aero Hub.url'
+        ApprovedContent = @($shortcutContent, $legacySonAeroContent)
+    }
+)
+$legacyShortcutsToRemove = @()
+foreach ($legacyDefinition in $legacyShortcutDefinitions) {
+    if ($legacyDefinition.Path -ieq $shortcutPath -or
+        -not (Test-Path -LiteralPath $legacyDefinition.Path -PathType Leaf)) {
+        continue
+    }
+    try {
+        $existingContent = [IO.File]::ReadAllText($legacyDefinition.Path)
+        if (@($legacyDefinition.ApprovedContent | Where-Object { $_ -ceq $existingContent }).Count -gt 0) {
+            $legacyShortcutsToRemove += $legacyDefinition.Path
+        }
+    }
+    catch {
+        Write-Warning "Preserved legacy shortcut because its installer signature could not be verified: $($legacyDefinition.Path)"
+    }
 }
 
 if ($WhatIfPreference) {
     $null = $PSCmdlet.ShouldProcess($brandingDirectory, 'Create shared Arda branding directory')
     $null = $PSCmdlet.ShouldProcess($installedIcon, "Copy icon from '$resolvedIconSource'")
     $null = $PSCmdlet.ShouldProcess($shortcutPath, "Create shared shortcut to '$normalizedUri'")
-    if ($removeLegacyShortcut) {
-        $null = $PSCmdlet.ShouldProcess($legacyShortcutPath, 'Remove verified legacy Son-Aero Hub shortcut')
+    foreach ($legacyShortcutPath in $legacyShortcutsToRemove) {
+        $null = $PSCmdlet.ShouldProcess($legacyShortcutPath, 'Remove verified installer-owned legacy shortcut')
     }
     Write-Host 'WHATIF_READY: no shortcut files were changed.'
+    [pscustomobject]@{
+        Status = 'WHATIF_READY'
+        Shortcut = $shortcutPath
+        Target = $normalizedUri
+        Icon = $installedIcon
+        LegacyShortcutsToRemove = @($legacyShortcutsToRemove)
+    }
     return
 }
 
@@ -133,16 +169,17 @@ if ($writeShortcut -and $PSCmdlet.ShouldProcess($shortcutPath, "Create shared sh
     $performedUpdate = $true
 }
 
-if ($removeLegacyShortcut -and
-    $PSCmdlet.ShouldProcess($legacyShortcutPath, 'Remove verified legacy Son-Aero Hub shortcut')) {
-    Remove-Item -LiteralPath $legacyShortcutPath -Force
-    $performedUpdate = $true
+foreach ($legacyShortcutPath in $legacyShortcutsToRemove) {
+    if ($PSCmdlet.ShouldProcess($legacyShortcutPath, 'Remove verified installer-owned legacy shortcut')) {
+        Remove-Item -LiteralPath $legacyShortcutPath -Force
+        $performedUpdate = $true
+    }
 }
 
 [pscustomobject]@{
     Status = if ($performedUpdate) {
         'INSTALLED_OR_UPDATED'
-    } elseif ($copyIcon -or $writeShortcut -or $removeLegacyShortcut) {
+    } elseif ($copyIcon -or $writeShortcut -or $legacyShortcutsToRemove.Count -gt 0) {
         'CHANGE_NOT_APPROVED'
     } else {
         'ALREADY_CURRENT'

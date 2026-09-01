@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.Extensions.Configuration;
 using Portal.Api.Models;
 using Portal.Api.Services;
+using SonAero.Platform.Security;
 
 namespace Portal.Tests;
 
@@ -62,6 +63,20 @@ public sealed class ApplicationRegistryTests
         var entry = new ApplicationEntry { AllowedRoles = new List<string>() };
 
         Assert.True(ApplicationRegistry.IsVisibleTo(entry, "Viewer"));
+    }
+
+    [Fact]
+    public void AdminConsole_IsAdminOnlyEvenIfConfigurationOmitsAllowedRoles()
+    {
+        var entry = new ApplicationEntry
+        {
+            Id = ApplicationRegistry.AdminConsoleApplicationId,
+            AllowedRoles = []
+        };
+
+        Assert.False(ApplicationRegistry.IsVisibleTo(entry, ApplicationRoles.Viewer));
+        Assert.False(ApplicationRegistry.IsVisibleTo(entry, ApplicationRoles.Editor));
+        Assert.True(ApplicationRegistry.IsVisibleTo(entry, ApplicationRoles.Admin));
     }
 
     [Fact]

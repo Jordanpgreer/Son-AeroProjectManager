@@ -87,12 +87,19 @@ child raw material     = sum of child material unit costs
 child raw process      = sum of child outside-process unit costs
 child amortized NRE    = child raw one-time NRE / q
 
-child unit cost =
+child unit cost before per-quantity margin =
   child burdened labor
   + child raw material
   + child raw process
   + child amortized NRE
-  + child facilities
+
+child per-quantity margin =
+  child unit cost before per-quantity margin
+  × child per-quantity margin rate
+
+child unit cost =
+  child unit cost before per-quantity margin
+  + child per-quantity margin
 ```
 
 A linked parent process row ignores its setup and run fields and uses the selected child's unit
@@ -103,7 +110,7 @@ linked parent process unit cost = child unit cost × quantityPerParent
 ```
 
 The linked amount then participates in the parent `raw process` total. Parent process G&A and
-profit are applied once at the parent level. Child NRE and facilities are already part of child
+profit are applied once at the parent level. Child NRE and per-quantity margin are already part of child
 unit cost and are not added again elsewhere. A dangling child ID is an explicit
 `missing-subassembly-link` error. An unresolved child operation rate is an explicit
 `missing-subassembly-rate` error carrying the child ID and part number. Calculation results retain
@@ -135,12 +142,19 @@ Final price:
 yield adjustment = pre-G&A subtotal × (1 - yield)
 sales markup     = component subtotal × sales markup rate
 
-sell price =
+price before per-quantity margin =
   component subtotal
   + amortized NRE
   + yield adjustment
-  + facilities
   + sales markup
+
+per-quantity margin =
+  price before per-quantity margin
+  × per-quantity margin rate
+
+sell price =
+  price before per-quantity margin
+  + per-quantity margin
 
 extended value = q × sell price
 
@@ -184,10 +198,10 @@ Automated tests cover:
 - year switching;
 - zero-value ratio safety;
 - Rubber metadata non-effects;
-- a complete Standard fixture across all eight quantity tiers;
+- a complete Standard fixture across the five default quantity tiers and added tiers;
 - Subassembly workbook parity for one child and multiple ordered children;
 - quantity-per-parent multiplication;
-- child NRE and facilities inclusion exactly once;
+- child NRE and per-quantity margin inclusion exactly once;
 - absence of child G&A/profit and parent process double-loading; and
 - explicit dangling-link and missing-child-rate failures.
 

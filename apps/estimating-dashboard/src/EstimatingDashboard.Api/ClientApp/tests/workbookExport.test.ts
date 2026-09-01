@@ -19,6 +19,8 @@ test('exports a populated workbook-shaped snapshot with child roll-up values and
   const child = createSubassemblyDefaults(0)
   child.partNumber = 'CHILD-200'
   child.revision = 'B'
+  estimate.perQuantityMarginByQuantity[10] = 0.05
+  child.perQuantityMarginByQuantity[10] = 0.125
   child.operations[2].setupMinutes = 60
   child.operations[2].runMinutes = 2
   child.materials[0] = {
@@ -64,11 +66,17 @@ test('exports a populated workbook-shaped snapshot with child roll-up values and
   assert.equal(workbook.getWorksheet('Top Assy')?.getCell('A46').value, 'CHILD-200')
   assert.equal(workbook.getWorksheet('Top Assy')?.getCell('B46').value, 3)
   assert.equal(workbook.getWorksheet('Top Assy')?.getCell('C46').value, true)
+  assert.equal(workbook.getWorksheet('Top Assy')?.getCell('D78').value, 'Per Quantity Margin %')
+  assert.equal(workbook.getWorksheet('Top Assy')?.getCell('F78').value, 0.05)
+  assert.equal(workbook.getWorksheet('Top Assy')?.getCell('F78').numFmt, '0.0%')
   assert.equal(
     workbook.getWorksheet('Top Assy')?.getCell('F46').value,
     result.processes[0].unitCostByQuantity[10],
   )
   assert.equal(workbook.getWorksheet('Subassy 1')?.getCell('B3').value, 'CHILD-200')
+  assert.equal(workbook.getWorksheet('Subassy 1')?.getCell('D62').value, 'Per Quantity Margin %')
+  assert.equal(workbook.getWorksheet('Subassy 1')?.getCell('F62').value, 0.125)
+  assert.equal(workbook.getWorksheet('Subassy 1')?.getCell('F62').numFmt, '0.0%')
   assert.equal(
     workbook.getWorksheet('Subassy 1')?.getCell('F63').value,
     result.subassemblies[0].quantities?.[10].unitCost,

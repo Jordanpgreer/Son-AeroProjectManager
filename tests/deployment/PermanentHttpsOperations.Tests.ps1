@@ -440,13 +440,17 @@ Assert-True ($userAccessSource -match [regex]::Escape(
 Assert-Equal (Get-ParameterDefault -Path $ShortcutScriptPath -ParameterName HubUri) `
     'https://hub.son4l.local' 'The shared shortcut does not default to the permanent Portal origin.'
 Assert-Equal (Get-ParameterDefault -Path $ShortcutScriptPath -ParameterName ShortcutName) `
-    'Arda Hub' 'The shared shortcut does not use the Arda application identity by default.'
+    'Arda' 'The shared shortcut does not use the current Arda application identity by default.'
 Assert-Equal (Get-ParameterDefault -Path $PackageScriptPath -ParameterName HubUri) `
     'https://hub.son4l.local' 'The package builder does not default to the permanent Portal origin.'
 $shortcutSource = Get-Content -LiteralPath $ShortcutScriptPath -Raw
 Assert-True ($shortcutSource.Contains("`$packagedIcon = Join-Path `$PSScriptRoot 'arda.ico'") -and
     $shortcutSource.Contains("`$installedIcon = Join-Path `$brandingDirectory 'arda.ico'")) `
     'The shared shortcut does not install the packaged Arda icon.'
+Assert-True ($shortcutSource.Contains("Path = Join-Path `$commonDesktop 'Arda Hub.url'") -and
+    $shortcutSource.Contains("Path = Join-Path `$commonDesktop 'Son-Aero Hub.url'") -and
+    $shortcutSource.Contains('$_ -ceq $existingContent')) `
+    'The shared shortcut does not restrict legacy cleanup to exact installer-owned payloads.'
 foreach ($approvedOrigin in @(
     'https://hub.son4l.local/', 'http://son-iis2:5140/', 'https://son-iis2:6140/'
 )) {
@@ -460,6 +464,49 @@ try {
 catch { $unsafeShortcutOriginRejected = $true }
 Assert-True $unsafeShortcutOriginRejected `
     'The direct shortcut installer accepted an unapproved destination.'
+
+$shortcutTestRoot = Join-Path ([IO.Path]::GetTempPath()) ('arda-employee-shortcut-test-' + [Guid]::NewGuid().ToString('N'))
+[IO.Directory]::CreateDirectory($shortcutTestRoot) | Out-Null
+try {
+    $normalizedUri = 'https://hub.son4l.local/'
+    $installedIcon = Join-Path (Join-Path $env:ProgramData 'Arda') 'arda.ico'
+    $installerOwnedContent = @(
+        '[InternetShortcut]'
+        "URL=$normalizedUri"
+        "IconFile=$installedIcon"
+        'IconIndex=0'
+    ) -join "`r`n"
+    $installerOwnedContent += "`r`n"
+    $ownedLegacyPath = Join-Path $shortcutTestRoot 'Arda Hub.url'
+    [IO.File]::WriteAllText($ownedLegacyPath, $installerOwnedContent, [Text.Encoding]::ASCII)
+    $unrelatedLegacyPath = Join-Path $shortcutTestRoot 'Son-Aero Hub.url'
+    [IO.File]::WriteAllText(
+        $unrelatedLegacyPath,
+        "[InternetShortcut]`r`nURL=https://unapproved.example.com/`r`n",
+        [Text.Encoding]::ASCII)
+
+    $previewRecords = @(& $ShortcutScriptPath `
+        -DesktopPath $shortcutTestRoot `
+        -HubUri $normalizedUri `
+        -IconSource (Join-Path $PSScriptRoot '..\..\shared\branding\arda.ico') `
+        -WhatIf *>&1)
+    $previewStatus = @($previewRecords | Where-Object {
+        $null -ne $_ -and
+        $null -ne $_.PSObject.Properties['Status'] -and
+        [string]$_.Status -ceq 'WHATIF_READY'
+    })
+    Assert-True ($previewStatus.Count -eq 1) `
+        'The shared shortcut preview did not return its readiness status.'
+    Assert-True (@($previewStatus[0].LegacyShortcutsToRemove) -contains $ownedLegacyPath) `
+        'The shared shortcut preview did not recognize its exact installer-owned legacy shortcut.'
+    Assert-True (@($previewStatus[0].LegacyShortcutsToRemove) -notcontains $unrelatedLegacyPath) `
+        'The shared shortcut preview tried to remove an unrelated same-named shortcut.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $shortcutTestRoot 'Arda.url'))) `
+        'The shared shortcut preview unexpectedly created Arda.url.'
+}
+finally {
+    Remove-Item -LiteralPath $shortcutTestRoot -Recurse -Force
+}
 $bootstrapSource = Get-Content -LiteralPath $BootstrapScriptPath -Raw
 Assert-True ($bootstrapSource -match "SonAeroHubInstaller\.json") `
     'The employee bootstrap does not consume the packaged Hub address.'

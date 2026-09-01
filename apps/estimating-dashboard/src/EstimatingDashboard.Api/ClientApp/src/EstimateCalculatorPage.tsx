@@ -4,14 +4,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   MaterialsSection,
   ProcessesSection,
-  FacilitiesSection,
+  PerQuantityMarginSection,
 } from './CalculatorCostSections'
 import {
   EstimateContextFields,
   OperationsSection,
 } from './CalculatorInputSections'
 import CalculatorResults from './CalculatorResults'
-import CalculatorWorkflowGuide from './CalculatorWorkflowGuide'
 import { calculateEstimate } from './calculations'
 import {
   createEstimateDefaults,
@@ -37,19 +36,20 @@ import {
 import SubassembliesSection from './SubassembliesSection'
 import QuantityEditor from './QuantityEditor'
 import { formatQuoteRevision } from './quoteRevision'
-import type {
-  EstimateInput,
-  EstimateKind,
-  EstimateMetadata,
-  EstimateOperationInput,
-  EstimateYear,
-  MaterialInput,
-  ProcessInput,
-  QuantityTier,
-  RubberDifficulty,
-  SubassemblyInput,
+import {
+  ESTIMATE_YEARS,
+  replaceEstimateQuantities,
+  type EstimateInput,
+  type EstimateKind,
+  type EstimateMetadata,
+  type EstimateOperationInput,
+  type EstimateYear,
+  type MaterialInput,
+  type ProcessInput,
+  type QuantityTier,
+  type RubberDifficulty,
+  type SubassemblyInput,
 } from './types'
-import { ESTIMATE_YEARS } from './types'
 import './calculator.css'
 
 function displayPercent(value: number) {
@@ -506,6 +506,41 @@ export default function EstimateCalculatorPage({
 
   return (
     <div className="calculator-page">
+      <div className="calculator-top-actions" aria-label="Estimate utilities">
+        <button
+          type="button"
+          className="secondary-button"
+          data-testid="reset-estimate"
+          disabled={!canEditEstimate}
+          onClick={resetEstimate}
+        >
+          <RotateCcw size={16} aria-hidden="true" />
+          Reset
+        </button>
+        <input
+          ref={workbookInputRef}
+          className="sr-only"
+          type="file"
+          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          aria-label="Upload estimate workbook"
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0]
+            event.currentTarget.value = ''
+            if (file) void importWorkbook(file)
+          }}
+        />
+        <button
+          type="button"
+          className="secondary-button"
+          data-testid="import-estimate-workbook"
+          disabled={!canEditEstimate || importing}
+          onClick={() => workbookInputRef.current?.click()}
+        >
+          <Upload size={16} aria-hidden="true" />
+          {importing ? 'Importing…' : 'Import Excel'}
+        </button>
+      </div>
+
         <section className="quote-revision-bar" aria-label="Whole-quote rev history">
           <div className="quote-revision-summary">
             <span className="toolbar-label">Quote history</span>
@@ -617,38 +652,6 @@ export default function EstimateCalculatorPage({
           <button
             type="button"
             className="secondary-button"
-            data-testid="reset-estimate"
-            disabled={!canEditEstimate}
-            onClick={resetEstimate}
-          >
-            <RotateCcw size={16} aria-hidden="true" />
-            Reset
-          </button>
-          <input
-            ref={workbookInputRef}
-            className="sr-only"
-            type="file"
-            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            aria-label="Upload estimate workbook"
-            onChange={(event) => {
-              const file = event.currentTarget.files?.[0]
-              event.currentTarget.value = ''
-              if (file) void importWorkbook(file)
-            }}
-          />
-          <button
-            type="button"
-            className="secondary-button"
-            data-testid="import-estimate-workbook"
-            disabled={!canEditEstimate || importing}
-            onClick={() => workbookInputRef.current?.click()}
-          >
-            <Upload size={16} aria-hidden="true" />
-            {importing ? 'Importing…' : 'Import Excel'}
-          </button>
-          <button
-            type="button"
-            className="secondary-button"
             data-testid="export-estimate-workbook"
             disabled={exporting || !calculation.ok}
             onClick={() => void exportWorkbook()}
@@ -692,15 +695,12 @@ export default function EstimateCalculatorPage({
         </div>
       </section>
 
-      <CalculatorWorkflowGuide estimate={estimate} calculationReady={calculation.ok} />
-
       <fieldset className="permission-fieldset" disabled={!canEditEstimate}>
         <legend className="sr-only">Estimate inputs</legend>
         <EstimateContextFields
           estimate={estimate}
           onMetadataChange={updateMetadata}
           onYieldChange={(yieldValue) => updateEstimate((current) => ({ ...current, yield: yieldValue }))}
-          onSalesMarkupChange={(salesMarkup) => updateEstimate((current) => ({ ...current, salesMarkup }))}
           onRubberFieldChange={updateRubberField}
         />
       </fieldset>
@@ -763,19 +763,19 @@ export default function EstimateCalculatorPage({
             editable={canEditEstimate}
             onChange={(quantities) => {
               if (!quantities.includes(selectedQuantity)) setSelectedQuantity(quantities[0])
-              updateEstimate((current) => ({ ...current, quantities }))
+              updateEstimate((current) => replaceEstimateQuantities(current, quantities))
             }}
           />
         </section>
         <fieldset className="permission-fieldset" disabled={!canEditEstimate}>
-          <legend className="sr-only">Optional facilities margin</legend>
-          <FacilitiesSection
-            values={estimate.facilitiesByQuantity}
+          <legend className="sr-only">Per quantity margin</legend>
+          <PerQuantityMarginSection
+            values={estimate.perQuantityMarginByQuantity}
             quantities={estimate.quantities}
             onChange={(quantity, value) => updateEstimate((current) => ({
               ...current,
-              facilitiesByQuantity: {
-                ...current.facilitiesByQuantity,
+              perQuantityMarginByQuantity: {
+                ...current.perQuantityMarginByQuantity,
                 [quantity]: value,
               },
             }))}
@@ -836,6 +836,9 @@ export default function EstimateCalculatorPage({
       <CalculatorResults
         result={calculation}
         quantities={estimate.quantities}
+        salesMarkup={estimate.salesMarkup}
+        salesMarkupEditable={canEditEstimate}
+        onSalesMarkupChange={(salesMarkup) => updateEstimate((current) => ({ ...current, salesMarkup }))}
         selectedQuantity={selectedQuantity}
         onSelectedQuantityChange={(quantity) => {
           setSelectedQuantity(quantity)

@@ -9,10 +9,14 @@ import type {
   EstimateCalculationSuccess,
   QuantityTier,
 } from './types'
+import { SafeNumberInput } from './CalculatorInputSections'
 
 interface CalculatorResultsProps {
   result: EstimateCalculationResult
   quantities: QuantityTier[]
+  salesMarkup: number
+  salesMarkupEditable: boolean
+  onSalesMarkupChange: (value: number) => void
   selectedQuantity: QuantityTier
   onSelectedQuantityChange: (quantity: QuantityTier) => void
 }
@@ -162,7 +166,7 @@ function AuditDetails({
             ['Loaded one-time NRE', audit.oneTimeNre],
             ['Amortized NRE', audit.amortizedNre],
             ['Yield adjustment', audit.yieldAdjustment],
-            ['Facilities', audit.facilities],
+            ['Per quantity margin', audit.perQuantityMargin],
             ['Sales markup', audit.salesMarkup],
             ['Sell price', audit.sellPrice],
           ].map(([label, value]) => (
@@ -171,6 +175,10 @@ function AuditDetails({
               <dd data-raw-value={value}>{currency(value as number)}</dd>
             </div>
           ))}
+          <div>
+            <dt>Per quantity margin rate</dt>
+            <dd data-raw-value={audit.perQuantityMarginRate}>{percent(audit.perQuantityMarginRate)}</dd>
+          </div>
         </dl>
 
         <div className="table-scroll">
@@ -293,6 +301,9 @@ function AuditDetails({
 export default function CalculatorResults({
   result,
   quantities,
+  salesMarkup,
+  salesMarkupEditable,
+  onSalesMarkupChange,
   selectedQuantity,
   onSelectedQuantityChange,
 }: CalculatorResultsProps) {
@@ -308,6 +319,23 @@ export default function CalculatorResults({
           <h2 id="pricing-heading">Pricing Matrix</h2>
         </div>
         <div className="pricing-heading-actions">
+          <label className="pricing-markup-input">
+            <span>Sales markup</span>
+            <span className="input-with-suffix">
+              <SafeNumberInput
+                value={salesMarkup}
+                onValueChange={onSalesMarkupChange}
+                label="Sales markup percentage"
+                min={0}
+                max={1000}
+                step={0.1}
+                scale={100}
+                testId="sales-markup-input"
+                disabled={!salesMarkupEditable}
+              />
+              <span aria-hidden="true">%</span>
+            </span>
+          </label>
           <span className="live-status"><CheckCircle2 size={14} aria-hidden="true" /> Calculated</span>
           <QuantityPicker
             quantities={quantities}

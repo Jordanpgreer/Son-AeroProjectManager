@@ -14,10 +14,13 @@ public sealed class QualityPermissionSeederTests
     {
         Assert.Contains(QualityAssurancePermissions.All, permission => permission.Key == QualityAssurancePermissions.AssignmentEligible);
         Assert.Contains(QualityAssurancePermissions.All, permission => permission.Key == QualityAssurancePermissions.ResponsibleGroupEligible);
+        Assert.Contains(QualityAssurancePermissions.All, permission => permission.Key == QualityAssurancePermissions.ManagerReview);
         Assert.DoesNotContain(QualityAssurancePermissions.AssignmentEligible, QualityAssurancePermissions.AdministratorDefaults);
         Assert.DoesNotContain(QualityAssurancePermissions.ResponsibleGroupEligible, QualityAssurancePermissions.AdministratorDefaults);
         Assert.DoesNotContain(QualityAssurancePermissions.AssignmentEligible, QualityAssurancePermissions.EditorDefaults);
         Assert.DoesNotContain(QualityAssurancePermissions.ResponsibleGroupEligible, QualityAssurancePermissions.EditorDefaults);
+        Assert.DoesNotContain(QualityAssurancePermissions.ManagerReview, QualityAssurancePermissions.EditorDefaults);
+        Assert.Contains(QualityAssurancePermissions.ManagerReview, QualityAssurancePermissions.AdministratorDefaults);
         Assert.NotEqual(
             QualityAssurancePermissions.AssignmentEligible,
             QualityAssurancePermissions.ResponsibleGroupEligible);
@@ -30,6 +33,19 @@ public sealed class QualityPermissionSeederTests
             QualityAssurancePermissions.All.Select(permission => permission.Key),
             ApplicationModuleCatalog.PermissionsForModule(ApplicationModules.QualityAssurance)
                 .Select(permission => permission.Key));
+    }
+
+    [Fact]
+    public void QualityManagerToggleExpandsOnlyItsRequiredReviewAccess()
+    {
+        var expanded = QualityAssurancePermissions.Expand([QualityAssurancePermissions.ManagerReview]);
+
+        Assert.Contains(QualityAssurancePermissions.ModuleView, expanded);
+        Assert.Contains(QualityAssurancePermissions.ShipmentsView, expanded);
+        Assert.Contains(QualityAssurancePermissions.AssignmentView, expanded);
+        Assert.DoesNotContain(QualityAssurancePermissions.TeamDashboardView, expanded);
+        Assert.DoesNotContain(QualityAssurancePermissions.AssignmentGroup, expanded);
+        Assert.DoesNotContain(QualityAssurancePermissions.AssignmentUser, expanded);
     }
 
     [Fact]

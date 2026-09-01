@@ -139,7 +139,7 @@ function Sync-PortalProductionApplicationCatalog {
     $production = Read-PortalCatalogJson -Path $productionPath
     $template = Read-PortalCatalogJson -Path $ProductionTemplatePath
 
-    $templateOwnedAllowedRolesIds = @('engineering-hub', 'quality-assurance')
+    $templateOwnedAllowedRolesIds = @('engineering-hub', 'quality-assurance', 'admin-console')
     $templateOwnedUrlIds = @('admin-console')
     $baseApplications = @($base.Portal.Applications)
     if ($baseApplications.Count -eq 0) {
@@ -166,8 +166,8 @@ function Sync-PortalProductionApplicationCatalog {
             $productionApplication = $productionMap[$id]
             if ($templateMap.ContainsKey($id) -and $id -in $templateOwnedAllowedRolesIds) {
                 # AllowedRoles is a release policy, not a server-local customization. Applying
-                # the template value for Engineering and Quality ensures a carried-forward
-                # production file retains the reviewed active policy. Other first-party
+                # the template value for Engineering, Quality, and Admin Console ensures a
+                # carried-forward production file retains the reviewed visibility policy. Other first-party
                 # and custom application role policies remain untouched.
                 Set-PortalTemplateAllowedRolesPolicy `
                     -ProductionApplication $productionApplication `

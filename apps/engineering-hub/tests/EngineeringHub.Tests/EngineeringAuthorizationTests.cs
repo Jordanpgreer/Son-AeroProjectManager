@@ -203,6 +203,39 @@ public sealed class EngineeringAuthorizationTests
     }
 
     [Fact]
+    public async Task Role_store_resolves_admin_display_names_for_product_history()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<EngineeringRoleDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new EngineeringRoleDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        db.Users.AddRange(
+            new EngineeringUserRecord
+            {
+                AccountName = @"SON4L\joshgreer",
+                DisplayName = "Josh Greer",
+                IsActive = true
+            },
+            new EngineeringUserRecord
+            {
+                AccountName = "SON4L/former.user",
+                DisplayName = "Former Teammate",
+                IsActive = false
+            });
+        await db.SaveChangesAsync();
+
+        var store = new EngineeringRoleStore(db, NullLogger<EngineeringRoleStore>.Instance);
+        var displayNames = await store.FindDisplayNamesAsync(
+            [@"son4l\JOSHGREER", @"SON4L\former.user"]);
+
+        Assert.Equal("Josh Greer", displayNames[@"SON4L\joshgreer"]);
+        Assert.Equal("Former Teammate", displayNames[@"SON4L\former.user"]);
+    }
+
+    [Fact]
     public async Task Registered_user_without_module_view_permission_is_denied()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

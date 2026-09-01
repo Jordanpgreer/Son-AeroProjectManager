@@ -185,7 +185,7 @@ function UserProfile({ me, className = '' }: { me: Me | null; className?: string
         <div className="user-copy">
           <strong>{me.displayName}</strong>
         </div>
-        <span className="avatar" title={me.accountName}>
+        <span className="avatar" title={me.displayName}>
           {initials(me.displayName)}
         </span>
       </>
@@ -730,7 +730,7 @@ export default function App() {
                       editRequest={drawingEditRequest}
                       archiveRequest={drawingArchiveRequest}
                       auditRequest={drawingAuditRequest}
-                      actorName={me?.accountName || me?.displayName || 'Signed-in user'}
+                      actorName={me?.displayName || 'Signed-in user'}
                       permissions={permissions}
                     />
                   )
@@ -741,7 +741,7 @@ export default function App() {
                 ) : activeSection.id === 'tooling-management' ? (
                   <ToolingManagement
                     toolId={toolingRecordId}
-                    actorName={me?.displayName || me?.accountName || 'Signed-in user'}
+                    actorName={me?.displayName || 'Signed-in user'}
                     permissions={permissions}
                     onRecordChange={setToolingHeader}
                     editRequest={toolingEditRequest}

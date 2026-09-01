@@ -175,7 +175,9 @@ function populateChildSheet(
     return current ? current.burdenedLabor + current.rawMaterial + current.rawProcess : 0
   })
   setQuantityRow(sheet, 61, estimate.quantities, (quantity) => audit.quantities?.[quantity]?.amortizedNre ?? 0)
-  setQuantityRow(sheet, 62, estimate.quantities, (quantity) => audit.quantities?.[quantity]?.facilities ?? 0)
+  setCell(sheet, 'D62', 'Per Quantity Margin %')
+  setQuantityRow(sheet, 62, estimate.quantities, (quantity) => child.perQuantityMarginByQuantity[quantity] ?? 0)
+  WORKBOOK_COLUMNS.forEach((column) => { sheet.getCell(`${column}62`).numFmt = '0.0%' })
   setQuantityRow(sheet, 63, estimate.quantities, (quantity) => audit.quantities?.[quantity]?.unitCost ?? 0)
   setCell(sheet, 'D63', child.partNumber)
 }
@@ -235,7 +237,9 @@ function populateParentSheet(
   setQuantityRow(sheet, 75, estimate.quantities, (quantity) => result.quantities[quantity].componentSubtotal)
   setQuantityRow(sheet, 76, estimate.quantities, (quantity) => result.quantities[quantity].amortizedNre)
   setQuantityRow(sheet, 77, estimate.quantities, (quantity) => result.quantities[quantity].yieldAdjustment)
-  setQuantityRow(sheet, 78, estimate.quantities, (quantity) => result.quantities[quantity].facilities)
+  setCell(sheet, 'D78', 'Per Quantity Margin %')
+  setQuantityRow(sheet, 78, estimate.quantities, (quantity) => estimate.perQuantityMarginByQuantity[quantity] ?? 0)
+  WORKBOOK_COLUMNS.forEach((column) => { sheet.getCell(`${column}78`).numFmt = '0.0%' })
   setQuantityRow(sheet, 79, estimate.quantities, (quantity) => result.quantities[quantity].salesMarkup)
   setQuantityRow(sheet, 80, estimate.quantities, (quantity) => result.quantities[quantity].sellPrice)
   setQuantityRow(sheet, 81, estimate.quantities, (quantity) => result.quantities[quantity].grossMargin)

@@ -167,6 +167,35 @@ public sealed class AccessGroupEndpointTests
     }
 
     [Fact]
+    public async Task CreateGroup_QualityManagerToggleAddsOnlyRequiredReviewPrerequisites()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync();
+
+        var created = await UserEndpoints.CreateGroupAsync(
+            new AccessGroupUpsertDto(
+                "Quality Managers",
+                "Reviews work awaiting a Quality owner",
+                false,
+                [QualityAssurancePermissions.ManagerReview]),
+            fixture.Db,
+            CancellationToken.None);
+
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Created<AccessGroupDto>>(created);
+        var permissions = (await fixture.Db.GroupPermissions
+            .Select(permission => permission.PermissionKey)
+            .ToListAsync())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(4, permissions.Count);
+        Assert.Contains(QualityAssurancePermissions.ModuleView, permissions);
+        Assert.Contains(QualityAssurancePermissions.ShipmentsView, permissions);
+        Assert.Contains(QualityAssurancePermissions.AssignmentView, permissions);
+        Assert.Contains(QualityAssurancePermissions.ManagerReview, permissions);
+        Assert.DoesNotContain(QualityAssurancePermissions.TeamDashboardView, permissions);
+        Assert.DoesNotContain(QualityAssurancePermissions.AssignmentGroup, permissions);
+        Assert.DoesNotContain(QualityAssurancePermissions.AssignmentUser, permissions);
+    }
+
+    [Fact]
     public async Task EstimatingHistoryImportUpdate_ChangesOnlyImportAndPreservesCurrentPermissions()
     {
         await using var fixture = await DatabaseFixture.CreateAsync();

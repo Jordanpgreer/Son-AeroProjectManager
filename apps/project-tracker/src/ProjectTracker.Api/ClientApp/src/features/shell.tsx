@@ -88,7 +88,7 @@ function UserProfile({ user }: { user: User | null }) {
       <div className="topbar-user-copy">
         <strong>{user?.displayName ?? 'Checking access'}</strong>
       </div>
-      <span className="topbar-user-avatar" title={user?.accountName} aria-hidden="true">
+      <span className="topbar-user-avatar" title={user?.displayName} aria-hidden="true">
         {avatarLabel}
       </span>
     </div>

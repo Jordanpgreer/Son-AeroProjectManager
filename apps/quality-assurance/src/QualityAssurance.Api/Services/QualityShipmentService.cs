@@ -150,7 +150,7 @@ public sealed class QualityShipmentService(
         await legacyAssignments.ReconcileAsync(cancellationToken);
         var canViewTeam = access.HasPermission(QualityAssurancePermissions.TeamDashboardView)
             || access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll);
-        var canReviewUnassigned = IsManager(access);
+        var canReviewUnassigned = CanReviewUnassigned(access);
         var canAssignGroup = access.HasPermission(QualityAssurancePermissions.AssignmentGroup);
         var canAssignUser = access.HasPermission(QualityAssurancePermissions.AssignmentUser);
         var canViewAssignment = access.HasPermission(QualityAssurancePermissions.AssignmentView);
@@ -180,9 +180,11 @@ public sealed class QualityShipmentService(
             .Take(12)
             .Select(shipment => ToDto(shipment, access))
             .ToList();
-        var unassigned = all.Where(shipment => !shipment.AssignedGroupId.HasValue
-                && !shipment.AssignedUserId.HasValue)
-            .ToList();
+        var unassigned = canReviewUnassigned
+            ? all.Where(shipment => !shipment.AssignedGroupId.HasValue
+                    && !shipment.AssignedUserId.HasValue)
+                .ToList()
+            : [];
         var groupQueue = all.Where(shipment => shipment.AssignedGroupId.HasValue
                 && !shipment.AssignedUserId.HasValue)
             .ToList();
@@ -239,6 +241,7 @@ public sealed class QualityShipmentService(
                 .Take(20)
                 .Select(shipment => ToDto(shipment, access))
                 .ToList(),
+            canReviewUnassigned,
             canViewTeam,
             canViewAssignment,
             canAssign,
@@ -526,11 +529,11 @@ public sealed class QualityShipmentService(
                 ? query
                 : query.Where(shipment => shipment.AssignedUserId == access.UserId
                     || (shipment.AssignedGroupId.HasValue && groupIds.Contains(shipment.AssignedGroupId.Value))
-                    || (IsManager(access)
+                    || (CanReviewUnassigned(access)
                         && !shipment.AssignedGroupId.HasValue
                         && !shipment.AssignedUserId.HasValue));
         }
-        if (IsManager(access))
+        if (CanReviewUnassigned(access))
             return query.Where(shipment => shipment.AssignedUserId == access.UserId
                 || (!shipment.AssignedGroupId.HasValue && !shipment.AssignedUserId.HasValue));
         return query.Where(shipment => shipment.AssignedUserId == access.UserId);
@@ -750,8 +753,8 @@ public sealed class QualityShipmentService(
     private static string NormalizeDirection(string? direction) =>
         string.Equals(direction, "desc", StringComparison.OrdinalIgnoreCase) ? "desc" : "asc";
 
-    private static bool IsManager(QualityAssuranceAccessProfile access) =>
-        access.HasPermission(QualityAssurancePermissions.TeamDashboardView);
+    private static bool CanReviewUnassigned(QualityAssuranceAccessProfile access) =>
+        access.HasPermission(QualityAssurancePermissions.ManagerReview);
 
     private static string NormalizeScope(QualityAssuranceAccessProfile access, string? scope)
     {
@@ -769,7 +772,7 @@ public sealed class QualityShipmentService(
         if (shipment.AssignedUserId == access.UserId) return;
         if (!shipment.AssignedGroupId.HasValue
             && !shipment.AssignedUserId.HasValue
-            && IsManager(access)) return;
+            && CanReviewUnassigned(access)) return;
         if (access.HasPermission(QualityAssurancePermissions.TeamDashboardView)
             && shipment.AssignedGroupId.HasValue
             && access.Groups.Any(group => group.Id == shipment.AssignedGroupId.Value)) return;

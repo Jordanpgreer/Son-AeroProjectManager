@@ -4,6 +4,7 @@ using EngineeringHub.Api.Data;
 using EngineeringHub.Api.Dtos;
 using EngineeringHub.Api.Models;
 using EngineeringHub.Api.Services;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SonAero.Platform.Security;
 
@@ -124,7 +125,8 @@ public static class ToolingEndpoints
         string? query,
         bool? includeArchived,
         EngineeringDbContext db,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromServices] IEngineeringRoleStore? roleStore = null)
     {
         var tools = await db.Tools.AsNoTracking()
             .Include(x => x.CurrentLocation)
@@ -138,7 +140,11 @@ public static class ToolingEndpoints
         if (!string.IsNullOrWhiteSpace(normalized))
             tools = tools.Where(tool => Matches(tool, normalized)).ToList();
 
-        var summaries = tools.Select(ToSummary).ToList();
+        var displayNames = await EngineeringDisplayNames.LoadAsync(
+            roleStore,
+            tools.Select(tool => tool.CurrentHolder),
+            cancellationToken);
+        var summaries = tools.Select(tool => ToSummary(tool, displayNames)).ToList();
         var auditLimit = DateTime.UtcNow.Date.AddYears(-1);
         return Results.Ok(new ToolingDashboardDto(
             summaries,
@@ -149,7 +155,11 @@ public static class ToolingEndpoints
             summaries.Count(x => !x.LastAuditDate.HasValue || x.LastAuditDate.Value < auditLimit)));
     }
 
-    private static async Task<IResult> GetAsync(int id, EngineeringDbContext db, CancellationToken cancellationToken)
+    private static async Task<IResult> GetAsync(
+        int id,
+        EngineeringDbContext db,
+        CancellationToken cancellationToken,
+        [FromServices] IEngineeringRoleStore? roleStore = null)
     {
         var tool = await db.Tools.AsNoTracking()
             .Include(x => x.CurrentLocation)
@@ -160,14 +170,20 @@ public static class ToolingEndpoints
             .Include(x => x.AuditEntries)
             .AsSplitQuery()
             .SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
-        return tool is null ? Results.NotFound() : Results.Ok(ToDetail(tool));
+        if (tool is null) return Results.NotFound();
+        var displayNames = await EngineeringDisplayNames.LoadAsync(
+            roleStore,
+            IdentityValues(tool),
+            cancellationToken);
+        return Results.Ok(ToDetail(tool, displayNames));
     }
 
     private static async Task<IResult> CreateAsync(
         ToolUpsertDto dto,
         EngineeringDbContext db,
         HttpContext http,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromServices] IEngineeringRoleStore? roleStore = null)
     {
         var validation = Validate(dto);
         if (validation is not null) return validation;
@@ -212,7 +228,11 @@ public static class ToolingEndpoints
         tool.AuditEntries.Add(Audit(tool, "ToolCreated", $"Created tool {tool.ToolNumber} in location {location.Code}.", actor));
         db.Tools.Add(tool);
         await db.SaveChangesAsync(cancellationToken);
-        return Results.Created($"/api/tools/{tool.Id}", ToDetail(tool));
+        var displayNames = await EngineeringDisplayNames.LoadAsync(
+            roleStore,
+            IdentityValues(tool),
+            cancellationToken);
+        return Results.Created($"/api/tools/{tool.Id}", ToDetail(tool, displayNames));
     }
 
     private static async Task<IResult> UpdateAsync(
@@ -443,7 +463,8 @@ public static class ToolingEndpoints
         EngineeringDbContext db,
         IDrawingFileStore files,
         HttpContext http,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromServices] IEngineeringRoleStore? roleStore = null)
     {
         if (!request.HasFormContentType)
             return Results.BadRequest(new ErrorDto("FormRequired", "Use multipart form data."));
@@ -503,7 +524,11 @@ public static class ToolingEndpoints
             await staged.CompleteAsync(cancellationToken);
             throw;
         }
-        return Results.Created($"/api/tool-documents/{document.Id}/file", ToDocument(document));
+        var displayNames = await EngineeringDisplayNames.LoadAsync(
+            roleStore,
+            [document.UploadedBy],
+            cancellationToken);
+        return Results.Created($"/api/tool-documents/{document.Id}/file", ToDocument(document, displayNames));
     }
 
     private static async Task<IResult> DownloadDocumentAsync(
@@ -522,17 +547,24 @@ public static class ToolingEndpoints
             : Results.File(path, document.FileType, document.OriginalFileName, enableRangeProcessing: true);
     }
 
-    private static async Task<IResult> ListLocationsAsync(EngineeringDbContext db, CancellationToken cancellationToken)
+    private static async Task<IResult> ListLocationsAsync(
+        EngineeringDbContext db,
+        CancellationToken cancellationToken,
+        [FromServices] IEngineeringRoleStore? roleStore = null)
     {
         var records = await db.ToolLocations.AsNoTracking()
             .Include(location => location.Tools)
             .Include(location => location.HomeAssignments).ThenInclude(assignment => assignment.Tool)
             .OrderBy(location => location.Code)
             .ToListAsync(cancellationToken);
+        var displayNames = await EngineeringDisplayNames.LoadAsync(
+            roleStore,
+            records.Select(location => location.CreatedBy),
+            cancellationToken);
         var locations = records.Select(location => new ToolLocationDto(
             location.Id, location.Code, location.Description, location.IsActive,
             location.Tools.Count(tool => !tool.IsArchived && tool.CustodyStatus == ToolCustodyStatus.InStorage),
-            location.HomeAssignments.Count(assignment => !assignment.Tool.IsArchived), location.CreatedBy, location.CreatedAt)).ToList();
+            location.HomeAssignments.Count(assignment => !assignment.Tool.IsArchived), displayNames.Resolve(location.CreatedBy), location.CreatedAt)).ToList();
         return Results.Ok(locations);
     }
 
@@ -540,7 +572,8 @@ public static class ToolingEndpoints
         ToolLocationCreateDto dto,
         EngineeringDbContext db,
         HttpContext http,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromServices] IEngineeringRoleStore? roleStore = null)
     {
         var code = dto.Code?.Trim();
         if (string.IsNullOrWhiteSpace(code) || code.Length > 60)
@@ -558,7 +591,11 @@ public static class ToolingEndpoints
         };
         db.ToolLocations.Add(location);
         await db.SaveChangesAsync(cancellationToken);
-        return Results.Created($"/api/tool-locations/{location.Id}", new ToolLocationDto(location.Id, location.Code, location.Description, true, 0, 0, location.CreatedBy, location.CreatedAt));
+        var displayNames = await EngineeringDisplayNames.LoadAsync(
+            roleStore,
+            [location.CreatedBy],
+            cancellationToken);
+        return Results.Created($"/api/tool-locations/{location.Id}", new ToolLocationDto(location.Id, location.Code, location.Description, true, 0, 0, displayNames.Resolve(location.CreatedBy), location.CreatedAt));
     }
 
     private static async Task<IResult> UpdateLocationStatusAsync(
@@ -642,11 +679,11 @@ public static class ToolingEndpoints
         return values.Any(value => value?.Contains(query, StringComparison.OrdinalIgnoreCase) == true);
     }
 
-    internal static ToolSummaryDto ToSummary(ToolRecord tool) => new(
+    internal static ToolSummaryDto ToSummary(ToolRecord tool, EngineeringDisplayNames displayNames) => new(
         tool.Id, tool.ToolNumber, tool.Name, tool.ToolType, tool.Owner, tool.IsArchived,
         tool.CustodyStatus.ToString(), tool.HomeLocationAssignment?.LocationId, tool.HomeLocationAssignment?.Location.Code,
         tool.CurrentLocationId, tool.CurrentLocation?.Code,
-        tool.CurrentHolder, tool.CurrentVendor, tool.CheckedOutAt, tool.LastAuditDate,
+        displayNames.ResolveNullable(tool.CurrentHolder), tool.CurrentVendor, tool.CheckedOutAt, tool.LastAuditDate,
         tool.PartNumbers.Select(x => x.PartNumber).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList(),
         tool.Documents.Count, tool.Notes);
 
@@ -672,18 +709,25 @@ public static class ToolingEndpoints
     private static string JoinPartNumbers(IEnumerable<string> values) =>
         string.Join("; ", values.OrderBy(value => value, StringComparer.OrdinalIgnoreCase));
 
-    private static ToolDetailDto ToDetail(ToolRecord tool) => new(
-        ToSummary(tool), tool.Description, tool.CreatedBy, tool.CreatedAt, tool.UpdatedBy, tool.UpdatedAt, tool.Version,
+    private static ToolDetailDto ToDetail(ToolRecord tool, EngineeringDisplayNames displayNames) => new(
+        ToSummary(tool, displayNames), tool.Description, displayNames.Resolve(tool.CreatedBy), tool.CreatedAt, displayNames.Resolve(tool.UpdatedBy), tool.UpdatedAt, tool.Version,
         tool.Movements.OrderByDescending(x => x.RecordedAt).Select(x => new ToolMovementDto(
-            x.Id, x.Type.ToString(), x.LocationCode ?? x.Location?.Code, x.Vendor, x.Person, x.Purpose,
-            x.InspectionConfirmed, x.InspectionNotes, x.SignedOffBy, x.RecordedAt)).ToList(),
-        tool.Documents.OrderByDescending(x => x.UploadedAt).Select(ToDocument).ToList(),
-        tool.AuditEntries.OrderByDescending(x => x.OccurredAt).Select(x => new ToolAuditEntryDto(x.Id, x.Action, x.Details, x.Actor, x.OccurredAt)).ToList());
+            x.Id, x.Type.ToString(), x.LocationCode ?? x.Location?.Code, x.Vendor, displayNames.ResolveNullable(x.Person), x.Purpose,
+            x.InspectionConfirmed, x.InspectionNotes, displayNames.Resolve(x.SignedOffBy), x.RecordedAt)).ToList(),
+        tool.Documents.OrderByDescending(x => x.UploadedAt).Select(document => ToDocument(document, displayNames)).ToList(),
+        tool.AuditEntries.OrderByDescending(x => x.OccurredAt).Select(x => new ToolAuditEntryDto(
+            x.Id, x.Action, displayNames.ResolveEmbeddedAccounts(x.Details), displayNames.Resolve(x.Actor), x.OccurredAt)).ToList());
 
-    private static ToolDocumentDto ToDocument(ToolDocument document) => new(
+    private static ToolDocumentDto ToDocument(ToolDocument document, EngineeringDisplayNames displayNames) => new(
         document.Id, document.Kind.ToString(), document.DocumentNumber, document.OriginalFileName,
         document.FileType, document.FileSize, document.FileHash, document.Notes, document.DocumentDate,
-        document.UploadedBy, document.UploadedAt);
+        displayNames.Resolve(document.UploadedBy), document.UploadedAt);
+
+    private static IEnumerable<string?> IdentityValues(ToolRecord tool) =>
+        new[] { tool.CurrentHolder, tool.CreatedBy, tool.UpdatedBy }
+            .Concat(tool.Movements.SelectMany(movement => new[] { movement.Person, movement.SignedOffBy }))
+            .Concat(tool.Documents.Select(document => document.UploadedBy))
+            .Concat(tool.AuditEntries.Select(entry => entry.Actor));
 
     private static ToolAuditEntry Audit(ToolRecord tool, string action, string details, string actor) => new()
     {

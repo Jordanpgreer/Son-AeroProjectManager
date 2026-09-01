@@ -1,5 +1,5 @@
 <#
-    Employee-facing bootstrap for the Arda Hub desktop shortcut.
+    Employee-facing bootstrap for the Arda desktop shortcut.
     The normal user process verifies Windows identity and Hub access. Only the
     shared-shortcut write is relaunched with elevation.
 #>
@@ -184,7 +184,7 @@ try {
             -IconSource $iconPath `
             -Confirm:$false
     } else {
-        Write-Host 'Administrator approval is required only to add the shared desktop shortcut.'
+        Write-Host 'Administrator approval is required only to add the shared Arda desktop shortcut.'
         $argumentList = @(
             '-NoProfile'
             '-ExecutionPolicy'

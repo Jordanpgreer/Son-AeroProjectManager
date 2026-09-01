@@ -2,7 +2,7 @@
     Setup-Hub.ps1 — first-time dependency setup for Arda applications.
 
     Installs the .NET 8 SDK and Node.js LTS with winget if they are missing, then creates the
-    "Arda Hub" desktop shortcut. Run this once per machine.
+    "Arda" desktop shortcut. Run this once per machine.
 #>
 $ErrorActionPreference = 'Stop'
 
@@ -40,4 +40,4 @@ if (-not (Test-Command node.exe) -or -not (Test-Command npm.cmd)) {
 & (Join-Path $PSScriptRoot 'Install-OpenFolderProtocol.ps1')
 
 Write-Host ''
-Write-Host 'Arda Hub setup complete. Use the "Arda Hub" desktop shortcut to launch the applications.'
+Write-Host 'Arda setup complete. Use the "Arda" desktop shortcut to launch the applications.'

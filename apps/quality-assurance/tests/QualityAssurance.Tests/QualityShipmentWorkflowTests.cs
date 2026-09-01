@@ -175,6 +175,7 @@ public sealed class QualityShipmentWorkflowTests
                 QualityAssurancePermissions.ModuleView,
                 QualityAssurancePermissions.ShipmentsView,
                 QualityAssurancePermissions.TeamDashboardView,
+                QualityAssurancePermissions.ManagerReview,
                 QualityAssurancePermissions.AssignmentView,
                 QualityAssurancePermissions.AssignmentGroup,
                 QualityAssurancePermissions.AssignmentUser,
@@ -192,6 +193,8 @@ public sealed class QualityShipmentWorkflowTests
         Assert.Equal(1, dashboard.MyQueue.Open);
         Assert.Equal(0, dashboard.GroupQueue.Open);
         Assert.Equal(1, dashboard.UnassignedQueue.Open);
+        Assert.True(dashboard.CanReviewUnassigned);
+        Assert.True(dashboard.CanViewTeam);
         Assert.True(dashboard.CanViewAssignment);
         Assert.True(dashboard.CanAssign);
         Assert.True(dashboard.CanAssignGroup);
@@ -227,6 +230,7 @@ public sealed class QualityShipmentWorkflowTests
             [
                 QualityAssurancePermissions.ModuleView,
                 QualityAssurancePermissions.ShipmentsView,
+                QualityAssurancePermissions.TeamDashboardView,
                 QualityAssurancePermissions.AssignmentView,
                 QualityAssurancePermissions.AssignmentGroup,
                 QualityAssurancePermissions.AssignmentUser,
@@ -239,6 +243,10 @@ public sealed class QualityShipmentWorkflowTests
 
         Assert.Empty(dashboard.Queue);
         Assert.Equal(0, dashboard.MyQueue.Open);
+        Assert.True(dashboard.CanViewTeam);
+        Assert.False(dashboard.CanReviewUnassigned);
+        Assert.Equal(0, dashboard.UnassignedQueue.Open);
+        Assert.Empty(dashboard.UnassignedShipments);
         Assert.Empty(mine.Items);
     }
 
@@ -519,6 +527,7 @@ public sealed class QualityShipmentWorkflowTests
                 QualityAssurancePermissions.ModuleView,
                 QualityAssurancePermissions.ShipmentsView,
                 QualityAssurancePermissions.TeamDashboardView,
+                QualityAssurancePermissions.ManagerReview,
                 QualityAssurancePermissions.AssignmentView,
             ],
             [new QualityAssuranceAccessGroup(10, "Quality")]);
@@ -536,7 +545,12 @@ public sealed class QualityShipmentWorkflowTests
         var editor = viewer with
         {
             Role = ApplicationRoles.Editor,
-            Permissions = [.. viewer.Permissions, QualityAssurancePermissions.AssignmentGroup],
+            Permissions =
+            [
+                .. viewer.Permissions,
+                QualityAssurancePermissions.ManagerReview,
+                QualityAssurancePermissions.AssignmentGroup
+            ],
         };
         var saved = await fixture.Shipments.AssignAsync(
             shipment.Id,

@@ -39,23 +39,24 @@ public sealed class QualityDashboardReportService
             var currentPeople = people.Skip(pageIndex * rowsPerPage).Take(rowsPerPage).ToList();
             if (pageIndex == 0)
             {
+                var unassigned = dashboard.CanReviewUnassigned ? dashboard.UnassignedQueue : null;
                 var open = people.Sum(person => person.Metrics.Open)
                     + dashboard.GroupQueue.Open
-                    + dashboard.UnassignedQueue.Open;
+                    + (unassigned?.Open ?? 0);
                 var overdue = people.Sum(person => person.Metrics.Overdue)
                     + dashboard.GroupQueue.Overdue
-                    + dashboard.UnassignedQueue.Overdue;
+                    + (unassigned?.Overdue ?? 0);
                 var openValue = SumNullable(
                     people.Select(person => person.Metrics.OpenDollarValue),
                     dashboard.GroupQueue.OpenDollarValue,
-                    dashboard.UnassignedQueue.OpenDollarValue);
+                    unassigned?.OpenDollarValue);
                 AddKpi(page, 42, 449, 158, "TEAM MEMBERS", people.Count.ToString(UsCulture));
                 AddKpi(page, 210, 449, 158, "OPEN WORK", open.ToString("N0", UsCulture));
                 AddKpi(page, 378, 449, 158, "PAST DUE", overdue.ToString("N0", UsCulture), overdue > 0);
                 AddKpi(page, 546, 449, 204, "OPEN DOLLAR VALUE", Money(openValue));
                 page.Text(42, 372, "TEAM SUMMARY", 9, true, "53708A");
                 page.Text(42, 356, "Workload, schedule risk, and completion speed by active team member.", 9, false, "607086");
-                AddTeamTable(page, currentPeople, dashboard.GroupQueue, dashboard.UnassignedQueue, 335);
+                AddTeamTable(page, currentPeople, dashboard.GroupQueue, unassigned, 335);
                 page.Text(42, 69, $"Prepared for {requestedBy}", 8, false, "607086");
             }
             else

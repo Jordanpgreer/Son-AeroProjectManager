@@ -1255,7 +1255,12 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .station-tag.unset { color: var(--faint-text); background: transparent; border-style: dashed; }
 .station-tag.mini { padding: 1px 6px; font-size: 9.5px; }
 
-.row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.operation-actions-cell {
+  width: 1%;
+  min-width: max-content;
+  white-space: nowrap;
+}
+.row-actions { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
 
 /* ---------------------------------------------------------------------- */
 /* Inline edit grid                                                       */

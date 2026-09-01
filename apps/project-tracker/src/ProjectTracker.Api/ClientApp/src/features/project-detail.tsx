@@ -619,12 +619,14 @@ export function ProjectView({
                           <td className="col-progress"><Progress value={task.percentComplete} status={task.status} compact /></td>
                           <td className="col-status"><StatusBadge status={task.status} /></td>
                           {canShowRowActions && (
-                            <td className="row-actions">
-                              {canEditTaskModal && <button className="icon-button" onClick={(event) => { event.stopPropagation(); onEditTask(task) }} title="Edit operation">Edit</button>}
-                              {canEditOvertime && <button className="icon-button" onClick={(event) => { event.stopPropagation(); onEditOvertime(task) }} aria-label={`Overtime dates for ${task.title}`} title="Approved overtime"><CalendarPlus size={14} /></button>}
-                              {canDeleteTask && <button className="icon-button danger" onClick={(event) => { event.stopPropagation(); onDeleteTask(task) }} aria-label={`Delete ${task.title}`} title="Delete">
-                                <Trash2 size={14} />
-                              </button>}
+                            <td className="operation-actions-cell">
+                              <div className="row-actions">
+                                {canEditTaskModal && <button className="icon-button" onClick={(event) => { event.stopPropagation(); onEditTask(task) }} title="Edit operation">Edit</button>}
+                                {canEditOvertime && <button className="icon-button" onClick={(event) => { event.stopPropagation(); onEditOvertime(task) }} aria-label={`Overtime dates for ${task.title}`} title="Approved overtime"><CalendarPlus size={14} /></button>}
+                                {canDeleteTask && <button className="icon-button danger" onClick={(event) => { event.stopPropagation(); onDeleteTask(task) }} aria-label={`Delete ${task.title}`} title="Delete">
+                                  <Trash2 size={14} />
+                                </button>}
+                              </div>
                             </td>
                           )}
                         </tr>
@@ -1261,10 +1263,12 @@ export function OpsEditGrid({
                       {progressError && <span className="operation-progress-error" id={`progress-error-${row.id}`} role="alert">{progressError}</span>}
                     </div>
                   </td>}
-                  {showActions && <td className="row-actions">
-                    {canCreate && <button className="icon-button" onClick={() => onDuplicateTask(row)} aria-label={`Duplicate ${row.title}`} title="Duplicate operation" disabled={saving}><Copy size={14} /></button>}
-                    {canEditOvertime && <button className="icon-button" onClick={() => onEditOvertime(row)} aria-label={`Overtime dates for ${row.title}`} title="Approved overtime" disabled={saving}><CalendarPlus size={14} /></button>}
-                    {canDelete && <button className="icon-button danger" onClick={() => void removeRow(row)} aria-label={`Delete ${row.title}`} title="Delete step" disabled={saving}><Trash2 size={14} /></button>}
+                  {showActions && <td className="operation-actions-cell">
+                    <div className="row-actions">
+                      {canCreate && <button className="icon-button" onClick={() => onDuplicateTask(row)} aria-label={`Duplicate ${row.title}`} title="Duplicate operation" disabled={saving}><Copy size={14} /></button>}
+                      {canEditOvertime && <button className="icon-button" onClick={() => onEditOvertime(row)} aria-label={`Overtime dates for ${row.title}`} title="Approved overtime" disabled={saving}><CalendarPlus size={14} /></button>}
+                      {canDelete && <button className="icon-button danger" onClick={() => void removeRow(row)} aria-label={`Delete ${row.title}`} title="Delete step" disabled={saving}><Trash2 size={14} /></button>}
+                    </div>
                   </td>}
                 </tr>
               )

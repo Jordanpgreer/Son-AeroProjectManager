@@ -675,6 +675,8 @@ public static class UserEndpoints
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         normalized.UnionWith(EngineeringPermissions.Expand(
             normalized.Where(permission => permission.StartsWith("engineering.", StringComparison.OrdinalIgnoreCase))));
+        normalized.UnionWith(QualityAssurancePermissions.Expand(
+            normalized.Where(permission => permission.StartsWith("quality-assurance.", StringComparison.OrdinalIgnoreCase))));
 
         var estimating = normalized
             .Where(permission => permission.StartsWith("estimating.", StringComparison.OrdinalIgnoreCase))

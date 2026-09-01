@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs'
 
+import { normalizePerQuantityMargins } from './calculations.ts'
 import {
   createEstimateDefaults,
   createSubassemblyDefaults,
@@ -381,26 +382,34 @@ function readProcesses(
   return processes.length ? processes : [...defaults]
 }
 
-function readFacilities(
+function readPerQuantityMargins(
   sheet: ExcelJS.Worksheet,
   quantities: readonly QuantityTier[],
 ) {
-  const row = findRow(
+  const percentageRow = findRow(
+    sheet,
+    (value, _row, column) => column <= 5 && /^per quantity margin\s*%$/i.test(value),
+  )
+  const legacyFacilitiesRow = percentageRow ? 0 : findRow(
     sheet,
     (value, _row, column) => column <= 5 && /^facilities$/i.test(value),
   )
-  return Object.fromEntries(quantities.map((quantity, index) => [
-    quantity,
-    row
-      ? constrainedCellNumber(
-          sheet,
-          row,
-          QUANTITY_COLUMNS[index],
-          `Facilities margin for quantity ${quantity}`,
-          { min: 0 },
-        ) ?? 0
-      : 0,
-  ]))
+  const row = percentageRow || legacyFacilitiesRow
+  return {
+    legacyDollars: legacyFacilitiesRow > 0,
+    values: Object.fromEntries(quantities.map((quantity, index) => [
+      quantity,
+      row
+        ? constrainedCellNumber(
+            sheet,
+            row,
+            QUANTITY_COLUMNS[index],
+            `${legacyFacilitiesRow ? 'Legacy Facilities amount' : 'Per quantity margin'} for quantity ${quantity}`,
+            { min: 0, ...(percentageRow ? { max: 10 } : {}) },
+          ) ?? 0
+        : 0,
+    ])),
+  }
 }
 
 function readRateYear(sheet: ExcelJS.Worksheet, warnings: string[]) {
@@ -437,7 +446,11 @@ function applySharedSheet(
   warnings: string[],
 ) {
   const quantities = readQuantities(sheet, sections.operationHeader)
-  return {
+  const margins = readPerQuantityMargins(sheet, quantities)
+  if (margins.legacyDollars) {
+    warnings.push('Legacy Facilities dollar amounts were converted to equivalent per-quantity margin percentages.')
+  }
+  const shared = {
     ...estimate,
     metadata: readMetadata(sheet),
     quantities,
@@ -468,8 +481,10 @@ function applySharedSheet(
       estimate.materials,
       `${estimate.kind}-import-material`,
     ),
-    facilitiesByQuantity: readFacilities(sheet, quantities),
+    perQuantityMarginByQuantity: margins.legacyDollars ? undefined : margins.values,
+    facilitiesByQuantity: margins.legacyDollars ? margins.values : undefined,
   }
+  return shared as EstimateInput
 }
 
 function sheetInputScore(sheet: ExcelJS.Worksheet) {
@@ -523,7 +538,15 @@ function readChildSheet(
     child.processes,
     `${child.id}-import-process`,
   )
-  child.facilitiesByQuantity = readFacilities(sheet, parentQuantities)
+  const margins = readPerQuantityMargins(sheet, parentQuantities)
+  if (margins.legacyDollars) {
+    delete (child as unknown as { perQuantityMarginByQuantity?: Record<number, number> })
+      .perQuantityMarginByQuantity
+    child.facilitiesByQuantity = margins.values
+  } else {
+    child.perQuantityMarginByQuantity = margins.values
+    child.facilitiesByQuantity = undefined
+  }
   return child
 }
 
@@ -564,7 +587,7 @@ async function importSubassemblyWorkbook(workbook: ExcelJS.Workbook) {
     'subassembly-parent-import-process',
     children,
   )
-  return { estimate: base, sourceSheet: top.name, warnings }
+  return { estimate: normalizePerQuantityMargins(base), sourceSheet: top.name, warnings }
 }
 
 async function importSingleSheetWorkbook(workbook: ExcelJS.Workbook) {
@@ -606,7 +629,7 @@ async function importSingleSheetWorkbook(workbook: ExcelJS.Workbook) {
       { min: 0, max: 10 },
     ) ?? estimate.toolingMarkup
   }
-  return { estimate, sourceSheet: sheet.name, warnings }
+  return { estimate: normalizePerQuantityMargins(estimate), sourceSheet: sheet.name, warnings }
 }
 
 export async function importEstimateWorkbook(

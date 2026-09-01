@@ -171,6 +171,13 @@ test('status and owner checks do not mutate published quote content', () => {
 test('v1 records migrate once into v2 while keeping the original storage backup', () => {
   localStorage.clear()
   const estimate = createEstimate('Legacy customer', 'C')
+  estimate.quantities = [100]
+  const operation = estimate.operations.find((candidate) => candidate.name === 'Metals - Mills')
+  assert.ok(operation)
+  operation.setupMinutes = 60
+  delete (estimate as unknown as { perQuantityMarginByQuantity?: Record<number, number> })
+    .perQuantityMarginByQuantity
+  estimate.facilitiesByQuantity = { 100: 2 }
   localStorage.setItem(V1_KEY, JSON.stringify([
     {
       id: 'legacy-current',
@@ -200,11 +207,37 @@ test('v1 records migrate once into v2 while keeping the original storage backup'
   assert.equal(current?.revisions[0]?.revisionNumber, 1)
   assert.equal(current?.revisions[0]?.publishedAt, '2026-08-02T00:00:00.000Z')
   assert.equal(current?.revisions[0]?.estimate.metadata.revision, 'C')
+  assert.ok((current?.revisions[0]?.estimate.perQuantityMarginByQuantity[100] ?? 0) > 0)
+  assert.equal(current?.revisions[0]?.estimate.facilitiesByQuantity, undefined)
   assert.equal(draft?.draft?.revisionNumber, 1)
   assert.equal(draft?.draft?.selectedQuantity, 250)
   assert.equal(draft?.revisions.length, 0)
   assert.ok(localStorage.getItem(V1_KEY))
   assert.ok(localStorage.getItem(V2_KEY))
+})
+
+test('v1 migration persists an unconvertible Facilities tier without losing its price', () => {
+  localStorage.clear()
+  const estimate = createEstimate('Legacy zero-base customer')
+  estimate.quantities = [100]
+  delete (estimate as unknown as { perQuantityMarginByQuantity?: Record<number, number> })
+    .perQuantityMarginByQuantity
+  estimate.facilitiesByQuantity = { 100: 2 }
+  localStorage.setItem(V1_KEY, JSON.stringify([{
+    ...legacyQuote('legacy-zero-base'),
+    estimate,
+  }]))
+
+  const [migrated] = listQuotes('SON4L\\legacy')
+  const migratedEstimate = migrated?.revisions[0]?.estimate
+  assert.deepEqual(migratedEstimate?.perQuantityMarginByQuantity, {})
+  assert.deepEqual(migratedEstimate?.facilitiesByQuantity, { 100: 2 })
+
+  const storedV2 = JSON.parse(localStorage.getItem(V2_KEY) ?? '[]') as Array<{
+    revisions: Array<{ estimate: { facilitiesByQuantity?: Record<number, number> } }>
+  }>
+  assert.deepEqual(storedV2[0]?.revisions[0]?.estimate.facilitiesByQuantity, { 100: 2 })
+  assert.ok(localStorage.getItem(V1_KEY))
 })
 
 test('malformed v2 blocks fallback and writes while preserving exact browser data', () => {
@@ -242,6 +275,33 @@ test('partially invalid v2 never filters and rewrites the surviving records', ()
   assert.equal(localStorage.getItem(V2_KEY), mixedRaw)
 })
 
+test('malformed nested v2 estimate enters recovery without throwing or overwriting data', () => {
+  localStorage.clear()
+  const validDraft = saveQuoteDraft({
+    ownerAccountName: 'SON4L\\estimator',
+    estimate: createEstimate('Nested invalid v2'),
+    selectedQuantity: 100,
+  })
+  assert.ok(validDraft)
+  const parsed = JSON.parse(localStorage.getItem(V2_KEY) ?? '[]') as Array<{
+    draft: { estimate: Record<string, unknown> }
+  }>
+  parsed[0].draft.estimate.operations = null
+  const malformedRaw = JSON.stringify(parsed)
+  localStorage.setItem(V2_KEY, malformedRaw)
+
+  assert.doesNotThrow(() => listQuotes('SON4L\\estimator'))
+  assert.deepEqual(listQuotes('SON4L\\estimator'), [])
+  assert.match(getQuoteStoreError() ?? '', /needs recovery/i)
+  assert.equal(localStorage.getItem(V2_KEY), malformedRaw)
+  assert.equal(saveQuoteDraft({
+    ownerAccountName: 'SON4L\\estimator',
+    estimate: createEstimate('Do not overwrite malformed v2'),
+    selectedQuantity: 100,
+  }), null)
+  assert.equal(localStorage.getItem(V2_KEY), malformedRaw)
+})
+
 test('non-array v2 blocks writes and remains untouched', () => {
   localStorage.clear()
   const raw = JSON.stringify({ quotes: [legacyQuote()] })
@@ -269,6 +329,21 @@ test('failed v1 migration remains read-only and preserves the v1 backup', () => 
   assert.equal(localStorage.getItem(V2_KEY), null)
   assert.equal(updateQuoteStatus('legacy-current', 'SON4L\\legacy', 'past'), null)
   assert.equal(localStorage.getItem(V1_KEY), legacyRaw)
+})
+
+test('malformed nested v1 estimate enters recovery without throwing or creating v2', () => {
+  localStorage.clear()
+  const malformed = legacyQuote('legacy-malformed-nested')
+  const estimate = malformed.estimate as unknown as Record<string, unknown>
+  estimate.operations = null
+  const malformedRaw = JSON.stringify([malformed])
+  localStorage.setItem(V1_KEY, malformedRaw)
+
+  assert.doesNotThrow(() => listQuotes('SON4L\\legacy'))
+  assert.deepEqual(listQuotes('SON4L\\legacy'), [])
+  assert.match(getQuoteStoreError() ?? '', /needs recovery/i)
+  assert.equal(localStorage.getItem(V1_KEY), malformedRaw)
+  assert.equal(localStorage.getItem(V2_KEY), null)
 })
 
 test('dashboard uses published data except when the draft filter is selected', () => {

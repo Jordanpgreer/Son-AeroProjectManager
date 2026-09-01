@@ -67,6 +67,13 @@ foreach ($applicationId in @('engineering-hub', 'quality-assurance')) {
     }
 }
 
+foreach ($catalog in @($portal, $localPortal)) {
+    $adminConsole = @($catalog.Portal.Applications | Where-Object Id -eq 'admin-console')
+    if ($adminConsole.Count -ne 1 -or (@($adminConsole[0].AllowedRoles) -join '|') -cne 'Admin') {
+        throw 'Portal Admin Console must be visible only to the Admin role.'
+    }
+}
+
 $tracker = Get-Content -LiteralPath (Join-Path $templateRoot 'project-tracker.appsettings.Production.json') -Raw |
     ConvertFrom-Json
 $trackerOrigins = @($tracker.Cors.HubOrigins)

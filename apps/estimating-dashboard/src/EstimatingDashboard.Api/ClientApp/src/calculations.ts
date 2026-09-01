@@ -198,13 +198,20 @@ function calculateSubassembly(
         subassembly.quantitiesByParentQuantity?.[quantity] ?? quantity,
       )
       const amortizedNre = rawOneTimeNre / buildQuantity
-      const facilities = subassembly.facilitiesByQuantity[quantity] ?? 0
-      const unitCost =
+      const unitCostBeforePerQuantityMargin =
         burdenedLabor
         + rawMaterial
         + rawProcess
         + amortizedNre
-        + facilities
+      const configuredMarginRate = subassembly.perQuantityMarginByQuantity?.[quantity]
+      const legacyFacilities = subassembly.facilitiesByQuantity?.[quantity] ?? 0
+      const perQuantityMarginRate = configuredMarginRate === undefined
+        ? safeDivide(legacyFacilities, unitCostBeforePerQuantityMargin) ?? 0
+        : configuredMarginRate
+      const perQuantityMargin = configuredMarginRate === undefined
+        ? legacyFacilities
+        : unitCostBeforePerQuantityMargin * configuredMarginRate
+      const unitCost = unitCostBeforePerQuantityMargin + perQuantityMargin
 
       return {
         quantity,
@@ -215,7 +222,8 @@ function calculateSubassembly(
         rawProcess,
         rawOneTimeNre,
         amortizedNre,
-        facilities,
+        perQuantityMarginRate,
+        perQuantityMargin,
         unitCost,
       }
     },
@@ -344,14 +352,21 @@ function calculateQuantity(
   )
   const amortizedNre = oneTimeNre / quantity
   const yieldAdjustment = preGaMaterialAndLabor * (1 - input.yield)
-  const facilities = input.facilitiesByQuantity[quantity] ?? 0
   const salesMarkup = componentSubtotal * input.salesMarkup
-  const sellPrice =
+  const priceBeforePerQuantityMargin =
     componentSubtotal
     + amortizedNre
     + yieldAdjustment
-    + facilities
     + salesMarkup
+  const configuredMarginRate = input.perQuantityMarginByQuantity?.[quantity]
+  const legacyFacilities = input.facilitiesByQuantity?.[quantity] ?? 0
+  const perQuantityMarginRate = configuredMarginRate === undefined
+    ? safeDivide(legacyFacilities, priceBeforePerQuantityMargin) ?? 0
+    : configuredMarginRate
+  const perQuantityMargin = configuredMarginRate === undefined
+    ? legacyFacilities
+    : priceBeforePerQuantityMargin * configuredMarginRate
+  const sellPrice = priceBeforePerQuantityMargin + perQuantityMargin
   const grossMargin = safeDivide(
     sellPrice - preGaMaterialAndLabor - amortizedNre - yieldAdjustment,
     sellPrice - amortizedNre,
@@ -375,7 +390,8 @@ function calculateQuantity(
     oneTimeNre,
     amortizedNre,
     yieldAdjustment,
-    facilities,
+    perQuantityMarginRate,
+    perQuantityMargin,
     salesMarkup,
     sellPrice,
     grossMargin,
@@ -465,5 +481,109 @@ export function calculateEstimate(input: EstimateInput): EstimateCalculationResu
     materials,
     processes,
     subassemblies,
+  }
+}
+
+/**
+ * Convert legacy dollar-based Facilities add-ons to equivalent decimal rates.
+ * The divisor is the otherwise-complete unit amount immediately before the new
+ * per-quantity margin, preserving each legacy tier's calculated unit price.
+ */
+export function normalizePerQuantityMargins(input: EstimateInput): EstimateInput {
+  const needsParentMigration = input.perQuantityMarginByQuantity === undefined
+  const needsChildMigration = input.kind === 'subassembly'
+    && input.subassemblies.some((child) => child.perQuantityMarginByQuantity === undefined)
+  if (!needsParentMigration && !needsChildMigration) return input
+
+  const legacyResult = calculateEstimate(input)
+  const migrateLegacyValues = (
+    legacyValues: QuantityValues<number> | undefined,
+    auditForQuantity: (quantity: QuantityTier) => {
+      contribution: number
+      amountBeforeContribution: number
+    } | null,
+  ) => {
+    const rates: QuantityValues<number> = {}
+    const retainedLegacyValues: QuantityValues<number> = {}
+
+    for (const quantity of input.quantities) {
+      const legacyValue = legacyValues?.[quantity] ?? 0
+      if (legacyValue === 0) {
+        rates[quantity] = 0
+        continue
+      }
+
+      const audit = auditForQuantity(quantity)
+      if (
+        audit !== null
+        && Number.isFinite(audit.amountBeforeContribution)
+        && audit.amountBeforeContribution !== 0
+      ) {
+        rates[quantity] = audit.contribution / audit.amountBeforeContribution
+      } else {
+        // A percentage cannot losslessly represent a nonzero dollar add-on when
+        // calculation failed or the amount before the add-on is zero. Keep that
+        // tier in the legacy map so calculation and persisted pricing stay intact.
+        retainedLegacyValues[quantity] = legacyValue
+      }
+    }
+
+    return {
+      rates,
+      retainedLegacyValues: Object.keys(retainedLegacyValues).length > 0
+        ? retainedLegacyValues
+        : undefined,
+    }
+  }
+
+  const parentMigration = needsParentMigration
+    ? migrateLegacyValues(
+        input.facilitiesByQuantity,
+        (quantity) => {
+          if (!legacyResult.ok) return null
+          const audit = legacyResult.quantities[quantity]
+          return {
+            contribution: audit.perQuantityMargin,
+            amountBeforeContribution: audit.sellPrice - audit.perQuantityMargin,
+          }
+        },
+      )
+    : null
+
+  const normalized = {
+    ...input,
+    perQuantityMarginByQuantity:
+      parentMigration?.rates ?? input.perQuantityMarginByQuantity,
+    facilitiesByQuantity:
+      parentMigration === null
+        ? input.facilitiesByQuantity
+        : parentMigration.retainedLegacyValues,
+  }
+  if (normalized.kind !== 'subassembly') return normalized
+
+  return {
+    ...normalized,
+    subassemblies: normalized.subassemblies.map((child) => {
+      if (child.perQuantityMarginByQuantity !== undefined) return child
+      const audit = legacyResult.subassemblies.find(
+        (candidate) => candidate.subassemblyId === child.id,
+      )
+      const childMigration = migrateLegacyValues(
+        child.facilitiesByQuantity,
+        (quantity) => {
+          const quantityAudit = audit?.quantities?.[quantity]
+          if (quantityAudit === undefined) return null
+          return {
+            contribution: quantityAudit.perQuantityMargin,
+            amountBeforeContribution: quantityAudit.unitCost - quantityAudit.perQuantityMargin,
+          }
+        },
+      )
+      return {
+        ...child,
+        perQuantityMarginByQuantity: childMigration.rates,
+        facilitiesByQuantity: childMigration.retainedLegacyValues,
+      }
+    }),
   }
 }

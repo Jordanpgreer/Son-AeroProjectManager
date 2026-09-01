@@ -44,6 +44,7 @@ const PERMISSIONS = {
   assignmentView: 'quality-assurance.assignments.view',
   assignmentGroup: 'quality-assurance.assignments.group',
   assignmentUser: 'quality-assurance.assignments.user',
+  managerReview: 'quality-assurance.dashboard.manager-review',
   ship: 'quality-assurance.shipments.mark-shipped',
   audit: 'quality-assurance.audit.view',
   viewAll: 'quality-assurance.shipments.view-all',
@@ -599,7 +600,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   const fields = data?.fields ?? []
   const canCreate = user.permissions.includes(PERMISSIONS.create)
   const canImport = user.permissions.includes(PERMISSIONS.import)
-  const canReviewUnassigned = user.permissions.includes(PERMISSIONS.teamView)
+  const canReviewUnassigned = user.permissions.includes(PERMISSIONS.managerReview)
   const visibleFields = useMemo(() => new Set(
     fields.filter((field) => field.canView).map((field) => field.key),
   ), [fields])

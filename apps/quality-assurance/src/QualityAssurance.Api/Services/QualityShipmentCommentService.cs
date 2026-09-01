@@ -285,7 +285,7 @@ public sealed partial class QualityShipmentCommentService(
         if (shipment.AssignedUserId == access.UserId) return true;
         if (!shipment.AssignedGroupId.HasValue
             && !shipment.AssignedUserId.HasValue
-            && access.HasPermission(QualityAssurancePermissions.AssignmentGroup)) return true;
+            && access.HasPermission(QualityAssurancePermissions.ManagerReview)) return true;
         if (access.HasPermission(QualityAssurancePermissions.TeamDashboardView)
             && shipment.AssignedGroupId.HasValue
             && access.Groups.Any(group => group.Id == shipment.AssignedGroupId.Value)) return true;
@@ -298,7 +298,7 @@ public sealed partial class QualityShipmentCommentService(
     {
         if (access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll)) return query;
         var groupIds = access.Groups.Select(group => group.Id).ToList();
-        var canReviewUnassigned = access.HasPermission(QualityAssurancePermissions.AssignmentGroup);
+        var canReviewUnassigned = access.HasPermission(QualityAssurancePermissions.ManagerReview);
         var canViewTeam = access.HasPermission(QualityAssurancePermissions.TeamDashboardView);
         return query.Where(notification => db.Shipments.Any(shipment =>
             shipment.Id == notification.ShipmentId

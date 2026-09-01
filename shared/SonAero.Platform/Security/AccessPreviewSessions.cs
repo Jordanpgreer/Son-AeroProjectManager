@@ -26,6 +26,7 @@ public static class AccessPreviewApplications
     public const string ProjectTracker = "project-tracker";
     public const string Engineering = "engineering-hub";
     public const string Estimating = "estimating-dashboard";
+    public const string QualityAssurance = "quality-assurance";
 }
 
 public static class AccessPreviewTargetKinds

@@ -3,7 +3,9 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using System.Text;
 using Portal.Api.Data;
 using Portal.Api.Endpoints;
 using Portal.Api.Services;
@@ -102,5 +104,69 @@ public sealed class AdminAccessPreviewEndpointTests
     public void Invalid_preview_target_keys_are_rejected(string value)
     {
         Assert.False(AccessPreviewTarget.TryParse(value, out _));
+    }
+
+    [Theory]
+    [InlineData(ApplicationPermissions.ModuleView, AccessPreviewApplications.ProjectTracker)]
+    [InlineData(EngineeringPermissions.ModuleView, AccessPreviewApplications.Engineering)]
+    [InlineData("estimating.view", AccessPreviewApplications.Estimating)]
+    [InlineData(QualityAssurancePermissions.ModuleView, AccessPreviewApplications.QualityAssurance)]
+    public void Preview_uses_module_entry_permissions_for_granular_groups(
+        string permission,
+        string expectedApplicationId)
+    {
+        var applications = AdminAccessPreviewEndpoints.ApplicationsForAccess(
+            BuildRegistry(),
+            new HashSet<string>([permission], StringComparer.OrdinalIgnoreCase));
+
+        Assert.Equal(expectedApplicationId, Assert.Single(applications).Id);
+    }
+
+    [Fact]
+    public void User_preview_includes_legacy_module_assignments()
+    {
+        var applications = AdminAccessPreviewEndpoints.ApplicationsForAccess(
+            BuildRegistry(),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new HashSet<string>([ApplicationModules.QualityAssurance], StringComparer.OrdinalIgnoreCase),
+            ApplicationRoles.Viewer);
+
+        Assert.Equal(AccessPreviewApplications.QualityAssurance, Assert.Single(applications).Id);
+    }
+
+    [Fact]
+    public void Admin_console_preview_card_is_visible_only_for_admin_targets()
+    {
+        var permissions = new HashSet<string>(
+            [QualityAssurancePermissions.ModuleView],
+            StringComparer.OrdinalIgnoreCase);
+
+        var sales = AdminAccessPreviewEndpoints.ApplicationsForAccess(
+            BuildRegistry(), permissions, role: ApplicationRoles.Viewer);
+        var administrator = AdminAccessPreviewEndpoints.ApplicationsForAccess(
+            BuildRegistry(), permissions, role: ApplicationRoles.Admin);
+
+        Assert.DoesNotContain(sales, application => application.Id == ApplicationRegistry.AdminConsoleApplicationId);
+        Assert.Contains(administrator, application => application.Id == ApplicationRegistry.AdminConsoleApplicationId);
+    }
+
+    private static ApplicationRegistry BuildRegistry()
+    {
+        const string json = """
+        {
+          "Portal": {
+            "Applications": [
+              { "Id": "project-tracker", "Name": "Project Tracker", "Order": 10, "Status": "Active", "AllowedRoles": [] },
+              { "Id": "engineering-hub", "Name": "Engineering Hub", "Order": 20, "Status": "Active", "AllowedRoles": [] },
+              { "Id": "estimating-dashboard", "Name": "Estimating Dashboard", "Order": 30, "Status": "Active", "AllowedRoles": [] },
+              { "Id": "quality-assurance", "Name": "Quality Assurance", "Order": 40, "Status": "Active", "AllowedRoles": [] },
+              { "Id": "admin-console", "Name": "Admin Console", "Order": 50, "Status": "Active", "AllowedRoles": ["Admin"] }
+            ]
+          }
+        }
+        """;
+        var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+        var configuration = new ConfigurationBuilder().AddJsonStream(stream).Build();
+        return new ApplicationRegistry(configuration);
     }
 }

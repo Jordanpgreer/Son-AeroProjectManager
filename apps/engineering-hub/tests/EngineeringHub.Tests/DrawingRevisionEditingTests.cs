@@ -282,6 +282,63 @@ public sealed class DrawingRevisionEditingTests
         Assert.True(File.Exists(sharedPath));
     }
 
+    [Fact]
+    public async Task DrawingDetail_UsesDirectoryDisplayNamesForHistoricalActors()
+    {
+        var access = new EngineeringModuleAccess(
+            ApplicationRoles.Editor,
+            true,
+            EngineeringPermissions.All.Select(permission => permission.Key).ToArray(),
+            ["Engineering"],
+            @"SON4L\joshgreer",
+            "Josh Greer");
+        await using var fixture = await RevisionFixture.CreateAsync(
+            DrawingRevisionStatus.Draft,
+            hasPdf: true,
+            new StaticRoleStore(access));
+        fixture.Drawing.CreatedBy = @"SON4L\joshgreer";
+        fixture.Revision.UploadedBy = @"SON4L\joshgreer";
+        var mylar = new DrawingMylar
+        {
+            Drawing = fixture.Drawing,
+            MylarNumber = "MYLAR-1",
+            NormalizedMylarNumber = "MYLAR1",
+            IsCheckedOut = true,
+            CurrentLocation = "Inspection",
+            CheckedOutBy = @"SON4L\joshgreer",
+            CheckedOutAt = DateTime.UtcNow,
+            CreatedBy = @"SON4L\joshgreer",
+            CreatedAt = DateTime.UtcNow
+        };
+        fixture.Drawing.Mylars.Add(mylar);
+        fixture.Drawing.MylarTransactions.Add(new MylarTransaction
+        {
+            Drawing = fixture.Drawing,
+            Mylar = mylar,
+            Type = MylarTransactionType.CheckedOut,
+            Person = @"SON4L\joshgreer",
+            Location = "Inspection",
+            RecordedBy = @"SON4L\joshgreer",
+            RecordedAt = DateTime.UtcNow
+        });
+        fixture.Drawing.AuditEntries.Add(new DrawingAuditEntry
+        {
+            Drawing = fixture.Drawing,
+            RevisionNumber = fixture.Revision.RevisionNumber,
+            Action = "RevisionApproved",
+            Details = @"Approved by SON4L\joshgreer.",
+            Actor = @"SON4L\joshgreer",
+            OccurredAt = DateTime.UtcNow
+        });
+        await fixture.Db.SaveChangesAsync();
+
+        var response = await fixture.InvokeGetAsync("/api/drawings/{id:int}", fixture.Drawing.Id);
+
+        Assert.Equal(StatusCodes.Status200OK, response.StatusCode);
+        Assert.Contains("Josh Greer", response.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain(@"SON4L\\joshgreer", response.Body, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static Dictionary<string, StringValues> EditFields(
         string revisionNumber,
         string changeDescription) => new()
@@ -309,7 +366,8 @@ public sealed class DrawingRevisionEditingTests
 
         public static async Task<RevisionFixture> CreateAsync(
             DrawingRevisionStatus status,
-            bool hasPdf)
+            bool hasPdf,
+            IEngineeringRoleStore? roleStore = null)
         {
             var root = Path.Combine(
                 Path.GetTempPath(),
@@ -402,11 +460,15 @@ public sealed class DrawingRevisionEditingTests
             builder.Services.AddSingleton(db);
             builder.Services.AddSingleton<IDrawingFileStore>(files);
             builder.Services.AddScoped<MylarCustodyService>();
+            if (roleStore is not null) builder.Services.AddSingleton(roleStore);
             var app = builder.Build();
             app.MapGroup("/api").MapDrawingEndpoints();
 
             return new RevisionFixture(connection, db, files, app, root, drawing, revision);
         }
+
+        public Task<HttpResponseSnapshot> InvokeGetAsync(string route, int id) =>
+            InvokeAsync("GET", route, id, _ => { });
 
         public Task<HttpResponseSnapshot> InvokeFormAsync(
             string route,
@@ -499,4 +561,13 @@ public sealed class DrawingRevisionEditingTests
     }
 
     private sealed record HttpResponseSnapshot(int StatusCode, string Body);
+
+    private sealed class StaticRoleStore(EngineeringModuleAccess access) : IEngineeringRoleStore
+    {
+        public Task<EngineeringModuleAccess?> FindAccessAsync(
+            string accountName,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<EngineeringModuleAccess?>(
+                WindowsAccountNames.Equals(accountName, access.AccountName) ? access : null);
+    }
 }

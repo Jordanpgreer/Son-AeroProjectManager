@@ -98,6 +98,7 @@ export interface DashboardData {
   unassignedQueue: QueueMetrics
   unassignedShipments: Shipment[]
   fields: FieldAccess[]
+  canReviewUnassigned: boolean
   canViewTeam: boolean
   canViewAssignment: boolean
   canAssign: boolean
