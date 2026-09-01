@@ -31,6 +31,10 @@ builder.Services.AddHttpClient<FulcrumQuoteClient>(client =>
     client.Timeout = TimeSpan.FromMinutes(5);
 });
 builder.Services.AddScoped<FulcrumQuoteSyncService>();
+builder.Services.AddScoped<FulcrumEstimateImportService>();
+builder.Services.AddScoped<FulcrumEstimateExportService>();
+builder.Services.AddScoped<EstimatingOperationMappingService>();
+builder.Services.AddSingleton<FulcrumEstimateReviewStore>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHostedService<FulcrumQuoteSyncWorker>();
 builder.Services.AddDbContext<EstimatingAccessDbContext>((serviceProvider, options) =>
@@ -263,6 +267,7 @@ api.MapGet("/me", (HttpContext context) =>
         : Results.Ok(EstimatingUserService.Current(access));
 }).RequireAuthorization(EstimatingPolicies.Viewer);
 api.MapEstimatingHistoryEndpoints();
+api.MapFulcrumEstimateEndpoints();
 
 app.MapFallback("/api/{**path}", async context =>
 {

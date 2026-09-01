@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Data;
 using SonAero.Platform.Estimating;
 using SonAero.Platform.Security;
+using EstimatingDashboard.Api.Models;
 
 namespace EstimatingDashboard.Api.Services;
 
@@ -15,16 +16,182 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
             await db.Database.ExecuteSqlRawAsync(SqliteSchema, cancellationToken);
             await db.Database.ExecuteSqlRawAsync(EstimatorSettings.SqliteSchema, cancellationToken);
             await db.Database.ExecuteSqlRawAsync(IntegrationCredentialSchema.Sqlite, cancellationToken);
+            await db.Database.ExecuteSqlRawAsync(OperationMappingsSqliteSchema, cancellationToken);
             await EnsureSqliteHistoryColumnsAsync(cancellationToken);
-            return;
         }
-
-        if (db.Database.IsSqlServer())
+        else if (db.Database.IsSqlServer())
         {
             await db.Database.ExecuteSqlRawAsync(SqlServerSchema, cancellationToken);
             await db.Database.ExecuteSqlRawAsync(EstimatorSettings.SqlServerSchema, cancellationToken);
             await db.Database.ExecuteSqlRawAsync(IntegrationCredentialSchema.SqlServer, cancellationToken);
+            await db.Database.ExecuteSqlRawAsync(OperationMappingsSqlServerSchema, cancellationToken);
         }
+
+        await SeedOperationMappingsAsync(cancellationToken);
+    }
+
+    private const string OperationMappingsSqliteSchema = """
+        CREATE TABLE IF NOT EXISTS "EstimatingRateReferences" (
+            "Key" TEXT NOT NULL CONSTRAINT "PK_EstimatingRateReferences" PRIMARY KEY,
+            "Category" TEXT NOT NULL,
+            "SourceRow" INTEGER NOT NULL,
+            "OperationName" TEXT NOT NULL,
+            "IsActive" INTEGER NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_EstimatingRateReferences_Category_SourceRow"
+            ON "EstimatingRateReferences" ("Category", "SourceRow");
+
+        CREATE TABLE IF NOT EXISTS "EstimatingOperationMappings" (
+            "Id" INTEGER NOT NULL CONSTRAINT "PK_EstimatingOperationMappings" PRIMARY KEY AUTOINCREMENT,
+            "FulcrumOperation" TEXT NOT NULL,
+            "FulcrumOperationKey" TEXT NOT NULL,
+            "RateReferenceKey" TEXT NOT NULL,
+            "IsActive" INTEGER NOT NULL,
+            "Version" INTEGER NOT NULL DEFAULT 0,
+            "CreatedAt" TEXT NOT NULL,
+            "CreatedBy" TEXT NOT NULL,
+            "UpdatedAt" TEXT NOT NULL,
+            "UpdatedBy" TEXT NOT NULL,
+            CONSTRAINT "FK_EstimatingOperationMappings_EstimatingRateReferences_RateReferenceKey"
+                FOREIGN KEY ("RateReferenceKey") REFERENCES "EstimatingRateReferences" ("Key") ON DELETE RESTRICT
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_EstimatingOperationMappings_FulcrumOperationKey"
+            ON "EstimatingOperationMappings" ("FulcrumOperationKey");
+        CREATE INDEX IF NOT EXISTS "IX_EstimatingOperationMappings_RateReferenceKey"
+            ON "EstimatingOperationMappings" ("RateReferenceKey");
+
+        CREATE TABLE IF NOT EXISTS "EstimatingOperationMappingAudits" (
+            "Id" INTEGER NOT NULL CONSTRAINT "PK_EstimatingOperationMappingAudits" PRIMARY KEY AUTOINCREMENT,
+            "OperationMappingId" INTEGER NOT NULL,
+            "Action" TEXT NOT NULL,
+            "OldFulcrumOperation" TEXT NULL,
+            "NewFulcrumOperation" TEXT NULL,
+            "OldRateReferenceKey" TEXT NULL,
+            "NewRateReferenceKey" TEXT NULL,
+            "OldIsActive" INTEGER NULL,
+            "NewIsActive" INTEGER NULL,
+            "ChangedAt" TEXT NOT NULL,
+            "ChangedBy" TEXT NOT NULL,
+            CONSTRAINT "FK_EstimatingOperationMappingAudits_EstimatingOperationMappings_OperationMappingId"
+                FOREIGN KEY ("OperationMappingId") REFERENCES "EstimatingOperationMappings" ("Id") ON DELETE RESTRICT
+        );
+        CREATE INDEX IF NOT EXISTS "IX_EstimatingOperationMappingAudits_OperationMappingId_ChangedAt"
+            ON "EstimatingOperationMappingAudits" ("OperationMappingId", "ChangedAt");
+        """;
+
+    private const string OperationMappingsSqlServerSchema = """
+        IF OBJECT_ID(N'[EstimatingRateReferences]', N'U') IS NULL
+        BEGIN
+            CREATE TABLE [EstimatingRateReferences] (
+                [Key] nvarchar(64) NOT NULL CONSTRAINT [PK_EstimatingRateReferences] PRIMARY KEY,
+                [Category] nvarchar(40) NOT NULL,
+                [SourceRow] int NOT NULL,
+                [OperationName] nvarchar(160) NOT NULL,
+                [IsActive] bit NOT NULL
+            );
+            CREATE UNIQUE INDEX [IX_EstimatingRateReferences_Category_SourceRow]
+                ON [EstimatingRateReferences] ([Category], [SourceRow]);
+        END;
+
+        IF OBJECT_ID(N'[EstimatingOperationMappings]', N'U') IS NULL
+        BEGIN
+            CREATE TABLE [EstimatingOperationMappings] (
+                [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_EstimatingOperationMappings] PRIMARY KEY,
+                [FulcrumOperation] nvarchar(160) NOT NULL,
+                [FulcrumOperationKey] nvarchar(160) NOT NULL,
+                [RateReferenceKey] nvarchar(64) NOT NULL,
+                [IsActive] bit NOT NULL,
+                [Version] int NOT NULL CONSTRAINT [DF_EstimatingOperationMappings_Version] DEFAULT 0,
+                [CreatedAt] datetimeoffset NOT NULL,
+                [CreatedBy] nvarchar(160) NOT NULL,
+                [UpdatedAt] datetimeoffset NOT NULL,
+                [UpdatedBy] nvarchar(160) NOT NULL,
+                CONSTRAINT [FK_EstimatingOperationMappings_EstimatingRateReferences_RateReferenceKey]
+                    FOREIGN KEY ([RateReferenceKey]) REFERENCES [EstimatingRateReferences] ([Key]) ON DELETE NO ACTION
+            );
+            CREATE UNIQUE INDEX [IX_EstimatingOperationMappings_FulcrumOperationKey]
+                ON [EstimatingOperationMappings] ([FulcrumOperationKey]);
+            CREATE INDEX [IX_EstimatingOperationMappings_RateReferenceKey]
+                ON [EstimatingOperationMappings] ([RateReferenceKey]);
+        END;
+
+        IF OBJECT_ID(N'[EstimatingOperationMappingAudits]', N'U') IS NULL
+        BEGIN
+            CREATE TABLE [EstimatingOperationMappingAudits] (
+                [Id] bigint IDENTITY(1,1) NOT NULL CONSTRAINT [PK_EstimatingOperationMappingAudits] PRIMARY KEY,
+                [OperationMappingId] int NOT NULL,
+                [Action] nvarchar(24) NOT NULL,
+                [OldFulcrumOperation] nvarchar(160) NULL,
+                [NewFulcrumOperation] nvarchar(160) NULL,
+                [OldRateReferenceKey] nvarchar(64) NULL,
+                [NewRateReferenceKey] nvarchar(64) NULL,
+                [OldIsActive] bit NULL,
+                [NewIsActive] bit NULL,
+                [ChangedAt] datetimeoffset NOT NULL,
+                [ChangedBy] nvarchar(160) NOT NULL,
+                CONSTRAINT [FK_EstimatingOperationMappingAudits_EstimatingOperationMappings_OperationMappingId]
+                    FOREIGN KEY ([OperationMappingId]) REFERENCES [EstimatingOperationMappings] ([Id]) ON DELETE NO ACTION
+            );
+            CREATE INDEX [IX_EstimatingOperationMappingAudits_OperationMappingId_ChangedAt]
+                ON [EstimatingOperationMappingAudits] ([OperationMappingId], [ChangedAt]);
+        END;
+        """;
+
+    private async Task SeedOperationMappingsAsync(CancellationToken cancellationToken)
+    {
+        var references = await db.EstimatingRateReferences.ToDictionaryAsync(
+            reference => reference.Key,
+            StringComparer.OrdinalIgnoreCase,
+            cancellationToken);
+        foreach (var seed in EstimatingRateReferenceCatalog.References)
+        {
+            if (!references.TryGetValue(seed.Key, out var reference))
+            {
+                reference = new EstimatingRateReferenceRecord { Key = seed.Key };
+                references.Add(seed.Key, reference);
+                db.EstimatingRateReferences.Add(reference);
+            }
+            reference.Category = seed.Category;
+            reference.SourceRow = seed.SourceRow;
+            reference.OperationName = seed.Operation;
+            reference.IsActive = true;
+        }
+        await db.SaveChangesAsync(cancellationToken);
+
+        var mappings = await db.EstimatingOperationMappings
+            .Select(mapping => mapping.FulcrumOperationKey)
+            .ToListAsync(cancellationToken);
+        var existing = mappings.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var now = DateTimeOffset.UtcNow;
+        foreach (var seed in EstimatingRateReferenceCatalog.DefaultMappings)
+        {
+            var key = EstimatingOperationNames.Normalize(seed.FulcrumOperation);
+            if (existing.Contains(key)) continue;
+            var mapping = new EstimatingOperationMappingRecord
+            {
+                FulcrumOperation = seed.FulcrumOperation,
+                FulcrumOperationKey = key,
+                RateReferenceKey = seed.RateReferenceKey,
+                IsActive = true,
+                Version = 0,
+                CreatedAt = now,
+                CreatedBy = "System seed",
+                UpdatedAt = now,
+                UpdatedBy = "System seed"
+            };
+            db.EstimatingOperationMappings.Add(mapping);
+            mapping.AuditHistory.Add(new EstimatingOperationMappingAuditRecord
+            {
+                OperationMapping = mapping,
+                Action = EstimatingOperationMappingAuditActions.Created,
+                NewFulcrumOperation = seed.FulcrumOperation,
+                NewRateReferenceKey = seed.RateReferenceKey,
+                NewIsActive = true,
+                ChangedAt = now,
+                ChangedBy = "System seed"
+            });
+        }
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     private const string SqliteSchema = """

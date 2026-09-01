@@ -3,8 +3,10 @@ import {
   AlertTriangle,
   BookOpen,
   Calculator,
+  FileSpreadsheet,
   LayoutDashboard,
   History,
+  ListChecks,
   LockKeyhole,
   PanelLeftClose,
   PanelLeftOpen,
@@ -13,6 +15,8 @@ import {
 import EstimateCalculatorPage from './EstimateCalculatorPage'
 import EstimatingRatesPage from './EstimatingRatesPage'
 import EstimatingHistoryPage from './EstimatingHistoryPage'
+import FulcrumEstimateBuilderPage from './FulcrumEstimateBuilderPage'
+import OperationRulesPage from './OperationRulesPage'
 import QuotesDashboardPage from './QuotesDashboardPage'
 import {
   estimatingPermissions,
@@ -22,7 +26,13 @@ import type { EstimatingMe } from './authorization'
 import { persistTheme, readThemePreference } from './theme'
 import type { AppTheme } from './theme'
 
-type EstimatingPage = 'quotes' | 'calculator' | 'history' | 'rates'
+type EstimatingPage =
+  | 'quotes'
+  | 'calculator'
+  | 'history'
+  | 'rates'
+  | 'fulcrum-builder'
+  | 'operation-rules'
 
 function defaultHubUrl() {
   const hostname = window.location.hostname.toLowerCase()
@@ -73,6 +83,16 @@ const PAGE_META: Record<EstimatingPage, {
     title: 'Estimating Rates',
     subtitle: 'Review annual labor, burden, G&A, profit, and source history.',
   },
+  'fulcrum-builder': {
+    eyebrow: 'Controlled workbook automation',
+    title: 'Fulcrum Estimate Builder',
+    subtitle: 'Convert a standard Fulcrum workbook through a guided estimating review.',
+  },
+  'operation-rules': {
+    eyebrow: 'Controlled operation translation',
+    title: 'Operation Rules',
+    subtitle: 'Manage exact Fulcrum-to-estimating mappings linked to Rates Reference.',
+  },
 }
 
 function pageFromHash(): EstimatingPage | null {
@@ -80,7 +100,14 @@ function pageFromHash(): EstimatingPage | null {
     .replace(/^#\/?/, '')
     .split('?')[0]
     .toLowerCase()
-  if (route === 'quotes' || route === 'calculator' || route === 'history' || route === 'rates') return route
+  if (
+    route === 'quotes'
+    || route === 'calculator'
+    || route === 'history'
+    || route === 'rates'
+    || route === 'fulcrum-builder'
+    || route === 'operation-rules'
+  ) return route
   return null
 }
 
@@ -238,6 +265,10 @@ export default function App() {
     estimatingPermissions.manageInputs,
   ) && !me?.isPreview
   const canViewHistory = hasEstimatingPermission(me, estimatingPermissions.viewHistory)
+  const canAdministerRates = hasEstimatingPermission(
+    me,
+    estimatingPermissions.administerRates,
+  ) && !me?.isPreview
   const canImportHistory = hasEstimatingPermission(
     me,
     estimatingPermissions.importHistory,
@@ -251,6 +282,16 @@ export default function App() {
     )
     setPage('quotes')
   }, [accessLoading, canViewHistory, me, page])
+
+  useEffect(() => {
+    if (accessLoading || !me || page !== 'fulcrum-builder' || canManageInputs) return
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}${window.location.search}#/quotes`,
+    )
+    setPage('quotes')
+  }, [accessLoading, canManageInputs, me, page])
 
   useEffect(() => {
     if (page !== 'history' || !canImportHistory) setHistoryImportOpen(false)
@@ -335,6 +376,15 @@ export default function App() {
               <span className="nav-icon"><Calculator size={17} aria-hidden="true" /></span>
               <span className="nav-link-label">Estimate Calculator</span>
             </a>
+            {canManageInputs && <a
+              className={`nav-link ${page === 'fulcrum-builder' ? 'active' : ''}`}
+              href="#/fulcrum-builder"
+              aria-current={page === 'fulcrum-builder' ? 'page' : undefined}
+              title="Fulcrum Estimate Builder"
+            >
+              <span className="nav-icon"><FileSpreadsheet size={17} aria-hidden="true" /></span>
+              <span className="nav-link-label">Fulcrum Builder</span>
+            </a>}
             {canViewHistory && <a
               className={`nav-link ${page === 'history' ? 'active' : ''}`}
               href="#/history"
@@ -352,6 +402,15 @@ export default function App() {
             >
               <span className="nav-icon"><BookOpen size={17} aria-hidden="true" /></span>
               <span className="nav-link-label">Rates Reference</span>
+            </a>
+            <a
+              className={`nav-link ${page === 'operation-rules' ? 'active' : ''}`}
+              href="#/operation-rules"
+              aria-current={page === 'operation-rules' ? 'page' : undefined}
+              title="Operation Rules"
+            >
+              <span className="nav-icon"><ListChecks size={17} aria-hidden="true" /></span>
+              <span className="nav-link-label">Operation Rules</span>
             </a>
           </nav>
         </section>
@@ -400,6 +459,10 @@ export default function App() {
             <Calculator size={16} aria-hidden="true" />
             Calculator
           </a>
+          {canManageInputs && <a href="#/fulcrum-builder" aria-current={page === 'fulcrum-builder' ? 'page' : undefined}>
+            <FileSpreadsheet size={16} aria-hidden="true" />
+            Builder
+          </a>}
           <a href="#/rates" aria-current={page === 'rates' ? 'page' : undefined}>
             <BookOpen size={16} aria-hidden="true" />
             Rates
@@ -408,6 +471,10 @@ export default function App() {
             <History size={16} aria-hidden="true" />
             Logs
           </a>}
+          <a href="#/operation-rules" aria-current={page === 'operation-rules' ? 'page' : undefined}>
+            <ListChecks size={16} aria-hidden="true" />
+            Rules
+          </a>
         </nav>
 
         <div className="main-scroll">
@@ -427,6 +494,15 @@ export default function App() {
               />
             )}
             {page === 'rates' && <EstimatingRatesPage />}
+            {page === 'fulcrum-builder' && canManageInputs && (
+              <FulcrumEstimateBuilderPage
+                displayName={me.displayName}
+                canEdit={canManageInputs}
+              />
+            )}
+            {page === 'operation-rules' && (
+              <OperationRulesPage canEdit={canAdministerRates} />
+            )}
             {page === 'history' && canViewHistory && (
               <EstimatingHistoryPage
                 canImport={canImportHistory}

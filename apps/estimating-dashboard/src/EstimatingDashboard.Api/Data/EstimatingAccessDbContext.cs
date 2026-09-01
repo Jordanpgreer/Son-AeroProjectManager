@@ -21,6 +21,9 @@ public sealed class EstimatingAccessDbContext(
     public DbSet<FulcrumQuoteSyncRun> FulcrumQuoteSyncRuns => Set<FulcrumQuoteSyncRun>();
     public DbSet<EstimatingEstimatorSettingRecord> EstimatorSettings => Set<EstimatingEstimatorSettingRecord>();
     public DbSet<EstimatingIntegrationCredentialRecord> IntegrationCredentials => Set<EstimatingIntegrationCredentialRecord>();
+    public DbSet<EstimatingRateReferenceRecord> EstimatingRateReferences => Set<EstimatingRateReferenceRecord>();
+    public DbSet<EstimatingOperationMappingRecord> EstimatingOperationMappings => Set<EstimatingOperationMappingRecord>();
+    public DbSet<EstimatingOperationMappingAuditRecord> EstimatingOperationMappingAudits => Set<EstimatingOperationMappingAuditRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -164,6 +167,50 @@ public sealed class EstimatingAccessDbContext(
             entity.Property(credential => credential.CredentialKey).HasMaxLength(120);
             entity.Property(credential => credential.DisplayName).HasMaxLength(160);
             entity.Property(credential => credential.UpdatedBy).HasMaxLength(160);
+        });
+
+        modelBuilder.Entity<EstimatingRateReferenceRecord>(entity =>
+        {
+            entity.ToTable("EstimatingRateReferences");
+            entity.HasKey(reference => reference.Key);
+            entity.HasIndex(reference => new { reference.Category, reference.SourceRow }).IsUnique();
+            entity.Property(reference => reference.Key).HasMaxLength(64);
+            entity.Property(reference => reference.Category).HasMaxLength(40);
+            entity.Property(reference => reference.OperationName).HasMaxLength(160);
+        });
+
+        modelBuilder.Entity<EstimatingOperationMappingRecord>(entity =>
+        {
+            entity.ToTable("EstimatingOperationMappings");
+            entity.HasKey(mapping => mapping.Id);
+            entity.HasIndex(mapping => mapping.FulcrumOperationKey).IsUnique();
+            entity.Property(mapping => mapping.FulcrumOperation).HasMaxLength(160);
+            entity.Property(mapping => mapping.FulcrumOperationKey).HasMaxLength(160);
+            entity.Property(mapping => mapping.RateReferenceKey).HasMaxLength(64);
+            entity.Property(mapping => mapping.Version).IsConcurrencyToken();
+            entity.Property(mapping => mapping.CreatedBy).HasMaxLength(160);
+            entity.Property(mapping => mapping.UpdatedBy).HasMaxLength(160);
+            entity.HasOne(mapping => mapping.RateReference)
+                .WithMany(reference => reference.OperationMappings)
+                .HasForeignKey(mapping => mapping.RateReferenceKey)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<EstimatingOperationMappingAuditRecord>(entity =>
+        {
+            entity.ToTable("EstimatingOperationMappingAudits");
+            entity.HasKey(audit => audit.Id);
+            entity.HasIndex(audit => new { audit.OperationMappingId, audit.ChangedAt });
+            entity.Property(audit => audit.Action).HasMaxLength(24);
+            entity.Property(audit => audit.OldFulcrumOperation).HasMaxLength(160);
+            entity.Property(audit => audit.NewFulcrumOperation).HasMaxLength(160);
+            entity.Property(audit => audit.OldRateReferenceKey).HasMaxLength(64);
+            entity.Property(audit => audit.NewRateReferenceKey).HasMaxLength(64);
+            entity.Property(audit => audit.ChangedBy).HasMaxLength(160);
+            entity.HasOne(audit => audit.OperationMapping)
+                .WithMany(mapping => mapping.AuditHistory)
+                .HasForeignKey(audit => audit.OperationMappingId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }
