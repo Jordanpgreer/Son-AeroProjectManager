@@ -24,6 +24,7 @@ import {
   quoteDashboardVersion,
   type QuoteDashboardFilter,
 } from './quoteDashboardModel'
+import { formatQuoteRevision } from './quoteRevision'
 import './quote-dashboard.css'
 
 function currency(value: number) {
@@ -232,10 +233,10 @@ export default function QuotesDashboardPage({
                           : ''}
                       </td>
                       <td className="quote-revision-cell">
-                        R{displayVersion.revisionNumber}
+                        {formatQuoteRevision(displayVersion.revisionNumber)}
                         <small>{isDraftVersion ? 'Draft' : 'Published'}</small>
                         {!isDraftVersion && quote.draft && (
-                          <small>R{quote.draft.revisionNumber} draft available</small>
+                          <small>{formatQuoteRevision(quote.draft.revisionNumber)} draft available</small>
                         )}
                       </td>
                       <td>
@@ -278,12 +279,12 @@ export default function QuotesDashboardPage({
                               type="button"
                               className="danger-link"
                               onClick={() => {
-                                if (!window.confirm(`Discard the R${quote.draft?.revisionNumber} draft? Published revisions will be kept.`)) return
+                                if (!window.confirm(`Discard the ${formatQuoteRevision(quote.draft?.revisionNumber ?? 1)} draft? Published revs will be kept.`)) return
                                 setActionError(null)
                                 if (discardQuoteRevisionDraft(quote.id, ownerAccountName)) {
                                   setRevision((current) => current + 1)
                                 } else {
-                                  setActionError(getQuoteStoreError() ?? 'The revision draft could not be discarded.')
+                                  setActionError(getQuoteStoreError() ?? 'The rev draft could not be discarded.')
                                 }
                               }}
                             >

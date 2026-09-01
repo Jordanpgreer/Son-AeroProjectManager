@@ -209,10 +209,7 @@ public sealed class AccessControlSeeder
             .PermissionsForModule(ApplicationModules.Estimating)
             .Select(permission => permission.Key)
             .ToArray();
-        var qualityPermissions = ApplicationModuleCatalog
-            .PermissionsForModule(ApplicationModules.QualityAssurance)
-            .Select(permission => permission.Key)
-            .ToArray();
+        var qualityAdministratorPermissions = QualityAssurancePermissions.AdministratorDefaults;
         var definitions = new (string Name, string Description, IReadOnlyList<string> Permissions)[]
         {
             (ApplicationGroups.Administrators, "Full administrative access across SON-AERO modules.", [
@@ -220,7 +217,7 @@ public sealed class AccessControlSeeder
                 .. ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Administrators),
                 .. EngineeringPermissions.DefaultsForGroup(ApplicationGroups.Administrators),
                 .. estimatingPermissions,
-                .. qualityPermissions
+                .. qualityAdministratorPermissions
             ]),
             (ApplicationGroups.Managers, "Management, review, and project-control access across modules.", [
                 .. ApplicationPermissions.DefaultManagerPermissions,

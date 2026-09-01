@@ -914,7 +914,6 @@ nav {
 }
 
 .topbar-user-chip .user-copy strong { font-size: 12px; }
-.topbar-user-chip .user-copy span { color: var(--red-700); font-size: 9px; font-weight: 700; }
 .topbar-user-chip .avatar { flex: none; }
 
 .sidebar-user-chip {

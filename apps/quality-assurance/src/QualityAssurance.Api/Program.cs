@@ -14,6 +14,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddScoped<QualityAssuranceUserService>();
 builder.Services.AddScoped<IQualityAssuranceAccessStore, QualityAssuranceAccessStore>();
 builder.Services.AddScoped<QualityAssignmentService>();
+builder.Services.AddScoped<QualityLegacyAssignmentReconciler>();
 builder.Services.AddScoped<QualityShipmentService>();
 builder.Services.AddScoped<QualityShipmentCommentService>();
 builder.Services.AddScoped<QualityShipmentImportService>();
@@ -102,6 +103,8 @@ using (var scope = app.Services.CreateScope())
         .SeedAsync(CancellationToken.None);
     var db = scope.ServiceProvider.GetRequiredService<QualityAssuranceDbContext>();
     await db.Database.MigrateAsync();
+    await scope.ServiceProvider.GetRequiredService<QualityLegacyAssignmentReconciler>()
+        .ReconcileAsync(CancellationToken.None);
 }
 
 app.UseAuthentication();

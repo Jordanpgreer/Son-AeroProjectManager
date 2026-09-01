@@ -11,6 +11,8 @@ public static class QualityAssurancePermissions
     public const string AssignmentView = "quality-assurance.assignments.view";
     public const string AssignmentGroup = "quality-assurance.assignments.group";
     public const string AssignmentUser = "quality-assurance.assignments.user";
+    public const string AssignmentEligible = "quality-assurance.assignments.eligible";
+    public const string ResponsibleGroupEligible = "quality-assurance.assignments.responsible-group";
     public const string MarkShipped = "quality-assurance.shipments.mark-shipped";
     public const string AuditView = "quality-assurance.audit.view";
     public const string RulesManage = "quality-assurance.rules.manage";
@@ -93,6 +95,8 @@ public static class QualityAssurancePermissions
         Permission(AssignmentView, "View assignments", "View assigned groups and individual owners.", "Assignments"),
         Permission(AssignmentGroup, "Assign groups", "Move shipments between shared groups such as Quality, Customer Service, or Sales.", "Assignments"),
         Permission(AssignmentUser, "Assign individual users", "Assign shipments to active users within the selected group.", "Assignments"),
+        Permission(AssignmentEligible, "Receive Quality assignments", "Allow active members of this permission group to receive individual Quality Dashboard assignments.", "Assignments"),
+        Permission(ResponsibleGroupEligible, "Use as Quality Responsible Group", "Include this permission group in Quality Responsible Group dropdowns and automatic routing rules.", "Assignments"),
         Permission(MarkShipped, "Mark shipments shipped", "Complete a shipment and move it to Past Shipments.", "Shipping workflow"),
         Permission(AuditView, "View shipment audit history", "View permanent field, assignment, and completion changes.", "Audit"),
         Permission(RulesManage, "Manage automatic assignment rules", "Create customer and task-type routing rules, including least-loaded assignment.", "Administration")
@@ -108,7 +112,9 @@ public static class QualityAssurancePermissions
         [.. ViewerDefaults, ShipmentCreate, MarkShipped, AuditView, .. FieldEditDefinitions.Select(x => x.Key)];
 
     public static readonly IReadOnlyList<string> AdministratorDefaults =
-        All.Select(permission => permission.Key).ToArray();
+        All.Select(permission => permission.Key)
+            .Where(permission => permission is not AssignmentEligible and not ResponsibleGroupEligible)
+            .ToArray();
 
     private static PermissionDefinition Field(string key, string label, string description) =>
         Permission(key, label, description, key.EndsWith(".view", StringComparison.Ordinal) ? "Shipping fields - view" : "Shipping fields - edit");

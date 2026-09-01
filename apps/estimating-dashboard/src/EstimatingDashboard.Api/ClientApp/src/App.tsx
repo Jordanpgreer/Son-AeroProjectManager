@@ -374,6 +374,9 @@ export default function App() {
             </div>
           </div>
           <div className="topbar-actions">
+            <span className="topbar-user-name" title={me.displayName}>
+              {me.displayName}
+            </span>
             <a
               className="topbar-brand-link"
               href={hubUrl}

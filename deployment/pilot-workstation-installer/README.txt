@@ -1,4 +1,4 @@
-SON-AERO HUB TWO-PERSON HTTPS PILOT
+ARDA HUB TWO-PERSON HTTPS PILOT
 ===================================
 
 This ZIP is created for one named employee and one named computer. It is not a

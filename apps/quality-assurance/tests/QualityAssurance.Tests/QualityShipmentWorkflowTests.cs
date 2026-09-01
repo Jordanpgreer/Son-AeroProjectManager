@@ -39,6 +39,26 @@ public sealed class QualityShipmentWorkflowTests
     }
 
     [Fact]
+    public async Task CreatingWorkDoesNotAssignAnIneligibleCreatorAsTheOwner()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var permissions = fixture.Admin.Permissions
+            .Where(permission => permission != QualityAssurancePermissions.AssignmentEligible)
+            .ToList();
+        var creator = fixture.Admin with { Permissions = permissions };
+
+        var created = await fixture.Shipments.CreateAsync(new QualityShipmentCreateDto(
+            "WIP", "SO-INELIGIBLE-CREATOR", null, "PN-CREATOR", null, "Customer",
+            "General", null, null, null, null, null, null, null),
+            creator,
+            default);
+
+        Assert.Equal(10, created.AssignedGroupId);
+        Assert.Null(created.AssignedUserId);
+        Assert.Null(created.AssignedDisplayName);
+    }
+
+    [Fact]
     public async Task Least_loaded_rule_assigns_the_person_with_the_smallest_open_queue()
     {
         await using var fixture = await WorkflowFixture.CreateAsync();
@@ -181,6 +201,45 @@ public sealed class QualityShipmentWorkflowTests
         Assert.Contains(dashboard.Fields, field => field.Key == "salesOrderNumber" && field.CanView);
         Assert.Contains(dashboard.Fields, field => field.Key == "dollarValue" && !field.CanView);
         Assert.Contains(mine.Items, shipment => shipment.SalesOrderNumber == "SO-UNASSIGNED");
+    }
+
+    [Fact]
+    public async Task AssignmentEditorsWithoutManagerDashboardPermissionDoNotSeeUnassignedInMine()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        fixture.Db.Shipments.Add(new QualityShipment
+        {
+            SalesOrderNumber = "SO-MANAGER-ONLY",
+            PartNumber = "PN-MANAGER-ONLY",
+            Customer = "Customer",
+            TaskType = "General",
+            CreatedByAccountName = fixture.Admin.AccountName,
+            CreatedByDisplayName = fixture.Admin.DisplayName,
+            UpdatedByAccountName = fixture.Admin.AccountName,
+            UpdatedByDisplayName = fixture.Admin.DisplayName,
+        });
+        await fixture.Db.SaveChangesAsync();
+        var assignmentEditor = new QualityAssuranceAccessProfile(
+            50,
+            "TEST\\assignment-editor",
+            "Assignment Editor",
+            ApplicationRoles.Editor,
+            [
+                QualityAssurancePermissions.ModuleView,
+                QualityAssurancePermissions.ShipmentsView,
+                QualityAssurancePermissions.AssignmentView,
+                QualityAssurancePermissions.AssignmentGroup,
+                QualityAssurancePermissions.AssignmentUser,
+            ],
+            [new QualityAssuranceAccessGroup(10, "Quality")]);
+
+        var dashboard = await fixture.Shipments.DashboardAsync(assignmentEditor, default);
+        var mine = await fixture.Shipments.ListAsync(
+            assignmentEditor, "open", "mine", "oldest", null, null, null, null, null, default);
+
+        Assert.Empty(dashboard.Queue);
+        Assert.Equal(0, dashboard.MyQueue.Open);
+        Assert.Empty(mine.Items);
     }
 
     [Fact]
@@ -343,6 +402,156 @@ public sealed class QualityShipmentWorkflowTests
         Assert.Equal("Person One", assigned.NextAction);
         Assert.Contains(await fixture.Db.ShipmentAuditEntries.ToListAsync(), entry =>
             entry.FieldName == "nextAction" && entry.NewValue == "Person One");
+    }
+
+    [Fact]
+    public async Task ManualGroupOnlyAssignmentWinsOverLaterLegacyTagPromotion()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var shipment = new QualityShipment
+        {
+            SalesOrderNumber = "SO-MANUAL-GROUP",
+            PartNumber = "PN-MANUAL-GROUP",
+            Customer = "Customer",
+            TaskType = "General",
+            NextAction = "Quality",
+            LegacyAssigneeTag = "Quality",
+            Version = 1,
+            CreatedByAccountName = fixture.Admin.AccountName,
+            CreatedByDisplayName = fixture.Admin.DisplayName,
+            UpdatedByAccountName = fixture.Admin.AccountName,
+            UpdatedByDisplayName = fixture.Admin.DisplayName,
+        };
+        fixture.Db.Shipments.Add(shipment);
+        await fixture.Db.SaveChangesAsync();
+
+        var assigned = await fixture.Shipments.AssignAsync(
+            shipment.Id,
+            new QualityShipmentAssignmentDto(shipment.Version, 10, null),
+            fixture.Admin,
+            default);
+
+        Assert.NotNull(assigned);
+        Assert.Equal(10, assigned.AssignedGroupId);
+        Assert.Null(assigned.AssignedUserId);
+        Assert.Null(shipment.LegacyAssigneeTag);
+
+        // Simulate an older record whose legacy marker survived a group-only manual assignment.
+        shipment.LegacyAssigneeTag = "Quality";
+        await fixture.Db.SaveChangesAsync();
+        await fixture.Shipments.DashboardAsync(fixture.Admin, default);
+
+        Assert.Equal(10, shipment.AssignedGroupId);
+        Assert.Null(shipment.AssignedUserId);
+        Assert.Equal("Quality", shipment.LegacyAssigneeTag);
+        Assert.Contains(shipment.AuditEntries, entry => entry.EventType == "Assigned");
+        Assert.DoesNotContain(shipment.AuditEntries, entry => entry.EventType == "LegacyAssignmentPromoted");
+    }
+
+    [Fact]
+    public async Task ExplicitlySavingUnassignedClearsLegacyPromotionMarkerEvenWhenIdsAreUnchanged()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var shipment = new QualityShipment
+        {
+            SalesOrderNumber = "SO-MANUAL-UNASSIGNED",
+            PartNumber = "PN-MANUAL-UNASSIGNED",
+            Customer = "Customer",
+            TaskType = "General",
+            NextAction = "Quality",
+            LegacyAssigneeTag = "Quality",
+            Version = 1,
+            CreatedByAccountName = fixture.Admin.AccountName,
+            CreatedByDisplayName = fixture.Admin.DisplayName,
+            UpdatedByAccountName = fixture.Admin.AccountName,
+            UpdatedByDisplayName = fixture.Admin.DisplayName,
+        };
+        fixture.Db.Shipments.Add(shipment);
+        await fixture.Db.SaveChangesAsync();
+
+        var saved = await fixture.Shipments.AssignAsync(
+            shipment.Id,
+            new QualityShipmentAssignmentDto(shipment.Version, null, null),
+            fixture.Admin,
+            default);
+
+        Assert.NotNull(saved);
+        Assert.Equal(2, saved.Version);
+        Assert.Null(shipment.LegacyAssigneeTag);
+        Assert.Null(shipment.AssignedGroupId);
+        Assert.Null(shipment.AssignedUserId);
+        Assert.Contains(shipment.AuditEntries, entry =>
+            entry.EventType == "Assigned"
+            && entry.OldValue == "Legacy tag: Quality"
+            && entry.NewValue == "Unassigned");
+
+        await fixture.Shipments.DashboardAsync(fixture.Admin, default);
+        Assert.Null(shipment.AssignedUserId);
+        Assert.DoesNotContain(shipment.AuditEntries, entry => entry.EventType == "LegacyAssignmentPromoted");
+    }
+
+    [Fact]
+    public async Task AssignmentViewerCannotConfirmLegacyTagButAssignmentEditorCan()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var shipment = new QualityShipment
+        {
+            SalesOrderNumber = "SO-LEGACY-CONFIRM",
+            PartNumber = "PN-LEGACY-CONFIRM",
+            Customer = "Customer",
+            TaskType = "General",
+            NextAction = "Quality",
+            LegacyAssigneeTag = "Quality",
+            Version = 1,
+            CreatedByAccountName = fixture.Admin.AccountName,
+            CreatedByDisplayName = fixture.Admin.DisplayName,
+            UpdatedByAccountName = fixture.Admin.AccountName,
+            UpdatedByDisplayName = fixture.Admin.DisplayName,
+        };
+        fixture.Db.Shipments.Add(shipment);
+        await fixture.Db.SaveChangesAsync();
+        var viewer = new QualityAssuranceAccessProfile(
+            51,
+            "TEST\\assignment-viewer",
+            "Assignment Viewer",
+            ApplicationRoles.Viewer,
+            [
+                QualityAssurancePermissions.ModuleView,
+                QualityAssurancePermissions.ShipmentsView,
+                QualityAssurancePermissions.TeamDashboardView,
+                QualityAssurancePermissions.AssignmentView,
+            ],
+            [new QualityAssuranceAccessGroup(10, "Quality")]);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Shipments.AssignAsync(
+            shipment.Id,
+            new QualityShipmentAssignmentDto(shipment.Version, null, null),
+            viewer,
+            default));
+
+        Assert.Equal("Quality", shipment.LegacyAssigneeTag);
+        Assert.Equal(1, shipment.Version);
+        Assert.DoesNotContain(shipment.AuditEntries, entry => entry.EventType == "Assigned");
+
+        var editor = viewer with
+        {
+            Role = ApplicationRoles.Editor,
+            Permissions = [.. viewer.Permissions, QualityAssurancePermissions.AssignmentGroup],
+        };
+        var saved = await fixture.Shipments.AssignAsync(
+            shipment.Id,
+            new QualityShipmentAssignmentDto(shipment.Version, null, null),
+            editor,
+            default);
+
+        Assert.NotNull(saved);
+        Assert.Null(shipment.LegacyAssigneeTag);
+        Assert.Equal(2, shipment.Version);
+        Assert.Contains(shipment.AuditEntries, entry =>
+            entry.EventType == "Assigned"
+            && entry.AccountName == editor.AccountName
+            && entry.OldValue == "Legacy tag: Quality"
+            && entry.NewValue == "Unassigned");
     }
 
     [Fact]
@@ -583,13 +792,17 @@ public sealed class QualityShipmentWorkflowTests
             Db = db;
             Directory = new TestAccessStore();
             Assignments = new QualityAssignmentService(db, Directory);
-            Shipments = new QualityShipmentService(db, Directory, Assignments);
+            var legacyAssignments = new QualityLegacyAssignmentReconciler(
+                db,
+                Directory,
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<QualityLegacyAssignmentReconciler>.Instance);
+            Shipments = new QualityShipmentService(db, Directory, Assignments, legacyAssignments);
             Admin = new QualityAssuranceAccessProfile(
                 99,
                 "TEST\\admin",
                 "Quality Admin",
                 ApplicationRoles.Admin,
-                QualityAssurancePermissions.AdministratorDefaults,
+                [.. QualityAssurancePermissions.AdministratorDefaults, QualityAssurancePermissions.AssignmentEligible],
                 [new QualityAssuranceAccessGroup(10, "Quality")]);
         }
 
@@ -632,6 +845,11 @@ public sealed class QualityShipmentWorkflowTests
             Task.FromResult<QualityAssuranceAccessProfile?>(null);
 
         public Task<IReadOnlyList<QualityDirectoryGroup>> GetGroupsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(groups);
+
+        public Task<IReadOnlyList<QualityDirectoryGroup>> GetGroupsWithPermissionAsync(
+            string permissionKey,
+            CancellationToken cancellationToken = default) =>
             Task.FromResult(groups);
 
         public Task<IReadOnlyList<QualityDirectoryUser>> GetUsersAsync(int? groupId = null, CancellationToken cancellationToken = default) =>

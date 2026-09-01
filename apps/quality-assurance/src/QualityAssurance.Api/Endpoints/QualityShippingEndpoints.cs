@@ -254,8 +254,12 @@ public static class QualityShippingEndpoints
         IQualityAssuranceAccessStore accessStore,
         CancellationToken cancellationToken)
     {
-        var groups = await accessStore.GetGroupsAsync(cancellationToken);
-        var users = await accessStore.GetUsersAsync(null, cancellationToken);
+        var groups = await accessStore.GetGroupsWithPermissionAsync(
+            QualityAssurancePermissions.ResponsibleGroupEligible,
+            cancellationToken);
+        var users = await accessStore.GetUsersWithPermissionAsync(
+            QualityAssurancePermissions.AssignmentEligible,
+            cancellationToken);
         return new QualityAssignmentOptionsDto(
             groups.Select(group => new QualityDirectoryGroupDto(
                 group.Id, group.Name, group.Description, group.ActiveUserCount)).ToList(),

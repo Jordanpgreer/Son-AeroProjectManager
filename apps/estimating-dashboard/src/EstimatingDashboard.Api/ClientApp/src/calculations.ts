@@ -34,7 +34,7 @@ export function safeDivide(numerator: number, denominator: number): number | nul
 function calculateOperation(
   input: EstimateInput,
   operation: EstimateInput['operations'][number],
-  subassembly?: Pick<SubassemblyInput, 'id' | 'partNumber'>,
+  subassembly?: SubassemblyInput,
 ): { audit: OperationCostAudit; error?: EstimateCalculationError } {
   const laborRate = lookupLaborRate(operation.name, input.rateYear)
 
@@ -84,7 +84,11 @@ function calculateOperation(
       laborRate,
       unitCostByQuantity: createQuantityValues((quantity) => (
         isProduction
-          ? (operation.setupMinutes / quantity * laborRate) + (operation.runMinutes * laborRate)
+          ? (
+              operation.setupMinutes
+              / Math.max(1, subassembly?.quantitiesByParentQuantity?.[quantity] ?? quantity)
+              * laborRate
+            ) + (operation.runMinutes * laborRate)
           : 0
       ), input.quantities),
       oneTimeNre: isOneTimeNre
@@ -97,27 +101,36 @@ function calculateOperation(
 function calculateMaterial(
   input: EstimateInput,
   material: EstimateInput['materials'][number],
+  subassembly?: SubassemblyInput,
 ): MaterialCostAudit {
   const extendedCost = material.partsQuantity * material.unitPrice
   return {
     materialId: material.id,
     extendedCost,
-    unitCostByQuantity: createQuantityValues((quantity) => (
-      material.amortizeMinBuy
-        ? extendedCost / quantity
-        : extendedCost * (1 + 1 / quantity)
-    ), input.quantities),
+    unitCostByQuantity: createQuantityValues((quantity) => {
+      const buildQuantity = Math.max(
+        1,
+        subassembly?.quantitiesByParentQuantity?.[quantity] ?? quantity,
+      )
+      return material.amortizeMinBuy
+        ? extendedCost / buildQuantity
+        : extendedCost * (1 + 1 / buildQuantity)
+    }, input.quantities),
   }
 }
 
 function calculateProcess(
   input: EstimateInput,
   process: EstimateInput['processes'][number],
+  subassembly?: SubassemblyInput,
 ): ProcessCostAudit {
   return {
     processId: process.id,
     unitCostByQuantity: createQuantityValues(
-      (quantity) => process.setupCost / quantity + process.runCostEach,
+      (quantity) => process.setupCost / Math.max(
+        1,
+        subassembly?.quantitiesByParentQuantity?.[quantity] ?? quantity,
+      ) + process.runCostEach,
       input.quantities,
     ),
   }
@@ -140,10 +153,10 @@ function calculateSubassembly(
     (result) => result.error === undefined ? [] : [result.error],
   )
   const materials = subassembly.materials.map(
-    (material) => calculateMaterial(input, material),
+    (material) => calculateMaterial(input, material, subassembly),
   )
   const processes = subassembly.processes.map(
-    (process) => calculateProcess(input, process),
+    (process) => calculateProcess(input, process, subassembly),
   )
   const baseAudit = {
     subassemblyId: subassembly.id,
@@ -180,7 +193,11 @@ function calculateSubassembly(
       const burdenedLabor = basicLabor + laborBurden
       const rawMaterial = sumQuantityValues(materials, quantity)
       const rawProcess = sumQuantityValues(processes, quantity)
-      const amortizedNre = rawOneTimeNre / quantity
+      const buildQuantity = Math.max(
+        1,
+        subassembly.quantitiesByParentQuantity?.[quantity] ?? quantity,
+      )
+      const amortizedNre = rawOneTimeNre / buildQuantity
       const facilities = subassembly.facilitiesByQuantity[quantity] ?? 0
       const unitCost =
         burdenedLabor

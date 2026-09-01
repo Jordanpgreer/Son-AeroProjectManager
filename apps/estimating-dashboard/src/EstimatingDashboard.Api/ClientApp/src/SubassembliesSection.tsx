@@ -5,7 +5,7 @@ import {
   MaterialsSection,
   ProcessesSection,
 } from './CalculatorCostSections'
-import { OperationsSection } from './CalculatorInputSections'
+import { OperationsSection, SafeNumberInput } from './CalculatorInputSections'
 import { CONTROLLED_OPERATION_OPTIONS } from './estimatingRates'
 import type {
   EstimateOperationInput,
@@ -115,7 +115,7 @@ export default function SubassembliesSection({
               onClick={() => onSelectedIdChange(subassembly.id)}
             >
               <strong>{subassembly.partNumber.trim() || `Subassembly ${index + 1}`}</strong>
-              <small>{subassembly.revision.trim() ? `Rev ${subassembly.revision}` : 'Revision not set'}</small>
+              <small>{subassembly.revision.trim() ? `Part rev ${subassembly.revision}` : 'Part rev not set'}</small>
             </button>
           ))}
         </nav>
@@ -146,7 +146,7 @@ export default function SubassembliesSection({
                   />
                 </label>
                 <label>
-                  <span>Revision</span>
+                  <span>Part rev</span>
                   <input
                     type="text"
                     value={selected.revision}
@@ -170,6 +170,34 @@ export default function SubassembliesSection({
             <div className="subassembly-rollup-note">
               Child labor, material, process, amortized NRE, and facilities roll into the parent as one process cost. Parent process G&amp;A and profit are applied once.
             </div>
+            <section className="subassembly-build-quantities" aria-labelledby={`${selected.id}-build-quantities`}>
+              <div>
+                <strong id={`${selected.id}-build-quantities`}>Child build quantities</strong>
+                <small>Units built at each parent quote tier; these values allocate child setup and NRE.</small>
+              </div>
+              <div className="subassembly-build-quantity-grid">
+                {quantities.map((quantity) => (
+                  <label key={quantity}>
+                    <span>Parent qty {quantity.toLocaleString()}</span>
+                    <SafeNumberInput
+                      value={selected.quantitiesByParentQuantity?.[quantity] ?? quantity}
+                      onValueChange={(value) => onChange(selected.id, (current) => ({
+                        ...current,
+                        quantitiesByParentQuantity: {
+                          ...current.quantitiesByParentQuantity,
+                          [quantity]: value,
+                        },
+                      }))}
+                      label={`Child build quantity for parent quantity ${quantity}`}
+                      min={1}
+                      step={1}
+                      integer
+                      testId={`subassembly-build-quantity-${quantity}`}
+                    />
+                  </label>
+                ))}
+              </div>
+            </section>
             <OperationsSection
               operations={selected.operations}
               audits={audit?.operations ?? []}

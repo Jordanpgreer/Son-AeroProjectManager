@@ -1,5 +1,5 @@
-import { Download, GitBranch, RotateCcw, Save, Send, ShieldCheck } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { Download, GitBranch, RotateCcw, Save, Send, ShieldCheck, Upload } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   MaterialsSection,
@@ -11,6 +11,7 @@ import {
   OperationsSection,
 } from './CalculatorInputSections'
 import CalculatorResults from './CalculatorResults'
+import CalculatorWorkflowGuide from './CalculatorWorkflowGuide'
 import { calculateEstimate } from './calculations'
 import {
   createEstimateDefaults,
@@ -34,6 +35,8 @@ import {
   type QuoteStatus,
 } from './quoteStore'
 import SubassembliesSection from './SubassembliesSection'
+import QuantityEditor from './QuantityEditor'
+import { formatQuoteRevision } from './quoteRevision'
 import type {
   EstimateInput,
   EstimateKind,
@@ -87,6 +90,8 @@ export default function EstimateCalculatorPage({
   const [saveMessage, setSaveMessage] = useState(initialQuoteLoad.storageError ?? '')
   const [exportMessage, setExportMessage] = useState('')
   const [exporting, setExporting] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const workbookInputRef = useRef<HTMLInputElement>(null)
   const [estimate, setEstimate] = useState<EstimateInput>(
     () => initialVersion?.estimate ?? createEstimateDefaults('standard'),
   )
@@ -107,6 +112,9 @@ export default function EstimateCalculatorPage({
     (revision) => revision.id === activeVersionId,
   ) ?? null
   const canEditEstimate = canManageInputs && (!quoteRecord || Boolean(activeDraft))
+  const activeRevisionNumber = activeDraft?.revisionNumber
+    ?? activePublishedRevision?.revisionNumber
+    ?? 1
 
   const calculation = useMemo(() => calculateEstimate(estimate), [estimate])
   const assumptions = ANNUAL_RATE_ASSUMPTIONS[estimate.rateYear]
@@ -160,7 +168,7 @@ export default function EstimateCalculatorPage({
     setQuoteRecord(saved)
     setActiveVersionId(saved.draft?.id ?? null)
     setDirty(false)
-    setSaveMessage(`Revision ${saved.draft?.revisionNumber ?? 1} draft saved locally`)
+    setSaveMessage(`${formatQuoteRevision(saved.draft?.revisionNumber ?? 1)} draft saved locally`)
     window.history.replaceState(
       null,
       '',
@@ -184,7 +192,7 @@ export default function EstimateCalculatorPage({
 
   const selectVersion = (versionId: string) => {
     if (!quoteRecord) return
-    if (dirty && !window.confirm('Discard unsaved changes and open another revision?')) return
+    if (dirty && !window.confirm('Discard unsaved changes and open another rev?')) return
     const version = quoteRecord.draft?.id === versionId
       ? quoteRecord.draft
       : quoteRecord.revisions.find((revision) => revision.id === versionId)
@@ -199,24 +207,24 @@ export default function EstimateCalculatorPage({
     }
     const revised = startQuoteRevision(quoteRecord.id, ownerAccountName)
     if (!revised?.draft) {
-      setSaveMessage(getQuoteStoreError() ?? 'Could not create a revision draft in this browser.')
+      setSaveMessage(getQuoteStoreError() ?? 'Could not create a rev draft in this browser.')
       return
     }
     setQuoteRecord(revised)
     setQuoteStatus(revised.status)
     loadVersion(revised.draft)
-    setSaveMessage(`Revision ${revised.draft.revisionNumber} draft created from the latest published revision`)
+    setSaveMessage(`${formatQuoteRevision(revised.draft.revisionNumber)} draft created from the latest published rev`)
   }
 
   const publishRevision = () => {
     if (!canManageQuotes || !canEditEstimate) return
     if (!calculation.ok) {
-      setSaveMessage('Resolve calculation errors before publishing this revision.')
+      setSaveMessage('Resolve calculation errors before publishing this rev.')
       return
     }
 
     const nextRevisionNumber = activeDraft?.revisionNumber ?? 1
-    if (!window.confirm(`Publish whole-quote Revision ${nextRevisionNumber}? Published revisions are read-only and retained in history.`)) {
+    if (!window.confirm(`Publish whole-quote ${formatQuoteRevision(nextRevisionNumber)}? Published revs are read-only and retained in history.`)) {
       return
     }
 
@@ -230,7 +238,7 @@ export default function EstimateCalculatorPage({
       : publishNewQuoteRevision({ ownerAccountName, estimate, selectedQuantity })
     const latest = published ? getLatestPublishedRevision(published) : null
     if (!published || !latest) {
-      setSaveMessage(getQuoteStoreError() ?? 'Could not publish this revision in this browser.')
+      setSaveMessage(getQuoteStoreError() ?? 'Could not publish this rev in this browser.')
       return
     }
     setQuoteId(published.id)
@@ -238,7 +246,7 @@ export default function EstimateCalculatorPage({
     setQuoteStatus(published.status)
     setActiveVersionId(latest.id)
     setDirty(false)
-    setSaveMessage(`Whole-quote Revision ${latest.revisionNumber} published`)
+    setSaveMessage(`${formatQuoteRevision(latest.revisionNumber)} published`)
     window.history.replaceState(
       null,
       '',
@@ -445,13 +453,49 @@ export default function EstimateCalculatorPage({
     })
   }
 
+  const importWorkbook = async (file: File) => {
+    if (!canEditEstimate) return
+    if (!/\.xlsx$/i.test(file.name)) {
+      setExportMessage('Choose an Excel .xlsx file. Legacy .xls files can be opened in Excel and saved as .xlsx.')
+      return
+    }
+    if (
+      (dirty || quoteRecord)
+      && !window.confirm('Replace the current draft inputs with this workbook? Published revs will not be changed.')
+    ) return
+    setImporting(true)
+    setExportMessage(`Reading ${file.name}…`)
+    try {
+      const { importEstimateWorkbook } = await import('./estimateWorkbookImport')
+      const imported = await importEstimateWorkbook(await file.arrayBuffer())
+      setEstimate(imported.estimate)
+      setSelectedQuantity(imported.estimate.quantities[0])
+      setSelectedSubassemblyId(
+        imported.estimate.kind === 'subassembly'
+          ? imported.estimate.subassemblies[0]?.id ?? null
+          : null,
+      )
+      setDirty(true)
+      setSaveMessage('')
+      const notes = imported.operationNoteCount
+        ? ` · ${imported.operationNoteCount} ${imported.operationNoteCount === 1 ? 'line note' : 'line notes'} from Column O`
+        : ''
+      const warning = imported.warnings.length ? ` · ${imported.warnings.join(' ')}` : ''
+      setExportMessage(`Imported ${imported.sourceSheet}${notes}${warning}`)
+    } catch (cause) {
+      setExportMessage(cause instanceof Error ? cause.message : 'Could not import the workbook.')
+    } finally {
+      setImporting(false)
+    }
+  }
+
   const exportWorkbook = async () => {
-    if (estimate.kind !== 'subassembly' || !calculation.ok) return
+    if (!calculation.ok) return
     setExporting(true)
     setExportMessage('Preparing workbook…')
     try {
-      const { downloadSubassemblyWorkbook } = await import('./estimateWorkbookExport')
-      await downloadSubassemblyWorkbook(estimate, calculation)
+      const { downloadEstimateWorkbook } = await import('./estimateWorkbookDownload')
+      await downloadEstimateWorkbook(estimate, calculation)
       setExportMessage('Workbook exported')
     } catch (cause) {
       setExportMessage(cause instanceof Error ? cause.message : 'Could not export workbook.')
@@ -462,41 +506,42 @@ export default function EstimateCalculatorPage({
 
   return (
     <div className="calculator-page">
-      {quoteRecord && (
-        <section className="quote-revision-bar" aria-label="Whole-quote revision history">
+        <section className="quote-revision-bar" aria-label="Whole-quote rev history">
           <div className="quote-revision-summary">
-            <span className="toolbar-label">Whole-quote revision</span>
+            <span className="toolbar-label">Quote history</span>
             <strong>
-              Revision {activeDraft?.revisionNumber ?? activePublishedRevision?.revisionNumber ?? 1}
-              {activeDraft ? ' draft' : ' published'}
+              {formatQuoteRevision(activeRevisionNumber)}
+              {activePublishedRevision ? ' · Published' : ' · Draft'}
             </strong>
             <small>
-              {activeDraft
-                ? 'Changes remain private to this draft until you publish the revision.'
-                : 'Published snapshots are read-only and retained in revision history.'}
+              {activePublishedRevision
+                ? 'This published snapshot is read-only. Create a new rev to make changes.'
+                : 'Changes remain in this working draft until you publish.'}
             </small>
           </div>
           <div className="quote-revision-actions">
             <label className="quote-version-picker">
-              <span>View version</span>
+              <span>Rev</span>
               <select
-                value={activeVersionId ?? ''}
-                aria-label="View whole-quote revision"
+                value={activeVersionId ?? 'new-draft'}
+                aria-label="View whole-quote rev"
+                disabled={!quoteRecord}
                 onChange={(event) => selectVersion(event.currentTarget.value)}
               >
-                {quoteRecord.draft && (
+                {!quoteRecord && <option value="new-draft">A — Draft</option>}
+                {quoteRecord?.draft && (
                   <option value={quoteRecord.draft.id}>
-                    Revision {quoteRecord.draft.revisionNumber} — Draft
+                    {formatQuoteRevision(quoteRecord.draft.revisionNumber).replace('Rev ', '')} — Draft
                   </option>
                 )}
-                {[...quoteRecord.revisions].reverse().map((revision) => (
+                {[...(quoteRecord?.revisions ?? [])].reverse().map((revision) => (
                   <option value={revision.id} key={revision.id}>
-                    Revision {revision.revisionNumber} — Published
+                    {formatQuoteRevision(revision.revisionNumber).replace('Rev ', '')} — Published
                   </option>
                 ))}
               </select>
             </label>
-            {quoteRecord.revisions.length > 0 && (
+            {quoteRecord && quoteRecord.revisions.length > 0 && (
               <label className="quote-version-picker quote-status-picker">
                 <span>Quote status</span>
                 <select
@@ -514,7 +559,6 @@ export default function EstimateCalculatorPage({
             )}
           </div>
         </section>
-      )}
 
       <section className="calculator-toolbar" aria-label="Estimate model and actions">
         <div>
@@ -530,7 +574,7 @@ export default function EstimateCalculatorPage({
               onClick={() => switchModel('standard')}
             >
               Standard
-              <small>Rev E</small>
+              <small>Standard worksheet</small>
             </button>
             <button
               type="button"
@@ -542,7 +586,7 @@ export default function EstimateCalculatorPage({
               onClick={() => switchModel('rubber')}
             >
               Rubber
-              <small>Breakdown</small>
+              <small>Rubber worksheet</small>
             </button>
             <button
               type="button"
@@ -554,7 +598,7 @@ export default function EstimateCalculatorPage({
               onClick={() => switchModel('subassembly')}
             >
               Subassembly
-              <small>Rev E</small>
+              <small>Assembly worksheet</small>
             </button>
           </div>
         </div>
@@ -565,9 +609,9 @@ export default function EstimateCalculatorPage({
             {dirty
               ? 'Unsaved draft changes'
               : activeDraft
-                ? `Revision ${activeDraft.revisionNumber} draft saved`
+                ? `${formatQuoteRevision(activeDraft.revisionNumber)} draft saved`
                 : activePublishedRevision
-                  ? `Revision ${activePublishedRevision.revisionNumber} published · read-only`
+                  ? `${formatQuoteRevision(activePublishedRevision.revisionNumber)} published · read-only`
                   : 'Unsaved quote draft'}
           </span>
           <button
@@ -580,18 +624,38 @@ export default function EstimateCalculatorPage({
             <RotateCcw size={16} aria-hidden="true" />
             Reset
           </button>
-          {estimate.kind === 'subassembly' && (
-            <button
-              type="button"
-              className="secondary-button"
-              data-testid="export-subassembly-workbook"
-              disabled={exporting || !calculation.ok}
-              onClick={() => void exportWorkbook()}
-            >
-              <Download size={16} aria-hidden="true" />
-              {exporting ? 'Exporting…' : 'Export Excel'}
-            </button>
-          )}
+          <input
+            ref={workbookInputRef}
+            className="sr-only"
+            type="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            aria-label="Upload estimate workbook"
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0]
+              event.currentTarget.value = ''
+              if (file) void importWorkbook(file)
+            }}
+          />
+          <button
+            type="button"
+            className="secondary-button"
+            data-testid="import-estimate-workbook"
+            disabled={!canEditEstimate || importing}
+            onClick={() => workbookInputRef.current?.click()}
+          >
+            <Upload size={16} aria-hidden="true" />
+            {importing ? 'Importing…' : 'Import Excel'}
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            data-testid="export-estimate-workbook"
+            disabled={exporting || !calculation.ok}
+            onClick={() => void exportWorkbook()}
+          >
+            <Download size={16} aria-hidden="true" />
+            {exporting ? 'Exporting…' : 'Export Excel'}
+          </button>
           {canEditEstimate ? (
             <div className="quote-save-controls">
               <button type="button" className="secondary-button" disabled={!canManageQuotes} onClick={persistQuote}>
@@ -605,7 +669,7 @@ export default function EstimateCalculatorPage({
                 onClick={publishRevision}
               >
                 <Send size={16} aria-hidden="true" />
-                {quoteRecord?.revisions.length ? 'Publish revision' : 'Publish quote'}
+                {quoteRecord?.revisions.length ? 'Publish rev' : 'Publish quote'}
               </button>
             </div>
           ) : quoteRecord && (
@@ -616,7 +680,7 @@ export default function EstimateCalculatorPage({
               onClick={beginRevision}
             >
               <GitBranch size={16} aria-hidden="true" />
-              {quoteRecord.draft ? 'Return to revision draft' : 'Create revision draft'}
+              {quoteRecord.draft ? 'Return to rev draft' : 'Create rev draft'}
             </button>
           )}
           {saveMessage && (
@@ -627,6 +691,8 @@ export default function EstimateCalculatorPage({
           )}
         </div>
       </section>
+
+      <CalculatorWorkflowGuide estimate={estimate} calculationReady={calculation.ok} />
 
       <fieldset className="permission-fieldset" disabled={!canEditEstimate}>
         <legend className="sr-only">Estimate inputs</legend>
@@ -683,23 +749,39 @@ export default function EstimateCalculatorPage({
         </dl>
       </section>
 
-      <CalculatorResults
-        result={calculation}
-        quantities={estimate.quantities}
-        selectedQuantity={selectedQuantity}
-        onSelectedQuantityChange={(quantity) => {
-          setSelectedQuantity(quantity)
-          if (canEditEstimate) {
-            setDirty(true)
-            setSaveMessage('')
-          }
-        }}
-        editable={canEditEstimate}
-        onQuantitiesChange={(quantities) => updateEstimate((current) => ({
-          ...current,
-          quantities,
-        }))}
-      />
+      <div className="pricing-setup-grid">
+        <section className="calc-card quantity-setup-card" aria-labelledby="pricing-setup-heading">
+          <div className="calc-section-heading">
+            <div>
+              <span className="section-kicker">Step 2 · Commercial setup</span>
+              <h2 id="pricing-setup-heading">Pricing Quantities</h2>
+            </div>
+            <span className="controlled-badge">Up to 8 tiers</span>
+          </div>
+          <QuantityEditor
+            quantities={estimate.quantities}
+            editable={canEditEstimate}
+            onChange={(quantities) => {
+              if (!quantities.includes(selectedQuantity)) setSelectedQuantity(quantities[0])
+              updateEstimate((current) => ({ ...current, quantities }))
+            }}
+          />
+        </section>
+        <fieldset className="permission-fieldset" disabled={!canEditEstimate}>
+          <legend className="sr-only">Optional facilities margin</legend>
+          <FacilitiesSection
+            values={estimate.facilitiesByQuantity}
+            quantities={estimate.quantities}
+            onChange={(quantity, value) => updateEstimate((current) => ({
+              ...current,
+              facilitiesByQuantity: {
+                ...current.facilitiesByQuantity,
+                [quantity]: value,
+              },
+            }))}
+          />
+        </fieldset>
+      </div>
 
       {estimate.kind === 'subassembly' && (
         <fieldset className="permission-fieldset" disabled={!canEditEstimate}>
@@ -749,18 +831,20 @@ export default function EstimateCalculatorPage({
             processes: current.processes.filter((process) => process.id !== id),
           }))}
         />
-        <FacilitiesSection
-          values={estimate.facilitiesByQuantity}
-          quantities={estimate.quantities}
-          onChange={(quantity, value) => updateEstimate((current) => ({
-            ...current,
-            facilitiesByQuantity: {
-              ...current.facilitiesByQuantity,
-              [quantity]: value,
-            },
-          }))}
-        />
       </fieldset>
+
+      <CalculatorResults
+        result={calculation}
+        quantities={estimate.quantities}
+        selectedQuantity={selectedQuantity}
+        onSelectedQuantityChange={(quantity) => {
+          setSelectedQuantity(quantity)
+          if (canEditEstimate) {
+            setDirty(true)
+            setSaveMessage('')
+          }
+        }}
+      />
     </div>
   )
 }

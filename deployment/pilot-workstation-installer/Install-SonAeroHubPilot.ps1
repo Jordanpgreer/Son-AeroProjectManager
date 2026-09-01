@@ -84,11 +84,11 @@ try {
     $configurationPath = Join-Path $packageRoot 'pilot-installer-config.json'
     $trustInstaller = Join-Path $packageRoot 'Set-HubPilotWorkstationTrust.ps1'
     $shortcutInstaller = Join-Path $packageRoot 'Install-EmployeeHubShortcut.ps1'
-    $iconPath = Join-Path $packageRoot 'son-aero.ico'
+    $iconPath = Join-Path $packageRoot 'arda.ico'
     Assert-PackageFile $configurationPath 'The pilot installer configuration'
     Assert-PackageFile $trustInstaller 'The pilot trust installer'
     Assert-PackageFile $shortcutInstaller 'The shortcut installer'
-    Assert-PackageFile $iconPath 'The Son-Aero icon'
+    Assert-PackageFile $iconPath 'The Arda icon'
 
     $configuration = Get-Content -LiteralPath $configurationPath -Raw | ConvertFrom-Json
     if ($configuration.SchemaVersion -ne 1 -or $configuration.PilotOnly -ne $true) {

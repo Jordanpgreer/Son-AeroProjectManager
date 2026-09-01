@@ -40,6 +40,10 @@ public sealed class AccessControlSeederTests
             permission.PermissionKey == ProjectTrackerPermissions.WorkCentersImport);
         Assert.Contains(administratorGroup.Permissions, permission =>
             permission.PermissionKey == "estimating.history.import");
+        Assert.DoesNotContain(administratorGroup.Permissions, permission =>
+            permission.PermissionKey == QualityAssurancePermissions.AssignmentEligible);
+        Assert.DoesNotContain(administratorGroup.Permissions, permission =>
+            permission.PermissionKey == QualityAssurancePermissions.ResponsibleGroupEligible);
         var managerGroup = await fixture.Db.Groups
             .Include(group => group.Permissions)
             .SingleAsync(group => group.Name == ApplicationGroups.Managers);
@@ -60,6 +64,33 @@ public sealed class AccessControlSeederTests
         Assert.False(engineeringGroup.IsSystemGroup);
         Assert.Contains(engineeringGroup.Permissions, permission =>
             permission.PermissionKey == ProjectTrackerPermissions.OperationScheduleConfirm);
+    }
+
+    [Fact]
+    public async Task Seed_FirstSharedModuleMigration_DoesNotGrantOptInQualityAssignmentPermissions()
+    {
+        await using var fixture = await AccessFixture.CreateAsync();
+        fixture.Db.Groups.Add(new AppGroup
+        {
+            Name = ApplicationGroups.Administrators,
+            IsSystemGroup = true,
+            Permissions =
+            [
+                new AppGroupPermission { PermissionKey = ApplicationPermissions.ModuleView }
+            ]
+        });
+        await fixture.Db.SaveChangesAsync();
+
+        await new AccessControlSeeder().SeedAsync(fixture.Db, Configuration());
+
+        var administratorPermissions = await fixture.Db.Groups
+            .Where(group => group.Name == ApplicationGroups.Administrators)
+            .SelectMany(group => group.Permissions)
+            .Select(permission => permission.PermissionKey)
+            .ToListAsync();
+        Assert.Contains(QualityAssurancePermissions.ModuleView, administratorPermissions);
+        Assert.DoesNotContain(QualityAssurancePermissions.AssignmentEligible, administratorPermissions);
+        Assert.DoesNotContain(QualityAssurancePermissions.ResponsibleGroupEligible, administratorPermissions);
     }
 
     [Fact]

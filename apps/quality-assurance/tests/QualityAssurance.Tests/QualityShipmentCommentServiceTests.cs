@@ -24,19 +24,17 @@ public sealed class QualityShipmentCommentServiceTests
         var migrator = db.Database.GetService<IMigrator>();
         await migrator.MigrateAsync("20260813190849_AddQualityShippingLayoutPreferences");
         var legacyBody = new string('x', 2500);
-        db.Shipments.Add(new QualityShipment
-        {
-            SalesOrderNumber = "SO-LEGACY",
-            PartNumber = "PN-LEGACY",
-            Customer = "Customer",
-            TaskType = "General",
-            Comments = legacyBody,
-            CreatedByAccountName = "TEST\\legacy",
-            CreatedByDisplayName = "Legacy User",
-            UpdatedByAccountName = "TEST\\legacy",
-            UpdatedByDisplayName = "Legacy User"
-        });
-        await db.SaveChangesAsync();
+        var createdAt = DateTimeOffset.UtcNow;
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO QualityShipments
+                (Status, SalesOrderNumber, PartNumber, Customer, TaskType, Comments,
+                 IsShipped, Version, CreatedAt, CreatedByAccountName, CreatedByDisplayName,
+                 UpdatedAt, UpdatedByAccountName, UpdatedByDisplayName)
+            VALUES
+                ({"WIP"}, {"SO-LEGACY"}, {"PN-LEGACY"}, {"Customer"}, {"General"}, {legacyBody},
+                 {false}, {0L}, {createdAt}, {"TEST\\legacy"}, {"Legacy User"},
+                 {createdAt}, {"TEST\\legacy"}, {"Legacy User"})
+            """);
 
         await migrator.MigrateAsync();
 
@@ -241,6 +239,11 @@ public sealed class QualityShipmentCommentServiceTests
         }
 
         public Task<IReadOnlyList<QualityDirectoryGroup>> GetGroupsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<QualityDirectoryGroup>>([]);
+
+        public Task<IReadOnlyList<QualityDirectoryGroup>> GetGroupsWithPermissionAsync(
+            string permissionKey,
+            CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<QualityDirectoryGroup>>([]);
 
         public Task<IReadOnlyList<QualityDirectoryUser>> GetUsersAsync(int? groupId = null, CancellationToken cancellationToken = default) =>

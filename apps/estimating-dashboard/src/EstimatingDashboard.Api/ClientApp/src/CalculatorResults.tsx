@@ -4,7 +4,6 @@ import {
   Sigma,
 } from 'lucide-react'
 
-import QuantityEditor from './QuantityEditor'
 import type {
   EstimateCalculationResult,
   EstimateCalculationSuccess,
@@ -15,9 +14,7 @@ interface CalculatorResultsProps {
   result: EstimateCalculationResult
   quantities: QuantityTier[]
   selectedQuantity: QuantityTier
-  editable: boolean
   onSelectedQuantityChange: (quantity: QuantityTier) => void
-  onQuantitiesChange: (quantities: QuantityTier[]) => void
 }
 
 function currency(value: number) {
@@ -298,8 +295,6 @@ export default function CalculatorResults({
   quantities,
   selectedQuantity,
   onSelectedQuantityChange,
-  onQuantitiesChange,
-  editable,
 }: CalculatorResultsProps) {
   if (!result.ok) return <FailurePanel result={result} />
 
@@ -321,17 +316,6 @@ export default function CalculatorResults({
           />
         </div>
       </div>
-
-      <QuantityEditor
-        quantities={quantities}
-        editable={editable}
-        onChange={(nextQuantities) => {
-          if (!nextQuantities.includes(selectedQuantity)) {
-            onSelectedQuantityChange(nextQuantities[0])
-          }
-          onQuantitiesChange(nextQuantities)
-        }}
-      />
 
       <div className="price-highlights" aria-live="polite">
         <div className="primary-highlight">

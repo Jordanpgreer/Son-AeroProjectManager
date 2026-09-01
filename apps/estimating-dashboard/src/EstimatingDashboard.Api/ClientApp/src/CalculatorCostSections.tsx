@@ -327,10 +327,10 @@ export function FacilitiesSection({
       <div className="calc-section-heading">
         <div>
           <span className="section-kicker">
-            {isSubassembly ? 'Optional child-cost adjustment' : 'Optional price adjustment'}
+            {isSubassembly ? 'Optional child-cost margin' : 'Optional per-quantity margin'}
           </span>
           <h2 id={headingId}>
-            {isSubassembly ? 'Subassembly Facilities Adjustment' : 'Facilities Adjustment'}
+            {isSubassembly ? 'Subassembly Facilities Margin' : 'Facilities Margin (Optional)'}
           </h2>
         </div>
         <span className="facilities-impact-badge">
@@ -338,18 +338,18 @@ export function FacilitiesSection({
         </span>
       </div>
       <div className="facilities-explainer" id={descriptionId}>
-        <strong>What this changes</strong>
+        <strong>Use only when needed</strong>
         {isSubassembly ? (
           <p>
-            Adds a fixed dollar amount to this child&apos;s unit cost at the selected quantity.
+            Adds an extra dollar margin to this child&apos;s unit cost at each quantity.
             The adjusted child cost rolls into the parent as a process cost and then follows the
             parent&apos;s normal pricing calculation.
           </p>
         ) : (
           <p>
-            Adds a fixed dollar amount directly to each unit&apos;s sell price at the selected quantity.
-            It is not multiplied by G&amp;A, profit, yield, or sales markup. Sell price, gross margin,
-            and extended quote value update immediately.
+            Enter an optional extra margin amount per unit for each quantity. It is added directly
+            to the sell price after G&amp;A, profit, yield, and sales markup, so each quantity can have
+            its own adjustment. Leave every value at $0 when no facilities margin is needed.
           </p>
         )}
       </div>
@@ -362,7 +362,7 @@ export function FacilitiesSection({
               <SafeNumberInput
                 value={values[quantity] ?? 0}
                 onValueChange={(value) => onChange(quantity, value)}
-                label={`${isSubassembly ? 'Subassembly facilities cost' : 'Facilities sell-price adjustment'} per unit at quantity ${quantity}`}
+                label={`${isSubassembly ? 'Subassembly facilities margin' : 'Optional facilities margin'} per unit at quantity ${quantity}`}
                 testId={`${idPrefix}facilities-${quantity}`}
               />
             </span>

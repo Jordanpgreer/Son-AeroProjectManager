@@ -184,7 +184,6 @@ function UserProfile({ me, className = '' }: { me: Me | null; className?: string
       <>
         <div className="user-copy">
           <strong>{me.displayName}</strong>
-          <span>{me.role}</span>
         </div>
         <span className="avatar" title={me.accountName}>
           {initials(me.displayName)}
@@ -194,7 +193,6 @@ function UserProfile({ me, className = '' }: { me: Me | null; className?: string
       <>
         <div className="user-copy">
           <strong>Checking access</strong>
-          <span>Loading</span>
         </div>
         <span className="avatar">
           <LoaderCircle size={16} className="spin" />

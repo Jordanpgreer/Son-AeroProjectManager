@@ -69,6 +69,12 @@ export default function DashboardShipmentQuickView({
     () => options?.users.filter((candidate) => candidate.groupIds.includes(Number(groupId))) ?? [],
     [groupId, options],
   )
+  const currentGroupUnavailable = Boolean(
+    groupId && options && !options.groups.some((group) => group.id === Number(groupId)),
+  )
+  const currentUserUnavailable = Boolean(
+    userId && options && !users.some((candidate) => candidate.id === Number(userId)),
+  )
 
   async function saveAssignment(event: React.FormEvent) {
     event.preventDefault()
@@ -124,10 +130,10 @@ export default function DashboardShipmentQuickView({
               {!options ? <div className="loading-panel compact" role="status">Loading assignment options...</div> : (
                 <form onSubmit={saveAssignment}>
                   <div className="assignment-fields">
-                    <label><span>Responsible group</span><select disabled={!canAssignGroup} value={groupId} onChange={(event) => { setGroupId(event.target.value); setUserId('') }}><option value="">Unassigned - manager review</option>{options.groups.map((group) => <option value={group.id} key={group.id}>{group.name} ({group.activeUserCount})</option>)}</select></label>
-                    <label><span>Individual owner</span><select disabled={!canAssignUser || !groupId} value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Group queue / unassigned</option>{users.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.displayName}</option>)}</select></label>
+                    <label><span>Responsible group</span><select disabled={!canAssignGroup} value={groupId} onChange={(event) => { setGroupId(event.target.value); setUserId('') }}><option value="">Unassigned - manager review</option>{currentGroupUnavailable && <option value={groupId} disabled>{shipment.assignedGroupName ?? 'Current group'} (not enabled)</option>}{options.groups.map((group) => <option value={group.id} key={group.id}>{group.name} ({group.activeUserCount})</option>)}</select><small>Only groups enabled as a Quality Responsible Group in Arda Access appear here.</small></label>
+                    <label><span>Individual owner</span><select disabled={!canAssignUser || !groupId || currentGroupUnavailable} value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Group queue / unassigned</option>{currentUserUnavailable && <option value={userId} disabled>{shipment.assignedDisplayName ?? 'Current owner'} (not eligible)</option>}{users.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.displayName}</option>)}</select><small>Only active users granted Receive Quality assignments through a permission group appear here.</small></label>
                   </div>
-                  <button className="button primary dashboard-assignment-save" disabled={saving} type="submit">{saving ? 'Saving assignment...' : 'Save assignment'}</button>
+                  <button className="button primary dashboard-assignment-save" disabled={saving || currentGroupUnavailable || currentUserUnavailable} type="submit">{saving ? 'Saving assignment...' : 'Save assignment'}</button>
                 </form>
               )}
             </section>

@@ -43,6 +43,58 @@ public sealed class QualityAssuranceAccessStoreTests
         Assert.Null(access);
     }
 
+    [Fact]
+    public async Task AssignmentUsersAndResponsibleGroupsUseIndependentPermissionToggles()
+    {
+        await using var fixture = await QualityAccessFixture.CreateAsync();
+        var assigneeGroup = new QualityAssuranceAccessGroupRecord
+        {
+            Name = "Quality assignees",
+            Permissions =
+            [
+                new QualityAssuranceGroupPermissionRecord
+                {
+                    PermissionKey = QualityAssurancePermissions.AssignmentEligible
+                }
+            ]
+        };
+        var responsibleGroup = new QualityAssuranceAccessGroupRecord
+        {
+            Name = "Final Inspection",
+            Permissions =
+            [
+                new QualityAssuranceGroupPermissionRecord
+                {
+                    PermissionKey = QualityAssurancePermissions.ResponsibleGroupEligible
+                }
+            ]
+        };
+        var unrelatedGroup = new QualityAssuranceAccessGroupRecord { Name = "Unrelated" };
+        fixture.Db.Users.Add(new QualityAssuranceUserRecord
+        {
+            AccountName = "DOMAIN\\rorie",
+            DisplayName = "Rorie Smith",
+            IsActive = true,
+            GroupMemberships =
+            [
+                new QualityAssuranceUserGroupMembershipRecord { Group = assigneeGroup },
+                new QualityAssuranceUserGroupMembershipRecord { Group = responsibleGroup },
+                new QualityAssuranceUserGroupMembershipRecord { Group = unrelatedGroup }
+            ]
+        });
+        await fixture.Db.SaveChangesAsync();
+
+        var groups = await fixture.Store.GetGroupsWithPermissionAsync(
+            QualityAssurancePermissions.ResponsibleGroupEligible);
+        var users = await fixture.Store.GetUsersWithPermissionAsync(
+            QualityAssurancePermissions.AssignmentEligible);
+
+        Assert.Equal("Final Inspection", Assert.Single(groups).Name);
+        Assert.Equal("Rorie Smith", Assert.Single(users).DisplayName);
+        Assert.DoesNotContain(groups, group => group.Name == assigneeGroup.Name);
+        Assert.DoesNotContain(users, user => user.DisplayName == "Unrelated");
+    }
+
     private sealed class QualityAccessFixture : IAsyncDisposable
     {
         private readonly SqliteConnection connection;

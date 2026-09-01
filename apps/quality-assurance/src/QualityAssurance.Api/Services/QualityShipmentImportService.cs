@@ -6,6 +6,7 @@ using QualityAssurance.Api.Auth;
 using QualityAssurance.Api.Data;
 using QualityAssurance.Api.Dtos;
 using QualityAssurance.Api.Models;
+using SonAero.Platform.Security;
 
 namespace QualityAssurance.Api.Services;
 
@@ -40,8 +41,12 @@ public sealed class QualityShipmentImportService(
         CancellationToken cancellationToken)
     {
         var rows = Parse(stream);
-        var groups = await accessStore.GetGroupsAsync(cancellationToken);
-        var users = await accessStore.GetUsersAsync(null, cancellationToken);
+        var groups = await accessStore.GetGroupsWithPermissionAsync(
+            QualityAssurancePermissions.ResponsibleGroupEligible,
+            cancellationToken);
+        var users = await accessStore.GetUsersWithPermissionAsync(
+            QualityAssurancePermissions.AssignmentEligible,
+            cancellationToken);
         var existing = await db.Shipments
             .Include(shipment => shipment.AuditEntries)
             .ToListAsync(cancellationToken);
@@ -94,7 +99,7 @@ public sealed class QualityShipmentImportService(
                 NewValue = owner is null
                     ? string.IsNullOrWhiteSpace(row.Action)
                         ? "Unassigned: no action owner supplied"
-                        : $"Unassigned: '{row.Action}' did not match one registered user and work group"
+                        : $"Unassigned: '{QualityLegacyAssignmentIdentity.TryNormalizePrefixedTag(row.Action) ?? row.Action}' did not match one eligible user by first name"
                     : $"{owner.Group.Name} / {owner.User.DisplayName}",
                 AccountName = actor.AccountName,
                 DisplayName = actor.DisplayName,
@@ -112,7 +117,7 @@ public sealed class QualityShipmentImportService(
     private static bool ReconcileLegacyAssignment(
         QualityShipment shipment,
         string? action,
-        ResolvedOwner? owner,
+        ResolvedQualityOwner? owner,
         QualityAssuranceAccessProfile actor,
         DateTimeOffset now)
     {
@@ -140,7 +145,7 @@ public sealed class QualityShipmentImportService(
             NewValue = owner is null
                 ? string.IsNullOrWhiteSpace(action)
                     ? "Unassigned: no action owner supplied"
-                    : $"Unassigned: '{action}' did not match one registered user and work group"
+                    : $"Unassigned: '{QualityLegacyAssignmentIdentity.TryNormalizePrefixedTag(action) ?? action}' did not match one eligible user by first name"
                 : $"{owner.Group.Name} / {owner.User.DisplayName}",
             AccountName = actor.AccountName,
             DisplayName = actor.DisplayName,
@@ -159,14 +164,16 @@ public sealed class QualityShipmentImportService(
         return true;
     }
 
-    private static void ApplyImportedOwner(QualityShipment shipment, string? uploadedAction, ResolvedOwner? owner)
+    private static void ApplyImportedOwner(QualityShipment shipment, string? uploadedAction, ResolvedQualityOwner? owner)
     {
+        var legacyTag = QualityLegacyAssignmentIdentity.TryNormalizePrefixedTag(uploadedAction);
         shipment.AssignedGroupId = owner?.Group.Id;
         shipment.AssignedGroupName = owner?.Group.Name;
         shipment.AssignedUserId = owner?.User.Id;
         shipment.AssignedAccountName = owner?.User.AccountName;
         shipment.AssignedDisplayName = owner?.User.DisplayName;
-        shipment.NextAction = owner?.User.DisplayName ?? Clean(uploadedAction);
+        shipment.NextAction = owner?.User.DisplayName ?? legacyTag ?? Clean(uploadedAction);
+        shipment.LegacyAssigneeTag = owner is null ? legacyTag : null;
     }
 
     private static string AssignmentLabel(QualityShipment shipment)
@@ -176,82 +183,16 @@ public sealed class QualityShipmentImportService(
         return string.IsNullOrWhiteSpace(label) ? "Unassigned" : label;
     }
 
-    private static ResolvedOwner? ResolveOwner(
+    private static ResolvedQualityOwner? ResolveOwner(
         string? action,
         IReadOnlyList<QualityDirectoryUser> users,
         IReadOnlyList<QualityDirectoryGroup> groups)
     {
-        var tokens = Tokens(action);
-        if (tokens.Count == 0) return null;
-
-        var normalizedAction = NormalizeIdentity(action!);
-        var actionWithoutQueuePrefix = tokens.Count > 1
-            ? string.Concat(tokens.Skip(1))
-            : tokens[0];
-        var exactUsers = users.Where(user =>
-                normalizedAction == NormalizeIdentity(AccountUserName(user.AccountName))
-                || normalizedAction == NormalizeIdentity(user.DisplayName)
-                || actionWithoutQueuePrefix == NormalizeIdentity(AccountUserName(user.AccountName))
-                || actionWithoutQueuePrefix == NormalizeIdentity(user.DisplayName))
-            .ToList();
-        var matchedUsers = exactUsers.Count > 0
-            ? exactUsers
-            : users.Where(user =>
-                    tokens.Contains(NormalizeIdentity(AccountUserName(user.AccountName)), StringComparer.Ordinal)
-                    || tokens.Contains(FirstName(user.DisplayName), StringComparer.Ordinal))
-                .ToList();
-        if (matchedUsers.Count != 1) return null;
-
-        var user = matchedUsers[0];
-        var memberGroups = groups.Where(group => user.GroupIds.Contains(group.Id)).ToList();
-        var workGroups = memberGroups.Where(group => !IsAccessOnlyGroup(group.Name)).ToList();
-        if (workGroups.Count == 0) return null;
-
-        var queueToken = tokens.Count > 1 ? tokens[0] : null;
-        var queueGroups = queueToken is null
-            ? []
-            : workGroups.Where(group => GroupAliases(group.Name).Contains(queueToken, StringComparer.Ordinal)).ToList();
-        var group = queueGroups.Count == 1
-            ? queueGroups[0]
-            : workGroups.Count == 1
-                ? workGroups[0]
-                : null;
-        return group is null ? null : new ResolvedOwner(user, group);
-    }
-
-    private static IReadOnlyList<string> Tokens(string? value) => string.IsNullOrWhiteSpace(value)
-        ? []
-        : Regex.Matches(value, "[A-Za-z0-9]+")
-            .Select(match => NormalizeIdentity(match.Value))
-            .Where(token => token.Length > 0)
-            .ToList();
-
-    private static string NormalizeIdentity(string value) =>
-        new(value.Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray());
-
-    private static string AccountUserName(string accountName)
-    {
-        var separator = accountName.LastIndexOfAny(['\\', '/']);
-        return separator >= 0 ? accountName[(separator + 1)..] : accountName;
-    }
-
-    private static string FirstName(string displayName) => Tokens(displayName).FirstOrDefault() ?? string.Empty;
-
-    private static bool IsAccessOnlyGroup(string name) =>
-        name.Equals("Administrators", StringComparison.OrdinalIgnoreCase)
-        || name.Equals("View Only", StringComparison.OrdinalIgnoreCase)
-        || name.Contains("Admin Access", StringComparison.OrdinalIgnoreCase);
-
-    private static IReadOnlySet<string> GroupAliases(string name)
-    {
-        var words = Tokens(name);
-        var aliases = new HashSet<string>(StringComparer.Ordinal)
-        {
-            NormalizeIdentity(name),
-            string.Concat(words.Select(word => word[0]))
-        };
-        if (name.Contains("Quality", StringComparison.OrdinalIgnoreCase)) aliases.Add("QA");
-        return aliases;
+        var tag = QualityLegacyAssignmentIdentity.TryNormalizePrefixedTag(action)
+            ?? Clean(action);
+        return tag is null
+            ? null
+            : QualityLegacyAssignmentIdentity.ResolveOwnerByFirstName(tag, users, groups);
     }
 
     private static IReadOnlyList<ImportRow> Parse(Stream stream)
@@ -583,8 +524,6 @@ public sealed class QualityShipmentImportService(
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private sealed record ImportIssue(int RowNumber, string Column, string Message);
-    private sealed record ResolvedOwner(QualityDirectoryUser User, QualityDirectoryGroup Group);
-
     private sealed record ImportRow(
         int RowNumber,
         string Status,

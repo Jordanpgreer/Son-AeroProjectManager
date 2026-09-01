@@ -326,6 +326,18 @@ select:disabled {
   gap: 12px;
 }
 
+.topbar-user-name {
+  display: block;
+  max-width: min(220px, 22vw);
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .topbar-brand-link,
 .icon-button {
   display: inline-grid;
@@ -463,6 +475,10 @@ select:disabled {
 
   .page-title-block p {
     display: none;
+  }
+
+  .topbar-user-name {
+    max-width: 110px;
   }
 
   .mobile-page-nav {

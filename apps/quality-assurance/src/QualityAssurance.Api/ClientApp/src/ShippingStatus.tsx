@@ -358,6 +358,8 @@ function AssignmentDialog({
   }, [])
 
   const users = options?.users.filter((candidate) => candidate.groupIds.includes(Number(groupId))) ?? []
+  const currentGroupUnavailable = Boolean(groupId && options && !options.groups.some((group) => group.id === Number(groupId)))
+  const currentUserUnavailable = Boolean(userId && options && !users.some((candidate) => candidate.id === Number(userId)))
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     setSaving(true)
@@ -380,10 +382,10 @@ function AssignmentDialog({
         <form onSubmit={submit}>
           {error && <p className="notice error"><AlertTriangle size={16} />{error}</p>}
           {!options ? <div className="loading-panel compact">Loading shared groups and users...</div> : <div className="assignment-fields">
-            <label><span>Responsible group</span><select disabled={!canMoveGroup} value={groupId} onChange={(event) => { setGroupId(event.target.value); setUserId('') }}><option value="">Unassigned - manager review</option>{options.groups.map((group) => <option value={group.id} key={group.id}>{group.name} ({group.activeUserCount})</option>)}</select><small>Moving work between departments requires Assign Groups permission.</small></label>
-            <label><span>Individual owner</span><select disabled={!canAssignUser || !groupId} value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Group queue / unassigned</option>{users.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.displayName}</option>)}</select><small>Group leads can assign active members of their permitted group.</small></label>
+            <label><span>Responsible group</span><select disabled={!canMoveGroup} value={groupId} onChange={(event) => { setGroupId(event.target.value); setUserId('') }}><option value="">Unassigned - manager review</option>{currentGroupUnavailable && <option value={groupId} disabled>{shipment.assignedGroupName ?? 'Current group'} (not enabled)</option>}{options.groups.map((group) => <option value={group.id} key={group.id}>{group.name} ({group.activeUserCount})</option>)}</select><small>Only groups enabled as a Quality Responsible Group in Arda Access appear here.</small></label>
+            <label><span>Individual owner</span><select disabled={!canAssignUser || !groupId || currentGroupUnavailable} value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Group queue / unassigned</option>{currentUserUnavailable && <option value={userId} disabled>{shipment.assignedDisplayName ?? 'Current owner'} (not eligible)</option>}{users.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.displayName}</option>)}</select><small>Only active users granted Receive Quality assignments through a permission group appear here.</small></label>
           </div>}
-          <footer><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary" disabled={!options || saving} type="submit">{saving ? 'Assigning...' : 'Save assignment'}</button></footer>
+          <footer><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary" disabled={!options || saving || currentGroupUnavailable || currentUserUnavailable} type="submit">{saving ? 'Assigning...' : 'Save assignment'}</button></footer>
         </form>
       </section>
     </div>
@@ -597,7 +599,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   const fields = data?.fields ?? []
   const canCreate = user.permissions.includes(PERMISSIONS.create)
   const canImport = user.permissions.includes(PERMISSIONS.import)
-  const canReviewUnassigned = user.permissions.includes(PERMISSIONS.assignmentGroup)
+  const canReviewUnassigned = user.permissions.includes(PERMISSIONS.teamView)
   const visibleFields = useMemo(() => new Set(
     fields.filter((field) => field.canView).map((field) => field.key),
   ), [fields])

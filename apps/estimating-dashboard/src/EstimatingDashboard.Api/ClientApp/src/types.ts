@@ -2,6 +2,17 @@ export const QUANTITY_TIERS = [10, 25, 50, 75, 100, 250, 500, 1000] as const
 
 export type QuantityTier = number
 export type QuantityValues<T> = Record<number, T>
+export const MAX_QUANTITY_TIERS = 8
+
+export function appendQuantityTier(
+  quantities: readonly QuantityTier[],
+): QuantityTier[] {
+  if (quantities.length >= MAX_QUANTITY_TIERS) return [...quantities]
+  const lastQuantity = quantities.at(-1) ?? 1
+  let nextQuantity = Math.max(1, lastQuantity * 2)
+  while (quantities.includes(nextQuantity)) nextQuantity += 1
+  return [...quantities, nextQuantity]
+}
 
 export const ESTIMATE_YEARS = [2023, 2024, 2025, 2026, 2027, 2028, 2029] as const
 
@@ -81,6 +92,8 @@ export interface SubassemblyInput {
   id: string
   partNumber: string
   revision: string
+  /** Child build quantity used for each parent quote tier. */
+  quantitiesByParentQuantity: QuantityValues<number>
   operations: EstimateOperationInput[]
   materials: MaterialInput[]
   processes: ProcessInput[]

@@ -1,7 +1,11 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-import type { QuantityTier } from './types'
+import {
+  appendQuantityTier,
+  MAX_QUANTITY_TIERS,
+  type QuantityTier,
+} from './types'
 
 function QuantityInput({
   quantity,
@@ -92,10 +96,8 @@ export default function QuantityEditor({
   editable: boolean
 }) {
   const addQuantity = () => {
-    const lastQuantity = quantities.at(-1) ?? 1
-    let nextQuantity = Math.max(1, lastQuantity * 2)
-    while (quantities.includes(nextQuantity)) nextQuantity += 1
-    onChange([...quantities, nextQuantity])
+    if (quantities.length >= MAX_QUANTITY_TIERS) return
+    onChange(appendQuantityTier(quantities))
   }
 
   return (
@@ -122,7 +124,13 @@ export default function QuantityEditor({
             editable={editable}
           />
         ))}
-        <button type="button" className="add-quantity-button" disabled={!editable} onClick={addQuantity}>
+        <button
+          type="button"
+          className="add-quantity-button"
+          disabled={!editable || quantities.length >= MAX_QUANTITY_TIERS}
+          title={quantities.length >= MAX_QUANTITY_TIERS ? 'Workbook exports support up to eight quantity tiers.' : undefined}
+          onClick={addQuantity}
+        >
           <Plus size={15} aria-hidden="true" />
           Add quantity
         </button>

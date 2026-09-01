@@ -13,13 +13,15 @@ namespace QualityAssurance.Api.Services;
 public sealed class QualityShipmentService(
     QualityAssuranceDbContext db,
     IQualityAssuranceAccessStore accessStore,
-    QualityAssignmentService assignments)
+    QualityAssignmentService assignments,
+    QualityLegacyAssignmentReconciler legacyAssignments)
 {
     public async Task<QualityShipmentDto?> GetAsync(
         int id,
         QualityAssuranceAccessProfile access,
         CancellationToken cancellationToken = default)
     {
+        await legacyAssignments.ReconcileAsync(cancellationToken);
         var shipment = await db.Shipments
             .AsNoTracking()
             .SingleOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
@@ -40,6 +42,7 @@ public sealed class QualityShipmentService(
         string? assignee,
         CancellationToken cancellationToken)
     {
+        await legacyAssignments.ReconcileAsync(cancellationToken);
         var normalizedStatus = NormalizeStatus(status);
         var normalizedScope = NormalizeScope(access, scope);
         var normalizedSort = NormalizeSort(access, sort);
@@ -85,6 +88,7 @@ public sealed class QualityShipmentService(
         string? assignee,
         CancellationToken cancellationToken)
     {
+        await legacyAssignments.ReconcileAsync(cancellationToken);
         var normalizedStatus = NormalizeStatus(status);
         var normalizedScope = NormalizeScope(access, scope);
         var query = ApplyVisibility(db.Shipments.AsNoTracking(), access, normalizedScope);
@@ -143,9 +147,10 @@ public sealed class QualityShipmentService(
         QualityAssuranceAccessProfile access,
         CancellationToken cancellationToken)
     {
+        await legacyAssignments.ReconcileAsync(cancellationToken);
         var canViewTeam = access.HasPermission(QualityAssurancePermissions.TeamDashboardView)
             || access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll);
-        var canReviewUnassigned = access.HasPermission(QualityAssurancePermissions.AssignmentGroup);
+        var canReviewUnassigned = IsManager(access);
         var canAssignGroup = access.HasPermission(QualityAssurancePermissions.AssignmentGroup);
         var canAssignUser = access.HasPermission(QualityAssurancePermissions.AssignmentUser);
         var canViewAssignment = access.HasPermission(QualityAssurancePermissions.AssignmentView);
@@ -184,7 +189,9 @@ public sealed class QualityShipmentService(
         var team = new List<QualityPersonQueueDto>();
         if (canViewTeam)
         {
-            var users = await accessStore.GetUsersAsync(null, cancellationToken);
+            var users = await accessStore.GetUsersWithPermissionAsync(
+                QualityAssurancePermissions.AssignmentEligible,
+                cancellationToken);
             if (!access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll))
             {
                 var permittedGroupIds = groupIds.ToHashSet();
@@ -301,19 +308,27 @@ public sealed class QualityShipmentService(
         }
         if (rule is null)
         {
-            var group = access.Groups.FirstOrDefault();
+            var responsibleGroupIds = (await accessStore.GetGroupsWithPermissionAsync(
+                    QualityAssurancePermissions.ResponsibleGroupEligible,
+                    cancellationToken))
+                .Select(group => group.Id)
+                .ToHashSet();
+            var group = access.Groups.FirstOrDefault(candidate => responsibleGroupIds.Contains(candidate.Id));
             shipment.AssignedGroupId = group?.Id;
             shipment.AssignedGroupName = group?.Name;
-            shipment.AssignedUserId = access.UserId;
-            shipment.AssignedAccountName = access.AccountName;
-            shipment.AssignedDisplayName = access.DisplayName;
+            if (group is not null && access.HasPermission(QualityAssurancePermissions.AssignmentEligible))
+            {
+                shipment.AssignedUserId = access.UserId;
+                shipment.AssignedAccountName = access.AccountName;
+                shipment.AssignedDisplayName = access.DisplayName;
+            }
         }
         db.Shipments.Add(shipment);
         AddAudit(shipment, access, "Created", null, null, shipment.SalesOrderNumber, now);
         AddAudit(
             shipment,
             access,
-            rule is null ? "Assigned" : "AutoAssigned",
+            rule is null && shipment.AssignedGroupId is null ? "AssignmentPending" : rule is null ? "Assigned" : "AutoAssigned",
             "assignment",
             null,
             AssignmentLabel(shipment),
@@ -371,10 +386,38 @@ public sealed class QualityShipmentService(
             && !access.HasPermission(QualityAssurancePermissions.AssignmentUser))
             throw new UnauthorizedAccessException("You do not have permission to assign individual users.");
 
-        var groups = await accessStore.GetGroupsAsync(cancellationToken);
+        if (dto.GroupId == shipment.AssignedGroupId && dto.UserId == shipment.AssignedUserId)
+        {
+            if (string.IsNullOrWhiteSpace(shipment.LegacyAssigneeTag)) return ToDto(shipment, access);
+            if (!access.HasPermission(QualityAssurancePermissions.AssignmentGroup)
+                && !access.HasPermission(QualityAssurancePermissions.AssignmentUser))
+                throw new UnauthorizedAccessException("You do not have permission to confirm legacy assignments.");
+            var legacyTag = shipment.LegacyAssigneeTag;
+            var decisionAt = DateTimeOffset.UtcNow;
+            shipment.LegacyAssigneeTag = null;
+            shipment.LastWorkedAt = decisionAt;
+            shipment.UpdatedAt = decisionAt;
+            shipment.UpdatedByAccountName = access.AccountName;
+            shipment.UpdatedByDisplayName = access.DisplayName;
+            shipment.Version++;
+            AddAudit(
+                shipment,
+                access,
+                "Assigned",
+                "assignment",
+                $"Legacy tag: {legacyTag}",
+                AssignmentValue(shipment),
+                decisionAt);
+            await db.SaveChangesAsync(cancellationToken);
+            return ToDto(shipment, access);
+        }
+
+        var groups = await accessStore.GetGroupsWithPermissionAsync(
+            QualityAssurancePermissions.ResponsibleGroupEligible,
+            cancellationToken);
         var group = dto.GroupId.HasValue
             ? groups.SingleOrDefault(candidate => candidate.Id == dto.GroupId.Value)
-                ?? throw new ArgumentException("Select an existing shared group.")
+                ?? throw new ArgumentException("Select a Responsible Group enabled for Quality assignment in Arda Access.")
             : null;
         QualityDirectoryUser? user = null;
         if (dto.UserId.HasValue)
@@ -384,9 +427,12 @@ public sealed class QualityShipmentService(
                 && !access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll)
                 && access.Groups.All(candidate => candidate.Id != group.Id))
                 throw new UnauthorizedAccessException("Group leads can assign users only within their own groups.");
-            user = (await accessStore.GetUsersAsync(group.Id, cancellationToken))
+            user = (await accessStore.GetUsersWithPermissionAsync(
+                    QualityAssurancePermissions.AssignmentEligible,
+                    cancellationToken))
+                .Where(candidate => candidate.GroupIds.Contains(group.Id))
                 .SingleOrDefault(candidate => candidate.Id == dto.UserId.Value)
-                ?? throw new ArgumentException("The selected user must be active and assigned to the selected group.");
+                ?? throw new ArgumentException("The selected user must be active, eligible for Quality assignment, and assigned to the selected group.");
         }
 
         var old = AssignmentLabel(shipment);
@@ -396,6 +442,7 @@ public sealed class QualityShipmentService(
         shipment.AssignedUserId = user?.Id;
         shipment.AssignedAccountName = user?.AccountName;
         shipment.AssignedDisplayName = user?.DisplayName;
+        shipment.LegacyAssigneeTag = null;
         if (user is not null) shipment.NextAction = user.DisplayName;
         var now = DateTimeOffset.UtcNow;
         shipment.LastWorkedAt = now;
@@ -479,11 +526,11 @@ public sealed class QualityShipmentService(
                 ? query
                 : query.Where(shipment => shipment.AssignedUserId == access.UserId
                     || (shipment.AssignedGroupId.HasValue && groupIds.Contains(shipment.AssignedGroupId.Value))
-                    || (access.HasPermission(QualityAssurancePermissions.AssignmentGroup)
+                    || (IsManager(access)
                         && !shipment.AssignedGroupId.HasValue
                         && !shipment.AssignedUserId.HasValue));
         }
-        if (access.HasPermission(QualityAssurancePermissions.AssignmentGroup))
+        if (IsManager(access))
             return query.Where(shipment => shipment.AssignedUserId == access.UserId
                 || (!shipment.AssignedGroupId.HasValue && !shipment.AssignedUserId.HasValue));
         return query.Where(shipment => shipment.AssignedUserId == access.UserId);
@@ -703,6 +750,9 @@ public sealed class QualityShipmentService(
     private static string NormalizeDirection(string? direction) =>
         string.Equals(direction, "desc", StringComparison.OrdinalIgnoreCase) ? "desc" : "asc";
 
+    private static bool IsManager(QualityAssuranceAccessProfile access) =>
+        access.HasPermission(QualityAssurancePermissions.TeamDashboardView);
+
     private static string NormalizeScope(QualityAssuranceAccessProfile access, string? scope)
     {
         if (string.Equals(scope, "all", StringComparison.OrdinalIgnoreCase)
@@ -719,7 +769,7 @@ public sealed class QualityShipmentService(
         if (shipment.AssignedUserId == access.UserId) return;
         if (!shipment.AssignedGroupId.HasValue
             && !shipment.AssignedUserId.HasValue
-            && access.HasPermission(QualityAssurancePermissions.AssignmentGroup)) return;
+            && IsManager(access)) return;
         if (access.HasPermission(QualityAssurancePermissions.TeamDashboardView)
             && shipment.AssignedGroupId.HasValue
             && access.Groups.Any(group => group.Id == shipment.AssignedGroupId.Value)) return;
@@ -889,6 +939,12 @@ public sealed class QualityShipmentService(
 
     private static string AssignmentLabel(QualityShipment shipment) =>
         string.Join(" / ", new[] { shipment.AssignedGroupName, shipment.AssignedDisplayName }.Where(value => !string.IsNullOrWhiteSpace(value)));
+
+    private static string AssignmentValue(QualityShipment shipment)
+    {
+        var label = AssignmentLabel(shipment);
+        return string.IsNullOrWhiteSpace(label) ? "Unassigned" : label;
+    }
 
     private static string Required(string? value, string label, int maxLength) =>
         Text(value, null, maxLength) ?? throw new ArgumentException($"{label} is required.");

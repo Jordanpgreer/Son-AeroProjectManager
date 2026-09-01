@@ -51,6 +51,7 @@ function writeOperations(
       audit?.unitCostByQuantity[quantity] ?? 0
     ))
     setCell(sheet, `N${row}`, audit?.oneTimeNre ?? 0)
+    setCell(sheet, `O${row}`, operation?.notes ?? null)
   }
 }
 
@@ -121,14 +122,19 @@ function writeSharedMetadata(
   setCell(sheet, 'E3', estimate.metadata.nsn)
   setCell(sheet, 'E4', estimate.metadata.solicitationNumber)
   setCell(sheet, 'E5', estimate.metadata.rfqNumber)
-  setCell(sheet, 'G5', estimate.metadata.comments)
+  setCell(sheet, child ? 'F3' : 'F6', estimate.metadata.comments)
 }
 
-function writeQuantityHeaders(sheet: ExcelJS.Worksheet, quantities: readonly QuantityTier[]) {
+function writeQuantityHeaders(
+  sheet: ExcelJS.Worksheet,
+  quantities: readonly QuantityTier[],
+  displayQuantity: (quantity: QuantityTier) => number = (quantity) => quantity,
+) {
   WORKBOOK_COLUMNS.forEach((column, index) => {
     const quantity = quantities[index]
-    setCell(sheet, `${column}13`, quantity ?? null)
-    setCell(sheet, `${column}32`, quantity === undefined ? null : `Qty: ${quantity}`)
+    const displayed = quantity === undefined ? undefined : displayQuantity(quantity)
+    setCell(sheet, `${column}13`, displayed ?? null)
+    setCell(sheet, `${column}32`, displayed === undefined ? null : `Qty: ${displayed}`)
   })
 }
 
@@ -139,7 +145,11 @@ function populateChildSheet(
   audit: SubassemblyCalculationAudit,
 ) {
   writeSharedMetadata(sheet, estimate, child)
-  writeQuantityHeaders(sheet, estimate.quantities)
+  writeQuantityHeaders(
+    sheet,
+    estimate.quantities,
+    (quantity) => child.quantitiesByParentQuantity?.[quantity] ?? quantity,
+  )
   writeOperations(sheet, child.operations, audit.operations, estimate.quantities)
   writeMaterials(sheet, child.materials, audit.materials, estimate.quantities)
   writeProcesses(sheet, 46, 5, child.processes, audit.processes, estimate.quantities)

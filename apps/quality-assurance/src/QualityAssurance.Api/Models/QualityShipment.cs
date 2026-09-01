@@ -16,6 +16,7 @@ public sealed class QualityShipment
     public string? HoldReason { get; set; }
     public DateOnly? SourceRequestedDate { get; set; }
     public string? NextAction { get; set; }
+    public string? LegacyAssigneeTag { get; set; }
     public string? Comments { get; set; }
     public DateTimeOffset? LastWorkedAt { get; set; }
     public int? AssignedGroupId { get; set; }

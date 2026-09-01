@@ -1,5 +1,5 @@
 <#
-    Employee-facing bootstrap for the Son-Aero Hub desktop shortcut.
+    Employee-facing bootstrap for the Arda Hub desktop shortcut.
     The normal user process verifies Windows identity and Hub access. Only the
     shared-shortcut write is relaunched with elevation.
 #>
@@ -78,9 +78,9 @@ function Assert-PackageFile {
 try {
     $packageRoot = Split-Path -Parent $PSCommandPath
     $shortcutInstaller = Join-Path $packageRoot 'Install-EmployeeHubShortcut.ps1'
-    $iconPath = Join-Path $packageRoot 'son-aero.ico'
+    $iconPath = Join-Path $packageRoot 'arda.ico'
     Assert-PackageFile -Path $shortcutInstaller -Label 'The shortcut installer'
-    Assert-PackageFile -Path $iconPath -Label 'The Son-Aero icon'
+    Assert-PackageFile -Path $iconPath -Label 'The Arda icon'
 
     if ([string]::IsNullOrWhiteSpace($HubUri)) {
         $configurationPath = Join-Path $packageRoot 'SonAeroHubInstaller.json'

@@ -27,6 +27,7 @@ public sealed class QualityAssuranceDbContext(
             entity.Property(shipment => shipment.TaskType).HasMaxLength(120);
             entity.Property(shipment => shipment.Quantity).HasPrecision(18, 3);
             entity.Property(shipment => shipment.DollarValue).HasPrecision(18, 2);
+            entity.Property(shipment => shipment.LegacyAssigneeTag).HasMaxLength(160);
             entity.Property(shipment => shipment.AssignedGroupName).HasMaxLength(160);
             entity.Property(shipment => shipment.AssignedAccountName).HasMaxLength(160);
             entity.Property(shipment => shipment.AssignedDisplayName).HasMaxLength(160);

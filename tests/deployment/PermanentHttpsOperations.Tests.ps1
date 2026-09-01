@@ -5,6 +5,8 @@ param(
     [string]$ShortcutScriptPath = '',
     [string]$PackageScriptPath = '',
     [string]$BootstrapScriptPath = '',
+    [string]$PilotPackageScriptPath = '',
+    [string]$PilotBootstrapScriptPath = '',
     [string]$WebPushScriptPath = '',
     [string]$PublishScriptPath = '',
     [string]$CorsAuthenticationScriptPath = ''
@@ -25,6 +27,12 @@ if ([string]::IsNullOrWhiteSpace($PackageScriptPath)) {
 }
 if ([string]::IsNullOrWhiteSpace($BootstrapScriptPath)) {
     $BootstrapScriptPath = Join-Path $PSScriptRoot '..\..\deployment\employee-installer\Install-SonAeroHub.ps1'
+}
+if ([string]::IsNullOrWhiteSpace($PilotPackageScriptPath)) {
+    $PilotPackageScriptPath = Join-Path $PSScriptRoot '..\..\deployment\New-HubPilotWorkstationInstallerPackage.ps1'
+}
+if ([string]::IsNullOrWhiteSpace($PilotBootstrapScriptPath)) {
+    $PilotBootstrapScriptPath = Join-Path $PSScriptRoot '..\..\deployment\pilot-workstation-installer\Install-SonAeroHubPilot.ps1'
 }
 if ([string]::IsNullOrWhiteSpace($WebPushScriptPath)) {
     $WebPushScriptPath = Join-Path $PSScriptRoot '..\..\deployment\Configure-ProjectTrackerWebPush.ps1'
@@ -431,9 +439,14 @@ Assert-True ($userAccessSource -match [regex]::Escape(
 
 Assert-Equal (Get-ParameterDefault -Path $ShortcutScriptPath -ParameterName HubUri) `
     'https://hub.son4l.local' 'The shared shortcut does not default to the permanent Portal origin.'
+Assert-Equal (Get-ParameterDefault -Path $ShortcutScriptPath -ParameterName ShortcutName) `
+    'Arda Hub' 'The shared shortcut does not use the Arda application identity by default.'
 Assert-Equal (Get-ParameterDefault -Path $PackageScriptPath -ParameterName HubUri) `
     'https://hub.son4l.local' 'The package builder does not default to the permanent Portal origin.'
 $shortcutSource = Get-Content -LiteralPath $ShortcutScriptPath -Raw
+Assert-True ($shortcutSource.Contains("`$packagedIcon = Join-Path `$PSScriptRoot 'arda.ico'") -and
+    $shortcutSource.Contains("`$installedIcon = Join-Path `$brandingDirectory 'arda.ico'")) `
+    'The shared shortcut does not install the packaged Arda icon.'
 foreach ($approvedOrigin in @(
     'https://hub.son4l.local/', 'http://son-iis2:5140/', 'https://son-iis2:6140/'
 )) {
@@ -452,6 +465,14 @@ Assert-True ($bootstrapSource -match "SonAeroHubInstaller\.json") `
     'The employee bootstrap does not consume the packaged Hub address.'
 Assert-True ($bootstrapSource -match 'SchemaVersion\s*-ne\s*1') `
     'The employee bootstrap does not reject unsupported package configuration schemas.'
+$pilotPackageSource = Get-Content -LiteralPath $PilotPackageScriptPath -Raw
+Assert-True ($pilotPackageSource.Contains("'arda.ico' = Join-Path `$repositoryRoot 'shared\branding\arda.ico'") -and
+    -not $pilotPackageSource.Contains("'son-aero.ico'")) `
+    'The pilot package builder does not package only the Arda shortcut icon.'
+$pilotBootstrapSource = Get-Content -LiteralPath $PilotBootstrapScriptPath -Raw
+Assert-True ($pilotBootstrapSource.Contains("`$iconPath = Join-Path `$packageRoot 'arda.ico'") -and
+    -not $pilotBootstrapSource.Contains("Join-Path `$packageRoot 'son-aero.ico'")) `
+    'The pilot bootstrap does not consume the packaged Arda shortcut icon.'
 foreach ($approvedOrigin in @(
     'https://hub.son4l.local/', 'http://son-iis2:5140/', 'https://son-iis2:6140/'
 )) {
@@ -468,6 +489,9 @@ try {
     Assert-Equal ([string]$productionPackage.Configuration.HubUri) 'https://hub.son4l.local/' `
         'The production employee package contains the wrong Portal origin.'
     Assert-True ($productionPackage.EntryNames.Count -eq 6) 'The production employee package has an unexpected file count.'
+    Assert-True ($productionPackage.EntryNames -contains 'arda.ico' -and
+        $productionPackage.EntryNames -notcontains 'son-aero.ico') `
+        'The production employee package does not contain only the Arda shortcut icon.'
 
     $pilotZip = Join-Path $testRoot 'pilot.zip'
     & $PackageScriptPath -OutputPath $pilotZip -HubUri 'http://SON-IIS2:5140' -Confirm:$false | Out-Null

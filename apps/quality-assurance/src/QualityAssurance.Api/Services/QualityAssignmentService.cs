@@ -3,6 +3,7 @@ using QualityAssurance.Api.Auth;
 using QualityAssurance.Api.Data;
 using QualityAssurance.Api.Dtos;
 using QualityAssurance.Api.Models;
+using SonAero.Platform.Security;
 
 namespace QualityAssurance.Api.Services;
 
@@ -20,7 +21,12 @@ public sealed class QualityAssignmentService(
             .OrderBy(rule => rule.Priority)
             .ThenBy(rule => rule.Id)
             .ToListAsync(cancellationToken);
-        var rule = rules.FirstOrDefault(candidate => Matches(candidate, shipment));
+        var eligibleGroups = await accessStore.GetGroupsWithPermissionAsync(
+            QualityAssurancePermissions.ResponsibleGroupEligible,
+            cancellationToken);
+        var eligibleGroupIds = eligibleGroups.Select(group => group.Id).ToHashSet();
+        var rule = rules.FirstOrDefault(candidate =>
+            eligibleGroupIds.Contains(candidate.TargetGroupId) && Matches(candidate, shipment));
         if (rule is null) return null;
 
         shipment.AssignedGroupId = rule.TargetGroupId;
@@ -29,7 +35,11 @@ public sealed class QualityAssignmentService(
         shipment.AssignedAccountName = null;
         shipment.AssignedDisplayName = null;
 
-        var users = await accessStore.GetUsersAsync(rule.TargetGroupId, cancellationToken);
+        var users = (await accessStore.GetUsersWithPermissionAsync(
+                QualityAssurancePermissions.AssignmentEligible,
+                cancellationToken))
+            .Where(user => user.GroupIds.Contains(rule.TargetGroupId))
+            .ToList();
         QualityDirectoryUser? selected = null;
         if (string.Equals(rule.AssignmentMode, "SpecificUser", StringComparison.OrdinalIgnoreCase))
         {
@@ -144,16 +154,21 @@ public sealed class QualityAssignmentService(
         if (dto.MatchOperator is not ("Equals" or "Contains" or "StartsWith")) throw new ArgumentException("Unsupported match operator.");
         if (dto.AssignmentMode is not ("GroupOnly" or "SpecificUser" or "LeastLoaded")) throw new ArgumentException("Unsupported assignment mode.");
 
-        var groups = await accessStore.GetGroupsAsync(cancellationToken);
+        var groups = await accessStore.GetGroupsWithPermissionAsync(
+            QualityAssurancePermissions.ResponsibleGroupEligible,
+            cancellationToken);
         var group = groups.SingleOrDefault(candidate => candidate.Id == dto.TargetGroupId)
             ?? throw new ArgumentException("Select an existing shared access group.");
         QualityDirectoryUser? user = null;
         if (dto.AssignmentMode == "SpecificUser")
         {
             if (!dto.TargetUserId.HasValue) throw new ArgumentException("Select a user for specific-user assignment.");
-            user = (await accessStore.GetUsersAsync(group.Id, cancellationToken))
+            user = (await accessStore.GetUsersWithPermissionAsync(
+                    QualityAssurancePermissions.AssignmentEligible,
+                    cancellationToken))
+                .Where(candidate => candidate.GroupIds.Contains(group.Id))
                 .SingleOrDefault(candidate => candidate.Id == dto.TargetUserId.Value)
-                ?? throw new ArgumentException("The selected user must be active and assigned to the target group.");
+                ?? throw new ArgumentException("The selected user must be active, eligible for Quality assignment, and assigned to the target group.");
         }
 
         rule.Name = name;

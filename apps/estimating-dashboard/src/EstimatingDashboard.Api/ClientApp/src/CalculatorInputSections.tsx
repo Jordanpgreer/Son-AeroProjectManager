@@ -22,6 +22,7 @@ interface SafeNumberInputProps {
   scale?: number
   testId?: string
   allowExpression?: boolean
+  integer?: boolean
 }
 
 export function SafeNumberInput({
@@ -34,6 +35,7 @@ export function SafeNumberInput({
   scale = 1,
   testId,
   allowExpression = false,
+  integer = false,
 }: SafeNumberInputProps) {
   const errorId = useId()
   const displayValue = value * scale
@@ -54,7 +56,11 @@ export function SafeNumberInput({
     const parsed = evaluateArithmeticExpression(draft)
     const outOfRange =
       parsed !== null
-      && (parsed < min || (max !== undefined && parsed > max))
+      && (
+        parsed < min
+        || (max !== undefined && parsed > max)
+        || (integer && !Number.isInteger(parsed / scale))
+      )
     if (parsed === null || outOfRange) {
       setInvalid(true)
       return false
@@ -93,7 +99,9 @@ export function SafeNumberInput({
             return
           }
           const parsed = Number(nextDraft)
-          const outOfRange = parsed < min || (max !== undefined && parsed > max)
+          const outOfRange = parsed < min
+            || (max !== undefined && parsed > max)
+            || (integer && !Number.isInteger(parsed / scale))
           if (!Number.isFinite(parsed) || outOfRange) {
             setInvalid(true)
             return
@@ -123,7 +131,10 @@ export function SafeNumberInput({
       />
       {invalid && (
         <span className="sr-only" id={errorId} role="alert">
-          {label} must be a valid calculation using numbers, parentheses, and +, -, *, or /. The result must be {min}
+          {label} must be {allowExpression
+            ? 'a valid calculation using numbers, parentheses, and +, -, *, or /; the result must be '
+            : `${integer ? 'a whole number' : 'a valid number'} and must be `}
+          {min}
           {max === undefined ? ' or greater.' : ` to ${max}.`}
         </span>
       )}
@@ -152,7 +163,7 @@ type MetadataFieldDefinition = {
 const PRIMARY_METADATA_FIELDS: readonly MetadataFieldDefinition[] = [
   { field: 'customer', label: 'Customer' },
   { field: 'partNumber', label: 'Part number' },
-  { field: 'revision', label: 'Revision' },
+  { field: 'revision', label: 'Part rev' },
   { field: 'quoteLogNumber', label: 'Quote log number' },
   { field: 'quoteDate', label: 'Quote date', type: 'date' },
   { field: 'estimator', label: 'Estimator' },

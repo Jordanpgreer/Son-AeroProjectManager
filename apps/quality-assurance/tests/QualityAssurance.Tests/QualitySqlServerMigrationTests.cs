@@ -13,7 +13,8 @@ public sealed class QualitySqlServerMigrationTests
     [
         "20260813181727_InitialQualityShipping",
         "20260813190849_AddQualityShippingLayoutPreferences",
-        "20260826201500_AddQualityShipmentComments"
+        "20260826201500_AddQualityShipmentComments",
+        "20260901133114_AddLegacyQualityAssigneeTags"
     ];
 
     [Fact]
@@ -66,6 +67,7 @@ public sealed class QualitySqlServerMigrationTests
         Assert.Contains("[QaArrivalDate] date NULL", script);
         Assert.Contains("[Quantity] decimal(18,3) NULL", script);
         Assert.Contains("[DollarValue] decimal(18,2) NULL", script);
+        Assert.Contains("[LegacyAssigneeTag] nvarchar(160) NULL", script);
         Assert.Contains("[CreatedAt] datetimeoffset NOT NULL", script);
         Assert.Contains("[IsShipped] bit NOT NULL", script);
         Assert.Contains("LEFT(CONVERT(nvarchar(max), Comments), 8000)", script);

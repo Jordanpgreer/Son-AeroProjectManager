@@ -136,6 +136,37 @@ public sealed class AccessGroupEndpointTests
     }
 
     [Fact]
+    public async Task CreateGroup_AcceptsOptInQualityAssignmentCatalogPermissions()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync();
+
+        var created = await UserEndpoints.CreateGroupAsync(
+            new AccessGroupUpsertDto(
+                "Quality assignment routing",
+                "Opt-in Quality assignment classifications",
+                false,
+                [
+                    QualityAssurancePermissions.AssignmentEligible,
+                    QualityAssurancePermissions.ResponsibleGroupEligible
+                ]),
+            fixture.Db,
+            CancellationToken.None);
+
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Created<AccessGroupDto>>(created);
+        var permissions = await fixture.Db.GroupPermissions
+            .Select(permission => permission.PermissionKey)
+            .OrderBy(permission => permission)
+            .ToListAsync();
+        Assert.Equal(
+            new[]
+            {
+                QualityAssurancePermissions.AssignmentEligible,
+                QualityAssurancePermissions.ResponsibleGroupEligible
+            }.OrderBy(permission => permission),
+            permissions);
+    }
+
+    [Fact]
     public async Task EstimatingHistoryImportUpdate_ChangesOnlyImportAndPreservesCurrentPermissions()
     {
         await using var fixture = await DatabaseFixture.CreateAsync();

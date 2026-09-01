@@ -75,6 +75,8 @@ public static class ApplicationModuleCatalog
     {
         var module = Find(moduleKey)
             ?? throw new ArgumentException($"Unknown module key '{moduleKey}'.", nameof(moduleKey));
+        if (module.Key == ApplicationModules.QualityAssurance)
+            return QualityAssurancePermissions.All;
         return module.Roles
             .SelectMany(role => role.Permissions)
             .DistinctBy(permission => permission.Key, StringComparer.OrdinalIgnoreCase)
@@ -204,7 +206,8 @@ public static class ApplicationModuleCatalog
                         QualityAssurancePermissions.EditorDefaults.Contains(permission.Key)).ToArray()),
                 new ApplicationModuleRoleDefinition(
                     ApplicationRoles.Admin,
-                    QualityAssurancePermissions.All)
+                    QualityAssurancePermissions.All.Where(permission =>
+                        QualityAssurancePermissions.AdministratorDefaults.Contains(permission.Key)).ToArray())
             ]);
     }
 }

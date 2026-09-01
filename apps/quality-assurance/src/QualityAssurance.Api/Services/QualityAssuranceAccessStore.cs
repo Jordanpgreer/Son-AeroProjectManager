@@ -12,6 +12,9 @@ public interface IQualityAssuranceAccessStore
         string accountName,
         CancellationToken cancellationToken = default);
     Task<IReadOnlyList<QualityDirectoryGroup>> GetGroupsAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<QualityDirectoryGroup>> GetGroupsWithPermissionAsync(
+        string permissionKey,
+        CancellationToken cancellationToken = default);
     Task<IReadOnlyList<QualityDirectoryUser>> GetUsersAsync(int? groupId = null, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<QualityDirectoryUser>> GetUsersWithPermissionAsync(
         string permissionKey,
@@ -124,5 +127,24 @@ public sealed class QualityAssuranceAccessStore(
                 user.DisplayName,
                 user.GroupMemberships.Select(membership => membership.AppGroupId).ToList()))
             .ToList();
+    }
+
+    public async Task<IReadOnlyList<QualityDirectoryGroup>> GetGroupsWithPermissionAsync(
+        string permissionKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(permissionKey)) return [];
+        var normalizedPermission = permissionKey.Trim();
+        return await db.Groups
+            .AsNoTracking()
+            .Where(group => group.Permissions.Any(permission =>
+                permission.PermissionKey == normalizedPermission))
+            .OrderBy(group => group.Name)
+            .Select(group => new QualityDirectoryGroup(
+                group.Id,
+                group.Name,
+                group.Description,
+                group.UserMemberships.Count(membership => membership.User.IsActive)))
+            .ToListAsync(cancellationToken);
     }
 }

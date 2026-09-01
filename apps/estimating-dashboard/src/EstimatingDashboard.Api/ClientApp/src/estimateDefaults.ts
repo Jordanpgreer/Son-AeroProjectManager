@@ -185,6 +185,7 @@ export function createSubassemblyDefaults(index = 0): SubassemblyInput {
     id,
     partNumber: '',
     revision: '',
+    quantitiesByParentQuantity: createQuantityValues((quantity) => quantity),
     operations: createOperations(SUBASSEMBLY_CHILD_OPERATION_DEFINITIONS, idPrefix),
     materials: createMaterials(idPrefix),
     processes: createProcesses(5, idPrefix),

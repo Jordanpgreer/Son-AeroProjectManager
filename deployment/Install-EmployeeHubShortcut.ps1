@@ -1,11 +1,11 @@
 <#
-    Installs a shared Son-Aero Hub desktop shortcut for all users of a workstation.
+    Installs a shared Arda Hub desktop shortcut for all users of a workstation.
     Run elevated locally, through an endpoint-management tool, or as Local System.
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 param(
     [string]$HubUri = 'https://hub.son4l.local',
-    [string]$ShortcutName = 'Son-Aero Hub',
+    [string]$ShortcutName = 'Arda Hub',
     [string]$IconSource
 )
 
@@ -43,8 +43,8 @@ if ([string]::IsNullOrWhiteSpace($shortcutLeaf) -or $shortcutLeaf.Length -gt 100
 }
 
 if ([string]::IsNullOrWhiteSpace($IconSource)) {
-    $packagedIcon = Join-Path $PSScriptRoot 'son-aero.ico'
-    $repositoryIcon = Join-Path (Split-Path -Parent $PSScriptRoot) 'shared\branding\son-aero.ico'
+    $packagedIcon = Join-Path $PSScriptRoot 'arda.ico'
+    $repositoryIcon = Join-Path (Split-Path -Parent $PSScriptRoot) 'shared\branding\arda.ico'
     $IconSource = if (Test-Path -LiteralPath $packagedIcon -PathType Leaf) {
         $packagedIcon
     } else {
@@ -64,9 +64,10 @@ if ([string]::IsNullOrWhiteSpace($commonDesktop)) {
     throw 'Windows did not return a Common Desktop directory.'
 }
 
-$brandingDirectory = Join-Path $env:ProgramData 'SonAero'
-$installedIcon = Join-Path $brandingDirectory 'son-aero.ico'
+$brandingDirectory = Join-Path $env:ProgramData 'Arda'
+$installedIcon = Join-Path $brandingDirectory 'arda.ico'
 $shortcutPath = Join-Path $commonDesktop ($shortcutLeaf + '.url')
+$legacyShortcutPath = Join-Path $commonDesktop 'Son-Aero Hub.url'
 $normalizedUri = $parsedUri.AbsoluteUri
 $shortcutContent = @(
     '[InternetShortcut]'
@@ -76,10 +77,26 @@ $shortcutContent = @(
 ) -join "`r`n"
 $shortcutContent += "`r`n"
 
+# Migrate only the exact legacy shortcut when it points at the same approved Hub origin.
+# A same-named file with another destination is preserved as user-owned content.
+$removeLegacyShortcut = $false
+if ($shortcutLeaf -ieq 'Arda Hub' -and
+    $legacyShortcutPath -ine $shortcutPath -and
+    (Test-Path -LiteralPath $legacyShortcutPath -PathType Leaf)) {
+    $legacyUrlLine = @([IO.File]::ReadAllLines($legacyShortcutPath) | Where-Object {
+        $_ -match '^URL=(.+)$'
+    })
+    $removeLegacyShortcut = $legacyUrlLine.Count -eq 1 -and
+        $legacyUrlLine[0].Substring(4).Trim() -ieq $normalizedUri
+}
+
 if ($WhatIfPreference) {
-    $null = $PSCmdlet.ShouldProcess($brandingDirectory, 'Create shared Son-Aero branding directory')
+    $null = $PSCmdlet.ShouldProcess($brandingDirectory, 'Create shared Arda branding directory')
     $null = $PSCmdlet.ShouldProcess($installedIcon, "Copy icon from '$resolvedIconSource'")
     $null = $PSCmdlet.ShouldProcess($shortcutPath, "Create shared shortcut to '$normalizedUri'")
+    if ($removeLegacyShortcut) {
+        $null = $PSCmdlet.ShouldProcess($legacyShortcutPath, 'Remove verified legacy Son-Aero Hub shortcut')
+    }
     Write-Host 'WHATIF_READY: no shortcut files were changed.'
     return
 }
@@ -90,7 +107,7 @@ if (-not (Test-IsAdministrator)) {
 
 $performedUpdate = $false
 if (-not (Test-Path -LiteralPath $brandingDirectory -PathType Container)) {
-    if ($PSCmdlet.ShouldProcess($brandingDirectory, 'Create shared Son-Aero branding directory')) {
+    if ($PSCmdlet.ShouldProcess($brandingDirectory, 'Create shared Arda branding directory')) {
         New-Item -ItemType Directory -Path $brandingDirectory -Force | Out-Null
         $performedUpdate = $true
     }
@@ -116,10 +133,16 @@ if ($writeShortcut -and $PSCmdlet.ShouldProcess($shortcutPath, "Create shared sh
     $performedUpdate = $true
 }
 
+if ($removeLegacyShortcut -and
+    $PSCmdlet.ShouldProcess($legacyShortcutPath, 'Remove verified legacy Son-Aero Hub shortcut')) {
+    Remove-Item -LiteralPath $legacyShortcutPath -Force
+    $performedUpdate = $true
+}
+
 [pscustomobject]@{
     Status = if ($performedUpdate) {
         'INSTALLED_OR_UPDATED'
-    } elseif ($copyIcon -or $writeShortcut) {
+    } elseif ($copyIcon -or $writeShortcut -or $removeLegacyShortcut) {
         'CHANGE_NOT_APPROVED'
     } else {
         'ALREADY_CURRENT'

@@ -43,6 +43,8 @@ public sealed class QualityShipmentImportServiceTests
         Assert.Equal("General", saved[0].TaskType);
         Assert.Null(saved[0].AssignedGroupId);
         Assert.Null(saved[0].AssignedUserId);
+        Assert.Equal("ADRIAN", saved[0].NextAction);
+        Assert.Equal("ADRIAN", saved[0].LegacyAssigneeTag);
         Assert.Equal(new DateTime(2026, 8, 11), saved[0].LastWorkedAt?.UtcDateTime);
         Assert.Contains(saved[0].AuditEntries, entry =>
             entry.EventType == "Imported" && entry.NewValue == "shipping.xlsx / Complete List row 2");
@@ -176,7 +178,8 @@ public sealed class QualityShipmentImportServiceTests
         Assert.Equal(0, result.CreatedRecords);
         Assert.Equal(1, result.SkippedDuplicates);
         Assert.Equal(1, result.ReconciledAssignments);
-        Assert.Equal("QA-NEW", pending.NextAction);
+        Assert.Equal("NEW", pending.NextAction);
+        Assert.Equal("NEW", pending.LegacyAssigneeTag);
         Assert.Equal(1, await fixture.Db.Shipments.CountAsync());
     }
 
@@ -341,6 +344,11 @@ public sealed class QualityShipmentImportServiceTests
             Task.FromResult<QualityAssuranceAccessProfile?>(null);
 
         public Task<IReadOnlyList<QualityDirectoryGroup>> GetGroupsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(groups);
+
+        public Task<IReadOnlyList<QualityDirectoryGroup>> GetGroupsWithPermissionAsync(
+            string permissionKey,
+            CancellationToken cancellationToken = default) =>
             Task.FromResult(groups);
 
         public Task<IReadOnlyList<QualityDirectoryUser>> GetUsersAsync(int? groupId = null, CancellationToken cancellationToken = default) =>
