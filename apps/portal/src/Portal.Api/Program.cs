@@ -20,6 +20,9 @@ builder.Services.AddScoped<IPortalRoleStore, PortalRoleStore>();
 builder.Services.AddScoped<ApplicationNotificationService>();
 builder.Services.AddScoped<PortalEngineeringStorageSchemaInitializer>();
 builder.Services.AddScoped<PortalEstimatingSettingsSchemaInitializer>();
+builder.Services.AddScoped<PortalIntegrationCredentialSchemaInitializer>();
+builder.Services.AddSingleton<SonAero.Platform.Security.IIntegrationSecretProtector,
+    SonAero.Platform.Security.MachineIntegrationSecretProtector>();
 builder.Services.AddHttpClient<TrackerPreviewService>();
 builder.Services.Configure<EngineeringStorageAdminOptions>(
     builder.Configuration.GetSection(EngineeringStorageAdminOptions.SectionName));
@@ -66,6 +69,8 @@ using (var scope = app.Services.CreateScope())
     await scope.ServiceProvider.GetRequiredService<PortalEngineeringStorageSchemaInitializer>()
         .InitializeAsync(CancellationToken.None);
     await scope.ServiceProvider.GetRequiredService<PortalEstimatingSettingsSchemaInitializer>()
+        .InitializeAsync(CancellationToken.None);
+    await scope.ServiceProvider.GetRequiredService<PortalIntegrationCredentialSchemaInitializer>()
         .InitializeAsync(CancellationToken.None);
 }
 
@@ -121,6 +126,7 @@ api.MapGet("/application-notifications", async (
 
 api.MapEngineeringAdminEndpoints();
 api.MapEstimatingAdminEndpoints();
+api.MapIntegrationCredentialAdminEndpoints();
 api.MapAdminAccessPreviewEndpoints();
 
 // Live "minimized dashboard" data for the Project Tracker card. Best-effort and read-only.

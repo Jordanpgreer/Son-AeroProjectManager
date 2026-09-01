@@ -15,6 +15,15 @@ backup readiness), follow [production-rollout.md](production-rollout.md) in orde
 Production settings are in [`templates`](templates). No passwords, live secrets, or certificates
 belong in Git.
 
+### Estimating Fulcrum quote-sync token
+
+Do not put the Fulcrum token in IIS settings, an appsettings file, or Git. After deployment, an
+Arda administrator opens **Admin Hub → API Keys** and saves it as **Fulcrum Public API**. The Hub
+encrypts the value with Windows machine-level protection before storing it in the shared SQL
+database. The API never returns the saved value. Portal and Estimating Dashboard must remain on
+the same Windows application server (`SON-IIS2`) so both applications can use that protected
+credential. Server migrations require the credential to be entered again on the new server.
+
 For the explicitly limited Jordan/Josh HTTPS test, use
 [two-person-https-pilot.md](two-person-https-pilot.md). Its private mini-CA and per-computer ZIPs
 are pilot-only; they do not replace the managed PKI/trust design required for company rollout.

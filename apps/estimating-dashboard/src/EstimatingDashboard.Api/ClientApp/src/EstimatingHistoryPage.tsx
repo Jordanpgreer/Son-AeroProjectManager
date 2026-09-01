@@ -682,7 +682,7 @@ export default function EstimatingHistoryPage({
         ) : <div className="history-empty compact">
           <Users size={27} aria-hidden="true" />
           <strong>No estimator statistics yet</strong>
-          <span>Import a Fulcrum export or Daily Quote Log workbook to populate this dashboard.</span>
+          <span>Fulcrum quotes refresh automatically at 2:00 AM and 7:00 PM Mountain time. You can also import a Fulcrum export or Daily Quote Log workbook.</span>
         </div>}
       </section>
 
@@ -762,7 +762,7 @@ export default function EstimatingHistoryPage({
         {pageData.records.length === 0 && !loading ? <div className="history-empty">
           <FileSpreadsheet size={30} aria-hidden="true" />
           <strong>{view === 'live' ? 'No quotes in the live queue' : 'No matching quote history'}</strong>
-          <span>{pageData.total === 0 && activeFilterCount === 0 ? (view === 'live' ? 'No imported quotes currently have Needs Approval status.' : 'Import a Fulcrum export to begin the controlled history.') : 'Change or clear the current column filters.'}</span>
+          <span>{pageData.total === 0 && activeFilterCount === 0 ? (view === 'live' ? 'No synchronized quotes currently have Needs Approval status.' : 'Waiting for the scheduled Fulcrum sync or a controlled workbook import.') : 'Change or clear the current column filters.'}</span>
         </div> : <div className="history-table-scroll">
           <table className={`history-table ${view === 'live' ? 'live-queue-table' : ''}`}>
             {view === 'live' ? <>

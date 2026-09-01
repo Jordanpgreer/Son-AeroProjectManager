@@ -29,5 +29,25 @@ Open `http://localhost:5160`.
 The application requires authentication. Local development uses the configured development
 identity; production uses Windows Authentication.
 
+## Scheduled Fulcrum quote log synchronization
+
+Production enables an automatic Fulcrum quote-log synchronization at 2:00 AM and 7:00 PM
+Mountain time. The application does not call Fulcrum at startup and does not retry between those
+scheduled windows. Each scheduled run is claimed in the shared database, which prevents duplicate
+calls after an IIS recycle or when more than one application process is active.
+
+An Arda administrator configures or rotates the token in **Admin Hub → API Keys** using the
+reserved name **Fulcrum Public API**. The token is encrypted with Windows machine-level
+protection before it is stored in the shared database; it is never returned by the API or shown
+again in the browser. Do not store the token in an appsettings file or commit it to the
+repository. The Hub and Estimating Dashboard must run on the same Windows application server so
+both can use the protected value.
+
+The token requires Fulcrum's **View Quote** permission. The sync combines the quote-reporting endpoint with the quote
+detail endpoint so customer/salesperson names, totals, statuses, and the quote custom fields used
+by the Estimating Log are refreshed together. Existing Excel-imported values are retained when a
+corresponding Fulcrum custom field is absent. Custom-field names can be overridden under
+`FulcrumQuoteSync:CustomFields` when tenant labels differ from the defaults in `appsettings.json`.
+
 See [Calculation contract](docs/calculation-contract.md) for the reviewed workbook mappings,
 formula sequence, retained source quirks, and regression expectations.

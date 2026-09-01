@@ -4,5 +4,11 @@
   "ConnectionStrings": {
     "ModuleAccessStore": "Server=tcp:SON-SQL2,1433;Database=ProjectTracker;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
   },
+  "FulcrumQuoteSync": {
+    "Enabled": true,
+    "BaseUrl": "https://api.fulcrumpro.com/",
+    "TimeZoneId": "Mountain Standard Time",
+    "PageSize": 5000
+  },
   "Portal": { "Url": "https://hub.son4l.local" }
 }

@@ -71,6 +71,27 @@ public sealed class ControlledWorkbookImportService(
             .AsSplitQuery()
             .ToListAsync(cancellationToken);
 
+        return BuildTemplate(projects);
+    }
+
+    public async Task<byte[]> ExportProjectTemplateAsync(
+        ProjectTrackerDbContext db,
+        int projectId,
+        CancellationToken cancellationToken = default)
+    {
+        var project = await db.Projects
+            .AsNoTracking()
+            .Include(candidate => candidate.Tasks)
+            .AsSplitQuery()
+            .SingleOrDefaultAsync(candidate => candidate.Id == projectId, cancellationToken)
+            ?? throw new ControlledImportValidationException($"Project ID {projectId} does not exist or is archived.");
+
+        return BuildTemplate([project], projectId);
+    }
+
+    private static byte[] BuildTemplate(IReadOnlyList<Project> projects, int? projectScopeId = null)
+    {
+
         using var workbook = OpenPackagedTemplate();
         var projectSheet = workbook.Worksheet(ProjectsSheet);
         var operationSheet = workbook.Worksheet(OperationsSheet);
@@ -124,8 +145,19 @@ public sealed class ControlledWorkbookImportService(
             }
         }
 
-        FinishProjectSheet(projectSheet, projectRow - 1);
-        FinishOperationSheet(operationSheet, operationRow - 1);
+        if (projectScopeId is null)
+            FinishProjectSheet(projectSheet, projectRow - 1);
+        else
+            FinishProjectBomSheet(projectSheet, projectRow - 1);
+        if (projectScopeId is null)
+        {
+            FinishOperationSheet(operationSheet, operationRow - 1);
+        }
+        else
+        {
+            FinishProjectOperationSheet(operationSheet, operationRow - 1);
+            operationSheet.Column(1).Hide();
+        }
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
@@ -158,12 +190,49 @@ public sealed class ControlledWorkbookImportService(
         string accountName,
         CancellationToken cancellationToken = default)
     {
+        return await ValidateInternalAsync(
+            db,
+            workbookBytes,
+            fileName,
+            accountName,
+            null,
+            cancellationToken);
+    }
+
+    public async Task<ImportValidationResultDto> ValidateProjectAsync(
+        ProjectTrackerDbContext db,
+        int projectId,
+        byte[] workbookBytes,
+        string fileName,
+        string accountName,
+        CancellationToken cancellationToken = default)
+    {
+        if (!await db.Projects.AsNoTracking().AnyAsync(project => project.Id == projectId, cancellationToken))
+            throw new ControlledImportValidationException($"Project ID {projectId} does not exist or is archived.");
+
+        return await ValidateInternalAsync(
+            db,
+            workbookBytes,
+            fileName,
+            accountName,
+            projectId,
+            cancellationToken);
+    }
+
+    private async Task<ImportValidationResultDto> ValidateInternalAsync(
+        ProjectTrackerDbContext db,
+        byte[] workbookBytes,
+        string fileName,
+        string accountName,
+        int? projectScopeId,
+        CancellationToken cancellationToken)
+    {
         var errors = new List<ImportIssueDto>();
         ControlledImportPayload payload;
         var reviewWorkbookBytes = workbookBytes;
         try
         {
-            var parsed = ParseWorkbook(workbookBytes, fileName, errors);
+            var parsed = ParseWorkbook(workbookBytes, fileName, errors, projectScopeId);
             payload = parsed.Payload;
             reviewWorkbookBytes = parsed.ReviewWorkbook;
         }
@@ -187,6 +256,12 @@ public sealed class ControlledWorkbookImportService(
 
         payload = ResolveImportedIdentifiers(payload, currentProjects);
 
+        if (projectScopeId is not null)
+        {
+            ValidateProjectScope(payload, projectScopeId.Value, errors);
+            payload = payload with { SourceFormat = "Project BOM template" };
+        }
+
         var changes = CompareAndValidate(payload, currentProjects, workCenters, errors);
         var projectVersions = currentProjects
             .Where(project => payload.Projects.Any(row => row.ExistingId == project.Id))
@@ -208,7 +283,8 @@ public sealed class ControlledWorkbookImportService(
             errors,
             changes,
             projectVersions,
-            operationVersions);
+            operationVersions,
+            projectScopeId);
         reviews.Save(review);
         return ToValidationDto(review);
     }
@@ -217,6 +293,17 @@ public sealed class ControlledWorkbookImportService(
     {
         var review = reviews.Find(reviewId, accountName)
             ?? throw new ControlledImportValidationException("The import review expired or is not available for this account.");
+        return BuildReviewWorkbook(review);
+    }
+
+    public byte[] BuildProjectReviewWorkbook(int projectId, string reviewId, string accountName)
+    {
+        var review = FindProjectReview(projectId, reviewId, accountName);
+        return BuildReviewWorkbook(review);
+    }
+
+    private static byte[] BuildReviewWorkbook(ControlledImportReview review)
+    {
         using var input = new MemoryStream(review.OriginalWorkbook);
         using var workbook = new XLWorkbook(input);
         AnnotateReviewSheet(workbook.Worksheet(ProjectsSheet), ProjectHeaders, review);
@@ -234,6 +321,27 @@ public sealed class ControlledWorkbookImportService(
     {
         var review = reviews.Find(reviewId, accountName)
             ?? throw new ControlledImportValidationException("The import review expired or is not available for this account.");
+        if (review.ProjectScopeId is not null)
+            throw new ControlledImportValidationException("Confirm this project BOM from the project detail where it was validated.");
+        return await ApplyReviewAsync(db, review, cancellationToken);
+    }
+
+    public async Task<ImportApplyResultDto> ApplyProjectAsync(
+        ProjectTrackerDbContext db,
+        int projectId,
+        string reviewId,
+        string accountName,
+        CancellationToken cancellationToken = default)
+    {
+        var review = FindProjectReview(projectId, reviewId, accountName);
+        return await ApplyReviewAsync(db, review, cancellationToken);
+    }
+
+    private async Task<ImportApplyResultDto> ApplyReviewAsync(
+        ProjectTrackerDbContext db,
+        ControlledImportReview review,
+        CancellationToken cancellationToken)
+    {
         if (review.Errors.Count > 0)
             throw new ControlledImportValidationException("This workbook still has validation errors and cannot be confirmed.");
         if (review.Changes.Count == 0)
@@ -401,13 +509,15 @@ public sealed class ControlledWorkbookImportService(
     private static ParsedWorkbook ParseWorkbook(
         byte[] workbookBytes,
         string fileName,
-        List<ImportIssueDto> errors)
+        List<ImportIssueDto> errors,
+        int? projectScopeId = null)
     {
         using var stream = new MemoryStream(workbookBytes);
         using var workbook = new XLWorkbook(stream);
         var hasControlledSheet = workbook.Worksheets.Any(sheet =>
             sheet.Name is ProjectsSheet or OperationsSheet);
         if (!hasControlledSheet
+            && projectScopeId is null
             && LegacyProjectWorkbookParser.TryParse(workbook, fileName, errors, out var legacy))
         {
             return new ParsedWorkbook(legacy.Payload, legacy.NormalizedWorkbook);
@@ -442,7 +552,7 @@ public sealed class ControlledWorkbookImportService(
             ? ParseProjects(projectSheet, errors)
             : [];
         var operations = operationSheet is not null && ValidateHeaders(operationSheet, OperationHeaders, errors)
-            ? ParseOperations(operationSheet, errors)
+            ? ParseOperations(operationSheet, errors, projectScopeId?.ToString(CultureInfo.InvariantCulture))
             : [];
         return new ParsedWorkbook(
             new ControlledImportPayload(projects, operations),
@@ -573,7 +683,10 @@ public sealed class ControlledWorkbookImportService(
         return rows;
     }
 
-    private static List<ControlledOperationRow> ParseOperations(IXLWorksheet sheet, List<ImportIssueDto> errors)
+    private static List<ControlledOperationRow> ParseOperations(
+        IXLWorksheet sheet,
+        List<ImportIssueDto> errors,
+        string? defaultProjectKey = null)
     {
         var rows = new List<ControlledOperationRow>();
         var lastRow = sheet.LastRowUsed()?.RowNumber() ?? 1;
@@ -581,7 +694,9 @@ public sealed class ControlledWorkbookImportService(
         {
             if (IsBlankRow(sheet, row, OperationHeaders.Length)) continue;
             RejectFormulas(sheet, row, OperationHeaders.Length, errors);
-            var projectKey = RequiredText(sheet, row, 1, OperationHeaders[0], errors);
+            var projectKey = OptionalText(sheet.Cell(row, 1)) ?? defaultProjectKey;
+            if (string.IsNullOrWhiteSpace(projectKey))
+                errors.Add(new ImportIssueDto(OperationsSheet, row, OperationHeaders[0], $"{OperationHeaders[0]} is required."));
             var uploadedKey = OptionalText(sheet.Cell(row, 2));
             var key = string.IsNullOrWhiteSpace(uploadedKey) ? $"AUTO-ROW-{row}" : uploadedKey;
             var sequence = ParseRequiredPositiveInteger(sheet.Cell(row, 3), OperationsSheet, row, OperationHeaders[2], errors);
@@ -621,6 +736,56 @@ public sealed class ControlledWorkbookImportService(
                 OptionalText(sheet.Cell(row, 18))));
         }
         return rows;
+    }
+
+    private static void ValidateProjectScope(
+        ControlledImportPayload payload,
+        int projectId,
+        List<ImportIssueDto> errors)
+    {
+        if (payload.Projects.Count == 0)
+        {
+            errors.Add(new ImportIssueDto(
+                ProjectsSheet,
+                2,
+                ProjectHeaders[0],
+                $"The project BOM must contain the Projects row for Project ID {projectId}. Download a fresh template from this project."));
+        }
+
+        foreach (var row in payload.Projects)
+        {
+            if (row.ExistingId != projectId)
+            {
+                errors.Add(new ImportIssueDto(
+                    ProjectsSheet,
+                    row.Row,
+                    ProjectHeaders[0],
+                    $"This upload is limited to Project ID {projectId}. Download the BOM template from the project you want to update."));
+            }
+        }
+
+        if (payload.Projects.Count > 1)
+        {
+            foreach (var row in payload.Projects.Skip(1))
+            {
+                errors.Add(new ImportIssueDto(
+                    ProjectsSheet,
+                    row.Row,
+                    ProjectHeaders[0],
+                    "A project BOM can contain only the project selected in Project Detail."));
+            }
+        }
+
+        var expectedProjectKey = projectId.ToString(CultureInfo.InvariantCulture);
+        foreach (var row in payload.Operations.Where(row =>
+                     !string.Equals(row.ProjectKey, expectedProjectKey, StringComparison.Ordinal)))
+        {
+            errors.Add(new ImportIssueDto(
+                OperationsSheet,
+                row.Row,
+                OperationHeaders[0],
+                $"This operation must belong to Project ID {projectId}. Download a fresh BOM template from this project."));
+        }
     }
 
     private static List<ImportChangeDto> CompareAndValidate(
@@ -915,7 +1080,9 @@ public sealed class ControlledWorkbookImportService(
         review.Changes.Count,
         review.Errors,
         review.Changes.Take(250).ToList(),
-        $"/api/import/reviews/{review.Id}/workbook",
+        review.ProjectScopeId is { } projectId
+            ? $"/api/projects/{projectId}/bom/reviews/{review.Id}/workbook"
+            : $"/api/import/reviews/{review.Id}/workbook",
         review.Errors.Count == 0 && review.Changes.Count > 0,
         review.Payload.SourceFormat,
         review.Payload.Projects.Count(project => project.RequiresCompletion));
@@ -1029,6 +1196,15 @@ public sealed class ControlledWorkbookImportService(
         ProtectForDataEntry(sheet);
     }
 
+    private static void FinishProjectBomSheet(IXLWorksheet sheet, int lastExistingRow)
+    {
+        FinishSheet(sheet, ProjectHeaders.Length, lastExistingRow);
+        sheet.Range(2, 1, EditableTemplateRowLimit, ProjectHeaders.Length).Style.Protection.Locked = true;
+        if (lastExistingRow >= 2)
+            sheet.Range(2, 2, lastExistingRow, 9).Style.Protection.Locked = false;
+        ProtectForDataEntry(sheet);
+    }
+
     private static void FinishOperationSheet(IXLWorksheet sheet, int lastExistingRow)
     {
         FinishSheet(sheet, OperationHeaders.Length, lastExistingRow);
@@ -1045,6 +1221,31 @@ public sealed class ControlledWorkbookImportService(
         sheet.Range(firstNewRow, 17, EditableTemplateRowLimit, 17).Style.Protection.Locked = true;
         sheet.Column(2).Hide();
         ProtectForDataEntry(sheet);
+    }
+
+    private static void FinishProjectOperationSheet(IXLWorksheet sheet, int lastExistingRow)
+    {
+        FinishSheet(sheet, OperationHeaders.Length, lastExistingRow);
+        sheet.Range(2, 1, EditableTemplateRowLimit, OperationHeaders.Length).Style.Protection.Locked = true;
+        if (lastExistingRow >= 2)
+        {
+            sheet.Range(2, 3, lastExistingRow, 16).Style.Protection.Locked = false;
+            sheet.Range(2, 18, lastExistingRow, 18).Style.Protection.Locked = false;
+        }
+        var firstNewRow = Math.Max(2, lastExistingRow + 1);
+        sheet.Range(firstNewRow, 3, EditableTemplateRowLimit, 16).Style.Protection.Locked = false;
+        sheet.Range(firstNewRow, 18, EditableTemplateRowLimit, 18).Style.Protection.Locked = false;
+        sheet.Column(2).Hide();
+        ProtectForDataEntry(sheet);
+    }
+
+    private ControlledImportReview FindProjectReview(int projectId, string reviewId, string accountName)
+    {
+        var review = reviews.Find(reviewId, accountName)
+            ?? throw new ControlledImportValidationException("The project BOM review expired or is not available for this account.");
+        if (review.ProjectScopeId != projectId)
+            throw new ControlledImportValidationException("This review does not belong to the selected project. Upload the project BOM again from Project Detail.");
+        return review;
     }
 
     private static void FinishSheet(IXLWorksheet sheet, int columnCount, int lastExistingRow)

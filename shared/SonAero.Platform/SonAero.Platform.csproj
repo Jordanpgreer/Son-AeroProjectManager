@@ -7,4 +7,8 @@
     <RootNamespace>SonAero.Platform</RootNamespace>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.*" />
+  </ItemGroup>
+
 </Project>

@@ -3,6 +3,7 @@ export type AdminModuleKey =
   | 'project-tracker'
   | 'engineering'
   | 'estimating'
+  | 'integrations'
   | 'quality-assurance'
 
 export type ArdaAccessSection =
@@ -137,6 +138,21 @@ export interface EstimatorSetting {
 
 export interface EstimatorSettingsOverview {
   estimators: EstimatorSetting[]
+}
+
+export interface IntegrationCredential {
+  credentialKey: string
+  displayName: string
+  isConfigured: boolean
+  createdAt: string
+  updatedAt: string
+  updatedBy: string
+  expiresAt: string | null
+  lastUsedAt: string | null
+}
+
+export interface IntegrationCredentialOverview {
+  credentials: IntegrationCredential[]
 }
 
 export interface WorkCenterImportResult {

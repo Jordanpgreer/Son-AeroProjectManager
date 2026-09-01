@@ -69,6 +69,27 @@ public sealed class EstimatingHistoryImportBatch
     public int ErrorRows { get; set; }
 }
 
+public sealed class FulcrumQuoteSyncRun
+{
+    public Guid Id { get; set; }
+    public DateTimeOffset ScheduledForUtc { get; set; }
+    public DateTimeOffset StartedAt { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
+    public string Status { get; set; } = FulcrumQuoteSyncStatuses.Running;
+    public int QuotesReceived { get; set; }
+    public int NewRecords { get; set; }
+    public int UpdatedRecords { get; set; }
+    public int UnchangedRecords { get; set; }
+    public string? ErrorMessage { get; set; }
+}
+
+public static class FulcrumQuoteSyncStatuses
+{
+    public const string Running = "Running";
+    public const string Completed = "Completed";
+    public const string Failed = "Failed";
+}
+
 public static class EstimatingOnTimeStatuses
 {
     public const string OnTime = "OnTime";

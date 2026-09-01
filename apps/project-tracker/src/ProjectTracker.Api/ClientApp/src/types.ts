@@ -241,6 +241,50 @@ export type ProjectAuditEntry = {
   changedAt: string
 }
 
+export type ImportIssue = {
+  sheet: string
+  row: number
+  column: string | null
+  message: string
+}
+
+export type ImportChange = {
+  sheet: string
+  row: number
+  recordKey: string
+  changeType: 'Added' | 'Modified'
+  field: string
+  currentValue: string | null
+  uploadedValue: string | null
+}
+
+export type ImportValidationResult = {
+  reviewId: string
+  expiresAt: string
+  fileName: string
+  projectRows: number
+  operationRows: number
+  projectsAdded: number
+  projectsUpdated: number
+  operationsAdded: number
+  operationsUpdated: number
+  changeCount: number
+  errors: ImportIssue[]
+  changes: ImportChange[]
+  reviewWorkbookUrl: string
+  canConfirm: boolean
+  workbookFormat: string
+  projectsRequiringCompletion: number
+}
+
+export type ImportApplyResult = {
+  projectsAdded: number
+  projectsUpdated: number
+  operationsAdded: number
+  operationsUpdated: number
+  changeCount: number
+}
+
 export type ProjectCreateRequest = {
   programName: string
   programManager: string | null

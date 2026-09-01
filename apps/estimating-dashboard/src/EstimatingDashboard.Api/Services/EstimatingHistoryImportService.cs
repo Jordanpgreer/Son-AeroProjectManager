@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using ClosedXML.Excel;
 using EstimatingDashboard.Api.Data;
 using EstimatingDashboard.Api.Dtos;
@@ -251,6 +253,164 @@ public sealed class EstimatingHistoryImportService(
             updated,
             unchanged,
             review.InvalidRows.Count(row => row > 1));
+    }
+
+    internal async Task<EstimatingHistoryImportApplyResultDto> ApplyAutomatedAsync(
+        IReadOnlyList<EstimatingHistoryImportRow> rows,
+        string sourceName,
+        string actor,
+        CancellationToken cancellationToken)
+    {
+        var duplicateQuote = rows.GroupBy(row => row.QuoteNumber).FirstOrDefault(group => group.Count() > 1);
+        if (duplicateQuote is not null)
+            throw new EstimatingHistoryImportConflictException($"Fulcrum returned quote {duplicateQuote.Key} more than once.");
+
+        var duplicateSource = rows
+            .GroupBy(row => row.SourceId, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicateSource is not null)
+            throw new EstimatingHistoryImportConflictException($"Fulcrum returned source ID '{duplicateSource.Key}' more than once.");
+
+        var quoteNumbers = rows.Select(row => row.QuoteNumber).Distinct().ToList();
+        var existingRecords = await db.QuoteHistory
+            .Where(record => quoteNumbers.Contains(record.QuoteNumber))
+            .ToListAsync(cancellationToken);
+        if (existingRecords.GroupBy(record => record.QuoteNumber).Any(group => group.Count() > 1))
+            throw new EstimatingHistoryImportConflictException("One or more quote numbers have duplicate system records.");
+
+        var sourceIds = rows.Select(row => row.SourceId).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var conflictingSource = await db.QuoteHistory
+            .AsNoTracking()
+            .Where(record => sourceIds.Contains(record.SourceId) && !quoteNumbers.Contains(record.QuoteNumber))
+            .Select(record => new { record.SourceId, record.QuoteNumber })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (conflictingSource is not null)
+            throw new EstimatingHistoryImportConflictException(
+                $"Fulcrum source ID '{conflictingSource.SourceId}' is already assigned to quote {conflictingSource.QuoteNumber}.");
+
+        var existing = existingRecords.ToDictionary(record => record.QuoteNumber);
+        var now = DateTimeOffset.UtcNow;
+        var batchId = Guid.NewGuid();
+        var added = 0;
+        var updated = 0;
+        var unchanged = 0;
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        foreach (var row in rows)
+        {
+            if (!existing.TryGetValue(row.QuoteNumber, out var record))
+            {
+                record = new EstimatingQuoteHistoryRecord
+                {
+                    FirstImportedAt = now,
+                    Version = 0
+                };
+                Apply(record, row, batchId, actor, now);
+                db.QuoteHistory.Add(record);
+                db.QuoteHistoryAudits.Add(CreatedAudit(
+                    record,
+                    row,
+                    batchId,
+                    actor,
+                    now,
+                    "Quote created from scheduled Fulcrum API sync"));
+                existing[row.QuoteNumber] = record;
+                added++;
+            }
+            else if (Equivalent(record, row))
+            {
+                unchanged++;
+            }
+            else
+            {
+                foreach (var change in ChangedFields(record, row))
+                    db.QuoteHistoryAudits.Add(UpdatedAudit(record, row, change, batchId, actor, now));
+                Apply(record, row, batchId, actor, now);
+                record.Version++;
+                updated++;
+            }
+        }
+
+        var hashInput = JsonSerializer.Serialize(rows);
+        db.QuoteHistoryImportBatches.Add(new EstimatingHistoryImportBatch
+        {
+            Id = batchId,
+            FileName = sourceName,
+            FileHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(hashInput))),
+            ImportedBy = actor,
+            ImportedAt = now,
+            TotalRows = rows.Count,
+            NewRecords = added,
+            UpdatedRecords = updated,
+            UnchangedRecords = unchanged,
+            SkippedRows = 0,
+            ErrorRows = 0
+        });
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            throw new EstimatingHistoryImportConflictException(
+                "A quote changed or another Fulcrum sync completed while this sync was being applied.");
+        }
+
+        return new EstimatingHistoryImportApplyResultDto(batchId, added, updated, unchanged, 0);
+    }
+
+    internal static EstimatingHistoryImportRow CreateRow(
+        int rowNumber,
+        string sourceId,
+        int quoteNumber,
+        string customer,
+        string? customerContact,
+        string salesPerson,
+        string quoteStatus,
+        string? rfqReferenceNumber,
+        string estimatingRep,
+        decimal totalValue,
+        DateTime? rfqDueDate,
+        DateTime? dateToEstimating,
+        string? issues,
+        string? quoteOnTrack,
+        string? quoteComplexity,
+        int numberOfParts,
+        string? estimatingStatus,
+        DateTime? estimatingCompletionDate)
+    {
+        var metrics = Metrics(rfqDueDate, dateToEstimating, estimatingCompletionDate);
+        return new EstimatingHistoryImportRow(
+            rowNumber,
+            sourceId,
+            quoteNumber,
+            customer,
+            customerContact,
+            salesPerson,
+            quoteStatus,
+            rfqReferenceNumber,
+            estimatingRep,
+            totalValue,
+            rfqDueDate,
+            dateToEstimating,
+            issues,
+            quoteOnTrack,
+            quoteComplexity,
+            numberOfParts,
+            estimatingStatus,
+            estimatingCompletionDate,
+            metrics.OnTimeStatus,
+            metrics.DaysLate,
+            metrics.Workdays,
+            metrics.CompletedMonth,
+            metrics.CompletedYear,
+            metrics.CompletedWeekOfMonth,
+            metrics.CompletedMonthAndWeek,
+            metrics.IsCompleted,
+            metrics.CompletedWeekOfYear,
+            metrics.IsOnTime,
+            metrics.OnTimeRatio);
     }
 
     private static IReadOnlyList<EstimatingHistoryImportRow> Parse(
@@ -740,14 +900,15 @@ public sealed class EstimatingHistoryImportService(
         EstimatingHistoryImportRow row,
         Guid batchId,
         string actor,
-        DateTimeOffset now) => new()
+        DateTimeOffset now,
+        string message = "Quote created from Excel import") => new()
         {
             QuoteHistory = record,
             QuoteNumber = row.QuoteNumber,
             ImportBatchId = batchId,
             Action = EstimatingQuoteAuditActions.Created,
             FieldName = "Record",
-            NewValue = "Quote created from Excel import",
+            NewValue = message,
             ChangedBy = actor,
             ChangedAt = now
         };

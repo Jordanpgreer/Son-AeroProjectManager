@@ -21,6 +21,7 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
     public DbSet<PortalEngineeringStorageSettingRecord> EngineeringStorageSettings => Set<PortalEngineeringStorageSettingRecord>();
     public DbSet<PortalEstimatingQuoteHistoryRecord> EstimatingQuoteHistory => Set<PortalEstimatingQuoteHistoryRecord>();
     public DbSet<PortalEstimatorSettingRecord> EstimatorSettings => Set<PortalEstimatorSettingRecord>();
+    public DbSet<PortalIntegrationCredentialRecord> IntegrationCredentials => Set<PortalIntegrationCredentialRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -178,6 +179,15 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
             entity.Property(setting => setting.EstimatorName).HasMaxLength(160);
             entity.Property(setting => setting.UpdatedBy).HasMaxLength(160);
         });
+
+        modelBuilder.Entity<PortalIntegrationCredentialRecord>(entity =>
+        {
+            entity.ToTable("IntegrationCredentials");
+            entity.HasKey(credential => credential.CredentialKey);
+            entity.Property(credential => credential.CredentialKey).HasMaxLength(120);
+            entity.Property(credential => credential.DisplayName).HasMaxLength(160);
+            entity.Property(credential => credential.UpdatedBy).HasMaxLength(160);
+        });
     }
 }
 
@@ -313,4 +323,16 @@ public sealed class PortalEstimatorSettingRecord
     public bool IsActive { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public string UpdatedBy { get; set; } = string.Empty;
+}
+
+public sealed class PortalIntegrationCredentialRecord
+{
+    public string CredentialKey { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string EncryptedSecret { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+    public string UpdatedBy { get; set; } = string.Empty;
+    public DateTimeOffset? ExpiresAt { get; set; }
+    public DateTimeOffset? LastUsedAt { get; set; }
 }

@@ -4,6 +4,7 @@ import {
   Database,
   Eye,
   GanttChart,
+  KeyRound,
   Settings2,
   ShieldCheck,
   Users,
@@ -49,6 +50,13 @@ export const ADMIN_MODULES: {
     icon: Calculator,
     href: '#/admin/estimating/overview',
     openUrl: resolveModuleApplicationUrl(window.location, 5160),
+  },
+  {
+    key: 'integrations',
+    label: 'API Keys',
+    description: 'Protected credentials for connected systems',
+    icon: KeyRound,
+    href: '#/admin/integrations/api-keys',
   },
   {
     key: 'quality-assurance',

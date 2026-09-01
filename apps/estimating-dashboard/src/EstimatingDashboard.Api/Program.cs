@@ -21,6 +21,18 @@ builder.Services.AddScoped<EstimatingHistoryReportService>();
 builder.Services.AddScoped<EstimatingHistoryGridExportService>();
 builder.Services.AddScoped<EstimatorSummaryReportService>();
 builder.Services.AddSingleton<EstimatingHistoryReviewStore>();
+builder.Services.Configure<FulcrumQuoteSyncOptions>(
+    builder.Configuration.GetSection(FulcrumQuoteSyncOptions.SectionName));
+builder.Services.AddSingleton<SonAero.Platform.Security.IIntegrationSecretProtector,
+    SonAero.Platform.Security.MachineIntegrationSecretProtector>();
+builder.Services.AddScoped<IIntegrationCredentialReader, IntegrationCredentialReader>();
+builder.Services.AddHttpClient<FulcrumQuoteClient>(client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(5);
+});
+builder.Services.AddScoped<FulcrumQuoteSyncService>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddHostedService<FulcrumQuoteSyncWorker>();
 builder.Services.AddDbContext<EstimatingAccessDbContext>((serviceProvider, options) =>
 {
     var configuration = serviceProvider.GetRequiredService<IConfiguration>();

@@ -1302,6 +1302,7 @@ function App() {
                   onSaveRow={saveTaskRow}
                   onReorder={reorderTaskRow}
                   notificationTaskId={notificationTaskId}
+                  onBomApplied={async () => { await refreshProjectWorkspace(selectedProject.id) }}
                 />
               )}
               {screen === 'calendar' && <CalendarView data={scheduleProjects} holidaySet={holidaySet} workingDaySet={workingDaySet} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} />}

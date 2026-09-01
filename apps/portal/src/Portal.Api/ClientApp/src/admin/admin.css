@@ -812,6 +812,28 @@
 .estimator-status-toggle[aria-checked="false"] > span { background: var(--line-3); }
 .estimator-status-toggle[aria-checked="false"] > span::after { right: 16px; }
 .estimator-status-toggle em { font-size: 8.5px; font-style: normal; font-weight: 750; text-transform: uppercase; }
+
+.integration-credentials-stack { display: grid; gap: 14px; }
+.integration-credential-intro { display: grid; gap: 16px; }
+.integration-credential-callout { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 13px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--steel-tint); }
+.integration-credential-callout > span,
+.integration-credential-icon { display: grid; width: 36px; height: 36px; place-items: center; color: var(--steel-700); border-radius: var(--r-sm); background: var(--surface); }
+.integration-credential-callout p { margin: 3px 0 0; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
+.integration-credential-form { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(260px, 1.3fr); gap: 12px; padding-top: 3px; }
+.integration-credential-form label { display: grid; gap: 5px; color: var(--ink); font-size: 10px; font-weight: 700; }
+.integration-credential-form label > span { letter-spacing: .05em; text-transform: uppercase; }
+.integration-credential-form input { width: 100%; min-height: 42px; }
+.integration-credential-form small { color: var(--muted); font-size: 9px; font-weight: 400; line-height: 1.4; }
+.integration-credential-actions { display: flex; flex-wrap: wrap; gap: 8px; grid-column: 1 / -1; }
+.integration-credential-list { display: grid; gap: 9px; margin-top: 14px; }
+.integration-credential-list article { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+.integration-credential-list article.is-expired { border-color: color-mix(in srgb, var(--risk) 36%, var(--line)); background: var(--risk-tint); }
+.integration-credential-list article.is-expiring { border-color: #e9c46a; background: #fff8e6; }
+.integration-credential-summary { display: grid; gap: 3px; min-width: 0; }
+.integration-credential-summary code { color: var(--muted); font-family: var(--font-mono); font-size: 12px; letter-spacing: .06em; }
+.integration-credential-summary small { color: var(--muted); font-size: 9px; line-height: 1.35; }
+.integration-credential-row-actions { display: flex; gap: 7px; }
+.integration-credential-row-actions button { display: inline-flex; align-items: center; gap: 5px; }
 .estimator-status-toggle:disabled { cursor: wait; opacity: 0.58; }
 .estimator-settings-empty { display: grid; min-height: 130px; place-items: center; align-content: center; gap: 5px; color: var(--muted); background: var(--surface-2); border: 1px dashed var(--line-2); border-radius: var(--r-md); text-align: center; }
 .estimator-settings-empty strong { color: var(--ink-2); font-size: 12px; }

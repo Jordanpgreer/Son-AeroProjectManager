@@ -18,7 +18,9 @@ public sealed class EstimatingAccessDbContext(
     public DbSet<EstimatingQuoteHistoryRecord> QuoteHistory => Set<EstimatingQuoteHistoryRecord>();
     public DbSet<EstimatingQuoteHistoryAuditRecord> QuoteHistoryAudits => Set<EstimatingQuoteHistoryAuditRecord>();
     public DbSet<EstimatingHistoryImportBatch> QuoteHistoryImportBatches => Set<EstimatingHistoryImportBatch>();
+    public DbSet<FulcrumQuoteSyncRun> FulcrumQuoteSyncRuns => Set<FulcrumQuoteSyncRun>();
     public DbSet<EstimatingEstimatorSettingRecord> EstimatorSettings => Set<EstimatingEstimatorSettingRecord>();
+    public DbSet<EstimatingIntegrationCredentialRecord> IntegrationCredentials => Set<EstimatingIntegrationCredentialRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -137,6 +139,15 @@ public sealed class EstimatingAccessDbContext(
             entity.Property(batch => batch.ImportedBy).HasMaxLength(160);
         });
 
+        modelBuilder.Entity<FulcrumQuoteSyncRun>(entity =>
+        {
+            entity.ToTable("FulcrumQuoteSyncRuns");
+            entity.HasKey(run => run.Id);
+            entity.HasIndex(run => run.ScheduledForUtc).IsUnique();
+            entity.Property(run => run.Status).HasMaxLength(24);
+            entity.Property(run => run.ErrorMessage).HasMaxLength(2000);
+        });
+
         modelBuilder.Entity<EstimatingEstimatorSettingRecord>(entity =>
         {
             entity.ToTable("EstimatingEstimatorSettings");
@@ -144,6 +155,15 @@ public sealed class EstimatingAccessDbContext(
             entity.Property(setting => setting.EstimatorKey).HasMaxLength(160);
             entity.Property(setting => setting.EstimatorName).HasMaxLength(160);
             entity.Property(setting => setting.UpdatedBy).HasMaxLength(160);
+        });
+
+        modelBuilder.Entity<EstimatingIntegrationCredentialRecord>(entity =>
+        {
+            entity.ToTable("IntegrationCredentials");
+            entity.HasKey(credential => credential.CredentialKey);
+            entity.Property(credential => credential.CredentialKey).HasMaxLength(120);
+            entity.Property(credential => credential.DisplayName).HasMaxLength(160);
+            entity.Property(credential => credential.UpdatedBy).HasMaxLength(160);
         });
     }
 }
@@ -197,4 +217,16 @@ public sealed class EstimatingEstimatorSettingRecord
     public bool IsActive { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public string UpdatedBy { get; set; } = string.Empty;
+}
+
+public sealed class EstimatingIntegrationCredentialRecord
+{
+    public string CredentialKey { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string EncryptedSecret { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+    public string UpdatedBy { get; set; } = string.Empty;
+    public DateTimeOffset? ExpiresAt { get; set; }
+    public DateTimeOffset? LastUsedAt { get; set; }
 }

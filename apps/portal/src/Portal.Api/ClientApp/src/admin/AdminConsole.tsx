@@ -20,6 +20,7 @@ import { ADMIN_MODULES, ARDA_ACCESS_SECTIONS } from './adminNavigationModel'
 import EngineeringStoragePanel from './EngineeringStoragePanel'
 import EstimatorSettingsPanel from './EstimatorSettingsPanel'
 import EstimatingImportAccessPanel from './EstimatingImportAccessPanel'
+import IntegrationCredentialsPanel from './IntegrationCredentialsPanel'
 import QualityAssignmentRulesPanel from './QualityAssignmentRulesPanel'
 import WalkthroughSettingsPanel from './WalkthroughSettingsPanel'
 import { toErrorMessage, trackerApi } from './api'
@@ -124,6 +125,8 @@ function parseRoute(hash = window.location.hash): AdminRoute {
               ? 'file-storage'
               : module === 'quality-assurance'
                 ? 'assignment-rules'
+              : module === 'integrations'
+                ? 'api-keys'
               : 'overview',
   }
 }
@@ -467,6 +470,8 @@ export default function AdminConsole({
                 : <p className="admin-readonly-note">Active estimator settings require the Administer Estimating Settings permission.</p>}
             </div>
           )}
+          {route.module === 'integrations' && currentPortalRole !== 'Admin' && <NoAccess detail="API key management requires the Arda Administrator role." />}
+          {route.module === 'integrations' && currentPortalRole === 'Admin' && <IntegrationCredentialsPanel />}
         </div>
       </section>
     </main>

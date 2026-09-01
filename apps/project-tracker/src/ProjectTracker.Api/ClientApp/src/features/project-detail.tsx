@@ -53,6 +53,7 @@ import {
 import {
   Gantt,
 } from './gantt'
+import { ProjectBomImport } from './project-bom-import'
 import {
   hasAnyPermission,
   hasPermission,
@@ -231,6 +232,7 @@ export function ProjectView({
   onSaveRow,
   onReorder,
   notificationTaskId,
+  onBomApplied,
   showChat = true,
   ganttOpen: controlledGanttOpen,
   onGanttOpenChange,
@@ -263,6 +265,7 @@ export function ProjectView({
   onSaveRow: (row: ProjectTask) => Promise<ProjectTask>
   onReorder: (row: ProjectTask, position: number) => Promise<void>
   notificationTaskId: number | null
+  onBomApplied?: () => Promise<void>
   showChat?: boolean
   ganttOpen?: boolean
   onGanttOpenChange?: (open: boolean) => void
@@ -296,6 +299,7 @@ export function ProjectView({
   const canEditNotes = !isCompleted && hasPermission(permissions, permissionKeys.taskEditNotes)
   const canEditTaskModal = !isCompleted && hasAnyPermission(permissions, taskFieldEditPermissions)
   const canShowRowActions = canEditTaskModal || canEditOvertime || canDeleteTask
+  const canManageBom = hasPermission(permissions, permissionKeys.importManage)
   const daysLeft = calculateDaysLeft(project.targetDelivery)
   const total = project.tasks.length
   const behindSchedule = project.status === 'Behind'
@@ -523,6 +527,7 @@ export function ProjectView({
           )}
         </div>
         {!editMode && <div className="project-actions" data-guide-id="project-actions" role="group" aria-label="Project actions">
+          {canManageBom && <ProjectBomImport project={project} onApplied={onBomApplied} />}
           {showChat && <button className="button ghost" type="button" data-guide-id={chatGuideId} onClick={onOpenChat}><MessageSquare size={15} /> Chat</button>}
           {(isCompleted
             ? hasPermission(permissions, permissionKeys.projectReopen)

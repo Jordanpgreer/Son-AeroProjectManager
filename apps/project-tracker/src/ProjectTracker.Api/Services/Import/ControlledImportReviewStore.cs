@@ -49,7 +49,8 @@ public sealed class ControlledImportReviewStore
         IReadOnlyList<ImportIssueDto> errors,
         IReadOnlyList<ImportChangeDto> changes,
         IReadOnlyDictionary<int, long> projectVersions,
-        IReadOnlyDictionary<int, long> operationVersions)
+        IReadOnlyDictionary<int, long> operationVersions,
+        int? projectScopeId = null)
     {
         var createdAt = DateTimeOffset.UtcNow;
         return new ControlledImportReview(
@@ -63,7 +64,8 @@ public sealed class ControlledImportReviewStore
             errors,
             changes,
             projectVersions,
-            operationVersions);
+            operationVersions,
+            projectScopeId);
     }
 }
 
@@ -78,7 +80,8 @@ public sealed record ControlledImportReview(
     IReadOnlyList<ImportIssueDto> Errors,
     IReadOnlyList<ImportChangeDto> Changes,
     IReadOnlyDictionary<int, long> ProjectVersions,
-    IReadOnlyDictionary<int, long> OperationVersions);
+    IReadOnlyDictionary<int, long> OperationVersions,
+    int? ProjectScopeId);
 
 public sealed record ControlledImportPayload(
     IReadOnlyList<ControlledProjectRow> Projects,

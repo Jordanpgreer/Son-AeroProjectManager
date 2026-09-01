@@ -2,6 +2,7 @@ using EstimatingDashboard.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Data;
 using SonAero.Platform.Estimating;
+using SonAero.Platform.Security;
 
 namespace EstimatingDashboard.Api.Services;
 
@@ -13,6 +14,7 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
         {
             await db.Database.ExecuteSqlRawAsync(SqliteSchema, cancellationToken);
             await db.Database.ExecuteSqlRawAsync(EstimatorSettings.SqliteSchema, cancellationToken);
+            await db.Database.ExecuteSqlRawAsync(IntegrationCredentialSchema.Sqlite, cancellationToken);
             await EnsureSqliteHistoryColumnsAsync(cancellationToken);
             return;
         }
@@ -21,6 +23,7 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
         {
             await db.Database.ExecuteSqlRawAsync(SqlServerSchema, cancellationToken);
             await db.Database.ExecuteSqlRawAsync(EstimatorSettings.SqlServerSchema, cancellationToken);
+            await db.Database.ExecuteSqlRawAsync(IntegrationCredentialSchema.SqlServer, cancellationToken);
         }
     }
 
@@ -40,6 +43,21 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
         );
         CREATE INDEX IF NOT EXISTS "IX_EstimatingHistoryImportBatches_ImportedAt"
             ON "EstimatingHistoryImportBatches" ("ImportedAt");
+
+        CREATE TABLE IF NOT EXISTS "FulcrumQuoteSyncRuns" (
+            "Id" TEXT NOT NULL CONSTRAINT "PK_FulcrumQuoteSyncRuns" PRIMARY KEY,
+            "ScheduledForUtc" TEXT NOT NULL,
+            "StartedAt" TEXT NOT NULL,
+            "CompletedAt" TEXT NULL,
+            "Status" TEXT NOT NULL,
+            "QuotesReceived" INTEGER NOT NULL,
+            "NewRecords" INTEGER NOT NULL,
+            "UpdatedRecords" INTEGER NOT NULL,
+            "UnchangedRecords" INTEGER NOT NULL,
+            "ErrorMessage" TEXT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_FulcrumQuoteSyncRuns_ScheduledForUtc"
+            ON "FulcrumQuoteSyncRuns" ("ScheduledForUtc");
 
         CREATE TABLE IF NOT EXISTS "EstimatingQuoteHistory" (
             "Id" INTEGER NOT NULL CONSTRAINT "PK_EstimatingQuoteHistory" PRIMARY KEY AUTOINCREMENT,
@@ -177,6 +195,24 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
                 ON [EstimatingQuoteHistory] ([EstimatingCompletionDate]);
             CREATE INDEX [IX_EstimatingQuoteHistory_IsCompleted]
                 ON [EstimatingQuoteHistory] ([IsCompleted]);
+        END;
+
+        IF OBJECT_ID(N'[FulcrumQuoteSyncRuns]', N'U') IS NULL
+        BEGIN
+            CREATE TABLE [FulcrumQuoteSyncRuns] (
+                [Id] uniqueidentifier NOT NULL CONSTRAINT [PK_FulcrumQuoteSyncRuns] PRIMARY KEY,
+                [ScheduledForUtc] datetimeoffset NOT NULL,
+                [StartedAt] datetimeoffset NOT NULL,
+                [CompletedAt] datetimeoffset NULL,
+                [Status] nvarchar(24) NOT NULL,
+                [QuotesReceived] int NOT NULL,
+                [NewRecords] int NOT NULL,
+                [UpdatedRecords] int NOT NULL,
+                [UnchangedRecords] int NOT NULL,
+                [ErrorMessage] nvarchar(2000) NULL
+            );
+            CREATE UNIQUE INDEX [IX_FulcrumQuoteSyncRuns_ScheduledForUtc]
+                ON [FulcrumQuoteSyncRuns] ([ScheduledForUtc]);
         END;
 
         IF COL_LENGTH(N'EstimatingQuoteHistory', N'CustomerContact') IS NULL

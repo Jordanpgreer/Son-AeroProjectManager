@@ -71,6 +71,135 @@ public sealed class ControlledWorkbookImportServiceTests
     }
 
     [Fact]
+    public async Task ExportProjectTemplate_ContainsOnlySelectedProjectAndLocksScopeColumns()
+    {
+        await using var connection = await OpenConnectionAsync();
+        await using var db = await CreateSeededDbAsync(connection);
+        var selectedProjectId = await db.Projects.Select(project => project.Id).SingleAsync();
+        db.Projects.Add(new Project
+        {
+            ProgramName = "PN-OTHER",
+            CustomerName = "Other Customer",
+            Tasks = [new ProjectTask { Sequence = 1, Title = "Other operation" }]
+        });
+        await db.SaveChangesAsync();
+        var service = CreateService();
+
+        var workbookBytes = await service.ExportProjectTemplateAsync(db, selectedProjectId);
+        using var workbook = OpenWorkbook(workbookBytes);
+        var projects = workbook.Worksheet(ControlledWorkbookImportService.ProjectsSheet);
+        var operations = workbook.Worksheet(ControlledWorkbookImportService.OperationsSheet);
+
+        Assert.Equal(2, projects.LastRowUsed()!.RowNumber());
+        Assert.Equal(selectedProjectId, projects.Cell(2, 1).GetValue<int>());
+        Assert.Equal(3, operations.LastRowUsed()!.RowNumber());
+        Assert.All(operations.RowsUsed().Skip(1), row =>
+            Assert.Equal(selectedProjectId, row.Cell(1).GetValue<int>()));
+        Assert.True(operations.Column(1).IsHidden);
+        Assert.True(operations.Column(2).IsHidden);
+        Assert.True(operations.Cell(4, 1).Style.Protection.Locked);
+        Assert.True(operations.Cell(4, 2).Style.Protection.Locked);
+        Assert.False(operations.Cell(4, 3).Style.Protection.Locked);
+    }
+
+    [Fact]
+    public async Task ValidateAndApplyProjectBom_UpdatesDatesAndAddsOperationWithoutUserManagedIds()
+    {
+        await using var connection = await OpenConnectionAsync();
+        await using var db = await CreateSeededDbAsync(connection);
+        var projectId = await db.Projects.Select(project => project.Id).SingleAsync();
+        var service = CreateService();
+        var workbookBytes = await service.ExportProjectTemplateAsync(db, projectId);
+
+        using var workbook = OpenWorkbook(workbookBytes);
+        var operations = workbook.Worksheet(ControlledWorkbookImportService.OperationsSheet);
+        operations.Cell(2, 8).Value = "Yes";
+        operations.Cell(2, 9).Value = new DateTime(2026, 9, 8);
+        operations.Cell(2, 10).Value = new DateTime(2026, 9, 7);
+        operations.Cell(2, 11).Value = new DateTime(2026, 9, 9);
+        operations.Cell(2, 12).Value = new DateTime(2026, 9, 8);
+        operations.Cell(4, 3).Value = 3;
+        operations.Cell(4, 4).Value = "Final inspection";
+        operations.Cell(4, 6).Value = "Engineering";
+        operations.Cell(4, 8).Value = "Yes";
+        operations.Cell(4, 9).Value = new DateTime(2026, 9, 10);
+        operations.Cell(4, 10).Value = new DateTime(2026, 9, 9);
+        operations.Cell(4, 11).Value = new DateTime(2026, 9, 10);
+        operations.Cell(4, 12).Value = new DateTime(2026, 9, 9);
+        operations.Cell(4, 13).Value = 1;
+
+        var review = await service.ValidateProjectAsync(
+            db,
+            projectId,
+            SaveWorkbook(workbook),
+            "project-bom.xlsx",
+            AccountName);
+
+        Assert.Empty(review.Errors);
+        Assert.True(review.CanConfirm);
+        Assert.Equal("Project BOM template", review.WorkbookFormat);
+        Assert.Equal(1, review.OperationsAdded);
+        Assert.Equal(1, review.OperationsUpdated);
+        Assert.StartsWith($"/api/projects/{projectId}/bom/reviews/", review.ReviewWorkbookUrl, StringComparison.Ordinal);
+        await Assert.ThrowsAsync<ControlledImportValidationException>(
+            () => service.ApplyAsync(db, review.ReviewId, AccountName));
+
+        var applied = await service.ApplyProjectAsync(db, projectId, review.ReviewId, AccountName);
+
+        Assert.Equal(1, applied.OperationsAdded);
+        Assert.Equal(1, applied.OperationsUpdated);
+        var tasks = await db.Tasks.OrderBy(task => task.Sequence).ToListAsync();
+        Assert.Equal(3, tasks.Count);
+        Assert.Equal(new DateOnly(2026, 9, 8), tasks[0].StartDate);
+        Assert.Equal(new DateOnly(2026, 9, 7), tasks[0].OriginalStartDate);
+        Assert.Equal(new DateOnly(2026, 9, 9), tasks[0].EndDate);
+        Assert.Equal(new DateOnly(2026, 9, 8), tasks[0].OriginalEndDate);
+        Assert.Equal("Final inspection", tasks[2].Title);
+        Assert.True(tasks[2].Id > 0);
+    }
+
+    [Fact]
+    public async Task ValidateProjectBom_RejectsRecordsForAnotherProject()
+    {
+        await using var connection = await OpenConnectionAsync();
+        await using var db = await CreateSeededDbAsync(connection);
+        var selectedProjectId = await db.Projects.Select(project => project.Id).SingleAsync();
+        var otherProject = new Project
+        {
+            ProgramName = "PN-OTHER",
+            CustomerName = "Other Customer"
+        };
+        db.Projects.Add(otherProject);
+        await db.SaveChangesAsync();
+        var service = CreateService();
+        var workbookBytes = await service.ExportProjectTemplateAsync(db, selectedProjectId);
+
+        using var workbook = OpenWorkbook(workbookBytes);
+        var projects = workbook.Worksheet(ControlledWorkbookImportService.ProjectsSheet);
+        projects.Cell(3, 1).Value = otherProject.Id;
+        projects.Cell(3, 2).Value = otherProject.ProgramName;
+        projects.Cell(3, 3).Value = otherProject.CustomerName;
+        var operations = workbook.Worksheet(ControlledWorkbookImportService.OperationsSheet);
+        operations.Cell(4, 1).Value = otherProject.Id;
+        operations.Cell(4, 3).Value = 1;
+        operations.Cell(4, 4).Value = "Unauthorized cross-project operation";
+
+        var review = await service.ValidateProjectAsync(
+            db,
+            selectedProjectId,
+            SaveWorkbook(workbook),
+            "wrong-project.xlsx",
+            AccountName);
+
+        Assert.False(review.CanConfirm);
+        Assert.Contains(review.Errors, issue =>
+            issue.Message.Contains($"limited to Project ID {selectedProjectId}", StringComparison.Ordinal));
+        Assert.Contains(review.Errors, issue =>
+            issue.Sheet == ControlledWorkbookImportService.OperationsSheet
+            && issue.Message.Contains($"belong to Project ID {selectedProjectId}", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Validate_ReportsRequiredFieldAndCrossSheetProjectErrors()
     {
         await using var connection = await OpenConnectionAsync();
