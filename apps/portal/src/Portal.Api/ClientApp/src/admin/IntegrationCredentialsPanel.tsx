@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { CheckCircle2, KeyRound, RefreshCcw, ShieldCheck, Trash2 } from 'lucide-react'
+import { Activity, CheckCircle2, KeyRound, RefreshCcw, ShieldCheck, Trash2 } from 'lucide-react'
 import { portalApi, toErrorMessage } from './api'
 import type { IntegrationCredential, IntegrationCredentialOverview } from './types'
 
@@ -28,6 +28,7 @@ export default function IntegrationCredentialsPanel() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [testing, setTesting] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [editingKey, setEditingKey] = useState<string | null>(FULCRUM_KEY)
@@ -143,6 +144,30 @@ export default function IntegrationCredentialsPanel() {
     }
   }
 
+  async function testCredential(credential: IntegrationCredential) {
+    setTesting(credential.credentialKey)
+    setError(null)
+    setMessage(null)
+    try {
+      const updated = await portalApi<IntegrationCredential>(
+        `/api/admin/integration-credentials/${encodeURIComponent(credential.credentialKey)}/test`,
+        { method: 'POST' },
+      )
+      setCredentials((current) => current.map((item) =>
+        item.credentialKey === updated.credentialKey ? updated : item,
+      ))
+      if (updated.lastTestSucceeded) {
+        setMessage(updated.lastTestMessage ?? `${updated.displayName} passed the connection test.`)
+      } else {
+        setError(updated.lastTestMessage ?? `${updated.displayName} failed the connection test.`)
+      }
+    } catch (cause) {
+      setError(toErrorMessage(cause))
+    } finally {
+      setTesting(null)
+    }
+  }
+
   return (
     <div className="integration-credentials-stack">
       <section className="admin-surface integration-credential-intro" aria-labelledby="integration-credentials-heading">
@@ -150,7 +175,7 @@ export default function IntegrationCredentialsPanel() {
           <div>
             <span className="kicker">Server credentials</span>
             <h2 id="integration-credentials-heading">API keys</h2>
-            <p>Save named API keys for connected systems. Values are encrypted before storage and are never sent back to the browser.</p>
+            <p>Save named API keys for connected systems, then test supported connections from this page. Values are encrypted before storage and are never sent back to the browser.</p>
           </div>
           <span className="admin-permission-badge"><ShieldCheck size={14} aria-hidden="true" /> Administrators only</span>
         </header>
@@ -217,9 +242,20 @@ export default function IntegrationCredentialsPanel() {
                     <strong>{credential.displayName}</strong>
                     <code aria-label="Saved API key is hidden">••••••••••••••••</code>
                     <small>{expired ? 'Expired' : expiringSoon ? 'Expires soon' : 'Encrypted and configured'} · Updated {formatDate(credential.updatedAt)} by {credential.updatedBy}</small>
-                    {credential.expiresAt && <small>Expires {formatDate(credential.expiresAt)} · Last used {formatDate(credential.lastUsedAt)}</small>}
+                    {credential.expiresAt && <small>Expires {formatDate(credential.expiresAt)}</small>}
+                    <small>Last used {formatDate(credential.lastUsedAt)}</small>
+                    {credential.lastTestedAt
+                      ? <>
+                          <span className={`integration-test-status ${credential.lastTestSucceeded ? 'success' : 'failure'}`}>
+                            {credential.lastTestSucceeded ? 'Connection test passed' : 'Connection test failed'}
+                            {credential.lastTestHttpStatusCode ? ` · HTTP ${credential.lastTestHttpStatusCode}` : ''}
+                          </span>
+                          <small>{credential.lastTestMessage} Tested {formatDate(credential.lastTestedAt)}{credential.lastTestedBy ? ` by ${credential.lastTestedBy}` : ''}.</small>
+                        </>
+                      : credential.credentialKey === FULCRUM_KEY && <span className="integration-test-status untested">Connection not tested yet</span>}
                   </div>
                   <div className="integration-credential-row-actions">
+                    {credential.credentialKey === FULCRUM_KEY && <button type="button" className="solid-button" disabled={testing === credential.credentialKey} onClick={() => void testCredential(credential)}><Activity size={14} aria-hidden="true" /> {testing === credential.credentialKey ? 'Testing...' : 'Test API connection'}</button>}
                     <button type="button" className="ghost-button" onClick={() => editCredential(credential)}><RefreshCcw size={14} aria-hidden="true" /> Update API key</button>
                     <button type="button" className="ghost-button danger" disabled={deleting === credential.credentialKey} onClick={() => void removeCredential(credential)}><Trash2 size={14} aria-hidden="true" /> {deleting === credential.credentialKey ? 'Deleting...' : 'Delete API key'}</button>
                   </div>

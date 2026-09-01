@@ -46,6 +46,15 @@ public static class IntegrationCredentialSchema
             "ExpiresAt" TEXT NULL,
             "LastUsedAt" TEXT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS "IntegrationCredentialTests" (
+            "CredentialKey" TEXT NOT NULL CONSTRAINT "PK_IntegrationCredentialTests" PRIMARY KEY,
+            "TestedAt" TEXT NOT NULL,
+            "Succeeded" INTEGER NOT NULL,
+            "Message" TEXT NOT NULL,
+            "HttpStatusCode" INTEGER NULL,
+            "TestedBy" TEXT NOT NULL
+        );
         """;
 
     public const string SqlServer = """
@@ -60,6 +69,18 @@ public static class IntegrationCredentialSchema
                 [UpdatedBy] nvarchar(160) NOT NULL,
                 [ExpiresAt] datetimeoffset NULL,
                 [LastUsedAt] datetimeoffset NULL
+            );
+        END;
+
+        IF OBJECT_ID(N'[IntegrationCredentialTests]', N'U') IS NULL
+        BEGIN
+            CREATE TABLE [IntegrationCredentialTests] (
+                [CredentialKey] nvarchar(120) NOT NULL CONSTRAINT [PK_IntegrationCredentialTests] PRIMARY KEY,
+                [TestedAt] datetimeoffset NOT NULL,
+                [Succeeded] bit NOT NULL,
+                [Message] nvarchar(500) NOT NULL,
+                [HttpStatusCode] int NULL,
+                [TestedBy] nvarchar(160) NOT NULL
             );
         END;
         """;

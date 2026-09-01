@@ -3,8 +3,10 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Portal.Api.Data;
 using Portal.Api.Endpoints;
+using Portal.Api.Services;
 using SonAero.Platform.Security;
 
 namespace Portal.Tests;
@@ -28,7 +30,7 @@ public sealed class IntegrationCredentialAdminEndpointTests
                 "/api/admin/integration-credentials") == true)
             .ToList();
 
-        Assert.Equal(3, routes.Count);
+        Assert.Equal(4, routes.Count);
         Assert.All(routes, endpoint =>
             Assert.NotEmpty(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()));
     }
@@ -49,6 +51,9 @@ public sealed class IntegrationCredentialAdminEndpointTests
         Assert.DoesNotContain(
             typeof(IntegrationCredentialDto).GetProperties(),
             property => property.Name.Contains("Secret", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(
+            "IntegrationCredentialTests",
+            db.Model.FindEntityType(typeof(PortalIntegrationCredentialTestRecord))!.GetTableName());
     }
 
     [Fact]
@@ -71,5 +76,56 @@ public sealed class IntegrationCredentialAdminEndpointTests
     public void Credential_names_normalize_to_stable_identifiers(string value, string expected)
     {
         Assert.Equal(expected, IntegrationCredentialNames.NormalizeKey(value));
+    }
+
+    [Fact]
+    public async Task Fulcrum_connection_test_uses_the_saved_token_for_one_read_only_request()
+    {
+        var handler = new CapturingHandler(System.Net.HttpStatusCode.OK);
+        var tester = new FulcrumCredentialTester(
+            new HttpClient(handler),
+            Options.Create(new IntegrationCredentialTestOptions()));
+
+        var result = await tester.TestAsync("saved-token", default);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(200, result.HttpStatusCode);
+        Assert.Equal("Bearer saved-token", handler.Authorization);
+        Assert.Equal(HttpMethod.Post, handler.Method);
+        Assert.StartsWith(
+            "https://api.fulcrumpro.com/api/reporting/quote/list?Skip=0&Take=1",
+            handler.RequestUri?.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Fulcrum_connection_test_explains_missing_quote_permission()
+    {
+        var tester = new FulcrumCredentialTester(
+            new HttpClient(new CapturingHandler(System.Net.HttpStatusCode.Forbidden)),
+            Options.Create(new IntegrationCredentialTestOptions()));
+
+        var result = await tester.TestAsync("saved-token", default);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(403, result.HttpStatusCode);
+        Assert.Contains("permission to view quotes", result.Message);
+    }
+
+    private sealed class CapturingHandler(System.Net.HttpStatusCode statusCode) : HttpMessageHandler
+    {
+        public string? Authorization { get; private set; }
+        public HttpMethod? Method { get; private set; }
+        public Uri? RequestUri { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Authorization = request.Headers.Authorization?.ToString();
+            Method = request.Method;
+            RequestUri = request.RequestUri;
+            return Task.FromResult(new HttpResponseMessage(statusCode));
+        }
     }
 }

@@ -43,6 +43,11 @@ again in the browser. Do not store the token in an appsettings file or commit it
 repository. The Hub and Estimating Dashboard must run on the same Windows application server so
 both can use the protected value.
 
+Saving confirms only that Arda stored the token. To verify that Fulcrum accepts it, use
+**Test API connection** on the saved credential card. The test performs one read-only quote-list
+request and records the result, HTTP status, time, and administrator; it does not import quotes
+or change Fulcrum data.
+
 The token requires Fulcrum's **View Quote** permission. The sync combines the quote-reporting endpoint with the quote
 detail endpoint so customer/salesperson names, totals, statuses, and the quote custom fields used
 by the Estimating Log are refreshed together. Existing Excel-imported values are retained when a

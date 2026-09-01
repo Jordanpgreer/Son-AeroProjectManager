@@ -149,6 +149,11 @@ export interface IntegrationCredential {
   updatedBy: string
   expiresAt: string | null
   lastUsedAt: string | null
+  lastTestedAt: string | null
+  lastTestSucceeded: boolean | null
+  lastTestMessage: string | null
+  lastTestHttpStatusCode: number | null
+  lastTestedBy: string | null
 }
 
 export interface IntegrationCredentialOverview {

@@ -23,6 +23,12 @@ builder.Services.AddScoped<PortalEstimatingSettingsSchemaInitializer>();
 builder.Services.AddScoped<PortalIntegrationCredentialSchemaInitializer>();
 builder.Services.AddSingleton<SonAero.Platform.Security.IIntegrationSecretProtector,
     SonAero.Platform.Security.MachineIntegrationSecretProtector>();
+builder.Services.Configure<IntegrationCredentialTestOptions>(
+    builder.Configuration.GetSection(IntegrationCredentialTestOptions.SectionName));
+builder.Services.AddHttpClient<FulcrumCredentialTester>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
 builder.Services.AddHttpClient<TrackerPreviewService>();
 builder.Services.Configure<EngineeringStorageAdminOptions>(
     builder.Configuration.GetSection(EngineeringStorageAdminOptions.SectionName));

@@ -13,6 +13,7 @@ public static class IntegrationCredentialAdminEndpoints
     {
         api.MapGet("/admin/integration-credentials", GetAsync).RequireAuthorization();
         api.MapPut("/admin/integration-credentials/{credentialKey}", SaveAsync).RequireAuthorization();
+        api.MapPost("/admin/integration-credentials/{credentialKey}/test", TestAsync).RequireAuthorization();
         api.MapDelete("/admin/integration-credentials/{credentialKey}", DeleteAsync).RequireAuthorization();
     }
 
@@ -27,7 +28,14 @@ public static class IntegrationCredentialAdminEndpoints
             .AsNoTracking()
             .OrderBy(credential => credential.DisplayName)
             .ToListAsync(cancellationToken);
-        var credentials = records.Select(ToDto).ToList();
+        var tests = await db.IntegrationCredentialTests
+            .AsNoTracking()
+            .ToDictionaryAsync(test => test.CredentialKey, cancellationToken);
+        var credentials = records
+            .Select(credential => ToDto(
+                credential,
+                tests.GetValueOrDefault(credential.CredentialKey)))
+            .ToList();
         return Results.Ok(new IntegrationCredentialOverviewDto(credentials));
     }
 
@@ -75,9 +83,74 @@ public static class IntegrationCredentialAdminEndpoints
         credential.UpdatedAt = now;
         credential.UpdatedBy = user.AccountName;
         credential.ExpiresAt = TryReadJwtExpiry(secret);
+        var previousTest = await db.IntegrationCredentialTests
+            .SingleOrDefaultAsync(test => test.CredentialKey == normalizedKey, cancellationToken);
+        if (previousTest is not null) db.IntegrationCredentialTests.Remove(previousTest);
         await db.SaveChangesAsync(cancellationToken);
 
-        return Results.Ok(ToDto(credential));
+        return Results.Ok(ToDto(credential, null));
+    }
+
+    private static async Task<IResult> TestAsync(
+        string credentialKey,
+        [FromServices] PortalUserService users,
+        [FromServices] PortalRoleDbContext db,
+        [FromServices] IIntegrationSecretProtector protector,
+        [FromServices] FulcrumCredentialTester fulcrumTester,
+        CancellationToken cancellationToken)
+    {
+        var user = await users.CurrentAsync(cancellationToken);
+        if (!string.Equals(user.Role, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase))
+            return AccessDenied();
+
+        var normalizedKey = IntegrationCredentialNames.NormalizeKey(credentialKey);
+        if (!string.Equals(normalizedKey, credentialKey, StringComparison.Ordinal))
+            return Results.BadRequest(new { detail = "The credential key identifier is invalid." });
+        if (!string.Equals(
+            normalizedKey,
+            IntegrationCredentialNames.FulcrumPublicApi,
+            StringComparison.Ordinal))
+            return Results.BadRequest(new { detail = "A connection test is not defined for this named credential." });
+
+        var credential = await db.IntegrationCredentials
+            .SingleOrDefaultAsync(candidate => candidate.CredentialKey == normalizedKey, cancellationToken);
+        if (credential is null)
+            return Results.NotFound(new { detail = "Save the Fulcrum Public API token before testing the connection." });
+
+        IntegrationCredentialTestResult result;
+        try
+        {
+            var secret = protector.Unprotect(credential.EncryptedSecret);
+            result = await fulcrumTester.TestAsync(secret, cancellationToken);
+        }
+        catch (Exception exception) when (
+            exception is System.Security.Cryptography.CryptographicException
+            or FormatException
+            or PlatformNotSupportedException)
+        {
+            result = new(
+                false,
+                "The saved token could not be decrypted on this application server. Replace it and test again.",
+                null);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var test = await db.IntegrationCredentialTests
+            .SingleOrDefaultAsync(candidate => candidate.CredentialKey == normalizedKey, cancellationToken);
+        if (test is null)
+        {
+            test = new PortalIntegrationCredentialTestRecord { CredentialKey = normalizedKey };
+            db.IntegrationCredentialTests.Add(test);
+        }
+        test.TestedAt = now;
+        test.Succeeded = result.Succeeded;
+        test.Message = result.Message;
+        test.HttpStatusCode = result.HttpStatusCode;
+        test.TestedBy = user.AccountName;
+        credential.LastUsedAt = now;
+        await db.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(ToDto(credential, test));
     }
 
     private static async Task<IResult> DeleteAsync(
@@ -95,6 +168,9 @@ public static class IntegrationCredentialAdminEndpoints
             .SingleOrDefaultAsync(candidate => candidate.CredentialKey == normalizedKey, cancellationToken);
         if (credential is null) return Results.NoContent();
 
+        var test = await db.IntegrationCredentialTests
+            .SingleOrDefaultAsync(candidate => candidate.CredentialKey == normalizedKey, cancellationToken);
+        if (test is not null) db.IntegrationCredentialTests.Remove(test);
         db.IntegrationCredentials.Remove(credential);
         await db.SaveChangesAsync(cancellationToken);
         return Results.NoContent();
@@ -131,7 +207,9 @@ public static class IntegrationCredentialAdminEndpoints
         }
     }
 
-    private static IntegrationCredentialDto ToDto(PortalIntegrationCredentialRecord credential) => new(
+    private static IntegrationCredentialDto ToDto(
+        PortalIntegrationCredentialRecord credential,
+        PortalIntegrationCredentialTestRecord? test) => new(
         credential.CredentialKey,
         credential.DisplayName,
         true,
@@ -139,7 +217,12 @@ public static class IntegrationCredentialAdminEndpoints
         credential.UpdatedAt,
         credential.UpdatedBy,
         credential.ExpiresAt,
-        credential.LastUsedAt);
+        credential.LastUsedAt,
+        test?.TestedAt,
+        test?.Succeeded,
+        test?.Message,
+        test?.HttpStatusCode,
+        test?.TestedBy);
 
     private static async Task<bool> IsAdministratorAsync(
         PortalUserService users,
@@ -165,7 +248,12 @@ public sealed record IntegrationCredentialDto(
     DateTimeOffset UpdatedAt,
     string UpdatedBy,
     DateTimeOffset? ExpiresAt,
-    DateTimeOffset? LastUsedAt);
+    DateTimeOffset? LastUsedAt,
+    DateTimeOffset? LastTestedAt,
+    bool? LastTestSucceeded,
+    string? LastTestMessage,
+    int? LastTestHttpStatusCode,
+    string? LastTestedBy);
 
 public sealed record IntegrationCredentialOverviewDto(
     IReadOnlyList<IntegrationCredentialDto> Credentials);

@@ -22,6 +22,7 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
     public DbSet<PortalEstimatingQuoteHistoryRecord> EstimatingQuoteHistory => Set<PortalEstimatingQuoteHistoryRecord>();
     public DbSet<PortalEstimatorSettingRecord> EstimatorSettings => Set<PortalEstimatorSettingRecord>();
     public DbSet<PortalIntegrationCredentialRecord> IntegrationCredentials => Set<PortalIntegrationCredentialRecord>();
+    public DbSet<PortalIntegrationCredentialTestRecord> IntegrationCredentialTests => Set<PortalIntegrationCredentialTestRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -188,6 +189,15 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
             entity.Property(credential => credential.DisplayName).HasMaxLength(160);
             entity.Property(credential => credential.UpdatedBy).HasMaxLength(160);
         });
+
+        modelBuilder.Entity<PortalIntegrationCredentialTestRecord>(entity =>
+        {
+            entity.ToTable("IntegrationCredentialTests");
+            entity.HasKey(test => test.CredentialKey);
+            entity.Property(test => test.CredentialKey).HasMaxLength(120);
+            entity.Property(test => test.Message).HasMaxLength(500);
+            entity.Property(test => test.TestedBy).HasMaxLength(160);
+        });
     }
 }
 
@@ -335,4 +345,14 @@ public sealed class PortalIntegrationCredentialRecord
     public string UpdatedBy { get; set; } = string.Empty;
     public DateTimeOffset? ExpiresAt { get; set; }
     public DateTimeOffset? LastUsedAt { get; set; }
+}
+
+public sealed class PortalIntegrationCredentialTestRecord
+{
+    public string CredentialKey { get; set; } = string.Empty;
+    public DateTimeOffset TestedAt { get; set; }
+    public bool Succeeded { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public int? HttpStatusCode { get; set; }
+    public string TestedBy { get; set; } = string.Empty;
 }

@@ -832,8 +832,12 @@
 .integration-credential-summary { display: grid; gap: 3px; min-width: 0; }
 .integration-credential-summary code { color: var(--muted); font-family: var(--font-mono); font-size: 12px; letter-spacing: .06em; }
 .integration-credential-summary small { color: var(--muted); font-size: 9px; line-height: 1.35; }
-.integration-credential-row-actions { display: flex; gap: 7px; }
+.integration-credential-row-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; max-width: 370px; }
 .integration-credential-row-actions button { display: inline-flex; align-items: center; gap: 5px; }
+.integration-test-status { width: fit-content; margin-top: 3px; padding: 3px 7px; border-radius: var(--r-pill); font-size: 8.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.integration-test-status.success { color: var(--ok-700); background: var(--ok-tint); }
+.integration-test-status.failure { color: var(--risk-700); background: var(--risk-tint); }
+.integration-test-status.untested { color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); }
 .estimator-status-toggle:disabled { cursor: wait; opacity: 0.58; }
 .estimator-settings-empty { display: grid; min-height: 130px; place-items: center; align-content: center; gap: 5px; color: var(--muted); background: var(--surface-2); border: 1px dashed var(--line-2); border-radius: var(--r-md); text-align: center; }
 .estimator-settings-empty strong { color: var(--ink-2); font-size: 12px; }
