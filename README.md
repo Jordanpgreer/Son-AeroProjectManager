@@ -77,8 +77,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Start-Hub.ps1
 
 Generated logs and build stamps live under `logs\` (git-ignored).
 
-The desktop shortcut **"Arda Hub"** (created by setup) runs the same launcher with the official
-multi-resolution Arda icon and works after any user clones/extracts the repo to a path with spaces.
+The desktop shortcut **"Arda"** (created by setup) runs the same launcher with the sole approved
+transparent, multi-resolution Arda icon and works after any user clones/extracts the repo to a path with spaces.
 
 ## Run an application independently
 

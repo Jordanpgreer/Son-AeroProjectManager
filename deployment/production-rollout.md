@@ -18,7 +18,7 @@ and assign roles **before** giving employees the shortcut.
   `powershell.exe`.
 - Commands labelled **employee PowerShell** must be run in the employee's normal interactive
   `SON4L\firstname.lastname` Windows session. Do not run user-access tests through N-central.
-- Upload the referenced script and `arda.ico` to the exact paths shown before running a
+- Upload the referenced script and `arda-transparent.ico` to the exact paths shown before running a
   command. Run `-WhatIf` first wherever it is offered.
 
 ## 1. Deploy the default-deny release first
@@ -257,12 +257,12 @@ Put both files in `C:\Temp\SonAero`, open PowerShell as Administrator, and run:
 ```powershell
 & 'C:\Temp\SonAero\Install-EmployeeHubShortcut.ps1' `
   -HubUri 'http://SON-IIS2:5140' `
-  -IconSource 'C:\Temp\SonAero\arda.ico' `
+  -IconSource 'C:\Temp\SonAero\arda-transparent.ico' `
   -WhatIf
 
 & 'C:\Temp\SonAero\Install-EmployeeHubShortcut.ps1' `
   -HubUri 'http://SON-IIS2:5140' `
-  -IconSource 'C:\Temp\SonAero\arda.ico' `
+  -IconSource 'C:\Temp\SonAero\arda-transparent.ico' `
   -Confirm:$false
 ```
 
@@ -275,8 +275,8 @@ Upload both files to `C:\SonAero\EmployeeShortcut` on each approved employee com
 **N-central CMD on an employee computer — preview then apply:**
 
 ```bat
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\SonAero\EmployeeShortcut\Install-EmployeeHubShortcut.ps1" -HubUri "http://SON-IIS2:5140" -IconSource "C:\SonAero\EmployeeShortcut\arda.ico" -WhatIf
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\SonAero\EmployeeShortcut\Install-EmployeeHubShortcut.ps1' -HubUri 'http://SON-IIS2:5140' -IconSource 'C:\SonAero\EmployeeShortcut\arda.ico' -Confirm:$false"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\SonAero\EmployeeShortcut\Install-EmployeeHubShortcut.ps1" -HubUri "http://SON-IIS2:5140" -IconSource "C:\SonAero\EmployeeShortcut\arda-transparent.ico" -WhatIf
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\SonAero\EmployeeShortcut\Install-EmployeeHubShortcut.ps1' -HubUri 'http://SON-IIS2:5140' -IconSource 'C:\SonAero\EmployeeShortcut\arda-transparent.ico' -Confirm:$false"
 ```
 
 ### Group Policy deployment
@@ -285,7 +285,7 @@ Place the script and icon in a read-only domain package location, then configure
 Configuration** startup script to run as Local System:
 
 ```bat
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '\\SON4L.LOCAL\SYSVOL\SON4L.LOCAL\scripts\SonAero\Install-EmployeeHubShortcut.ps1' -HubUri 'http://SON-IIS2:5140' -IconSource '\\SON4L.LOCAL\SYSVOL\SON4L.LOCAL\scripts\SonAero\arda.ico' -Confirm:$false"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '\\SON4L.LOCAL\SYSVOL\SON4L.LOCAL\scripts\SonAero\Install-EmployeeHubShortcut.ps1' -HubUri 'http://SON-IIS2:5140' -IconSource '\\SON4L.LOCAL\SYSVOL\SON4L.LOCAL\scripts\SonAero\arda-transparent.ico' -Confirm:$false"
 ```
 
 Scope the GPO to the approved workstation security group, test on one computer, then expand the

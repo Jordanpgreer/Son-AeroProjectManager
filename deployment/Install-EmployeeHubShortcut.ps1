@@ -18,6 +18,20 @@ function Test-IsAdministrator {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function New-InternetShortcutContent {
+    param(
+        [Parameter(Mandatory = $true)][string]$TargetUri,
+        [Parameter(Mandatory = $true)][string]$IconPath
+    )
+
+    return (@(
+        '[InternetShortcut]'
+        "URL=$TargetUri"
+        "IconFile=$IconPath"
+        'IconIndex=0'
+    ) -join "`r`n") + "`r`n"
+}
+
 $parsedUri = $null
 if (-not [Uri]::TryCreate($HubUri, [UriKind]::Absolute, [ref]$parsedUri) -or
     $parsedUri.Scheme -notin @('http', 'https') -or
@@ -44,8 +58,8 @@ if ([string]::IsNullOrWhiteSpace($shortcutLeaf) -or $shortcutLeaf.Length -gt 100
 }
 
 if ([string]::IsNullOrWhiteSpace($IconSource)) {
-    $packagedIcon = Join-Path $PSScriptRoot 'arda.ico'
-    $repositoryIcon = Join-Path (Split-Path -Parent $PSScriptRoot) 'shared\branding\arda.ico'
+    $packagedIcon = Join-Path $PSScriptRoot 'arda-transparent.ico'
+    $repositoryIcon = Join-Path (Split-Path -Parent $PSScriptRoot) 'shared\branding\arda-transparent.ico'
     $IconSource = if (Test-Path -LiteralPath $packagedIcon -PathType Leaf) {
         $packagedIcon
     } else {
@@ -71,35 +85,36 @@ if ([string]::IsNullOrWhiteSpace($commonDesktop) -or
 }
 
 $brandingDirectory = Join-Path $env:ProgramData 'Arda'
-$installedIcon = Join-Path $brandingDirectory 'arda.ico'
+$installedIcon = Join-Path $brandingDirectory 'arda-transparent.ico'
 $shortcutPath = Join-Path $commonDesktop ($shortcutLeaf + '.url')
 $normalizedUri = $parsedUri.AbsoluteUri
-$shortcutContent = @(
-    '[InternetShortcut]'
-    "URL=$normalizedUri"
-    "IconFile=$installedIcon"
-    'IconIndex=0'
-) -join "`r`n"
-$shortcutContent += "`r`n"
+$shortcutContent = New-InternetShortcutContent -TargetUri $normalizedUri -IconPath $installedIcon
 
 # Migrate only exact shortcut payloads written by prior versions of this installer.
 # Same-named files with any different content are user-owned and must be preserved.
+$legacyArdaIcon = Join-Path $brandingDirectory 'arda.ico'
 $legacySonAeroIcon = Join-Path (Join-Path $env:ProgramData 'SonAero') 'son-aero.ico'
-$legacySonAeroContent = @(
-    '[InternetShortcut]'
-    "URL=$normalizedUri"
-    "IconFile=$legacySonAeroIcon"
-    'IconIndex=0'
-) -join "`r`n"
-$legacySonAeroContent += "`r`n"
+$approvedArdaShortcutContent = @(
+    foreach ($approvedHubUri in $approvedHubUris) {
+        New-InternetShortcutContent -TargetUri $approvedHubUri -IconPath $installedIcon
+        New-InternetShortcutContent -TargetUri $approvedHubUri -IconPath $legacyArdaIcon
+    }
+)
+$approvedSonAeroShortcutContent = @(
+    foreach ($approvedHubUri in $approvedHubUris) {
+        New-InternetShortcutContent -TargetUri $approvedHubUri -IconPath $installedIcon
+        New-InternetShortcutContent -TargetUri $approvedHubUri -IconPath $legacyArdaIcon
+        New-InternetShortcutContent -TargetUri $approvedHubUri -IconPath $legacySonAeroIcon
+    }
+)
 $legacyShortcutDefinitions = @(
     [pscustomobject]@{
         Path = Join-Path $commonDesktop 'Arda Hub.url'
-        ApprovedContent = @($shortcutContent)
+        ApprovedContent = $approvedArdaShortcutContent
     },
     [pscustomobject]@{
         Path = Join-Path $commonDesktop 'Son-Aero Hub.url'
-        ApprovedContent = @($shortcutContent, $legacySonAeroContent)
+        ApprovedContent = $approvedSonAeroShortcutContent
     }
 )
 $legacyShortcutsToRemove = @()
@@ -118,6 +133,32 @@ foreach ($legacyDefinition in $legacyShortcutDefinitions) {
         Write-Warning "Preserved legacy shortcut because its installer signature could not be verified: $($legacyDefinition.Path)"
     }
 }
+$approvedArdaIconSha256 = 'FC8744D2DD0E4D5E0426BA37032977E2466C1AE264AF29EAE0A274D0146537E4'
+$approvedSonAeroIconSha256 = '681AC700BBECB109D5D6A85C1D997BCF3044C91038FCF9C5E889FF0E30379AC6'
+$legacyIconDefinitions = @(
+    [pscustomobject]@{ Path = $legacyArdaIcon; ApprovedSha256 = $approvedArdaIconSha256 }
+    [pscustomobject]@{ Path = (Join-Path $brandingDirectory 'son-aero.ico'); ApprovedSha256 = $approvedSonAeroIconSha256 }
+    [pscustomobject]@{ Path = $legacySonAeroIcon; ApprovedSha256 = $approvedSonAeroIconSha256 }
+)
+$legacyIconPaths = @()
+foreach ($legacyIconDefinition in $legacyIconDefinitions) {
+    if ($legacyIconDefinition.Path -ieq $installedIcon -or
+        -not (Test-Path -LiteralPath $legacyIconDefinition.Path -PathType Leaf)) {
+        continue
+    }
+    try {
+        $legacyIconSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $legacyIconDefinition.Path).Hash
+        if ($legacyIconSha256 -ceq $legacyIconDefinition.ApprovedSha256) {
+            $legacyIconPaths += $legacyIconDefinition.Path
+        }
+        else {
+            Write-Warning "Preserved legacy icon because its installer signature did not match: $($legacyIconDefinition.Path)"
+        }
+    }
+    catch {
+        Write-Warning "Preserved legacy icon because its installer signature could not be verified: $($legacyIconDefinition.Path)"
+    }
+}
 
 if ($WhatIfPreference) {
     $null = $PSCmdlet.ShouldProcess($brandingDirectory, 'Create shared Arda branding directory')
@@ -126,6 +167,9 @@ if ($WhatIfPreference) {
     foreach ($legacyShortcutPath in $legacyShortcutsToRemove) {
         $null = $PSCmdlet.ShouldProcess($legacyShortcutPath, 'Remove verified installer-owned legacy shortcut')
     }
+    foreach ($legacyIconPath in $legacyIconPaths) {
+        $null = $PSCmdlet.ShouldProcess($legacyIconPath, 'Remove obsolete installer-owned desktop icon')
+    }
     Write-Host 'WHATIF_READY: no shortcut files were changed.'
     [pscustomobject]@{
         Status = 'WHATIF_READY'
@@ -133,6 +177,7 @@ if ($WhatIfPreference) {
         Target = $normalizedUri
         Icon = $installedIcon
         LegacyShortcutsToRemove = @($legacyShortcutsToRemove)
+        LegacyIconsToRemove = @($legacyIconPaths)
     }
     return
 }
@@ -175,11 +220,26 @@ foreach ($legacyShortcutPath in $legacyShortcutsToRemove) {
         $performedUpdate = $true
     }
 }
+foreach ($legacyIconPath in $legacyIconPaths) {
+    if ($PSCmdlet.ShouldProcess($legacyIconPath, 'Remove obsolete installer-owned desktop icon')) {
+        Remove-Item -LiteralPath $legacyIconPath -Force
+        $performedUpdate = $true
+    }
+}
+
+if ($performedUpdate) {
+    $iconRefresh = Join-Path $env:SystemRoot 'System32\ie4uinit.exe'
+    if (Test-Path -LiteralPath $iconRefresh -PathType Leaf) {
+        try { & $iconRefresh -show | Out-Null }
+        catch { Write-Warning "The shortcut was updated, but Windows icon refresh failed: $($_.Exception.Message)" }
+    }
+}
 
 [pscustomobject]@{
     Status = if ($performedUpdate) {
         'INSTALLED_OR_UPDATED'
-    } elseif ($copyIcon -or $writeShortcut -or $legacyShortcutsToRemove.Count -gt 0) {
+    } elseif ($copyIcon -or $writeShortcut -or $legacyShortcutsToRemove.Count -gt 0 -or
+        $legacyIconPaths.Count -gt 0) {
         'CHANGE_NOT_APPROVED'
     } else {
         'ALREADY_CURRENT'

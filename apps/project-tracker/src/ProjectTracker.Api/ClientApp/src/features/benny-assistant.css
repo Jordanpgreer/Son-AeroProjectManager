@@ -100,9 +100,8 @@
   width: 60px;
   height: 60px;
   place-items: center;
-  overflow: hidden;
-  background: var(--red);
-  border-radius: 18px;
+  overflow: visible;
+  background: transparent;
 }
 
 .benny-panel__avatar img {

@@ -12,11 +12,20 @@ $repoRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $shortcutScrip
 $launcher = Join-Path $repoRoot 'scripts\Start-Hub.vbs'
 $expectedIcon = Join-Path $repoRoot 'shared\branding\arda-transparent.ico'
 $expectedTarget = [IO.Path]::GetFullPath("$env:SystemRoot\System32\wscript.exe")
+$expectedIconSha256 = 'FC8744D2DD0E4D5E0426BA37032977E2466C1AE264AF29EAE0A274D0146537E4'
 
 function Assert-True {
     param([bool]$Condition, [string]$Message)
     if (-not $Condition) { throw $Message }
 }
+
+$sharedIcoFiles = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'shared\branding') -Filter '*.ico' -File)
+Assert-True ($sharedIcoFiles.Count -eq 1 -and $sharedIcoFiles[0].FullName -ieq $expectedIcon) `
+    'Shared branding must contain only the transparent Arda desktop icon.'
+Assert-True (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'apps\project-tracker\src\ProjectTracker.Api\Assets\projects.ico'))) `
+    'The obsolete Project Tracker desktop icon is still present.'
+Assert-True ((Get-FileHash -Algorithm SHA256 -LiteralPath $expectedIcon).Hash -ceq $expectedIconSha256) `
+    'The sole desktop icon is not the approved transparent Arda icon.'
 
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('arda-shortcut-test-' + [Guid]::NewGuid().ToString('N'))
 $desktop = Join-Path $testRoot 'Desktop'

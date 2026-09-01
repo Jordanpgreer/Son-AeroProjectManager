@@ -78,7 +78,7 @@ function Assert-PackageFile {
 try {
     $packageRoot = Split-Path -Parent $PSCommandPath
     $shortcutInstaller = Join-Path $packageRoot 'Install-EmployeeHubShortcut.ps1'
-    $iconPath = Join-Path $packageRoot 'arda.ico'
+    $iconPath = Join-Path $packageRoot 'arda-transparent.ico'
     Assert-PackageFile -Path $shortcutInstaller -Label 'The shortcut installer'
     Assert-PackageFile -Path $iconPath -Label 'The Arda icon'
 

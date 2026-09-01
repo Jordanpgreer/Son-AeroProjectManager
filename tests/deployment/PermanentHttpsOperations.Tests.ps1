@@ -136,6 +136,8 @@ $null = Get-ScriptAst $UserAccessScriptPath
 $null = Get-ScriptAst $ShortcutScriptPath
 $null = Get-ScriptAst $PackageScriptPath
 $null = Get-ScriptAst $BootstrapScriptPath
+$null = Get-ScriptAst $PilotPackageScriptPath
+$null = Get-ScriptAst $PilotBootstrapScriptPath
 $null = Get-ScriptAst $WebPushScriptPath
 $null = Get-ScriptAst $PublishScriptPath
 $corsAuthenticationAst = Get-ScriptAst $CorsAuthenticationScriptPath
@@ -444,9 +446,15 @@ Assert-Equal (Get-ParameterDefault -Path $ShortcutScriptPath -ParameterName Shor
 Assert-Equal (Get-ParameterDefault -Path $PackageScriptPath -ParameterName HubUri) `
     'https://hub.son4l.local' 'The package builder does not default to the permanent Portal origin.'
 $shortcutSource = Get-Content -LiteralPath $ShortcutScriptPath -Raw
-Assert-True ($shortcutSource.Contains("`$packagedIcon = Join-Path `$PSScriptRoot 'arda.ico'") -and
-    $shortcutSource.Contains("`$installedIcon = Join-Path `$brandingDirectory 'arda.ico'")) `
+Assert-True ($shortcutSource.Contains("`$packagedIcon = Join-Path `$PSScriptRoot 'arda-transparent.ico'") -and
+    $shortcutSource.Contains("`$installedIcon = Join-Path `$brandingDirectory 'arda-transparent.ico'")) `
     'The shared shortcut does not install the packaged Arda icon.'
+Assert-True ($shortcutSource.Contains("`$legacyArdaIcon = Join-Path `$brandingDirectory 'arda.ico'") -and
+    $shortcutSource.Contains("`$approvedArdaIconSha256 = 'FC8744D2DD0E4D5E0426BA37032977E2466C1AE264AF29EAE0A274D0146537E4'") -and
+    $shortcutSource.Contains("`$approvedSonAeroIconSha256 = '681AC700BBECB109D5D6A85C1D997BCF3044C91038FCF9C5E889FF0E30379AC6'") -and
+    $shortcutSource.Contains('Get-FileHash -Algorithm SHA256 -LiteralPath $legacyIconDefinition.Path') -and
+    $shortcutSource.Contains("Remove-Item -LiteralPath `$legacyIconPath -Force")) `
+    'The shared shortcut does not restrict cached-icon cleanup to approved historical installer payloads.'
 Assert-True ($shortcutSource.Contains("Path = Join-Path `$commonDesktop 'Arda Hub.url'") -and
     $shortcutSource.Contains("Path = Join-Path `$commonDesktop 'Son-Aero Hub.url'") -and
     $shortcutSource.Contains('$_ -ceq $existingContent')) `
@@ -467,13 +475,31 @@ Assert-True $unsafeShortcutOriginRejected `
 
 $shortcutTestRoot = Join-Path ([IO.Path]::GetTempPath()) ('arda-employee-shortcut-test-' + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($shortcutTestRoot) | Out-Null
+$originalProgramData = $env:ProgramData
+$testProgramData = Join-Path $shortcutTestRoot 'ProgramData'
+[IO.Directory]::CreateDirectory($testProgramData) | Out-Null
+$env:ProgramData = $testProgramData
 try {
     $normalizedUri = 'https://hub.son4l.local/'
-    $installedIcon = Join-Path (Join-Path $env:ProgramData 'Arda') 'arda.ico'
+    $retainedHttpUri = 'http://son-iis2:5140/'
+    $installedIcon = Join-Path (Join-Path $env:ProgramData 'Arda') 'arda-transparent.ico'
+    $legacyIconPaths = @(
+        (Join-Path (Join-Path $env:ProgramData 'Arda') 'arda.ico')
+        (Join-Path (Join-Path $env:ProgramData 'Arda') 'son-aero.ico')
+        (Join-Path (Join-Path $env:ProgramData 'SonAero') 'son-aero.ico')
+    )
+    [IO.Directory]::CreateDirectory((Split-Path -Parent $legacyIconPaths[0])) | Out-Null
+    Copy-Item `
+        -LiteralPath (Join-Path $PSScriptRoot '..\..\shared\branding\arda-transparent.ico') `
+        -Destination $legacyIconPaths[0]
+    foreach ($legacyIconPath in @($legacyIconPaths | Select-Object -Skip 1)) {
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $legacyIconPath)) | Out-Null
+        [IO.File]::WriteAllBytes($legacyIconPath, [byte[]](0, 1, 2, 3))
+    }
     $installerOwnedContent = @(
         '[InternetShortcut]'
-        "URL=$normalizedUri"
-        "IconFile=$installedIcon"
+        "URL=$retainedHttpUri"
+        "IconFile=$($legacyIconPaths[0])"
         'IconIndex=0'
     ) -join "`r`n"
     $installerOwnedContent += "`r`n"
@@ -488,7 +514,7 @@ try {
     $previewRecords = @(& $ShortcutScriptPath `
         -DesktopPath $shortcutTestRoot `
         -HubUri $normalizedUri `
-        -IconSource (Join-Path $PSScriptRoot '..\..\shared\branding\arda.ico') `
+        -IconSource (Join-Path $PSScriptRoot '..\..\shared\branding\arda-transparent.ico') `
         -WhatIf *>&1)
     $previewStatus = @($previewRecords | Where-Object {
         $null -ne $_ -and
@@ -498,13 +524,21 @@ try {
     Assert-True ($previewStatus.Count -eq 1) `
         'The shared shortcut preview did not return its readiness status.'
     Assert-True (@($previewStatus[0].LegacyShortcutsToRemove) -contains $ownedLegacyPath) `
-        'The shared shortcut preview did not recognize its exact installer-owned legacy shortcut.'
+        'The shared shortcut preview did not migrate its exact retained-HTTP installer-owned legacy shortcut.'
     Assert-True (@($previewStatus[0].LegacyShortcutsToRemove) -notcontains $unrelatedLegacyPath) `
         'The shared shortcut preview tried to remove an unrelated same-named shortcut.'
+    Assert-True (@($previewStatus[0].LegacyIconsToRemove).Count -eq 1 -and
+        @($previewStatus[0].LegacyIconsToRemove) -contains $legacyIconPaths[0]) `
+        'The shared shortcut preview did not schedule the approved historical Arda icon for removal.'
+    Assert-True (@($legacyIconPaths | Select-Object -Skip 1 | Where-Object {
+        $_ -in @($previewStatus[0].LegacyIconsToRemove)
+    }).Count -eq 0) `
+        'The shared shortcut preview scheduled unapproved icon payloads for removal.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $shortcutTestRoot 'Arda.url'))) `
         'The shared shortcut preview unexpectedly created Arda.url.'
 }
 finally {
+    $env:ProgramData = $originalProgramData
     Remove-Item -LiteralPath $shortcutTestRoot -Recurse -Force
 }
 $bootstrapSource = Get-Content -LiteralPath $BootstrapScriptPath -Raw
@@ -513,11 +547,13 @@ Assert-True ($bootstrapSource -match "SonAeroHubInstaller\.json") `
 Assert-True ($bootstrapSource -match 'SchemaVersion\s*-ne\s*1') `
     'The employee bootstrap does not reject unsupported package configuration schemas.'
 $pilotPackageSource = Get-Content -LiteralPath $PilotPackageScriptPath -Raw
-Assert-True ($pilotPackageSource.Contains("'arda.ico' = Join-Path `$repositoryRoot 'shared\branding\arda.ico'") -and
+Assert-True ($pilotPackageSource.Contains("'arda-transparent.ico' = Join-Path `$repositoryRoot 'shared\branding\arda-transparent.ico'") -and
+    -not $pilotPackageSource.Contains("'arda.ico'") -and
     -not $pilotPackageSource.Contains("'son-aero.ico'")) `
     'The pilot package builder does not package only the Arda shortcut icon.'
 $pilotBootstrapSource = Get-Content -LiteralPath $PilotBootstrapScriptPath -Raw
-Assert-True ($pilotBootstrapSource.Contains("`$iconPath = Join-Path `$packageRoot 'arda.ico'") -and
+Assert-True ($pilotBootstrapSource.Contains("`$iconPath = Join-Path `$packageRoot 'arda-transparent.ico'") -and
+    -not $pilotBootstrapSource.Contains("Join-Path `$packageRoot 'arda.ico'") -and
     -not $pilotBootstrapSource.Contains("Join-Path `$packageRoot 'son-aero.ico'")) `
     'The pilot bootstrap does not consume the packaged Arda shortcut icon.'
 foreach ($approvedOrigin in @(
@@ -536,9 +572,67 @@ try {
     Assert-Equal ([string]$productionPackage.Configuration.HubUri) 'https://hub.son4l.local/' `
         'The production employee package contains the wrong Portal origin.'
     Assert-True ($productionPackage.EntryNames.Count -eq 6) 'The production employee package has an unexpected file count.'
-    Assert-True ($productionPackage.EntryNames -contains 'arda.ico' -and
-        $productionPackage.EntryNames -notcontains 'son-aero.ico') `
+    $productionIconEntries = @($productionPackage.EntryNames | Where-Object { [IO.Path]::GetExtension($_) -ieq '.ico' })
+    Assert-True ($productionIconEntries.Count -eq 1 -and
+        $productionIconEntries[0] -ceq 'arda-transparent.ico') `
         'The production employee package does not contain only the Arda shortcut icon.'
+
+    $trustBundle = Join-Path $testRoot 'pilot-trust-bundle'
+    [IO.Directory]::CreateDirectory($trustBundle) | Out-Null
+    $rootCertificatePath = Join-Path $trustBundle 'SonAero-Hub-Pilot-Root-PUBLIC.cer'
+    [IO.File]::WriteAllBytes($rootCertificatePath, [byte[]](1, 3, 3, 7))
+    $rootCertificateSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $rootCertificatePath).Hash
+    $trustManifest = [ordered]@{
+        SchemaVersion = 1
+        PilotOnly = $true
+        HandoffType = 'WorkstationPilotTrustOnly'
+        Root = [ordered]@{ ThumbprintSha1 = ('A' * 40) }
+        Files = [ordered]@{
+            RootPublicCer = [ordered]@{ Sha256 = $rootCertificateSha256 }
+        }
+    }
+    $trustManifest | ConvertTo-Json -Depth 6 | Set-Content `
+        -LiteralPath (Join-Path $trustBundle 'SonAero-Hub-Pilot-Trust-Manifest.json') `
+        -Encoding UTF8
+    $lockedPilotZip = Join-Path $testRoot 'locked-pilot.zip'
+    & $PilotPackageScriptPath `
+        -TrustBundleDirectory $trustBundle `
+        -ExpectedComputerName 'TEST-PC' `
+        -ExpectedAccountName 'SON4L\Test.User' `
+        -OutputPath $lockedPilotZip `
+        -Confirm:$false | Out-Null
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $lockedPilotArchive = [IO.Compression.ZipFile]::OpenRead($lockedPilotZip)
+    try {
+        $lockedPilotEntries = @($lockedPilotArchive.Entries | ForEach-Object FullName)
+        $lockedPilotIconEntries = @($lockedPilotEntries | Where-Object {
+            [IO.Path]::GetExtension($_) -ieq '.ico'
+        })
+        Assert-True ($lockedPilotIconEntries.Count -eq 1 -and
+            $lockedPilotIconEntries[0] -ceq 'arda-transparent.ico') `
+            'The manifest-locked pilot package does not contain only the transparent Arda icon.'
+        Assert-True (@($lockedPilotEntries | Where-Object {
+            [IO.Path]::GetExtension($_) -ieq '.pfx'
+        }).Count -eq 0) `
+            'The manifest-locked pilot package contains a private key.'
+        $pilotConfigurationEntry = @($lockedPilotArchive.Entries | Where-Object {
+            $_.FullName -ceq 'pilot-installer-config.json'
+        })
+        Assert-True ($pilotConfigurationEntry.Count -eq 1) `
+            'The manifest-locked pilot package has no unique installer configuration.'
+        $pilotConfigurationReader = New-Object IO.StreamReader($pilotConfigurationEntry[0].Open())
+        try { $pilotConfiguration = $pilotConfigurationReader.ReadToEnd() | ConvertFrom-Json }
+        finally { $pilotConfigurationReader.Dispose() }
+        $pilotIconManifest = @($pilotConfiguration.Files | Where-Object {
+            [string]$_.RelativePath -ceq 'arda-transparent.ico'
+        })
+        Assert-True ($pilotIconManifest.Count -eq 1 -and
+            [string]$pilotIconManifest[0].Sha256 -ceq 'FC8744D2DD0E4D5E0426BA37032977E2466C1AE264AF29EAE0A274D0146537E4') `
+            'The manifest-locked pilot package did not pin the approved transparent Arda icon.'
+    }
+    finally {
+        $lockedPilotArchive.Dispose()
+    }
 
     $pilotZip = Join-Path $testRoot 'pilot.zip'
     & $PackageScriptPath -OutputPath $pilotZip -HubUri 'http://SON-IIS2:5140' -Confirm:$false | Out-Null

@@ -8,12 +8,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Setup-Hub.ps1
 ```
 
 This installs any missing prerequisites with `winget` (.NET 8 SDK and Node.js LTS), then
-creates a desktop shortcut named **"SON-AERO Hub"** using the red SON-AERO icon. The shortcut
+creates a desktop shortcut named **"Arda"** using the transparent Arda icon. The shortcut
 runs `scripts\Start-Hub.ps1`.
 
 ## Launching
 
-Double-click the **SON-AERO Hub** shortcut, or run:
+Double-click the **Arda** shortcut, or run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\Start-Hub.ps1

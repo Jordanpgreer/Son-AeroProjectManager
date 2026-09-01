@@ -57,6 +57,6 @@ All exact-size comparisons used device scale factor 1. The source and implementa
 
 ## Follow-up polish
 
-- P3: If Arda should also replace the Windows desktop shortcut icon, create and approve a multi-resolution `arda.ico` package and update the separate workstation-installer pipeline. Corporate/customer report logos should remain a separate branding decision.
+- Complete: the workstation-installer pipeline uses the sole approved multi-resolution `arda-transparent.ico` asset. Corporate/customer report logos remain a separate branding decision.
 
 final result: passed

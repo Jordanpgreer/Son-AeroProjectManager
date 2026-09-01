@@ -84,7 +84,7 @@ try {
     $configurationPath = Join-Path $packageRoot 'pilot-installer-config.json'
     $trustInstaller = Join-Path $packageRoot 'Set-HubPilotWorkstationTrust.ps1'
     $shortcutInstaller = Join-Path $packageRoot 'Install-EmployeeHubShortcut.ps1'
-    $iconPath = Join-Path $packageRoot 'arda.ico'
+    $iconPath = Join-Path $packageRoot 'arda-transparent.ico'
     Assert-PackageFile $configurationPath 'The pilot installer configuration'
     Assert-PackageFile $trustInstaller 'The pilot trust installer'
     Assert-PackageFile $shortcutInstaller 'The shortcut installer'
