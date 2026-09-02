@@ -40,6 +40,11 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
             entity.Property(project => project.SalesOrderUrl).HasMaxLength(ProjectExternalLinks.MaxLength);
             entity.Property(project => project.JobNumber).HasMaxLength(80);
             entity.Property(project => project.JobUrl).HasMaxLength(ProjectExternalLinks.MaxLength);
+            entity.Property(project => project.RequiredQuantity).HasPrecision(18, 4);
+            entity.Property(project => project.JobQuantity).HasPrecision(18, 4);
+            entity.Property(project => project.RequiredQuantitySource).HasMaxLength(24);
+            entity.Property(project => project.JobQuantitySource).HasMaxLength(24);
+            entity.Property(project => project.QuantityLastSyncProvider).HasMaxLength(24);
             entity.Property(project => project.Progress).HasPrecision(5, 4);
             entity.Property(project => project.Status).HasConversion<string>().HasMaxLength(24);
             entity.Property(project => project.CurrentTask).HasMaxLength(240);

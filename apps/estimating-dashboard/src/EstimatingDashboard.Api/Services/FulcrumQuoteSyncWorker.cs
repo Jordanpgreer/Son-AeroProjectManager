@@ -2,6 +2,14 @@ using Microsoft.Extensions.Options;
 
 namespace EstimatingDashboard.Api.Services;
 
+public sealed class EnterpriseQuoteSyncScheduleOptions
+{
+    public const string SectionName = "EnterpriseQuoteSync";
+
+    public bool Enabled { get; set; }
+    public string TimeZoneId { get; set; } = "Mountain Standard Time";
+}
+
 internal static class FulcrumQuoteSchedule
 {
     private static readonly TimeOnly[] RunTimes =
@@ -26,7 +34,7 @@ internal static class FulcrumQuoteSchedule
                     return candidate.ToUniversalTime();
             }
         }
-        throw new InvalidOperationException("Unable to determine the next Fulcrum quote synchronization time.");
+        throw new InvalidOperationException("Unable to determine the next enterprise quote synchronization time.");
     }
 
     public static TimeZoneInfo ResolveTimeZone(string configuredId)
@@ -47,7 +55,7 @@ internal static class FulcrumQuoteSchedule
 
 internal sealed class FulcrumQuoteSyncWorker(
     IServiceScopeFactory scopeFactory,
-    IOptions<FulcrumQuoteSyncOptions> options,
+    IOptions<EnterpriseQuoteSyncScheduleOptions> options,
     TimeProvider timeProvider,
     ILogger<FulcrumQuoteSyncWorker> logger) : BackgroundService
 {
@@ -58,7 +66,7 @@ internal sealed class FulcrumQuoteSyncWorker(
         var settings = options.Value;
         if (!settings.Enabled)
         {
-            logger.LogInformation("Scheduled Fulcrum quote synchronization is disabled.");
+            logger.LogInformation("Scheduled enterprise quote synchronization is disabled.");
             return;
         }
         TimeZoneInfo timeZone;
@@ -70,7 +78,7 @@ internal sealed class FulcrumQuoteSyncWorker(
         {
             logger.LogError(
                 exception,
-                "Scheduled Fulcrum quote synchronization cannot start because timezone '{TimeZoneId}' is unavailable.",
+                "Scheduled enterprise quote synchronization cannot start because timezone '{TimeZoneId}' is unavailable.",
                 settings.TimeZoneId);
             return;
         }
@@ -81,7 +89,7 @@ internal sealed class FulcrumQuoteSyncWorker(
             var scheduledForUtc = FulcrumQuoteSchedule.NextRunUtc(now, timeZone);
             var localSchedule = TimeZoneInfo.ConvertTime(scheduledForUtc, timeZone);
             logger.LogInformation(
-                "Next Fulcrum quote synchronization is scheduled for {ScheduledLocalTime} ({TimeZoneId}).",
+                "Next enterprise quote synchronization is scheduled for {ScheduledLocalTime} ({TimeZoneId}).",
                 localSchedule,
                 timeZone.Id);
 
@@ -98,7 +106,7 @@ internal sealed class FulcrumQuoteSyncWorker(
             if (startedAt - scheduledForUtc > MaximumStartDelay)
             {
                 logger.LogWarning(
-                    "Skipped the Fulcrum quote synchronization scheduled for {ScheduledForUtc} because the application resumed more than {MaximumDelayMinutes} minutes late.",
+                    "Skipped the enterprise quote synchronization scheduled for {ScheduledForUtc} because the application resumed more than {MaximumDelayMinutes} minutes late.",
                     scheduledForUtc,
                     MaximumStartDelay.TotalMinutes);
                 continue;
@@ -107,7 +115,7 @@ internal sealed class FulcrumQuoteSyncWorker(
             try
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
-                var sync = scope.ServiceProvider.GetRequiredService<FulcrumQuoteSyncService>();
+                var sync = scope.ServiceProvider.GetRequiredService<EnterpriseQuoteSyncService>();
                 await sync.RunScheduledAsync(scheduledForUtc, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -118,7 +126,7 @@ internal sealed class FulcrumQuoteSyncWorker(
             {
                 logger.LogError(
                     exception,
-                    "The Fulcrum quote synchronization scheduled for {ScheduledForUtc} failed. It will not retry outside the configured synchronization times.",
+                    "The enterprise quote synchronization scheduled for {ScheduledForUtc} failed. It will not retry outside the configured synchronization times.",
                     scheduledForUtc);
             }
         }

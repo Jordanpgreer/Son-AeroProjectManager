@@ -15,6 +15,7 @@ public sealed class AccessControlSeeder
     private const string ArchivedDeletePermissionVersion = "project-archived-delete-permission-v1";
     private const string OperationScheduleConfirmationPermissionVersion = "operation-schedule-confirmation-permission-v1";
     private const string WorkCenterImportPermissionVersion = "work-center-import-permission-v1";
+    private const string ProjectQuantitiesPermissionVersion = "project-quantities-permission-v1";
     private const string EstimatingHistoryImportPermissionVersion = "estimating-history-import-permission-v1";
     private const string LegacyEstimatingEditorCompatibilityGroup = "Estimating Editor Access";
 
@@ -108,6 +109,28 @@ public sealed class AccessControlSeeder
                     cancellationToken);
             }
             await RecordVersionAsync(db, WorkCenterImportPermissionVersion, cancellationToken);
+        }
+        var addProjectQuantitiesPermission = !await HasVersionAsync(
+            db,
+            ProjectQuantitiesPermissionVersion,
+            cancellationToken);
+        if (addProjectQuantitiesPermission)
+        {
+            foreach (var groupName in new[]
+                     {
+                         ApplicationGroups.Administrators,
+                         ApplicationGroups.Managers,
+                         ApplicationGroups.Sales
+                     })
+            {
+                if (!groupIds.TryGetValue(groupName, out var groupId)) continue;
+                await AddPermissionsToGroupAsync(
+                    db,
+                    groupId,
+                    [ProjectTrackerPermissions.ProjectEditQuantities],
+                    cancellationToken);
+            }
+            await RecordVersionAsync(db, ProjectQuantitiesPermissionVersion, cancellationToken);
         }
         var makeEstimatingHistoryImportOptIn = !await HasVersionAsync(
             db,

@@ -24,6 +24,10 @@ database. The API never returns the saved value. Portal and Estimating Dashboard
 the same Windows application server (`SON-IIS2`) so both applications can use that protected
 credential. Server migrations require the credential to be entered again on the new server.
 
+Son-Aero's ITAR Fulcrum tenant must use `https://api.fulcrumpro.us/`. The application defaults to
+that endpoint and upgrades a preserved legacy `api.fulcrumpro.com` setting in memory before sending
+any request; the bearer token remains stored only in the protected credential record.
+
 After saving, use **Test API connection** on the credential card. A passing result confirms that
 Fulcrum accepted the token and allowed quote read access. The test makes one read-only quote-list
 request and stores only the result metadata; it does not run the scheduled quote import.

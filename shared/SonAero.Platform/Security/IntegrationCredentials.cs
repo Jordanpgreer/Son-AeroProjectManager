@@ -6,6 +6,7 @@ namespace SonAero.Platform.Security;
 public static class IntegrationCredentialNames
 {
     public const string FulcrumPublicApi = "fulcrum-public-api";
+    public const string AcumaticaApi = "acumatica-api";
     public const int KeyMaxLength = 120;
     public const int DisplayNameMaxLength = 160;
     public const int SecretMaxLength = 16_000;

@@ -147,6 +147,7 @@ public sealed class EstimatingAccessDbContext(
             entity.ToTable("FulcrumQuoteSyncRuns");
             entity.HasKey(run => run.Id);
             entity.HasIndex(run => run.ScheduledForUtc).IsUnique();
+            entity.Property(run => run.ProviderName).HasMaxLength(40);
             entity.Property(run => run.Status).HasMaxLength(24);
             entity.Property(run => run.ErrorMessage).HasMaxLength(2000);
         });

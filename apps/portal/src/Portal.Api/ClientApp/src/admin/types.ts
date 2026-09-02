@@ -158,6 +158,14 @@ export interface IntegrationCredential {
 
 export interface IntegrationCredentialOverview {
   credentials: IntegrationCredential[]
+  activeProvider: string
+  supportedProviders: string[]
+}
+
+export interface EnterpriseIntegrationProvider {
+  activeProvider: string
+  updatedAt: string
+  updatedBy: string
 }
 
 export interface WorkCenterImportResult {

@@ -263,13 +263,13 @@ public sealed class EstimatingHistoryImportService(
     {
         var duplicateQuote = rows.GroupBy(row => row.QuoteNumber).FirstOrDefault(group => group.Count() > 1);
         if (duplicateQuote is not null)
-            throw new EstimatingHistoryImportConflictException($"Fulcrum returned quote {duplicateQuote.Key} more than once.");
+            throw new EstimatingHistoryImportConflictException($"The external provider returned quote {duplicateQuote.Key} more than once.");
 
         var duplicateSource = rows
             .GroupBy(row => row.SourceId, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault(group => group.Count() > 1);
         if (duplicateSource is not null)
-            throw new EstimatingHistoryImportConflictException($"Fulcrum returned source ID '{duplicateSource.Key}' more than once.");
+            throw new EstimatingHistoryImportConflictException($"The external provider returned source ID '{duplicateSource.Key}' more than once.");
 
         var quoteNumbers = rows.Select(row => row.QuoteNumber).Distinct().ToList();
         var existingRecords = await db.QuoteHistory
@@ -286,7 +286,7 @@ public sealed class EstimatingHistoryImportService(
             .FirstOrDefaultAsync(cancellationToken);
         if (conflictingSource is not null)
             throw new EstimatingHistoryImportConflictException(
-                $"Fulcrum source ID '{conflictingSource.SourceId}' is already assigned to quote {conflictingSource.QuoteNumber}.");
+                $"External source ID '{conflictingSource.SourceId}' is already assigned to quote {conflictingSource.QuoteNumber}.");
 
         var existing = existingRecords.ToDictionary(record => record.QuoteNumber);
         var now = DateTimeOffset.UtcNow;
@@ -312,7 +312,7 @@ public sealed class EstimatingHistoryImportService(
                     batchId,
                     actor,
                     now,
-                    "Quote created from scheduled Fulcrum API sync"));
+                    $"Quote created from scheduled {sourceName}"));
                 existing[row.QuoteNumber] = record;
                 added++;
             }
@@ -354,7 +354,7 @@ public sealed class EstimatingHistoryImportService(
         catch (DbUpdateException)
         {
             throw new EstimatingHistoryImportConflictException(
-                "A quote changed or another Fulcrum sync completed while this sync was being applied.");
+                "A quote changed or another provider sync completed while this sync was being applied.");
         }
 
         return new EstimatingHistoryImportApplyResultDto(batchId, added, updated, unchanged, 0);

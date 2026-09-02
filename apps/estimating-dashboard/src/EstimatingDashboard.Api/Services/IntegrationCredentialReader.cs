@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using EstimatingDashboard.Api.Data;
 using Microsoft.EntityFrameworkCore;
+using SonAero.Platform.Integrations;
 using SonAero.Platform.Security;
 
 namespace EstimatingDashboard.Api.Services;
@@ -8,6 +9,15 @@ namespace EstimatingDashboard.Api.Services;
 internal interface IIntegrationCredentialReader
 {
     Task<string?> GetSecretAsync(string credentialKey, CancellationToken cancellationToken);
+}
+
+internal sealed class EstimatingEnterpriseProviderSource(EstimatingAccessDbContext db)
+    : IEnterpriseProviderSource
+{
+    public Task<string> GetActiveProviderAsync(CancellationToken cancellationToken) =>
+        EnterpriseIntegrationStore.ReadActiveProviderAsync(
+            db.Database.GetDbConnection(),
+            cancellationToken);
 }
 
 internal sealed class IntegrationCredentialReader(

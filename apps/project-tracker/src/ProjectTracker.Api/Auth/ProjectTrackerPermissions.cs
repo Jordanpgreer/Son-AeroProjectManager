@@ -12,6 +12,7 @@ public static class ProjectTrackerPermissions
     public const string ProjectActivityView = "project.activity.view";
     public const string ProjectEditJobNumber = "project.edit.jobNumber";
     public const string ProjectEditExternalLinks = "project.edit.externalLinks";
+    public const string ProjectEditQuantities = "project.edit.quantities";
     public const string ArchivedDelete = "archived.delete";
     public const string OperationScheduleConfirm = "notifications.operationSchedule.confirm";
     public const string WorkCentersImport = "settings.workCenters.import";
@@ -21,6 +22,7 @@ public static class ProjectTrackerPermissions
         new(ProjectActivityView, "View Project Activity", "View and export the project activity log.", "Projects"),
         new(ProjectEditJobNumber, "Edit Job Number", "Change the project job number field.", "Projects"),
         new(ProjectEditExternalLinks, "Edit SO / Job Links", "Add, change, or remove external links for sales order and job numbers.", "Projects"),
+        new(ProjectEditQuantities, "Edit Project Quantities", "Change required and job quantities or pull them from an approved integration.", "Projects"),
         new(OperationScheduleConfirm, "Operation Start / Finish Prompts", "Receive and confirm operation start and finish reminders.", "Operations"),
         new(WorkCentersImport, "Import Work Centers", "Upload an Excel workbook to add work-center names without changing existing entries.", "Administration"),
         new(ArchivedDelete, "Permanently Delete Archived Projects", "Administrators only: permanently remove an archived project and its related records.", "Administration")
@@ -37,10 +39,10 @@ public static class ProjectTrackerPermissions
 
     public static IReadOnlyList<string> DefaultsForGroup(string groupName) => groupName switch
     {
-        ApplicationGroups.Administrators => [ProjectActivityView, ProjectEditJobNumber, ProjectEditExternalLinks, OperationScheduleConfirm, WorkCentersImport, ArchivedDelete],
-        ApplicationGroups.Managers => [ProjectActivityView, ProjectEditJobNumber, OperationScheduleConfirm],
+        ApplicationGroups.Administrators => [ProjectActivityView, ProjectEditJobNumber, ProjectEditExternalLinks, ProjectEditQuantities, OperationScheduleConfirm, WorkCentersImport, ArchivedDelete],
+        ApplicationGroups.Managers => [ProjectActivityView, ProjectEditJobNumber, ProjectEditQuantities, OperationScheduleConfirm],
         ApplicationGroups.Engineering => [ProjectActivityView, OperationScheduleConfirm],
-        ApplicationGroups.Sales => [ProjectActivityView, ProjectEditJobNumber],
+        ApplicationGroups.Sales => [ProjectActivityView, ProjectEditJobNumber, ProjectEditQuantities],
         _ => []
     };
 }

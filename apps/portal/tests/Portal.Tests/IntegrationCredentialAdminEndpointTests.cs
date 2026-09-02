@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Portal.Api.Data;
 using Portal.Api.Endpoints;
 using Portal.Api.Services;
+using SonAero.Platform.Integrations;
 using SonAero.Platform.Security;
 
 namespace Portal.Tests;
@@ -27,10 +28,10 @@ public sealed class IntegrationCredentialAdminEndpointTests
             .SelectMany(source => source.Endpoints)
             .OfType<RouteEndpoint>()
             .Where(endpoint => endpoint.RoutePattern.RawText?.StartsWith(
-                "/api/admin/integration-credentials") == true)
+                "/api/admin/integration-") == true)
             .ToList();
 
-        Assert.Equal(4, routes.Count);
+        Assert.Equal(5, routes.Count);
         Assert.All(routes, endpoint =>
             Assert.NotEmpty(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()));
     }
@@ -54,6 +55,30 @@ public sealed class IntegrationCredentialAdminEndpointTests
         Assert.Equal(
             "IntegrationCredentialTests",
             db.Model.FindEntityType(typeof(PortalIntegrationCredentialTestRecord))!.GetTableName());
+        Assert.Equal(
+            "EnterpriseIntegrationSettings",
+            db.Model.FindEntityType(typeof(PortalEnterpriseIntegrationSettingRecord))!.GetTableName());
+        Assert.Equal(
+            "EnterpriseIntegrationSettingAudits",
+            db.Model.FindEntityType(typeof(PortalEnterpriseIntegrationSettingAuditRecord))!.GetTableName());
+    }
+
+    [Fact]
+    public async Task Integration_schema_defaults_to_fulcrum_and_can_be_read_by_modules()
+    {
+        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<PortalRoleDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new PortalRoleDbContext(options);
+        var initializer = new PortalIntegrationCredentialSchemaInitializer(db);
+
+        await initializer.InitializeAsync();
+
+        Assert.Equal(
+            EnterpriseProviderNames.Fulcrum,
+            await EnterpriseIntegrationStore.ReadActiveProviderAsync(connection, default));
     }
 
     [Fact]
@@ -93,9 +118,19 @@ public sealed class IntegrationCredentialAdminEndpointTests
         Assert.Equal("Bearer saved-token", handler.Authorization);
         Assert.Equal(HttpMethod.Post, handler.Method);
         Assert.StartsWith(
-            "https://api.fulcrumpro.com/api/reporting/quote/list?Skip=0&Take=1",
+            "https://api.fulcrumpro.us/api/reporting/quote/list?Skip=0&Take=1",
             handler.RequestUri?.ToString(),
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Fulcrum_legacy_public_host_is_upgraded_to_the_itar_endpoint()
+    {
+        var actual = FulcrumApiEndpoint.ResolveItarBaseUri(
+            "https://api.fulcrumpro.com/",
+            "Test:FulcrumBaseUrl");
+
+        Assert.Equal("https://api.fulcrumpro.us/", actual.ToString());
     }
 
     [Fact]

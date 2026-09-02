@@ -20,6 +20,15 @@ public sealed class ProjectTrackerPermissionSchemaTests
             && permission.Label == "View Project Activity");
         Assert.Contains(ProjectTrackerPermissions.AllKeys, key => key == ProjectTrackerPermissions.ProjectEditJobNumber);
         Assert.Contains(ProjectTrackerPermissions.All, permission =>
+            permission.Key == ProjectTrackerPermissions.ProjectEditQuantities
+            && permission.Label == "Edit Project Quantities");
+        Assert.Contains(
+            ProjectTrackerPermissions.ProjectEditQuantities,
+            ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Administrators));
+        Assert.Contains(
+            ProjectTrackerPermissions.ProjectEditQuantities,
+            ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Managers));
+        Assert.Contains(ProjectTrackerPermissions.All, permission =>
             permission.Key == ProjectTrackerPermissions.ProjectEditExternalLinks
             && permission.Label == "Edit SO / Job Links");
         Assert.Contains(

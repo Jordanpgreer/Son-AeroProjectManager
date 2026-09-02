@@ -8,6 +8,7 @@ export const permissionKeys = {
   projectEditSalesOrderNumber: 'project.edit.salesOrderNumber',
   projectEditJobNumber: 'project.edit.jobNumber',
   projectEditExternalLinks: 'project.edit.externalLinks',
+  projectEditQuantities: 'project.edit.quantities',
   projectEditPriority: 'project.edit.priority',
   projectComplete: 'project.complete',
   projectReopen: 'project.reopen',
@@ -51,6 +52,7 @@ export const projectMetadataEditPermissions = [
   permissionKeys.projectEditSalesOrderNumber,
   permissionKeys.projectEditJobNumber,
   permissionKeys.projectEditExternalLinks,
+  permissionKeys.projectEditQuantities,
 ]
 
 export const taskFieldEditPermissions = [

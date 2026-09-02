@@ -73,6 +73,12 @@ public sealed class ProjectAuditService(CurrentUserService currentUser)
             ["Sales order link"] = project.SalesOrderUrl,
             ["Job number"] = project.JobNumber,
             ["Job link"] = project.JobUrl,
+            ["Required quantity"] = Quantity(project.RequiredQuantity),
+            ["Required quantity source"] = project.RequiredQuantitySource,
+            ["Job quantity"] = Quantity(project.JobQuantity),
+            ["Job quantity source"] = project.JobQuantitySource,
+            ["Quantity sync provider"] = project.QuantityLastSyncProvider,
+            ["Quantity last synced"] = project.QuantityLastSyncedAt?.ToString("u", CultureInfo.InvariantCulture),
             ["Project start"] = Date(project.ProgramStart),
             ["Status"] = Friendly(project.Status.ToString()),
             ["Priority"] = project.PriorityRank is null ? null : $"P{project.PriorityRank}",
@@ -109,6 +115,7 @@ public sealed class ProjectAuditService(CurrentUserService currentUser)
 
     private static string? Date(DateOnly? value) => value?.ToString("MMM d, yyyy", CultureInfo.InvariantCulture);
     private static string Percent(decimal value) => $"{Math.Round(value * 100m)}%";
+    private static string? Quantity(decimal? value) => value?.ToString("0.####", CultureInfo.InvariantCulture);
 
     private static string Friendly(string value) => value switch
     {

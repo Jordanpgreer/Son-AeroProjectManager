@@ -2,6 +2,7 @@ using EstimatingDashboard.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Data;
 using SonAero.Platform.Estimating;
+using SonAero.Platform.Integrations;
 using SonAero.Platform.Security;
 using EstimatingDashboard.Api.Models;
 
@@ -16,14 +17,17 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
             await db.Database.ExecuteSqlRawAsync(SqliteSchema, cancellationToken);
             await db.Database.ExecuteSqlRawAsync(EstimatorSettings.SqliteSchema, cancellationToken);
             await db.Database.ExecuteSqlRawAsync(IntegrationCredentialSchema.Sqlite, cancellationToken);
+            await db.Database.ExecuteSqlRawAsync(EnterpriseIntegrationSchema.Sqlite, cancellationToken);
             await db.Database.ExecuteSqlRawAsync(OperationMappingsSqliteSchema, cancellationToken);
             await EnsureSqliteHistoryColumnsAsync(cancellationToken);
+            await EnsureSqliteSyncRunColumnsAsync(cancellationToken);
         }
         else if (db.Database.IsSqlServer())
         {
             await db.Database.ExecuteSqlRawAsync(SqlServerSchema, cancellationToken);
             await db.Database.ExecuteSqlRawAsync(EstimatorSettings.SqlServerSchema, cancellationToken);
             await db.Database.ExecuteSqlRawAsync(IntegrationCredentialSchema.SqlServer, cancellationToken);
+            await db.Database.ExecuteSqlRawAsync(EnterpriseIntegrationSchema.SqlServer, cancellationToken);
             await db.Database.ExecuteSqlRawAsync(OperationMappingsSqlServerSchema, cancellationToken);
         }
 
@@ -216,6 +220,7 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
             "ScheduledForUtc" TEXT NOT NULL,
             "StartedAt" TEXT NOT NULL,
             "CompletedAt" TEXT NULL,
+            "ProviderName" TEXT NOT NULL DEFAULT 'Fulcrum',
             "Status" TEXT NOT NULL,
             "QuotesReceived" INTEGER NOT NULL,
             "NewRecords" INTEGER NOT NULL,
@@ -371,6 +376,7 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
                 [ScheduledForUtc] datetimeoffset NOT NULL,
                 [StartedAt] datetimeoffset NOT NULL,
                 [CompletedAt] datetimeoffset NULL,
+                [ProviderName] nvarchar(40) NOT NULL CONSTRAINT [DF_FulcrumQuoteSyncRuns_ProviderName] DEFAULT 'Fulcrum',
                 [Status] nvarchar(24) NOT NULL,
                 [QuotesReceived] int NOT NULL,
                 [NewRecords] int NOT NULL,
@@ -381,6 +387,9 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
             CREATE UNIQUE INDEX [IX_FulcrumQuoteSyncRuns_ScheduledForUtc]
                 ON [FulcrumQuoteSyncRuns] ([ScheduledForUtc]);
         END;
+
+        IF COL_LENGTH(N'FulcrumQuoteSyncRuns', N'ProviderName') IS NULL
+            ALTER TABLE [FulcrumQuoteSyncRuns] ADD [ProviderName] nvarchar(40) NOT NULL CONSTRAINT [DF_FulcrumQuoteSyncRuns_ProviderName_Existing] DEFAULT 'Fulcrum';
 
         IF COL_LENGTH(N'EstimatingQuoteHistory', N'CustomerContact') IS NULL
             ALTER TABLE [EstimatingQuoteHistory] ADD [CustomerContact] nvarchar(240) NULL;
@@ -474,6 +483,39 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
                     "CREATE UNIQUE INDEX \"IX_EstimatingQuoteHistory_QuoteNumber\" ON \"EstimatingQuoteHistory\" (\"QuoteNumber\")",
                     cancellationToken);
             }
+        }
+        finally
+        {
+            if (closeWhenFinished)
+                await connection.CloseAsync();
+        }
+    }
+
+    private async Task EnsureSqliteSyncRunColumnsAsync(CancellationToken cancellationToken)
+    {
+        var connection = db.Database.GetDbConnection();
+        var closeWhenFinished = connection.State == ConnectionState.Closed;
+        if (closeWhenFinished)
+            await connection.OpenAsync(cancellationToken);
+
+        try
+        {
+            var hasProviderName = false;
+            await using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "PRAGMA table_info(\"FulcrumQuoteSyncRuns\")";
+                await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                    hasProviderName |= string.Equals(
+                        reader.GetString(reader.GetOrdinal("name")),
+                        "ProviderName",
+                        StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (!hasProviderName)
+                await db.Database.ExecuteSqlRawAsync(
+                    "ALTER TABLE \"FulcrumQuoteSyncRuns\" ADD COLUMN \"ProviderName\" TEXT NOT NULL DEFAULT 'Fulcrum'",
+                    cancellationToken);
         }
         finally
         {

@@ -23,6 +23,8 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
     public DbSet<PortalEstimatorSettingRecord> EstimatorSettings => Set<PortalEstimatorSettingRecord>();
     public DbSet<PortalIntegrationCredentialRecord> IntegrationCredentials => Set<PortalIntegrationCredentialRecord>();
     public DbSet<PortalIntegrationCredentialTestRecord> IntegrationCredentialTests => Set<PortalIntegrationCredentialTestRecord>();
+    public DbSet<PortalEnterpriseIntegrationSettingRecord> EnterpriseIntegrationSettings => Set<PortalEnterpriseIntegrationSettingRecord>();
+    public DbSet<PortalEnterpriseIntegrationSettingAuditRecord> EnterpriseIntegrationSettingAudits => Set<PortalEnterpriseIntegrationSettingAuditRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -198,6 +200,24 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
             entity.Property(test => test.Message).HasMaxLength(500);
             entity.Property(test => test.TestedBy).HasMaxLength(160);
         });
+
+        modelBuilder.Entity<PortalEnterpriseIntegrationSettingRecord>(entity =>
+        {
+            entity.ToTable("EnterpriseIntegrationSettings");
+            entity.HasKey(setting => setting.Id);
+            entity.Property(setting => setting.ActiveProvider).HasMaxLength(40);
+            entity.Property(setting => setting.UpdatedBy).HasMaxLength(160);
+        });
+
+        modelBuilder.Entity<PortalEnterpriseIntegrationSettingAuditRecord>(entity =>
+        {
+            entity.ToTable("EnterpriseIntegrationSettingAudits");
+            entity.HasKey(audit => audit.Id);
+            entity.HasIndex(audit => audit.ChangedAt);
+            entity.Property(audit => audit.PreviousProvider).HasMaxLength(40);
+            entity.Property(audit => audit.NewProvider).HasMaxLength(40);
+            entity.Property(audit => audit.ChangedBy).HasMaxLength(160);
+        });
     }
 }
 
@@ -355,4 +375,21 @@ public sealed class PortalIntegrationCredentialTestRecord
     public string Message { get; set; } = string.Empty;
     public int? HttpStatusCode { get; set; }
     public string TestedBy { get; set; } = string.Empty;
+}
+
+public sealed class PortalEnterpriseIntegrationSettingRecord
+{
+    public int Id { get; set; }
+    public string ActiveProvider { get; set; } = string.Empty;
+    public DateTimeOffset UpdatedAt { get; set; }
+    public string UpdatedBy { get; set; } = string.Empty;
+}
+
+public sealed class PortalEnterpriseIntegrationSettingAuditRecord
+{
+    public long Id { get; set; }
+    public string PreviousProvider { get; set; } = string.Empty;
+    public string NewProvider { get; set; } = string.Empty;
+    public DateTimeOffset ChangedAt { get; set; }
+    public string ChangedBy { get; set; } = string.Empty;
 }

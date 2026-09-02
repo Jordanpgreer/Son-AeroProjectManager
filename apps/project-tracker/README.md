@@ -13,6 +13,21 @@ Internal aerospace project tracker replacing `Project Tracker.xlsm`.
 - Portfolio dashboard, project task grid, Gantt timeline, and Excel/PDF exports.
 - Centralized Hub administration for access, work calendars, work centers, holidays, archived-project recovery, and workbook imports.
 
+## Project quantities
+
+Project Detail stores **Required Quantity** and **Job Quantity** as optional positive values. Users
+with the Edit Project Quantities permission can enter either value manually or choose **Pull
+Quantities from Fulcrum**. The pull resolves job quantity from the matched Fulcrum job's
+`quantityToMake` and required quantity from its linked sales-order part line. When Fulcrum omits a
+value, Project Tracker retains the current manual value and reports a warning instead of clearing
+it. Each value records whether it came from Manual entry or Fulcrum; the provider interface and
+source fields are ready for a future Acumatica implementation.
+
+The Fulcrum token is read from the protected **Fulcrum Public API** credential in Admin Hub. It
+must have permission to view jobs and sales orders. No token belongs in Project Tracker settings
+or source control. Son-Aero's ITAR tenant uses `https://api.fulcrumpro.us/`; a preserved legacy
+`api.fulcrumpro.com` value is normalized to the ITAR host before any request is sent.
+
 ## Local Development
 
 Run these from the `apps/project-tracker` folder inside the hub repository:

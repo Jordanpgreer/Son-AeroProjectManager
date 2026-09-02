@@ -245,12 +245,27 @@ namespace ProjectTracker.Api.Data.Migrations
                         .HasMaxLength(80)
                         .HasColumnType("nvarchar(80)");
 
+                    b.Property<decimal?>("JobQuantity")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<string>("JobQuantitySource")
+                        .HasMaxLength(24)
+                        .HasColumnType("nvarchar(24)");
+
                     b.Property<string>("JobUrl")
                         .HasMaxLength(2048)
                         .HasColumnType("nvarchar(2048)");
 
                     b.Property<int?>("PriorityRank")
                         .HasColumnType("int");
+
+                    b.Property<string>("QuantityLastSyncProvider")
+                        .HasMaxLength(24)
+                        .HasColumnType("nvarchar(24)");
+
+                    b.Property<DateTimeOffset?>("QuantityLastSyncedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<string>("ProgramManager")
                         .HasMaxLength(120)
@@ -267,6 +282,14 @@ namespace ProjectTracker.Api.Data.Migrations
                     b.Property<decimal>("Progress")
                         .HasPrecision(5, 4)
                         .HasColumnType("decimal(5,4)");
+
+                    b.Property<decimal?>("RequiredQuantity")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<string>("RequiredQuantitySource")
+                        .HasMaxLength(24)
+                        .HasColumnType("nvarchar(24)");
 
                     b.Property<string>("SalesOrderNumber")
                         .HasMaxLength(80)

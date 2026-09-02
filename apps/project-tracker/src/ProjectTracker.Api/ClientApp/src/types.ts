@@ -57,6 +57,10 @@ export type ProjectSummary = {
   salesOrderUrl: string | null
   jobNumber?: string | null
   jobUrl?: string | null
+  requiredQuantity: number | null
+  jobQuantity: number | null
+  requiredQuantitySource: string | null
+  jobQuantitySource: string | null
   currentTask: string | null
   priorityRank: number | null
   progress: number
@@ -97,6 +101,12 @@ export type ProjectDetail = {
   salesOrderUrl: string | null
   jobNumber?: string | null
   jobUrl?: string | null
+  requiredQuantity: number | null
+  jobQuantity: number | null
+  requiredQuantitySource: string | null
+  jobQuantitySource: string | null
+  quantityLastSyncProvider: string | null
+  quantityLastSyncedAt: string | null
   currentTask: string | null
   programStart: string | null
   targetDelivery: string | null
@@ -129,6 +139,8 @@ export type ProjectMetadataDraft = {
   salesOrderUrl: string
   jobNumber: string
   jobUrl: string
+  requiredQuantity: string
+  jobQuantity: string
 }
 
 export type ProjectVersion = {
@@ -293,8 +305,18 @@ export type ProjectCreateRequest = {
   salesOrderUrl: string | null
   jobNumber: string | null
   jobUrl: string | null
+  requiredQuantity: number | null
+  jobQuantity: number | null
   programStart: string | null
   templateProjectId: number | null
+}
+
+export type ProjectQuantitySyncResult = {
+  project: ProjectDetail
+  provider: string
+  updatedFields: string[]
+  retainedFields: string[]
+  warnings: string[]
 }
 
 export type GanttItem = {

@@ -75,6 +75,7 @@ public sealed class FulcrumQuoteSyncRun
     public DateTimeOffset ScheduledForUtc { get; set; }
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
+    public string ProviderName { get; set; } = string.Empty;
     public string Status { get; set; } = FulcrumQuoteSyncStatuses.Running;
     public int QuotesReceived { get; set; }
     public int NewRecords { get; set; }

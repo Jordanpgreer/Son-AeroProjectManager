@@ -175,8 +175,12 @@
   .engineering-authority-create { grid-template-columns: 1fr; }
   .engineering-authority-grid { grid-template-columns: 1fr; }
   .integration-credential-callout,
+  .enterprise-provider-switch,
   .integration-credential-list article { grid-template-columns: auto minmax(0, 1fr); }
   .integration-credential-callout > button,
+  .integration-provider-actions,
+  .enterprise-provider-switch > label,
+  .enterprise-provider-switch > button,
   .integration-credential-row-actions { grid-column: 2; justify-self: start; }
   .integration-credential-form { grid-template-columns: 1fr; }
   .admin-import-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }

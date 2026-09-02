@@ -815,6 +815,11 @@
 
 .integration-credentials-stack { display: grid; gap: 14px; }
 .integration-credential-intro { display: grid; gap: 16px; }
+.enterprise-provider-switch { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(150px, .35fr) auto; align-items: center; gap: 12px; padding: 14px; border: 1px solid color-mix(in srgb, var(--steel) 35%, var(--line)); border-radius: var(--r-md); background: color-mix(in srgb, var(--steel) 7%, var(--surface)); }
+.enterprise-provider-switch p { margin: 3px 0 0; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
+.enterprise-provider-switch select { width: 100%; min-height: 40px; }
+.enterprise-provider-note { margin: -8px 0 0 48px; color: var(--risk); font-size: 10px; line-height: 1.45; }
+.integration-provider-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
 .integration-credential-callout { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 13px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--steel-tint); }
 .integration-credential-callout > span,
 .integration-credential-icon { display: grid; width: 36px; height: 36px; place-items: center; color: var(--steel-700); border-radius: var(--r-sm); background: var(--surface); }

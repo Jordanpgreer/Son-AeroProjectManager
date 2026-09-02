@@ -66,6 +66,9 @@ public static partial class SqliteCompatibility
     public static Task EnsureLongColumnAsync(ProjectTrackerDbContext db, string table, string column, CancellationToken cancellationToken) =>
         EnsureColumnAsync(db, table, column, "INTEGER NOT NULL DEFAULT 1", cancellationToken);
 
+    public static Task EnsureDecimalColumnAsync(ProjectTrackerDbContext db, string table, string column, CancellationToken cancellationToken) =>
+        EnsureColumnAsync(db, table, column, "TEXT NULL", cancellationToken);
+
     public static async Task EnsureFeatureSettingsColumnsAsync(
         ProjectTrackerDbContext db,
         CancellationToken cancellationToken)

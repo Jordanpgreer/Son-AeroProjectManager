@@ -70,13 +70,17 @@ export function AddProjectWizard({
     salesOrderUrl: '',
     jobNumber: '',
     jobUrl: '',
+    requiredQuantity: '',
+    jobQuantity: '',
     programManager: defaultManager,
     programStart: todayIso(),
     templateProjectId: '',
   })
   const duplicate = projects.some((project) => project.programName.toLowerCase() === form.programName.trim().toLowerCase())
   const template = projects.find((project) => project.id === Number(form.templateProjectId))
-  const canContinueDetails = Boolean(form.programName.trim()) && !duplicate
+  const validQuantity = (value: string) => !value || (Number.isFinite(Number(value)) && Number(value) > 0 && Number(value) <= 1_000_000_000)
+  const quantitiesValid = validQuantity(form.requiredQuantity) && validQuantity(form.jobQuantity)
+  const canContinueDetails = Boolean(form.programName.trim()) && !duplicate && quantitiesValid
   const canContinueSchedule = Boolean(form.programStart) && (sourceMode === 'blank' || Boolean(template))
 
   const submit = async () => {
@@ -91,6 +95,8 @@ export function AddProjectWizard({
         salesOrderUrl: canEditExternalLinks ? form.salesOrderUrl.trim() || null : null,
         jobNumber: form.jobNumber.trim() || null,
         jobUrl: canEditExternalLinks ? form.jobUrl.trim() || null : null,
+        requiredQuantity: form.requiredQuantity ? Number(form.requiredQuantity) : null,
+        jobQuantity: form.jobQuantity ? Number(form.jobQuantity) : null,
         programManager: form.programManager.trim() || null,
         programStart: form.programStart || null,
         templateProjectId: sourceMode === 'copy' ? Number(form.templateProjectId) : null,
@@ -128,6 +134,11 @@ export function AddProjectWizard({
                 <label className="field"><span>Project Manager</span><input value={form.programManager} onChange={(event) => setForm({ ...form, programManager: event.target.value })} placeholder="Project owner" /></label>
               </div>
               <label className="field"><span>Job Number</span><input className="technical-id-input" value={form.jobNumber} onChange={(event) => setForm({ ...form, jobNumber: event.target.value })} placeholder="Optional internal job number" /></label>
+              <div className="field-row">
+                <label className="field"><span>Required Quantity</span><input type="number" min="0.0001" max="1000000000" step="any" value={form.requiredQuantity} onChange={(event) => setForm({ ...form, requiredQuantity: event.target.value })} placeholder="Optional" /></label>
+                <label className="field"><span>Job Quantity</span><input type="number" min="0.0001" max="1000000000" step="any" value={form.jobQuantity} onChange={(event) => setForm({ ...form, jobQuantity: event.target.value })} placeholder="Optional" /></label>
+              </div>
+              {!quantitiesValid && <p className="inline-note warning"><AlertTriangle size={14} /> Quantities must be positive numbers no greater than 1,000,000,000.</p>}
               {canEditExternalLinks && (
                 <div className="field-row">
                   <label className="field"><span>Sales Order Link</span><input type="url" value={form.salesOrderUrl} onChange={(event) => setForm({ ...form, salesOrderUrl: event.target.value })} placeholder="https://... (optional)" /></label>
@@ -172,6 +183,8 @@ export function AddProjectWizard({
               <div><span>Customer</span><strong>{form.customerName || 'Not set'}</strong></div>
               <div><span>Sales Order</span><strong className={form.salesOrderNumber ? 'technical-id' : undefined}>{form.salesOrderNumber || 'Not set'}</strong></div>
               <div><span>Job Number</span><strong className={form.jobNumber ? 'technical-id' : undefined}>{form.jobNumber || 'Not set'}</strong></div>
+              <div><span>Required Quantity</span><strong>{form.requiredQuantity || 'Not set'}</strong></div>
+              <div><span>Job Quantity</span><strong>{form.jobQuantity || 'Not set'}</strong></div>
               {canEditExternalLinks && <div><span>Sales Order Link</span><strong>{form.salesOrderUrl ? 'Configured' : 'Not set'}</strong></div>}
               {canEditExternalLinks && <div><span>Job Link</span><strong>{form.jobUrl ? 'Configured' : 'Not set'}</strong></div>}
               <div><span>Project Manager</span><strong>{form.programManager || 'Unassigned'}</strong></div>

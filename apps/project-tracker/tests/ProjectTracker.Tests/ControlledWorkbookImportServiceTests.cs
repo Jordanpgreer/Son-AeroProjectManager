@@ -42,6 +42,8 @@ public sealed class ControlledWorkbookImportServiceTests
                 workbook.Worksheets.Select(sheet => sheet.Name).ToArray());
             Assert.Equal("Project ID (Required)", workbook.Worksheet("Projects").Cell(1, 1).GetString());
             Assert.Equal("PN-100", workbook.Worksheet("Projects").Cell(2, 2).GetString());
+            Assert.Equal("Required Quantity", workbook.Worksheet("Projects").Cell(1, 8).GetString());
+            Assert.Equal("Job Quantity", workbook.Worksheet("Projects").Cell(1, 9).GetString());
             Assert.Equal("Operation ID (System)", workbook.Worksheet("Operations").Cell(1, 2).GetString());
 
             var projects = workbook.Worksheet("Projects");
@@ -304,10 +306,16 @@ public sealed class ControlledWorkbookImportServiceTests
 
         using var workbook = OpenWorkbook(workbookBytes);
         var projects = workbook.Worksheet("Projects");
-        projects.Cell(2, 8).Value = 2;
-        projects.Cell(3, 8).Value = 1;
+        projects.Cell(2, 10).Value = 2;
+        projects.Cell(3, 10).Value = 1;
+        var updatedWorkbookBytes = SaveWorkbook(workbook);
+        using (var savedWorkbook = OpenWorkbook(updatedWorkbookBytes))
+        {
+            Assert.Equal("2", savedWorkbook.Worksheet("Projects").Cell(2, 10).GetString());
+            Assert.Equal("1", savedWorkbook.Worksheet("Projects").Cell(3, 10).GetString());
+        }
 
-        var review = await service.ValidateAsync(db, SaveWorkbook(workbook), "priority-update.xlsx", AccountName);
+        var review = await service.ValidateAsync(db, updatedWorkbookBytes, "priority-update.xlsx", AccountName);
 
         Assert.Empty(review.Errors);
         Assert.Equal(2, review.ProjectsUpdated);
@@ -317,6 +325,34 @@ public sealed class ControlledWorkbookImportServiceTests
 
         Assert.Equal(2, await db.Projects.Where(project => project.ProgramName == "PN-100").Select(project => project.PriorityRank).SingleAsync());
         Assert.Equal(1, await db.Projects.Where(project => project.ProgramName == "PN-200").Select(project => project.PriorityRank).SingleAsync());
+    }
+
+    [Fact]
+    public async Task ValidateAndApply_UpdatesProjectQuantitiesAsManualValues()
+    {
+        await using var connection = await OpenConnectionAsync();
+        await using var db = await CreateSeededDbAsync(connection);
+        var service = CreateService();
+        var workbookBytes = await service.ExportTemplateAsync(db);
+
+        using var workbook = OpenWorkbook(workbookBytes);
+        var projects = workbook.Worksheet("Projects");
+        projects.Cell(2, 8).Value = 125.5m;
+        projects.Cell(2, 9).Value = 100m;
+
+        var review = await service.ValidateAsync(db, SaveWorkbook(workbook), "quantity-update.xlsx", AccountName);
+
+        Assert.Empty(review.Errors);
+        Assert.Contains(review.Changes, change => change.Field == "Required Quantity" && change.UploadedValue == "125.5");
+        Assert.Contains(review.Changes, change => change.Field == "Job Quantity" && change.UploadedValue == "100");
+
+        await service.ApplyAsync(db, review.ReviewId, AccountName);
+
+        var project = await db.Projects.SingleAsync();
+        Assert.Equal(125.5m, project.RequiredQuantity);
+        Assert.Equal(100m, project.JobQuantity);
+        Assert.Equal(ProjectQuantitySources.Manual, project.RequiredQuantitySource);
+        Assert.Equal(ProjectQuantitySources.Manual, project.JobQuantitySource);
     }
 
     [Fact]
@@ -507,8 +543,8 @@ public sealed class ControlledWorkbookImportServiceTests
         using var highlighted = OpenWorkbook(service.BuildReviewWorkbook(review.ReviewId, AccountName));
 
         var projects = highlighted.Worksheet("Projects");
-        Assert.Equal("CHANGED", projects.Cell(2, 15).GetString());
-        Assert.Contains("Customer (Required)", projects.Cell(2, 16).GetString(), StringComparison.Ordinal);
+        Assert.Equal("CHANGED", projects.Cell(2, 17).GetString());
+        Assert.Contains("Customer (Required)", projects.Cell(2, 18).GetString(), StringComparison.Ordinal);
         Assert.NotEqual(XLColor.NoColor, projects.Cell(2, 3).Style.Fill.BackgroundColor);
     }
 

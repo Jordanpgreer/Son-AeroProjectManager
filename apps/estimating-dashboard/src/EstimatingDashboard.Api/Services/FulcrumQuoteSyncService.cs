@@ -3,29 +3,34 @@ using System.Text.Json;
 using EstimatingDashboard.Api.Data;
 using EstimatingDashboard.Api.Models;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
+using SonAero.Platform.Integrations;
 
 namespace EstimatingDashboard.Api.Services;
 
-internal sealed class FulcrumQuoteSyncService(
+internal sealed class EnterpriseQuoteSyncService(
     EstimatingAccessDbContext db,
-    FulcrumQuoteClient client,
     EstimatingHistoryImportService importer,
-    IOptions<FulcrumQuoteSyncOptions> options,
-    ILogger<FulcrumQuoteSyncService> logger)
+    IEnumerable<IEstimatingQuoteProvider> providers,
+    IEnterpriseProviderSource providerSource,
+    ILogger<EnterpriseQuoteSyncService> logger)
 {
-    private const string Actor = "FULCRUM_API_SCHEDULE";
-
     public async Task RunScheduledAsync(
         DateTimeOffset scheduledForUtc,
         CancellationToken cancellationToken)
     {
         scheduledForUtc = scheduledForUtc.ToUniversalTime();
+        var activeProvider = await providerSource.GetActiveProviderAsync(cancellationToken);
+        var provider = EnterpriseAdapterSelector.Select(
+            providers,
+            activeProvider,
+            EnterpriseDataRoutes.EstimatingQuotes);
+        var actor = $"{provider.ProviderName.ToUpperInvariant()}_API_SCHEDULE";
         var run = new FulcrumQuoteSyncRun
         {
             Id = Guid.NewGuid(),
             ScheduledForUtc = scheduledForUtc,
             StartedAt = DateTimeOffset.UtcNow,
+            ProviderName = provider.ProviderName,
             Status = FulcrumQuoteSyncStatuses.Running
         };
         db.FulcrumQuoteSyncRuns.Add(run);
@@ -41,7 +46,7 @@ internal sealed class FulcrumQuoteSyncService(
                 .AnyAsync(candidate => candidate.ScheduledForUtc == scheduledForUtc, cancellationToken))
             {
                 logger.LogInformation(
-                    "The Fulcrum quote sync scheduled for {ScheduledForUtc} was already claimed by another process.",
+                    "The enterprise quote sync scheduled for {ScheduledForUtc} was already claimed by another process.",
                     scheduledForUtc);
                 return;
             }
@@ -50,35 +55,31 @@ internal sealed class FulcrumQuoteSyncService(
 
         try
         {
-            var snapshots = await client.GetQuotesAsync(cancellationToken);
-            var quoteNumbers = snapshots.Select(snapshot => snapshot.Quote.Number).Distinct().ToList();
-            var existing = await db.QuoteHistory
-                .AsNoTracking()
-                .Where(record => quoteNumbers.Contains(record.QuoteNumber))
-                .ToDictionaryAsync(record => record.QuoteNumber, cancellationToken);
-            var mapping = FulcrumQuoteMapper.Map(snapshots, existing, options.Value);
-            foreach (var warning in mapping.Warnings.Take(25))
-                logger.LogWarning("Fulcrum quote sync mapping warning: {Warning}", warning);
-            if (mapping.Warnings.Count > 25)
+            var pull = await provider.PullAsync(cancellationToken);
+            foreach (var warning in pull.Warnings.Take(25))
+                logger.LogWarning("{Provider} quote sync mapping warning: {Warning}", provider.ProviderName, warning);
+            if (pull.Warnings.Count > 25)
                 logger.LogWarning(
-                    "Fulcrum quote sync produced {AdditionalWarningCount} additional mapping warnings.",
-                    mapping.Warnings.Count - 25);
+                    "{Provider} quote sync produced {AdditionalWarningCount} additional mapping warnings.",
+                    provider.ProviderName,
+                    pull.Warnings.Count - 25);
 
             var result = await importer.ApplyAutomatedAsync(
-                mapping.Rows,
-                $"Fulcrum API sync {scheduledForUtc:yyyy-MM-dd HHmm} UTC",
-                Actor,
+                pull.Rows,
+                $"{provider.ProviderName} API sync {scheduledForUtc:yyyy-MM-dd HHmm} UTC",
+                actor,
                 cancellationToken);
             run.Status = FulcrumQuoteSyncStatuses.Completed;
             run.CompletedAt = DateTimeOffset.UtcNow;
-            run.QuotesReceived = snapshots.Count;
+            run.QuotesReceived = pull.RecordsReceived;
             run.NewRecords = result.NewRecords;
             run.UpdatedRecords = result.UpdatedRecords;
             run.UnchangedRecords = result.UnchangedRecords;
             await db.SaveChangesAsync(cancellationToken);
             logger.LogInformation(
-                "Fulcrum quote sync completed with {QuoteCount} quotes: {NewCount} new, {UpdatedCount} updated, and {UnchangedCount} unchanged.",
-                snapshots.Count,
+                "{Provider} quote sync completed with {QuoteCount} quotes: {NewCount} new, {UpdatedCount} updated, and {UnchangedCount} unchanged.",
+                provider.ProviderName,
+                pull.RecordsReceived,
                 result.NewRecords,
                 result.UpdatedRecords,
                 result.UnchangedRecords);

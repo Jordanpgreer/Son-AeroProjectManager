@@ -568,6 +568,10 @@ export function TrainingWorkspace(props: TrainingWorkspaceProps) {
               onEditOvertime={(task) => previewAction(`Overtime dates for ${task.title} would open here.`)}
               onSaveRow={async (row) => row}
               onReorder={async () => undefined}
+              onSyncQuantities={async () => {
+                previewAction('A read-only ERP quantity pull would run here.')
+                return { project: props.selectedProject, provider: 'Configured ERP', updatedFields: [], retainedFields: [], warnings: [] }
+              }}
               notificationTaskId={null}
               showChat={props.permissions.some((permission) => permission.toLocaleLowerCase('en-US') === permissionKeys.moduleView)}
               chatGuideId="training-chat"

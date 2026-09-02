@@ -8,11 +8,24 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using SonAero.Platform.Integrations;
 
 namespace EstimatingDashboard.Tests;
 
 public sealed class FulcrumQuoteSyncTests
 {
+    [Fact]
+    public async Task Acumatica_quote_slot_fails_safely_until_mapping_is_configured()
+    {
+        IEstimatingQuoteProvider provider = new AcumaticaEstimatingQuoteProvider();
+
+        Assert.Equal(EnterpriseDataRoutes.EstimatingQuotes, provider.RouteName);
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            provider.PullAsync(default));
+
+        Assert.Contains("not configured", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData("2026-09-01T01:30:00+00:00", "2026-09-01T02:00:00+00:00")]
     [InlineData("2026-09-01T02:00:01+00:00", "2026-09-01T19:00:00+00:00")]
@@ -51,6 +64,7 @@ public sealed class FulcrumQuoteSyncTests
         Assert.True(snapshot.Quote.CustomFields?.ContainsKey("Estimating Rep"));
         Assert.Equal(2, handler.Requests.Count);
         Assert.All(handler.Requests, request => Assert.Equal("Bearer secret-token", request.Authorization));
+        Assert.All(handler.Requests, request => Assert.Equal("api.fulcrumpro.us", request.Host));
         Assert.Contains(handler.Requests, request => request.Path.StartsWith("/api/reporting/quote/list", StringComparison.Ordinal));
         Assert.Contains(handler.Requests, request => request.Path.StartsWith("/api/quotes/list", StringComparison.Ordinal));
     }
@@ -185,6 +199,7 @@ public sealed class FulcrumQuoteSyncTests
         {
             Requests.Add(new CapturedRequest(
                 request.RequestUri?.PathAndQuery ?? string.Empty,
+                request.RequestUri?.Host ?? string.Empty,
                 request.Headers.Authorization?.ToString()));
             var path = request.RequestUri?.AbsolutePath;
             var json = path switch
@@ -239,5 +254,5 @@ public sealed class FulcrumQuoteSyncTests
         }
     }
 
-    private sealed record CapturedRequest(string Path, string? Authorization);
+    private sealed record CapturedRequest(string Path, string Host, string? Authorization);
 }

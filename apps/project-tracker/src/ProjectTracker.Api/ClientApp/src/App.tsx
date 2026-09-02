@@ -40,6 +40,7 @@ import type {
   ProjectVersion,
   ProjectMetadataDraft,
   ProjectMetadataChange,
+  ProjectQuantitySyncResult,
   MentionNotification,
 } from './types'
 import {
@@ -105,6 +106,8 @@ const emptyProjectMetadata: ProjectMetadataDraft = {
   salesOrderUrl: '',
   jobNumber: '',
   jobUrl: '',
+  requiredQuantity: '',
+  jobQuantity: '',
 }
 
 function projectMetadataFrom(project: ProjectDetail | null): ProjectMetadataDraft {
@@ -118,6 +121,8 @@ function projectMetadataFrom(project: ProjectDetail | null): ProjectMetadataDraf
     salesOrderUrl: project.salesOrderUrl ?? '',
     jobNumber: project.jobNumber ?? '',
     jobUrl: project.jobUrl ?? '',
+    requiredQuantity: project.requiredQuantity === null ? '' : String(project.requiredQuantity),
+    jobQuantity: project.jobQuantity === null ? '' : String(project.jobQuantity),
   }
 }
 
@@ -232,7 +237,7 @@ function App() {
 
   const projectPayload = (
     project: ProjectDetail,
-    patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber' | 'salesOrderUrl' | 'jobNumber' | 'jobUrl'>> = {},
+    patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber' | 'salesOrderUrl' | 'jobNumber' | 'jobUrl' | 'requiredQuantity' | 'jobQuantity'>> = {},
   ) => ({
     programName: 'programName' in patch ? patch.programName : project.programName,
     programManager: 'programManager' in patch ? patch.programManager : project.programManager,
@@ -242,6 +247,8 @@ function App() {
     salesOrderUrl: 'salesOrderUrl' in patch ? patch.salesOrderUrl : project.salesOrderUrl,
     jobNumber: 'jobNumber' in patch ? patch.jobNumber : project.jobNumber ?? null,
     jobUrl: 'jobUrl' in patch ? patch.jobUrl : project.jobUrl ?? null,
+    requiredQuantity: 'requiredQuantity' in patch ? patch.requiredQuantity : project.requiredQuantity,
+    jobQuantity: 'jobQuantity' in patch ? patch.jobQuantity : project.jobQuantity,
     version: project.version,
   })
 
@@ -257,6 +264,8 @@ function App() {
       { key: 'salesOrderUrl', label: 'Sales Order Link' },
       { key: 'jobNumber', label: 'Job Number' },
       { key: 'jobUrl', label: 'Job Link' },
+      { key: 'requiredQuantity', label: 'Required Quantity' },
+      { key: 'jobQuantity', label: 'Job Quantity' },
     ]
     return fields
       .filter(({ key }) => projectMetadata[key].trim() !== saved[key].trim())
@@ -278,6 +287,8 @@ function App() {
   const selectedProjectSalesOrderUrl = selectedProject?.salesOrderUrl ?? ''
   const selectedProjectJobNumber = selectedProject?.jobNumber ?? ''
   const selectedProjectJobUrl = selectedProject?.jobUrl ?? ''
+  const selectedProjectRequiredQuantity = selectedProject?.requiredQuantity ?? null
+  const selectedProjectJobQuantity = selectedProject?.jobQuantity ?? null
 
   useEffect(() => {
     selectedProjectRef.current = selectedProject
@@ -301,6 +312,8 @@ function App() {
       salesOrderUrl: selectedProjectSalesOrderUrl,
       jobNumber: selectedProjectJobNumber,
       jobUrl: selectedProjectJobUrl,
+      requiredQuantity: selectedProjectRequiredQuantity === null ? '' : String(selectedProjectRequiredQuantity),
+      jobQuantity: selectedProjectJobQuantity === null ? '' : String(selectedProjectJobQuantity),
     })
     setProjectMetadataError(null)
   }, [
@@ -313,6 +326,8 @@ function App() {
     selectedProjectSalesOrderUrl,
     selectedProjectJobNumber,
     selectedProjectJobUrl,
+    selectedProjectRequiredQuantity,
+    selectedProjectJobQuantity,
   ])
 
   useEffect(() => {
@@ -629,7 +644,7 @@ function App() {
     }
   }
 
-  async function updateProject(patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber' | 'salesOrderUrl' | 'jobNumber' | 'jobUrl'>>) {
+  async function updateProject(patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber' | 'salesOrderUrl' | 'jobNumber' | 'jobUrl' | 'requiredQuantity' | 'jobQuantity'>>) {
     if (!selectedProject) return
     const project = await api<ProjectDetail>(`/api/projects/${selectedProject.id}`, {
       method: 'PUT',
@@ -677,8 +692,17 @@ function App() {
       salesOrderUrl: projectMetadata.salesOrderUrl.trim(),
       jobNumber: projectMetadata.jobNumber.trim(),
       jobUrl: projectMetadata.jobUrl.trim(),
+      requiredQuantity: projectMetadata.requiredQuantity.trim(),
+      jobQuantity: projectMetadata.jobQuantity.trim(),
     }
     try {
+      const parseQuantity = (value: string, label: string) => {
+        if (!value) return null
+        const quantity = Number(value)
+        if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 1_000_000_000)
+          throw new Error(`${label} must be greater than zero and no more than 1,000,000,000, or left blank.`)
+        return quantity
+      }
       await updateProject({
         programName: normalized.programName,
         programManager: normalized.programManager || null,
@@ -688,6 +712,8 @@ function App() {
         salesOrderUrl: normalized.salesOrderUrl || null,
         jobNumber: normalized.jobNumber || null,
         jobUrl: normalized.jobUrl || null,
+        requiredQuantity: parseQuantity(normalized.requiredQuantity, 'Required quantity'),
+        jobQuantity: parseQuantity(normalized.jobQuantity, 'Job quantity'),
       })
       setProjectMetadata(normalized)
       return true
@@ -697,6 +723,23 @@ function App() {
     } finally {
       setProjectMetadataSaving(false)
     }
+  }
+
+  async function syncProjectQuantities() {
+    if (!selectedProject) throw new Error('The project is no longer available.')
+    const result = await api<ProjectQuantitySyncResult>(
+      `/api/projects/${selectedProject.id}/quantities/sync`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ version: selectedProject.version }),
+      },
+    )
+    setSelectedProject(result.project)
+    setProjectMetadata(projectMetadataFrom(result.project))
+    setProjectChangeNotice(null)
+    setDismissedProjectVersion(null)
+    await loadDashboard()
+    return result
   }
 
   async function completeProject() {
@@ -1303,6 +1346,7 @@ function App() {
                   onReorder={reorderTaskRow}
                   notificationTaskId={notificationTaskId}
                   onBomApplied={async () => { await refreshProjectWorkspace(selectedProject.id) }}
+                  onSyncQuantities={syncProjectQuantities}
                 />
               )}
               {screen === 'calendar' && <CalendarView data={scheduleProjects} holidaySet={holidaySet} workingDaySet={workingDaySet} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} />}

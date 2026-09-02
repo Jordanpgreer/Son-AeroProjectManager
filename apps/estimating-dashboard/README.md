@@ -43,6 +43,10 @@ again in the browser. Do not store the token in an appsettings file or commit it
 repository. The Hub and Estimating Dashboard must run on the same Windows application server so
 both can use the protected value.
 
+Son-Aero's ITAR tenant uses Fulcrum's `https://api.fulcrumpro.us/` API host. The application also
+normalizes a legacy `api.fulcrumpro.com` setting to the ITAR host at runtime so preserved production
+configuration cannot send the ITAR token to Fulcrum's standard public endpoint.
+
 Saving confirms only that Arda stored the token. To verify that Fulcrum accepts it, use
 **Test API connection** on the saved credential card. The test performs one read-only quote-list
 request and records the result, HTTP status, time, and administrator; it does not import quotes

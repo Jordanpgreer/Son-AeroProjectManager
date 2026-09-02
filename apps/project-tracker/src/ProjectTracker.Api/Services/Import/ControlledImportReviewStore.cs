@@ -99,6 +99,8 @@ public sealed record ControlledProjectRow(
     string? Engineer,
     string? SalesOrderNumber,
     string? JobNumber,
+    decimal? RequiredQuantity,
+    decimal? JobQuantity,
     int? PriorityRank,
     DateOnly? CompletedOn,
     bool RequiresCompletion = false);

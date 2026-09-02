@@ -43,6 +43,7 @@ import type {
   ProjectDetail,
   ProjectTask,
   ProjectMetadataDraft,
+  ProjectQuantitySyncResult,
 } from '../types'
 import {
   ConflictIcon,
@@ -204,6 +205,10 @@ function ExternalProjectReference({ value, url }: { value: string; url: string |
   )
 }
 
+function formatQuantity(value: number | null) {
+  return value === null ? 'Not set' : value.toLocaleString(undefined, { maximumFractionDigits: 4 })
+}
+
 
 export function ProjectView({
   project,
@@ -233,6 +238,7 @@ export function ProjectView({
   onReorder,
   notificationTaskId,
   onBomApplied,
+  onSyncQuantities,
   showChat = true,
   ganttOpen: controlledGanttOpen,
   onGanttOpenChange,
@@ -266,6 +272,7 @@ export function ProjectView({
   onReorder: (row: ProjectTask, position: number) => Promise<void>
   notificationTaskId: number | null
   onBomApplied?: () => Promise<void>
+  onSyncQuantities: () => Promise<ProjectQuantitySyncResult>
   showChat?: boolean
   ganttOpen?: boolean
   onGanttOpenChange?: (open: boolean) => void
@@ -278,6 +285,9 @@ export function ProjectView({
   const [savingNoteId, setSavingNoteId] = useState<number | null>(null)
   const [noteSaveError, setNoteSaveError] = useState<string | null>(null)
   const [projectDetailsOpen, setProjectDetailsOpen] = useState(true)
+  const [quantitySyncing, setQuantitySyncing] = useState(false)
+  const [quantitySyncMessage, setQuantitySyncMessage] = useState<string | null>(null)
+  const [quantitySyncError, setQuantitySyncError] = useState<string | null>(null)
   const ganttOpen = controlledGanttOpen ?? internalGanttOpen
   const expandedTaskId = controlledExpandedTaskId !== undefined ? controlledExpandedTaskId : internalExpandedTaskId
   const updateGanttOpen = useCallback((open: boolean) => {
@@ -300,6 +310,7 @@ export function ProjectView({
   const canEditTaskModal = !isCompleted && hasAnyPermission(permissions, taskFieldEditPermissions)
   const canShowRowActions = canEditTaskModal || canEditOvertime || canDeleteTask
   const canManageBom = hasPermission(permissions, permissionKeys.importManage)
+  const canEditQuantities = !isCompleted && hasPermission(permissions, permissionKeys.projectEditQuantities)
   const daysLeft = calculateDaysLeft(project.targetDelivery)
   const total = project.tasks.length
   const behindSchedule = project.status === 'Behind'
@@ -324,6 +335,27 @@ export function ProjectView({
         ? `${completionVariance} day${completionVariance === 1 ? '' : 's'} late`
         : `${Math.abs(completionVariance)} day${completionVariance === -1 ? '' : 's'} early`
   const projectEditDetailsId = `project-edit-details-${project.id}`
+
+  const syncQuantities = async () => {
+    if (quantitySyncing) return
+    setQuantitySyncing(true)
+    setQuantitySyncMessage(null)
+    setQuantitySyncError(null)
+    try {
+      const result = await onSyncQuantities()
+      const parts = result.updatedFields.length > 0
+        ? [`Pulled ${result.updatedFields.join(' and ')} from ${result.provider}.`]
+        : [`${result.provider} did not return either quantity.`]
+      if (result.retainedFields.length > 0)
+        parts.push(`Kept the existing ${result.retainedFields.join(' and ').toLowerCase()}.`)
+      if (result.warnings.length > 0) parts.push(result.warnings.join(' '))
+      setQuantitySyncMessage(parts.join(' '))
+    } catch (error) {
+      setQuantitySyncError(error instanceof Error ? error.message : 'Project quantities could not be pulled.')
+    } finally {
+      setQuantitySyncing(false)
+    }
+  }
 
   useEffect(() => {
     setProjectDetailsOpen(true)
@@ -401,6 +433,8 @@ export function ProjectView({
         {!editMode && <span><i>Customer</i> {project.customerName || 'Not set'}</span>}
         {!editMode && <span><i>SO</i> {project.salesOrderNumber ? <ExternalProjectReference value={project.salesOrderNumber} url={project.salesOrderUrl} /> : <b>Not set</b>}</span>}
         {!editMode && <span><i>Job</i> {project.jobNumber ? <ExternalProjectReference value={project.jobNumber} url={project.jobUrl} /> : <b>Not set</b>}</span>}
+        {!editMode && <span><i>Required Qty</i> <b>{formatQuantity(project.requiredQuantity)}</b>{project.requiredQuantitySource && <small> · {project.requiredQuantitySource}</small>}</span>}
+        {!editMode && <span><i>Job Qty</i> <b>{formatQuantity(project.jobQuantity)}</b>{project.jobQuantitySource && <small> · {project.jobQuantitySource}</small>}</span>}
         <span><i>Target</i> <b className="cell-mono">{compactDate(project.targetDelivery)}</b></span>
       </span>
     </div>
@@ -491,6 +525,32 @@ export function ProjectView({
                   placeholder="Internal job number"
                 />
               </label>}
+              {canEditQuantities && <label>
+                <span>Required Quantity{project.requiredQuantitySource ? ` · ${project.requiredQuantitySource}` : ''}</span>
+                <input
+                  className="cell-input"
+                  type="number"
+                  min="0.0001"
+                  max="1000000000"
+                  step="any"
+                  value={projectMetadata.requiredQuantity}
+                  onChange={(event) => onProjectMetadataChange({ ...projectMetadata, requiredQuantity: event.target.value })}
+                  placeholder="Required quantity"
+                />
+              </label>}
+              {canEditQuantities && <label>
+                <span>Job Quantity{project.jobQuantitySource ? ` · ${project.jobQuantitySource}` : ''}</span>
+                <input
+                  className="cell-input"
+                  type="number"
+                  min="0.0001"
+                  max="1000000000"
+                  step="any"
+                  value={projectMetadata.jobQuantity}
+                  onChange={(event) => onProjectMetadataChange({ ...projectMetadata, jobQuantity: event.target.value })}
+                  placeholder="Job quantity"
+                />
+              </label>}
               {canEditExternalLinks && <label>
                 <span>Sales Order Link</span>
                 <input
@@ -527,6 +587,7 @@ export function ProjectView({
           )}
         </div>
         {!editMode && <div className="project-actions" data-guide-id="project-actions" role="group" aria-label="Project actions">
+          {canEditQuantities && <button className="button ghost" type="button" disabled={quantitySyncing} onClick={() => void syncQuantities()}><RefreshCw size={15} className={quantitySyncing ? 'spin' : undefined} /> {quantitySyncing ? 'Pulling Quantities...' : 'Pull Quantities from ERP'}</button>}
           {canManageBom && <ProjectBomImport project={project} onApplied={onBomApplied} />}
           {showChat && <button className="button ghost" type="button" data-guide-id={chatGuideId} onClick={onOpenChat}><MessageSquare size={15} /> Chat</button>}
           {(isCompleted
@@ -543,6 +604,13 @@ export function ProjectView({
           )}
         </div>}
       </header>
+
+      {(quantitySyncMessage || quantitySyncError) && (
+        <p className={`inline-note ${quantitySyncError ? 'warning' : 'success'} quantity-sync-result`} role={quantitySyncError ? 'alert' : 'status'}>
+          {quantitySyncError ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
+          {quantitySyncError ?? quantitySyncMessage}
+        </p>
+      )}
 
       {isCompleted && (
         <section className="completed-schedule-strip" aria-label="Completed project schedule comparison">
@@ -599,6 +667,7 @@ export function ProjectView({
                 <tbody>
                   {project.tasks.map((task, index) => {
                     const isExpanded = expandedTaskId === task.id
+                    const hasNotes = Boolean(task.notes?.trim())
                     const hasConflict = conflictKeys.has(taskConflictKey(project.id, task.id))
 
                     return (
@@ -615,6 +684,22 @@ export function ProjectView({
                               {task.title}
                               {hasConflict && <ConflictIcon message={`Work-center conflict: ${task.workStation || 'this work center'} is assigned to another active project during these dates.`} />}
                               {task.overtimeDays.length > 0 && <span className="ot-badge">OT +{task.overtimeDays.length}</span>}
+                              {hasNotes && (
+                                <button
+                                  type="button"
+                                  className={`operation-note-icon-button ${isExpanded ? 'is-expanded' : ''}`}
+                                  aria-expanded={isExpanded}
+                                  aria-controls={`operation-notes-${task.id}`}
+                                  aria-label={`${isExpanded ? 'Collapse' : 'Expand'} notes for ${task.title}`}
+                                  title={`${isExpanded ? 'Collapse' : 'Expand'} operation notes`}
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    toggleTaskNotes(task)
+                                  }}
+                                >
+                                  <MessageSquare size={15} aria-hidden="true" />
+                                </button>
+                              )}
                             </span>
                           </td>
                           <td>{task.workStation ? <span className="station-tag">{task.workStation}</span> : <span className="cell-muted">Unassigned</span>}</td>
@@ -636,7 +721,7 @@ export function ProjectView({
                           )}
                         </tr>
                         {isExpanded && (
-                          <tr className="operation-notes-row">
+                          <tr className="operation-notes-row" id={`operation-notes-${task.id}`}>
                             <td colSpan={operationColSpan}>
                               {canEditNotes ? (
                                 <form

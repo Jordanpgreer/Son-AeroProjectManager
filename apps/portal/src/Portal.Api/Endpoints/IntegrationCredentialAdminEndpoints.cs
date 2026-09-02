@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
 using Portal.Api.Data;
 using Portal.Api.Services;
+using SonAero.Platform.Integrations;
 using SonAero.Platform.Security;
 
 namespace Portal.Api.Endpoints;
@@ -15,6 +16,7 @@ public static class IntegrationCredentialAdminEndpoints
         api.MapPut("/admin/integration-credentials/{credentialKey}", SaveAsync).RequireAuthorization();
         api.MapPost("/admin/integration-credentials/{credentialKey}/test", TestAsync).RequireAuthorization();
         api.MapDelete("/admin/integration-credentials/{credentialKey}", DeleteAsync).RequireAuthorization();
+        api.MapPut("/admin/integration-provider", SetActiveProviderAsync).RequireAuthorization();
     }
 
     private static async Task<IResult> GetAsync(
@@ -36,7 +38,60 @@ public static class IntegrationCredentialAdminEndpoints
                 credential,
                 tests.GetValueOrDefault(credential.CredentialKey)))
             .ToList();
-        return Results.Ok(new IntegrationCredentialOverviewDto(credentials));
+        var setting = await db.EnterpriseIntegrationSettings
+            .AsNoTracking()
+            .SingleAsync(candidate => candidate.Id == 1, cancellationToken);
+        var activeProvider = EnterpriseProviderNames.Normalize(setting.ActiveProvider);
+        return Results.Ok(new IntegrationCredentialOverviewDto(
+            credentials,
+            activeProvider.Length > 0 ? activeProvider : EnterpriseProviderNames.Fulcrum,
+            EnterpriseProviderNames.All));
+    }
+
+    private static async Task<IResult> SetActiveProviderAsync(
+        [FromBody] EnterpriseIntegrationProviderUpdateDto dto,
+        [FromServices] PortalUserService users,
+        [FromServices] PortalRoleDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var user = await users.CurrentAsync(cancellationToken);
+        if (!string.Equals(user.Role, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase))
+            return AccessDenied();
+
+        var provider = EnterpriseProviderNames.Normalize(dto.Provider);
+        if (provider.Length == 0)
+            return Results.BadRequest(new
+            {
+                detail = $"Choose one of the supported providers: {string.Join(", ", EnterpriseProviderNames.All)}."
+            });
+
+        var setting = await db.EnterpriseIntegrationSettings
+            .SingleAsync(candidate => candidate.Id == 1, cancellationToken);
+        var previousProvider = EnterpriseProviderNames.Normalize(setting.ActiveProvider);
+        if (previousProvider.Length == 0) previousProvider = EnterpriseProviderNames.Fulcrum;
+        if (string.Equals(previousProvider, provider, StringComparison.OrdinalIgnoreCase))
+            return Results.Ok(new EnterpriseIntegrationProviderDto(
+                previousProvider,
+                setting.UpdatedAt,
+                setting.UpdatedBy));
+
+        var now = DateTimeOffset.UtcNow;
+        db.EnterpriseIntegrationSettingAudits.Add(new PortalEnterpriseIntegrationSettingAuditRecord
+        {
+            PreviousProvider = previousProvider,
+            NewProvider = provider,
+            ChangedAt = now,
+            ChangedBy = user.AccountName
+        });
+        setting.ActiveProvider = provider;
+        setting.UpdatedAt = now;
+        setting.UpdatedBy = user.AccountName;
+        await db.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(new EnterpriseIntegrationProviderDto(
+            setting.ActiveProvider,
+            setting.UpdatedAt,
+            setting.UpdatedBy));
     }
 
     private static async Task<IResult> SaveAsync(
@@ -235,10 +290,15 @@ public static class IntegrationCredentialAdminEndpoints
     private static IResult AccessDenied() => Results.Problem(
         statusCode: StatusCodes.Status403Forbidden,
         title: "Integration credential access denied",
-        detail: "Only Arda administrators can manage integration API keys.");
+        detail: "Only Arda administrators can manage enterprise integrations.");
 }
 
 public sealed record IntegrationCredentialUpdateDto(string? DisplayName, string? Secret);
+public sealed record EnterpriseIntegrationProviderUpdateDto(string? Provider);
+public sealed record EnterpriseIntegrationProviderDto(
+    string ActiveProvider,
+    DateTimeOffset UpdatedAt,
+    string UpdatedBy);
 
 public sealed record IntegrationCredentialDto(
     string CredentialKey,
@@ -256,4 +316,6 @@ public sealed record IntegrationCredentialDto(
     string? LastTestedBy);
 
 public sealed record IntegrationCredentialOverviewDto(
-    IReadOnlyList<IntegrationCredentialDto> Credentials);
+    IReadOnlyList<IntegrationCredentialDto> Credentials,
+    string ActiveProvider,
+    IReadOnlyList<string> SupportedProviders);

@@ -29,6 +29,8 @@ public sealed class ControlledWorkbookImportService(
         "Engineer",
         "Sales Order",
         "Job Number",
+        "Required Quantity",
+        "Job Quantity",
         "Priority",
         "Completed On",
         "Program Start (Read Only)",
@@ -106,14 +108,18 @@ public sealed class ControlledWorkbookImportService(
             projectSheet.Cell(projectRow, 5).Value = project.Engineer ?? string.Empty;
             projectSheet.Cell(projectRow, 6).Value = project.SalesOrderNumber ?? string.Empty;
             projectSheet.Cell(projectRow, 7).Value = project.JobNumber ?? string.Empty;
-            projectSheet.Cell(projectRow, 8).Value = project.PriorityRank;
-            SetDate(projectSheet.Cell(projectRow, 9), project.CompletedOn);
-            SetDate(projectSheet.Cell(projectRow, 10), project.ProgramStart);
-            SetDate(projectSheet.Cell(projectRow, 11), project.TargetDelivery);
-            projectSheet.Cell(projectRow, 12).Value = Friendly(project.Status);
-            projectSheet.Cell(projectRow, 13).Value = project.Progress;
-            projectSheet.Cell(projectRow, 13).Style.NumberFormat.Format = "0%";
-            projectSheet.Cell(projectRow, 14).Value = project.CurrentTask ?? string.Empty;
+            projectSheet.Cell(projectRow, 8).Value = project.RequiredQuantity;
+            projectSheet.Cell(projectRow, 8).Style.NumberFormat.Format = "#,##0.####";
+            projectSheet.Cell(projectRow, 9).Value = project.JobQuantity;
+            projectSheet.Cell(projectRow, 9).Style.NumberFormat.Format = "#,##0.####";
+            projectSheet.Cell(projectRow, 10).Value = project.PriorityRank;
+            SetDate(projectSheet.Cell(projectRow, 11), project.CompletedOn);
+            SetDate(projectSheet.Cell(projectRow, 12), project.ProgramStart);
+            SetDate(projectSheet.Cell(projectRow, 13), project.TargetDelivery);
+            projectSheet.Cell(projectRow, 14).Value = Friendly(project.Status);
+            projectSheet.Cell(projectRow, 15).Value = project.Progress;
+            projectSheet.Cell(projectRow, 15).Style.NumberFormat.Format = "0%";
+            projectSheet.Cell(projectRow, 16).Value = project.CurrentTask ?? string.Empty;
             projectRow++;
         }
 
@@ -663,8 +669,10 @@ public sealed class ControlledWorkbookImportService(
             var partNumber = RequiredText(sheet, row, 2, ProjectHeaders[1], errors);
             var customer = RequiredText(sheet, row, 3, ProjectHeaders[2], errors);
             var existingId = ParseRecordKey(key, ProjectsSheet, row, ProjectHeaders[0], errors);
-            var priority = ParseOptionalPositiveInteger(sheet.Cell(row, 8), ProjectsSheet, row, ProjectHeaders[7], errors);
-            var completedOn = ParseDate(sheet.Cell(row, 9), ProjectsSheet, row, ProjectHeaders[8], errors);
+            var requiredQuantity = ParseOptionalPositiveDecimal(sheet.Cell(row, 8), ProjectsSheet, row, ProjectHeaders[7], errors);
+            var jobQuantity = ParseOptionalPositiveDecimal(sheet.Cell(row, 9), ProjectsSheet, row, ProjectHeaders[8], errors);
+            var priority = ParseOptionalPositiveInteger(sheet.Cell(row, 10), ProjectsSheet, row, ProjectHeaders[9], errors);
+            var completedOn = ParseDate(sheet.Cell(row, 11), ProjectsSheet, row, ProjectHeaders[10], errors);
             if (key is null || partNumber is null || customer is null) continue;
 
             rows.Add(new ControlledProjectRow(
@@ -677,6 +685,8 @@ public sealed class ControlledWorkbookImportService(
                 OptionalText(sheet.Cell(row, 5)),
                 OptionalText(sheet.Cell(row, 6)),
                 OptionalText(sheet.Cell(row, 7)),
+                requiredQuantity,
+                jobQuantity,
                 priority,
                 completedOn));
         }
@@ -828,8 +838,10 @@ public sealed class ControlledWorkbookImportService(
             Compare(changes, ProjectsSheet, row.Row, row.Key, ProjectHeaders[4], project.Engineer, row.Engineer);
             Compare(changes, ProjectsSheet, row.Row, row.Key, ProjectHeaders[5], project.SalesOrderNumber, row.SalesOrderNumber);
             Compare(changes, ProjectsSheet, row.Row, row.Key, ProjectHeaders[6], project.JobNumber, row.JobNumber);
-            Compare(changes, ProjectsSheet, row.Row, row.Key, ProjectHeaders[7], Number(project.PriorityRank), Number(row.PriorityRank));
-            Compare(changes, ProjectsSheet, row.Row, row.Key, ProjectHeaders[8], Date(project.CompletedOn), Date(row.CompletedOn));
+            Compare(changes, ProjectsSheet, row.Row, row.Key, ProjectHeaders[7], Number(project.RequiredQuantity), Number(row.RequiredQuantity));
+            Compare(changes, ProjectsSheet, row.Row, row.Key, ProjectHeaders[8], Number(project.JobQuantity), Number(row.JobQuantity));
+            Compare(changes, ProjectsSheet, row.Row, row.Key, ProjectHeaders[9], Number(project.PriorityRank), Number(row.PriorityRank));
+            Compare(changes, ProjectsSheet, row.Row, row.Key, ProjectHeaders[10], Date(project.CompletedOn), Date(row.CompletedOn));
         }
 
         var operationRows = new Dictionary<string, ControlledOperationRow>(StringComparer.Ordinal);
@@ -1039,6 +1051,16 @@ public sealed class ControlledWorkbookImportService(
         project.Engineer = row.Engineer;
         project.SalesOrderNumber = row.SalesOrderNumber;
         project.JobNumber = row.JobNumber;
+        if (project.RequiredQuantity != row.RequiredQuantity)
+        {
+            project.RequiredQuantity = row.RequiredQuantity;
+            project.RequiredQuantitySource = row.RequiredQuantity is null ? null : ProjectQuantitySources.Manual;
+        }
+        if (project.JobQuantity != row.JobQuantity)
+        {
+            project.JobQuantity = row.JobQuantity;
+            project.JobQuantitySource = row.JobQuantity is null ? null : ProjectQuantitySources.Manual;
+        }
         project.PriorityRank = row.PriorityRank;
         project.CompletedOn = row.CompletedOn;
         if (row.ExistingId is null)
@@ -1189,10 +1211,12 @@ public sealed class ControlledWorkbookImportService(
     {
         FinishSheet(sheet, ProjectHeaders.Length, lastExistingRow);
         sheet.Range(2, 1, EditableTemplateRowLimit, ProjectHeaders.Length).Style.Protection.Locked = true;
+        sheet.Range(2, 8, EditableTemplateRowLimit, 9).Style.NumberFormat.Format = "#,##0.####";
+        sheet.Range(2, 10, EditableTemplateRowLimit, 10).Style.NumberFormat.Format = "0";
         if (lastExistingRow >= 2)
-            sheet.Range(2, 2, lastExistingRow, 9).Style.Protection.Locked = false;
+            sheet.Range(2, 2, lastExistingRow, 11).Style.Protection.Locked = false;
         var firstNewRow = Math.Max(2, lastExistingRow + 1);
-        sheet.Range(firstNewRow, 1, EditableTemplateRowLimit, 9).Style.Protection.Locked = false;
+        sheet.Range(firstNewRow, 1, EditableTemplateRowLimit, 11).Style.Protection.Locked = false;
         ProtectForDataEntry(sheet);
     }
 
@@ -1200,8 +1224,10 @@ public sealed class ControlledWorkbookImportService(
     {
         FinishSheet(sheet, ProjectHeaders.Length, lastExistingRow);
         sheet.Range(2, 1, EditableTemplateRowLimit, ProjectHeaders.Length).Style.Protection.Locked = true;
+        sheet.Range(2, 8, EditableTemplateRowLimit, 9).Style.NumberFormat.Format = "#,##0.####";
+        sheet.Range(2, 10, EditableTemplateRowLimit, 10).Style.NumberFormat.Format = "0";
         if (lastExistingRow >= 2)
-            sheet.Range(2, 2, lastExistingRow, 9).Style.Protection.Locked = false;
+            sheet.Range(2, 2, lastExistingRow, 11).Style.Protection.Locked = false;
         ProtectForDataEntry(sheet);
     }
 
@@ -1324,11 +1350,38 @@ public sealed class ControlledWorkbookImportService(
         string column,
         List<ImportIssueDto> errors)
     {
+        if (cell.DataType == XLDataType.Number)
+        {
+            var number = cell.GetDouble();
+            if (number > 0 && number <= int.MaxValue && Math.Abs(number - Math.Round(number)) < 0.0000001)
+                return Convert.ToInt32(number);
+        }
         var value = OptionalText(cell);
         if (string.IsNullOrWhiteSpace(value)) return null;
         if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) && parsed > 0)
             return parsed;
         errors.Add(new ImportIssueDto(sheet, row, column, $"{column} must be a positive whole number or blank."));
+        return null;
+    }
+
+    private static decimal? ParseOptionalPositiveDecimal(
+        IXLCell cell,
+        string sheet,
+        int row,
+        string column,
+        List<ImportIssueDto> errors)
+    {
+        if (cell.DataType == XLDataType.Number)
+        {
+            var number = Convert.ToDecimal(cell.GetDouble());
+            if (number is > 0m and <= 1_000_000_000m) return number;
+        }
+        var value = OptionalText(cell);
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed)
+            && parsed is > 0m and <= 1_000_000_000m)
+            return parsed;
+        errors.Add(new ImportIssueDto(sheet, row, column, $"{column} must be a positive number no greater than 1,000,000,000, or blank."));
         return null;
     }
 
@@ -1442,6 +1495,7 @@ public sealed class ControlledWorkbookImportService(
     private static string OperationMapKey(string projectKey, string operationKey) => $"{projectKey}\u001f{operationKey}";
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static string? Number(int? value) => value?.ToString(CultureInfo.InvariantCulture);
+    private static string? Number(decimal? value) => value?.ToString("0.####", CultureInfo.InvariantCulture);
     private static string Number(int value) => value.ToString(CultureInfo.InvariantCulture);
     private static string? Date(DateOnly? value) => value?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
     private static string Percent(decimal value) => value.ToString("0.####", CultureInfo.InvariantCulture);

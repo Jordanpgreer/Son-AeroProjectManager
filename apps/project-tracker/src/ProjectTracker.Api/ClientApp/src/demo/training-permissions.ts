@@ -9,6 +9,7 @@ export const PROJECT_FIELD_TRAINING_LABELS = {
   [permissionKeys.projectEditCustomerName]: 'customer',
   [permissionKeys.projectEditSalesOrderNumber]: 'sales order',
   [permissionKeys.projectEditJobNumber]: 'job number',
+  [permissionKeys.projectEditQuantities]: 'required and job quantities',
   [permissionKeys.projectEditExternalLinks]: 'SO and job links',
 } as const
 

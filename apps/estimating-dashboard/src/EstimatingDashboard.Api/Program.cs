@@ -7,6 +7,7 @@ using EstimatingDashboard.Api.Data;
 using EstimatingDashboard.Api.Dtos;
 using EstimatingDashboard.Api.Endpoints;
 using EstimatingDashboard.Api.Services;
+using SonAero.Platform.Integrations;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,14 +24,32 @@ builder.Services.AddScoped<EstimatorSummaryReportService>();
 builder.Services.AddSingleton<EstimatingHistoryReviewStore>();
 builder.Services.Configure<FulcrumQuoteSyncOptions>(
     builder.Configuration.GetSection(FulcrumQuoteSyncOptions.SectionName));
+builder.Services.AddOptions<EnterpriseQuoteSyncScheduleOptions>()
+    .Configure<IConfiguration>((settings, configuration) =>
+    {
+        var enterpriseSection = configuration.GetSection(EnterpriseQuoteSyncScheduleOptions.SectionName);
+        if (enterpriseSection.Exists())
+        {
+            enterpriseSection.Bind(settings);
+            return;
+        }
+
+        // Existing deployments continue using their original section until configuration is updated.
+        var legacySection = configuration.GetSection(FulcrumQuoteSyncOptions.SectionName);
+        settings.Enabled = legacySection.GetValue("Enabled", false);
+        settings.TimeZoneId = legacySection.GetValue("TimeZoneId", settings.TimeZoneId) ?? settings.TimeZoneId;
+    });
 builder.Services.AddSingleton<SonAero.Platform.Security.IIntegrationSecretProtector,
     SonAero.Platform.Security.MachineIntegrationSecretProtector>();
 builder.Services.AddScoped<IIntegrationCredentialReader, IntegrationCredentialReader>();
+builder.Services.AddScoped<IEnterpriseProviderSource, EstimatingEnterpriseProviderSource>();
 builder.Services.AddHttpClient<FulcrumQuoteClient>(client =>
 {
     client.Timeout = TimeSpan.FromMinutes(5);
 });
-builder.Services.AddScoped<FulcrumQuoteSyncService>();
+builder.Services.AddScoped<IEstimatingQuoteProvider, FulcrumEstimatingQuoteProvider>();
+builder.Services.AddScoped<IEstimatingQuoteProvider, AcumaticaEstimatingQuoteProvider>();
+builder.Services.AddScoped<EnterpriseQuoteSyncService>();
 builder.Services.AddScoped<FulcrumEstimateImportService>();
 builder.Services.AddScoped<FulcrumEstimateExportService>();
 builder.Services.AddScoped<EstimatingOperationMappingService>();

@@ -134,6 +134,10 @@ public sealed record ProjectSummaryDto(
     string? SalesOrderUrl,
     string? JobNumber,
     string? JobUrl,
+    decimal? RequiredQuantity,
+    decimal? JobQuantity,
+    string? RequiredQuantitySource,
+    string? JobQuantitySource,
     string? CurrentTask,
     int? PriorityRank,
     decimal Progress,
@@ -163,6 +167,12 @@ public sealed record ProjectDetailDto(
     string? SalesOrderUrl,
     string? JobNumber,
     string? JobUrl,
+    decimal? RequiredQuantity,
+    decimal? JobQuantity,
+    string? RequiredQuantitySource,
+    string? JobQuantitySource,
+    string? QuantityLastSyncProvider,
+    DateTimeOffset? QuantityLastSyncedAt,
     string? CurrentTask,
     DateOnly? ProgramStart,
     DateOnly? TargetDelivery,
@@ -216,6 +226,8 @@ public sealed record ProjectUpsertDto(
     string? SalesOrderUrl,
     string? JobNumber,
     string? JobUrl,
+    decimal? RequiredQuantity,
+    decimal? JobQuantity,
     long Version);
 
 public sealed record ProjectCreateDto(
@@ -227,8 +239,19 @@ public sealed record ProjectCreateDto(
     string? SalesOrderUrl,
     string? JobNumber,
     string? JobUrl,
+    decimal? RequiredQuantity,
+    decimal? JobQuantity,
     DateOnly? ProgramStart,
     int? TemplateProjectId);
+
+public sealed record ProjectQuantitySyncRequestDto(long Version);
+
+public sealed record ProjectQuantitySyncResultDto(
+    ProjectDetailDto Project,
+    string Provider,
+    IReadOnlyList<string> UpdatedFields,
+    IReadOnlyList<string> RetainedFields,
+    IReadOnlyList<string> Warnings);
 
 public sealed record TaskUpsertDto(
     int Sequence,

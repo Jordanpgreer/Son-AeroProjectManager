@@ -13,6 +13,7 @@ using ProjectTracker.Api.Models;
 using ProjectTracker.Api.Services;
 using ProjectTracker.Api.Services.Import;
 using ProjectTracker.Api.Services.Reports;
+using SonAero.Platform.Integrations;
 using SonAero.Platform.Security;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -38,6 +39,19 @@ builder.Services.AddScoped<ModuleAccessService>();
 builder.Services.AddSingleton<ScheduleCalculator>();
 builder.Services.AddScoped<ProjectMetricsService>();
 builder.Services.AddScoped<ProjectReadService>();
+builder.Services.Configure<ProjectQuantitySyncOptions>(
+    builder.Configuration.GetSection(ProjectQuantitySyncOptions.SectionName));
+builder.Services.AddSingleton<IIntegrationSecretProtector, MachineIntegrationSecretProtector>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<IProjectTrackerIntegrationCredentialReader, ProjectTrackerIntegrationCredentialReader>();
+builder.Services.AddScoped<IEnterpriseProviderSource, ProjectTrackerEnterpriseProviderSource>();
+builder.Services.AddHttpClient<FulcrumProjectQuantityProvider>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(45);
+});
+builder.Services.AddScoped<IProjectQuantityProvider>(serviceProvider =>
+    serviceProvider.GetRequiredService<FulcrumProjectQuantityProvider>());
+builder.Services.AddScoped<IProjectQuantityProvider, AcumaticaProjectQuantityProvider>();
 builder.Services.AddScoped<WorkbookImportService>();
 builder.Services.AddScoped<ControlledWorkbookImportService>();
 builder.Services.AddScoped<WorkCenterWorkbookImportService>();
@@ -68,6 +82,8 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy(ProjectTrackerAccessAuthorization.PolicyName, ProjectTrackerAccessAuthorization.ConfigurePolicy);
     options.AddPolicy("ProjectCreate", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectCreate));
     options.AddPolicy("ProjectPriority", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectReorderPriority));
+    options.AddPolicy(ProjectQuantitySyncEndpoints.AuthorizationPolicy, policy =>
+        policy.RequireClaim(ApplicationClaimTypes.Permission, ProjectTrackerPermissions.ProjectEditQuantities));
     options.AddPolicy("ProjectComplete", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectComplete));
     options.AddPolicy("ProjectReopen", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectReopen));
     options.AddPolicy("ProjectArchive", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectArchive));
@@ -170,6 +186,7 @@ api.MapPushNotificationEndpoints();
 api.MapReportEndpoints();
 api.MapImportEndpoints();
 api.MapWorkCenterImportEndpoints();
+api.MapProjectQuantitySyncEndpoints();
 
 api.MapGet("/projects/{id:int}/messages", async (int id, int? afterId, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
 {
@@ -275,6 +292,10 @@ api.MapPost("/projects", async (ProjectCreateDto dto, ProjectTrackerDbContext db
     {
         return Results.Conflict("A project with this part number already exists.");
     }
+    if (ValidateQuantity(dto.RequiredQuantity, "Required quantity") is { } requiredQuantityError)
+        return Results.BadRequest(requiredQuantityError);
+    if (ValidateQuantity(dto.JobQuantity, "Job quantity") is { } jobQuantityError)
+        return Results.BadRequest(jobQuantityError);
 
     if ((!string.IsNullOrWhiteSpace(dto.SalesOrderUrl) || !string.IsNullOrWhiteSpace(dto.JobUrl))
         && !currentUser.HasPermission(ProjectTrackerPermissions.ProjectEditExternalLinks))
@@ -305,6 +326,10 @@ api.MapPost("/projects", async (ProjectCreateDto dto, ProjectTrackerDbContext db
         SalesOrderUrl = salesOrderUrl,
         JobNumber = Clean(dto.JobNumber),
         JobUrl = jobUrl,
+        RequiredQuantity = dto.RequiredQuantity,
+        JobQuantity = dto.JobQuantity,
+        RequiredQuantitySource = dto.RequiredQuantity is null ? null : ProjectQuantitySources.Manual,
+        JobQuantitySource = dto.JobQuantity is null ? null : ProjectQuantitySources.Manual,
         ProgramStart = dto.ProgramStart,
         PriorityRank = nextPriority
     };
@@ -369,6 +394,10 @@ api.MapPut("/projects/{id:int}", async (int id, ProjectUpsertDto dto, ProjectTra
     {
         return ConcurrencyConflict("Project", project.Id);
     }
+    if (ValidateQuantity(dto.RequiredQuantity, "Required quantity") is { } requiredQuantityError)
+        return Results.BadRequest(requiredQuantityError);
+    if (ValidateQuantity(dto.JobQuantity, "Job quantity") is { } jobQuantityError)
+        return Results.BadRequest(jobQuantityError);
     if (!ProjectExternalLinks.TryNormalize(dto.SalesOrderUrl, "Sales order URL", out var salesOrderUrl, out var salesOrderUrlError))
     {
         return Results.BadRequest(salesOrderUrlError);
@@ -961,6 +990,16 @@ static void ApplyProjectDto(Project project, ProjectUpsertDto dto, string? sales
     project.SalesOrderUrl = salesOrderUrl;
     project.JobNumber = Clean(dto.JobNumber);
     project.JobUrl = jobUrl;
+    if (project.RequiredQuantity != dto.RequiredQuantity)
+    {
+        project.RequiredQuantity = dto.RequiredQuantity;
+        project.RequiredQuantitySource = dto.RequiredQuantity is null ? null : ProjectQuantitySources.Manual;
+    }
+    if (project.JobQuantity != dto.JobQuantity)
+    {
+        project.JobQuantity = dto.JobQuantity;
+        project.JobQuantitySource = dto.JobQuantity is null ? null : ProjectQuantitySources.Manual;
+    }
     ProjectImportCompletion.Refresh(project);
     project.UpdatedAt = DateTimeOffset.UtcNow;
 }
@@ -1208,6 +1247,12 @@ static async Task InitializeDatabaseAsync(WebApplication app)
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "SalesOrderUrl", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "JobNumber", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "JobUrl", cancellationToken: default);
+            await SqliteCompatibility.EnsureDecimalColumnAsync(db, "Projects", "RequiredQuantity", cancellationToken: default);
+            await SqliteCompatibility.EnsureDecimalColumnAsync(db, "Projects", "JobQuantity", cancellationToken: default);
+            await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "RequiredQuantitySource", cancellationToken: default);
+            await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "JobQuantitySource", cancellationToken: default);
+            await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "QuantityLastSyncProvider", cancellationToken: default);
+            await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "QuantityLastSyncedAt", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "CompletedOn", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "DeletedAt", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "DeletedByAccountName", cancellationToken: default);
@@ -1225,6 +1270,11 @@ static async Task InitializeDatabaseAsync(WebApplication app)
             await SqliteCompatibility.EnsureLocalPermissionSeedAsync(db, cancellationToken: default);
         }
     }
+
+    await db.Database.ExecuteSqlRawAsync(
+        isSqlite ? IntegrationCredentialSchema.Sqlite : IntegrationCredentialSchema.SqlServer);
+    await db.Database.ExecuteSqlRawAsync(
+        isSqlite ? EnterpriseIntegrationSchema.Sqlite : EnterpriseIntegrationSchema.SqlServer);
 
     var accessSeeder = scope.ServiceProvider.GetRequiredService<AccessControlSeeder>();
     await accessSeeder.SeedAsync(db, configuration);
@@ -1321,6 +1371,12 @@ static string? FindDeniedProjectPermission(
         return ProjectTrackerPermissions.ProjectEditJobNumber;
     }
 
+    if ((project.RequiredQuantity != dto.RequiredQuantity || project.JobQuantity != dto.JobQuantity)
+        && !currentUser.HasPermission(ProjectTrackerPermissions.ProjectEditQuantities))
+    {
+        return ProjectTrackerPermissions.ProjectEditQuantities;
+    }
+
     var deniedExternalLinksPermission = ProjectExternalLinks.FindDeniedEditPermission(
         project,
         salesOrderUrl,
@@ -1332,6 +1388,12 @@ static string? FindDeniedProjectPermission(
     }
 
     return null;
+}
+
+static string? ValidateQuantity(decimal? value, string label)
+{
+    if (value is null || value is > 0m and <= 1_000_000_000m) return null;
+    return $"{label} must be greater than zero and no more than 1,000,000,000, or left blank.";
 }
 
 static string? ValidateProjectDependencies(Project project)

@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Activity, CheckCircle2, KeyRound, RefreshCcw, ShieldCheck, Trash2 } from 'lucide-react'
+import { Activity, CheckCircle2, KeyRound, Network, RefreshCcw, ShieldCheck, Trash2 } from 'lucide-react'
 import { portalApi, toErrorMessage } from './api'
-import type { IntegrationCredential, IntegrationCredentialOverview } from './types'
+import type { EnterpriseIntegrationProvider, IntegrationCredential, IntegrationCredentialOverview } from './types'
 
 const FULCRUM_NAME = 'Fulcrum Public API'
 const FULCRUM_KEY = 'fulcrum-public-api'
+const ACUMATICA_NAME = 'Acumatica API'
+const ACUMATICA_KEY = 'acumatica-api'
 
 function keyFromName(value: string) {
   return value
@@ -29,8 +31,12 @@ export default function IntegrationCredentialsPanel() {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [testing, setTesting] = useState<string | null>(null)
+  const [savingProvider, setSavingProvider] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [activeProvider, setActiveProvider] = useState('Fulcrum')
+  const [selectedProvider, setSelectedProvider] = useState('Fulcrum')
+  const [supportedProviders, setSupportedProviders] = useState<string[]>(['Fulcrum', 'Acumatica'])
   const [editingKey, setEditingKey] = useState<string | null>(FULCRUM_KEY)
   const [displayName, setDisplayName] = useState(FULCRUM_NAME)
   const [secret, setSecret] = useState('')
@@ -46,6 +52,9 @@ export default function IntegrationCredentialsPanel() {
       .then((overview) => {
         if (!active) return
         setCredentials(overview.credentials)
+        setActiveProvider(overview.activeProvider)
+        setSelectedProvider(overview.activeProvider)
+        setSupportedProviders(overview.supportedProviders)
         const fulcrum = overview.credentials.find((credential) => credential.credentialKey === FULCRUM_KEY)
         if (fulcrum) {
           setEditingKey(fulcrum.credentialKey)
@@ -75,13 +84,33 @@ export default function IntegrationCredentialsPanel() {
     setMessage(null)
   }
 
-  function configureFulcrum() {
-    const existing = credentials.find((credential) => credential.credentialKey === FULCRUM_KEY)
-    setEditingKey(FULCRUM_KEY)
-    setDisplayName(existing?.displayName ?? FULCRUM_NAME)
+  function configureProvider(credentialKey: string, credentialName: string) {
+    const existing = credentials.find((credential) => credential.credentialKey === credentialKey)
+    setEditingKey(credentialKey)
+    setDisplayName(existing?.displayName ?? credentialName)
     setSecret('')
     setError(null)
     setMessage(null)
+  }
+
+  async function saveActiveProvider() {
+    if (selectedProvider === activeProvider) return
+    setSavingProvider(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const updated = await portalApi<EnterpriseIntegrationProvider>('/api/admin/integration-provider', {
+        method: 'PUT',
+        body: JSON.stringify({ provider: selectedProvider }),
+      })
+      setActiveProvider(updated.activeProvider)
+      setSelectedProvider(updated.activeProvider)
+      setMessage(`${updated.activeProvider} is now the source for enterprise data pulls and pushes across connected modules.`)
+    } catch (cause) {
+      setError(toErrorMessage(cause))
+    } finally {
+      setSavingProvider(false)
+    }
   }
 
   async function saveCredential(event: FormEvent<HTMLFormElement>) {
@@ -174,19 +203,43 @@ export default function IntegrationCredentialsPanel() {
         <header className="admin-surface-head">
           <div>
             <span className="kicker">Server credentials</span>
-            <h2 id="integration-credentials-heading">API keys</h2>
-            <p>Save named API keys for connected systems, then test supported connections from this page. Values are encrypted before storage and are never sent back to the browser.</p>
+            <h2 id="integration-credentials-heading">Enterprise system connection</h2>
+            <p>Choose the active business system once, then manage its protected credentials below. Connected modules use the same selection automatically.</p>
           </div>
           <span className="admin-permission-badge"><ShieldCheck size={14} aria-hidden="true" /> Administrators only</span>
         </header>
 
+        <div className="enterprise-provider-switch">
+          <span className="integration-credential-icon"><Network size={19} aria-hidden="true" /></span>
+          <div>
+            <strong>Active data provider</strong>
+            <p>Project quantities, estimating quotes, and future Engineering and Quality connections are routed through this provider.</p>
+          </div>
+          <label>
+            <span className="sr-only">Enterprise data provider</span>
+            <select value={selectedProvider} onChange={(event) => setSelectedProvider(event.target.value)}>
+              {supportedProviders.map((provider) => <option key={provider} value={provider}>{provider}</option>)}
+            </select>
+          </label>
+          <button type="button" className="solid-button" disabled={savingProvider || selectedProvider === activeProvider} onClick={() => void saveActiveProvider()}>
+            {savingProvider ? 'Switching...' : selectedProvider === activeProvider ? `${activeProvider} active` : `Switch to ${selectedProvider}`}
+          </button>
+        </div>
+
+        {selectedProvider === 'Acumatica' && (
+          <p className="enterprise-provider-note">Acumatica should be active only after its endpoint, credentials, and field mappings have been configured for production.</p>
+        )}
+
         <div className="integration-credential-callout">
           <span><KeyRound size={19} aria-hidden="true" /></span>
           <div>
-            <strong>Estimating quote sync</strong>
-            <p>Save the Fulcrum token as <b>{FULCRUM_NAME}</b>. The scheduled 2:00 AM and 7:00 PM sync uses that protected entry automatically.</p>
+            <strong>Provider credentials</strong>
+            <p>Tokens are encrypted for this server. Fulcrum currently supports a live connection test; Acumatica testing becomes available when its tenant authentication is configured.</p>
           </div>
-          <button type="button" className="ghost-button" onClick={configureFulcrum}>Add or update Fulcrum</button>
+          <div className="integration-provider-actions">
+            <button type="button" className="ghost-button" onClick={() => configureProvider(FULCRUM_KEY, FULCRUM_NAME)}>Configure Fulcrum</button>
+            <button type="button" className="ghost-button" onClick={() => configureProvider(ACUMATICA_KEY, ACUMATICA_NAME)}>Configure Acumatica</button>
+          </div>
         </div>
 
         {error && <p className="admin-message error" role="alert">{error}</p>}
@@ -229,7 +282,7 @@ export default function IntegrationCredentialsPanel() {
           <div><span className="kicker">Protected inventory</span><h2 id="saved-credentials-heading">Saved credentials</h2><p>Only status and audit information are visible. Every entry can be updated or deleted; secret values cannot be revealed.</p></div>
         </header>
         {loading && <div className="admin-loading" role="status">Loading saved credentials...</div>}
-        {!loading && sortedCredentials.length === 0 && <div className="estimator-settings-empty"><strong>No API keys saved</strong><p>Configure Fulcrum above or add another named key.</p></div>}
+        {!loading && sortedCredentials.length === 0 && <div className="estimator-settings-empty"><strong>No API keys saved</strong><p>Configure Fulcrum or Acumatica above, or add another named key.</p></div>}
         {!loading && sortedCredentials.length > 0 && (
           <div className="integration-credential-list">
             {sortedCredentials.map((credential) => {

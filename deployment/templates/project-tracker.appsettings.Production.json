@@ -2,6 +2,7 @@
   "Authentication": { "Mode": "Windows" },
   "Cors": { "HubOrigins": [ "https://hub.son4l.local", "https://SON-IIS2:6140", "http://SON-IIS2:5140" ] },
   "Database": { "Provider": "SqlServer", "AutoMigrate": true },
+  "ProjectQuantitySync": { "FulcrumBaseUrl": "https://api.fulcrumpro.us/" },
   "ConnectionStrings": {
     "SqlServer": "Server=tcp:SON-SQL2,1433;Database=ProjectTracker;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
   },

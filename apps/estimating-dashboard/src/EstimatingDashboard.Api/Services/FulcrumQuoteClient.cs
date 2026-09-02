@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
+using SonAero.Platform.Integrations;
 
 namespace EstimatingDashboard.Api.Services;
 
@@ -10,7 +11,7 @@ public sealed class FulcrumQuoteSyncOptions
     public const string SectionName = "FulcrumQuoteSync";
 
     public bool Enabled { get; set; }
-    public string BaseUrl { get; set; } = "https://api.fulcrumpro.com/";
+    public string BaseUrl { get; set; } = FulcrumApiEndpoint.ItarBaseUrl;
     public string TimeZoneId { get; set; } = "Mountain Standard Time";
     public int PageSize { get; set; } = 5000;
     public FulcrumQuoteCustomFieldOptions CustomFields { get; set; } = new();
@@ -46,9 +47,9 @@ internal sealed class FulcrumQuoteClient(
         CancellationToken cancellationToken)
     {
         var settings = options.Value;
-        if (!Uri.TryCreate(settings.BaseUrl, UriKind.Absolute, out var baseUri)
-            || baseUri.Scheme != Uri.UriSchemeHttps)
-            throw new InvalidOperationException("FulcrumQuoteSync:BaseUrl must be an absolute HTTPS URL.");
+        var baseUri = FulcrumApiEndpoint.ResolveItarBaseUri(
+            settings.BaseUrl,
+            "FulcrumQuoteSync:BaseUrl");
         var token = await credentials.GetSecretAsync(
             SonAero.Platform.Security.IntegrationCredentialNames.FulcrumPublicApi,
             cancellationToken);

@@ -5,7 +5,7 @@
     "RoleStore": "Server=tcp:SON-SQL2,1433;Database=ProjectTracker;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
   },
   "IntegrationCredentials": {
-    "FulcrumBaseUrl": "https://api.fulcrumpro.com/"
+    "FulcrumBaseUrl": "https://api.fulcrumpro.us/"
   },
   "DrawingStorage": {
     "RootPath": "\\\\SON-SQL2\\EngineeringDrawings$",

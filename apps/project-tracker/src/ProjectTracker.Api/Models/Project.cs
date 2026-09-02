@@ -13,6 +13,12 @@ public sealed class Project
     public string? SalesOrderUrl { get; set; }
     public string? JobNumber { get; set; }
     public string? JobUrl { get; set; }
+    public decimal? RequiredQuantity { get; set; }
+    public decimal? JobQuantity { get; set; }
+    public string? RequiredQuantitySource { get; set; }
+    public string? JobQuantitySource { get; set; }
+    public string? QuantityLastSyncProvider { get; set; }
+    public DateTimeOffset? QuantityLastSyncedAt { get; set; }
     public DateOnly? ProgramStart { get; set; }
     public DateOnly? TargetDelivery { get; set; }
     public DateOnly? CompletedOn { get; set; }
@@ -35,4 +41,11 @@ public sealed class Project
     public List<ProjectMessage> Messages { get; set; } = [];
     public List<ProjectAuditEntry> AuditEntries { get; set; } = [];
     public List<UserNotification> Notifications { get; set; } = [];
+}
+
+public static class ProjectQuantitySources
+{
+    public const string Manual = "Manual";
+    public const string Fulcrum = "Fulcrum";
+    public const string Acumatica = "Acumatica";
 }

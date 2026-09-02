@@ -197,6 +197,8 @@ internal static class LegacyProjectWorkbookParser
                 null,
                 null,
                 null,
+                null,
+                null,
                 true));
             operations.AddRange(ToOperations(tasks, projectKey, ref normalizedOperationRow));
             projectNumber++;
@@ -218,6 +220,8 @@ internal static class LegacyProjectWorkbookParser
             null,
             programName,
             string.Empty,
+            null,
+            null,
             null,
             null,
             null,
