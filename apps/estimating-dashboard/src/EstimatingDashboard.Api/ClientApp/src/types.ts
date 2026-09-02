@@ -53,6 +53,7 @@ export interface MaterialInput {
   unitOfMeasure: string
   partsQuantity: number
   unitPrice: number
+  notes?: string
   amortizeMinBuy: boolean
 }
 

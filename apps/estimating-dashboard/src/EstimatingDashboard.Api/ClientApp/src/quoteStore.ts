@@ -106,6 +106,7 @@ function isMaterial(value: unknown) {
     && typeof value.unitOfMeasure === 'string'
     && isFiniteNumber(value.partsQuantity)
     && isFiniteNumber(value.unitPrice)
+    && (value.notes === undefined || typeof value.notes === 'string')
     && typeof value.amortizeMinBuy === 'boolean'
 }
 

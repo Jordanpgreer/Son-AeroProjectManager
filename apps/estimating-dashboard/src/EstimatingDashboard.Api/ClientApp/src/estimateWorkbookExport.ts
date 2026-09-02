@@ -76,6 +76,7 @@ function writeMaterials(
       audit?.unitCostByQuantity[quantity] ?? 0
     ))
     setCell(sheet, `N${row}`, material?.amortizeMinBuy ?? false)
+    setCell(sheet, `O${row}`, material?.notes ?? null)
   }
 }
 

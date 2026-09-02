@@ -317,14 +317,16 @@ function readMaterials(
     const unitOfMeasure = cellText(sheet, row, 2)
     const partsQuantity = constrainedCellNumber(sheet, row, 3, `Material row ${row} parts quantity`, { min: 0 }) ?? 0
     const unitPrice = constrainedCellNumber(sheet, row, 4, `Material row ${row} unit price`, { min: 0 }) ?? 0
+    const notes = cellText(sheet, row, 15)
     const amortizeMinBuy = cellBoolean(sheet, row, 14)
-    if (!description && !unitOfMeasure && !partsQuantity && !unitPrice && !amortizeMinBuy) continue
+    if (!description && !unitOfMeasure && !partsQuantity && !unitPrice && !notes && !amortizeMinBuy) continue
     materials.push({
       id: importedId(idPrefix, materials.length),
       description,
       unitOfMeasure,
       partsQuantity,
       unitPrice,
+      notes,
       amortizeMinBuy,
     })
   }

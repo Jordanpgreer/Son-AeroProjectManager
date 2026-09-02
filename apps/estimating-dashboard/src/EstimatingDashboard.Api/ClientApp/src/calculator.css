@@ -8,6 +8,30 @@
   display: flex; align-items: center; justify-content: flex-end; gap: 8px;
 }
 
+.import-guide {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  display: grid;
+  grid-template-columns: auto minmax(220px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--steel-tint) 92%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--steel) 38%, var(--line));
+  border-radius: var(--r-md);
+  box-shadow: 0 8px 24px rgb(15 23 42 / .12);
+}
+.import-guide.is-summary { background: color-mix(in srgb, var(--success-tint) 90%, var(--surface)); border-color: color-mix(in srgb, var(--success) 40%, var(--line)); }
+.import-guide-icon { display: grid; place-items: center; width: 38px; height: 38px; color: var(--steel-700); background: var(--surface); border: 1px solid var(--line); border-radius: 50%; }
+.import-guide-copy { display: grid; gap: 2px; }
+.import-guide-copy > span { color: var(--steel-700); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.import-guide-copy strong { font-size: 12px; }
+.import-guide-copy small { color: var(--muted); font-size: 10px; }
+.import-guide-actions { display: flex; align-items: center; gap: 8px; }
+.import-guide-actions button { min-height: 38px; white-space: nowrap; }
+.is-import-guide-target { position: relative; z-index: 1; border-radius: var(--r-sm); outline: 3px solid color-mix(in srgb, var(--steel) 62%, transparent); outline-offset: 3px; box-shadow: 0 0 0 7px color-mix(in srgb, var(--steel-tint) 82%, transparent); }
+
 .calculator-toolbar,
 .calc-card,
 .assumptions-bar {
@@ -274,7 +298,7 @@
 }
 
 .input-table { min-width: 680px; }
-.materials-table { min-width: 880px; }
+.materials-table { min-width: 1040px; }
 .processes-table { min-width: 660px; }
 .subassembly-processes-table { min-width: 980px; }
 .input-table caption,
@@ -302,6 +326,7 @@
 .input-table input, .input-table select { min-width: 92px; }
 .input-table tbody th select, .input-table tbody th input { min-width: 210px; }
 .input-table .uom-input { min-width: 70px; max-width: 90px; }
+.input-table .material-notes-input { min-width: 170px; }
 
 .numeric, .read-only-value,
 .pricing-table td, .audit-table td {
@@ -570,6 +595,9 @@
 }
 
 @media (max-width: 720px) {
+  .import-guide { position: static; grid-template-columns: auto 1fr; }
+  .import-guide-actions { grid-column: 1 / -1; justify-content: stretch; }
+  .import-guide-actions button { flex: 1; }
   .calculator-toolbar { align-items: stretch; flex-direction: column; }
   .model-switch { display: grid; grid-template-columns: 1fr; width: 100%; }
   .model-switch button { justify-content: center; min-height: 46px; }

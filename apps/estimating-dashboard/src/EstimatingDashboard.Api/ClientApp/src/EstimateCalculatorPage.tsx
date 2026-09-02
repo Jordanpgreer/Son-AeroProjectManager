@@ -1,5 +1,5 @@
-import { Download, GitBranch, RotateCcw, Save, Send, ShieldCheck, Upload } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { CheckCircle2, Download, GitBranch, Navigation, RotateCcw, Save, Send, ShieldCheck, Upload } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   MaterialsSection,
@@ -11,11 +11,13 @@ import {
   OperationsSection,
 } from './CalculatorInputSections'
 import CalculatorResults from './CalculatorResults'
+import EstimateImportDialog from './FulcrumEstimateBuilderPage'
 import { calculateEstimate } from './calculations'
 import {
   createEstimateDefaults,
   createSubassemblyDefaults,
 } from './estimateDefaults'
+import { cleanWorkbookMessage } from './estimateImportMessages'
 import {
   ANNUAL_RATE_ASSUMPTIONS,
   CONTROLLED_OPERATION_OPTIONS,
@@ -36,6 +38,13 @@ import {
 import SubassembliesSection from './SubassembliesSection'
 import QuantityEditor from './QuantityEditor'
 import { formatQuoteRevision } from './quoteRevision'
+import {
+  buildFulcrumCalculatorImport,
+  importGuideTaskComplete,
+  type ImportGuideTask,
+} from './fulcrumCalculatorImport'
+import type { FulcrumEstimatePreview } from './fulcrumEstimateApi'
+import type { FulcrumBuilderState } from './fulcrumEstimateModel'
 import {
   ESTIMATE_YEARS,
   replaceEstimateQuantities,
@@ -66,6 +75,14 @@ function createRowId(prefix: string) {
   return `${prefix}-${randomId}`
 }
 
+type ImportGuideStatus = 'pending' | 'complete' | 'deferred'
+
+interface ImportGuideState {
+  tasks: ImportGuideTask[]
+  currentIndex: number
+  statuses: Record<string, ImportGuideStatus>
+}
+
 export default function EstimateCalculatorPage({
   ownerAccountName,
   canManageQuotes,
@@ -91,7 +108,8 @@ export default function EstimateCalculatorPage({
   const [exportMessage, setExportMessage] = useState('')
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
-  const workbookInputRef = useRef<HTMLInputElement>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importGuide, setImportGuide] = useState<ImportGuideState | null>(null)
   const [estimate, setEstimate] = useState<EstimateInput>(
     () => initialVersion?.estimate ?? createEstimateDefaults('standard'),
   )
@@ -104,6 +122,8 @@ export default function EstimateCalculatorPage({
       ? initialVersion.estimate.subassemblies[0]?.id ?? null
       : null,
   )
+  const estimateRef = useRef(estimate)
+  estimateRef.current = estimate
 
   const activeDraft = quoteRecord?.draft?.id === activeVersionId
     ? quoteRecord.draft
@@ -118,6 +138,12 @@ export default function EstimateCalculatorPage({
 
   const calculation = useMemo(() => calculateEstimate(estimate), [estimate])
   const assumptions = ANNUAL_RATE_ASSUMPTIONS[estimate.rateYear]
+  const activeGuideTask = importGuide?.currentIndex === undefined || importGuide.currentIndex < 0
+    ? null
+    : importGuide.tasks[importGuide.currentIndex] ?? null
+  const deferredGuideCount = importGuide
+    ? Object.values(importGuide.statuses).filter((status) => status === 'deferred').length
+    : 0
   const materialExtendedCosts = useMemo(
     () => Object.fromEntries(
       calculation.materials.map((material) => [material.materialId, material.extendedCost]),
@@ -140,6 +166,54 @@ export default function EstimateCalculatorPage({
       setSelectedSubassemblyId(estimate.subassemblies[0]?.id ?? null)
     }
   }, [estimate, selectedSubassemblyId])
+
+  const advanceImportGuide = useCallback((status: Exclude<ImportGuideStatus, 'pending'>) => {
+    setImportGuide((current) => {
+      if (!current || current.currentIndex < 0) return current
+      const task = current.tasks[current.currentIndex]
+      const statuses = { ...current.statuses, [task.id]: status }
+      const nextIndex = current.tasks.findIndex((candidate, index) => (
+        index > current.currentIndex && statuses[candidate.id] === 'pending'
+      ))
+      return { ...current, statuses, currentIndex: nextIndex }
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!activeGuideTask) return
+    const guideTask = activeGuideTask
+    let highlighted: HTMLElement | null = null
+    let target: HTMLElement | null = null
+    let blurTimer = 0
+    const frame = window.requestAnimationFrame(() => {
+      const field = document.querySelector<HTMLElement>(`[data-import-field="${guideTask.fieldKey}"]`)
+      if (!field) return
+      target = field.matches('input, textarea, select, button')
+        ? field
+        : field.querySelector<HTMLElement>('input, textarea, select, button')
+      highlighted = field.closest<HTMLElement>('label, .quantity-tier-field, td') ?? field
+      highlighted.classList.add('is-import-guide-target')
+      highlighted.scrollIntoView({
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+        block: 'center',
+      })
+      target?.focus({ preventScroll: true })
+      target?.addEventListener('blur', onBlur)
+    })
+    function onBlur() {
+      blurTimer = window.setTimeout(() => {
+        if (importGuideTaskComplete(guideTask, estimateRef.current)) {
+          advanceImportGuide('complete')
+        }
+      })
+    }
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.clearTimeout(blurTimer)
+      target?.removeEventListener('blur', onBlur)
+      highlighted?.classList.remove('is-import-guide-target')
+    }
+  }, [activeGuideTask, advanceImportGuide])
 
   const updateEstimate = (update: (current: EstimateInput) => EstimateInput) => {
     if (!canEditEstimate) return
@@ -360,6 +434,7 @@ export default function EstimateCalculatorPage({
           unitOfMeasure: '',
           partsQuantity: 0,
           unitPrice: 0,
+          notes: '',
           amortizeMinBuy: false,
         },
       ],
@@ -454,15 +529,15 @@ export default function EstimateCalculatorPage({
   }
 
   const importWorkbook = async (file: File) => {
-    if (!canEditEstimate) return
+    if (!canEditEstimate) return false
     if (!/\.xlsx$/i.test(file.name)) {
       setExportMessage('Choose an Excel .xlsx file. Legacy .xls files can be opened in Excel and saved as .xlsx.')
-      return
+      return false
     }
     if (
       (dirty || quoteRecord)
       && !window.confirm('Replace the current draft inputs with this workbook? Published revs will not be changed.')
-    ) return
+    ) return false
     setImporting(true)
     setExportMessage(`Reading ${file.name}…`)
     try {
@@ -476,17 +551,45 @@ export default function EstimateCalculatorPage({
           : null,
       )
       setDirty(true)
+      setImportGuide(null)
       setSaveMessage('')
       const notes = imported.operationNoteCount
-        ? ` · ${imported.operationNoteCount} ${imported.operationNoteCount === 1 ? 'line note' : 'line notes'} from Column O`
+        ? ` · ${imported.operationNoteCount} ${imported.operationNoteCount === 1 ? 'line note' : 'line notes'} imported`
         : ''
       const warning = imported.warnings.length ? ` · ${imported.warnings.join(' ')}` : ''
       setExportMessage(`Imported ${imported.sourceSheet}${notes}${warning}`)
+      return true
     } catch (cause) {
-      setExportMessage(cause instanceof Error ? cause.message : 'Could not import the workbook.')
+      setExportMessage(cause instanceof Error ? cleanWorkbookMessage(cause.message) : 'Could not import the workbook.')
+      return false
     } finally {
       setImporting(false)
     }
+  }
+
+  const closeImport = useCallback(() => setImportOpen(false), [])
+
+  const applyBomRoutingImport = (
+    preview: FulcrumEstimatePreview,
+    operationValues: FulcrumBuilderState['operationValues'],
+  ) => {
+    if (
+      (dirty || quoteRecord)
+      && !window.confirm('Replace the current draft inputs with this BOM & Routing workbook? Published revs will not be changed.')
+    ) return
+    const imported = buildFulcrumCalculatorImport(preview, operationValues)
+    setEstimate(imported.estimate)
+    setSelectedQuantity(imported.estimate.quantities[0])
+    setSelectedSubassemblyId(null)
+    setImportGuide({
+      tasks: imported.guideTasks,
+      currentIndex: imported.guideTasks.length ? 0 : -1,
+      statuses: Object.fromEntries(imported.guideTasks.map((task) => [task.id, 'pending'])),
+    })
+    setDirty(true)
+    setSaveMessage('')
+    setExportMessage(`Imported ${preview.operations.length} routing steps and ${preview.materials.length} materials`)
+    setImportOpen(false)
   }
 
   const exportWorkbook = async () => {
@@ -517,29 +620,56 @@ export default function EstimateCalculatorPage({
           <RotateCcw size={16} aria-hidden="true" />
           Reset
         </button>
-        <input
-          ref={workbookInputRef}
-          className="sr-only"
-          type="file"
-          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          aria-label="Upload estimate workbook"
-          onChange={(event) => {
-            const file = event.currentTarget.files?.[0]
-            event.currentTarget.value = ''
-            if (file) void importWorkbook(file)
-          }}
-        />
         <button
           type="button"
           className="secondary-button"
           data-testid="import-estimate-workbook"
           disabled={!canEditEstimate || importing}
-          onClick={() => workbookInputRef.current?.click()}
+          onClick={() => setImportOpen(true)}
         >
           <Upload size={16} aria-hidden="true" />
           {importing ? 'Importing…' : 'Import Excel'}
         </button>
       </div>
+
+      {importOpen && (
+        <EstimateImportDialog
+          canEdit={canEditEstimate}
+          onClose={closeImport}
+          onQuoteSheet={importWorkbook}
+          onBomRoutingComplete={applyBomRoutingImport}
+        />
+      )}
+
+      {importGuide && (
+        <section className={`import-guide ${activeGuideTask ? '' : 'is-summary'}`} aria-live="polite">
+          <span className="import-guide-icon">
+            {activeGuideTask ? <Navigation size={19} aria-hidden="true" /> : <CheckCircle2 size={19} aria-hidden="true" />}
+          </span>
+          <div className="import-guide-copy">
+            <span>{activeGuideTask ? `Imported estimate · ${importGuide.currentIndex + 1} of ${importGuide.tasks.length}` : 'Imported estimate checklist'}</span>
+            <strong>{activeGuideTask ? activeGuideTask.label : deferredGuideCount ? `${deferredGuideCount} fields saved for later` : 'All required fields reviewed'}</strong>
+            <small>{activeGuideTask ? activeGuideTask.description : deferredGuideCount ? 'Resume whenever you are ready.' : 'The imported estimate is ready for your final review.'}</small>
+          </div>
+          <div className="import-guide-actions">
+            {activeGuideTask ? (
+              <>
+                <button type="button" className="secondary-button" onClick={() => advanceImportGuide('deferred')}>Finish this step later</button>
+                <button type="button" className="save-quote-button" disabled={!importGuideTaskComplete(activeGuideTask, estimate)} onClick={() => advanceImportGuide('complete')}>Save &amp; next</button>
+              </>
+            ) : (
+              <>
+                {deferredGuideCount > 0 && <button type="button" className="secondary-button" onClick={() => setImportGuide((current) => {
+                  if (!current) return current
+                  const statuses = Object.fromEntries(Object.entries(current.statuses).map(([id, status]) => [id, status === 'deferred' ? 'pending' : status])) as Record<string, ImportGuideStatus>
+                  return { ...current, statuses, currentIndex: current.tasks.findIndex((task) => statuses[task.id] === 'pending') }
+                })}>Review remaining fields</button>}
+                <button type="button" className="save-quote-button" onClick={() => setImportGuide(null)}>Close checklist</button>
+              </>
+            )}
+          </div>
+        </section>
+      )}
 
         <section className="quote-revision-bar" aria-label="Whole-quote rev history">
           <div className="quote-revision-summary">

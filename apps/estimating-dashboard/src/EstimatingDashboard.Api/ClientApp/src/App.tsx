@@ -3,7 +3,7 @@ import {
   AlertTriangle,
   BookOpen,
   Calculator,
-  FileSpreadsheet,
+  ChevronDown,
   LayoutDashboard,
   History,
   ListChecks,
@@ -15,7 +15,6 @@ import {
 import EstimateCalculatorPage from './EstimateCalculatorPage'
 import EstimatingRatesPage from './EstimatingRatesPage'
 import EstimatingHistoryPage from './EstimatingHistoryPage'
-import FulcrumEstimateBuilderPage from './FulcrumEstimateBuilderPage'
 import OperationRulesPage from './OperationRulesPage'
 import QuotesDashboardPage from './QuotesDashboardPage'
 import {
@@ -31,7 +30,6 @@ type EstimatingPage =
   | 'calculator'
   | 'history'
   | 'rates'
-  | 'fulcrum-builder'
   | 'operation-rules'
 
 function defaultHubUrl() {
@@ -80,18 +78,13 @@ const PAGE_META: Record<EstimatingPage, {
   },
   rates: {
     eyebrow: 'Controlled reference',
-    title: 'Estimating Rates',
+    title: 'Rates Reference',
     subtitle: 'Review annual labor, burden, G&A, profit, and source history.',
-  },
-  'fulcrum-builder': {
-    eyebrow: 'Controlled workbook automation',
-    title: 'Fulcrum Estimate Builder',
-    subtitle: 'Convert a standard Fulcrum workbook through a guided estimating review.',
   },
   'operation-rules': {
     eyebrow: 'Controlled operation translation',
     title: 'Operation Rules',
-    subtitle: 'Manage exact Fulcrum-to-estimating mappings linked to Rates Reference.',
+    subtitle: 'Manage controlled operation-step mappings linked to Rates Reference.',
   },
 }
 
@@ -100,12 +93,12 @@ function pageFromHash(): EstimatingPage | null {
     .replace(/^#\/?/, '')
     .split('?')[0]
     .toLowerCase()
+  if (route === 'fulcrum-builder') return 'calculator'
   if (
     route === 'quotes'
     || route === 'calculator'
     || route === 'history'
     || route === 'rates'
-    || route === 'fulcrum-builder'
     || route === 'operation-rules'
   ) return route
   return null
@@ -165,8 +158,12 @@ export default function App() {
   const [accessLoading, setAccessLoading] = useState(true)
   const [accessError, setAccessError] = useState<string | null>(null)
   const [historyImportOpen, setHistoryImportOpen] = useState(false)
+  const [referencesOpen, setReferencesOpen] = useState(() => page === 'rates' || page === 'operation-rules')
 
   useEffect(() => {
+    if (window.location.hash.replace(/^#\/?/, '').split('?')[0].toLowerCase() === 'fulcrum-builder') {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/calculator`)
+    }
     if (!pageFromHash()) {
       window.history.replaceState(
         null,
@@ -192,6 +189,10 @@ export default function App() {
     window.addEventListener('hashchange', updateRoute)
     return () => window.removeEventListener('hashchange', updateRoute)
   }, [])
+
+  useEffect(() => {
+    if (page === 'rates' || page === 'operation-rules') setReferencesOpen(true)
+  }, [page])
 
   useEffect(() => {
     try {
@@ -284,16 +285,6 @@ export default function App() {
   }, [accessLoading, canViewHistory, me, page])
 
   useEffect(() => {
-    if (accessLoading || !me || page !== 'fulcrum-builder' || canManageInputs) return
-    window.history.replaceState(
-      null,
-      '',
-      `${window.location.pathname}${window.location.search}#/quotes`,
-    )
-    setPage('quotes')
-  }, [accessLoading, canManageInputs, me, page])
-
-  useEffect(() => {
     if (page !== 'history' || !canImportHistory) setHistoryImportOpen(false)
   }, [canImportHistory, page])
 
@@ -376,15 +367,6 @@ export default function App() {
               <span className="nav-icon"><Calculator size={17} aria-hidden="true" /></span>
               <span className="nav-link-label">Estimate Calculator</span>
             </a>
-            {canManageInputs && <a
-              className={`nav-link ${page === 'fulcrum-builder' ? 'active' : ''}`}
-              href="#/fulcrum-builder"
-              aria-current={page === 'fulcrum-builder' ? 'page' : undefined}
-              title="Fulcrum Estimate Builder"
-            >
-              <span className="nav-icon"><FileSpreadsheet size={17} aria-hidden="true" /></span>
-              <span className="nav-link-label">Fulcrum Builder</span>
-            </a>}
             {canViewHistory && <a
               className={`nav-link ${page === 'history' ? 'active' : ''}`}
               href="#/history"
@@ -394,21 +376,31 @@ export default function App() {
               <span className="nav-icon"><History size={17} aria-hidden="true" /></span>
               <span className="nav-link-label">Estimating Logs</span>
             </a>}
-            <a
-              className={`nav-link ${page === 'rates' ? 'active' : ''}`}
-              href="#/rates"
-              aria-current={page === 'rates' ? 'page' : undefined}
-              title="Rates Reference"
-            >
+          </nav>
+        </section>
+        <section className="nav-section references-nav" aria-labelledby="references-nav-heading">
+          <button
+            type="button"
+            className="nav-heading references-nav-toggle"
+            id="references-nav-heading"
+            aria-expanded={referencesOpen}
+            aria-controls="references-nav-links"
+            title="References"
+            onClick={() => {
+              if (sidebarCollapsed) setSidebarCollapsed(false)
+              setReferencesOpen((current) => !current || sidebarCollapsed)
+            }}
+          >
+            <span className="nav-icon"><BookOpen size={16} aria-hidden="true" /></span>
+            <span>References</span>
+            <ChevronDown className="references-nav-chevron" size={15} aria-hidden="true" />
+          </button>
+          <nav className="primary-nav references-nav-links" id="references-nav-links" aria-label="Estimating references" hidden={!referencesOpen}>
+            <a className={`nav-link ${page === 'rates' ? 'active' : ''}`} href="#/rates" aria-current={page === 'rates' ? 'page' : undefined} title="Rates Reference">
               <span className="nav-icon"><BookOpen size={17} aria-hidden="true" /></span>
               <span className="nav-link-label">Rates Reference</span>
             </a>
-            <a
-              className={`nav-link ${page === 'operation-rules' ? 'active' : ''}`}
-              href="#/operation-rules"
-              aria-current={page === 'operation-rules' ? 'page' : undefined}
-              title="Operation Rules"
-            >
+            <a className={`nav-link ${page === 'operation-rules' ? 'active' : ''}`} href="#/operation-rules" aria-current={page === 'operation-rules' ? 'page' : undefined} title="Operation Rules">
               <span className="nav-icon"><ListChecks size={17} aria-hidden="true" /></span>
               <span className="nav-link-label">Operation Rules</span>
             </a>
@@ -459,10 +451,6 @@ export default function App() {
             <Calculator size={16} aria-hidden="true" />
             Calculator
           </a>
-          {canManageInputs && <a href="#/fulcrum-builder" aria-current={page === 'fulcrum-builder' ? 'page' : undefined}>
-            <FileSpreadsheet size={16} aria-hidden="true" />
-            Builder
-          </a>}
           <a href="#/rates" aria-current={page === 'rates' ? 'page' : undefined}>
             <BookOpen size={16} aria-hidden="true" />
             Rates
@@ -494,12 +482,6 @@ export default function App() {
               />
             )}
             {page === 'rates' && <EstimatingRatesPage />}
-            {page === 'fulcrum-builder' && canManageInputs && (
-              <FulcrumEstimateBuilderPage
-                displayName={me.displayName}
-                canEdit={canManageInputs}
-              />
-            )}
             {page === 'operation-rules' && (
               <OperationRulesPage canEdit={canAdministerRates} />
             )}

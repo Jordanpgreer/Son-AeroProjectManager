@@ -198,6 +198,16 @@ export function operationReviewComplete(state: FulcrumBuilderState) {
   })
 }
 
+export function previewAllowsCalculatorImport(preview: FulcrumEstimatePreview | null) {
+  return Boolean(preview?.canExport)
+    && !preview?.issues.some((issue) => issue.severity === 'error')
+}
+
+export function canFillFulcrumCalculator(state: FulcrumBuilderState) {
+  return previewAllowsCalculatorImport(state.preview)
+    && operationReviewComplete(state)
+}
+
 export function manualTaskComplete(
   value: ManualInputValue,
   taskOrRequired: FulcrumManualTask | boolean,
@@ -229,10 +239,7 @@ export function manualReviewComplete(state: FulcrumBuilderState) {
 }
 
 export function canGenerateFulcrumEstimate(state: FulcrumBuilderState) {
-  return Boolean(state.preview)
-    && Boolean(state.preview?.canExport)
-    && !state.preview?.issues.some((issue) => issue.severity === 'error')
-    && operationReviewComplete(state)
+  return canFillFulcrumCalculator(state)
     && manualReviewComplete(state)
     && state.status !== 'generating'
 }

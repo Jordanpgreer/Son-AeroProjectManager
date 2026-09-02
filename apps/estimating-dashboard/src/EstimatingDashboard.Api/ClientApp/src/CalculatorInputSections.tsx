@@ -21,6 +21,7 @@ interface SafeNumberInputProps {
   step?: number
   scale?: number
   testId?: string
+  importField?: string
   allowExpression?: boolean
   integer?: boolean
   disabled?: boolean
@@ -35,6 +36,7 @@ export function SafeNumberInput({
   step = 0.01,
   scale = 1,
   testId,
+  importField,
   allowExpression = false,
   integer = false,
   disabled = false,
@@ -89,6 +91,7 @@ export function SafeNumberInput({
         aria-invalid={invalid}
         aria-describedby={invalid ? errorId : undefined}
         data-testid={testId}
+        data-import-field={importField}
         disabled={disabled}
         onChange={(event) => {
           const nextDraft = event.currentTarget.value
@@ -215,6 +218,7 @@ export function EstimateContextFields({
                   rows={2}
                   value={estimate.metadata[field]}
                   data-testid={`metadata-${field}`}
+                  data-import-field={`metadata-${field}`}
                   onChange={(event) => onMetadataChange(field, event.currentTarget.value)}
                 />
               ) : (
@@ -222,6 +226,7 @@ export function EstimateContextFields({
                   type={type ?? 'text'}
                   value={estimate.metadata[field]}
                   data-testid={`metadata-${field}`}
+                  data-import-field={`metadata-${field}`}
                   onChange={(event) => onMetadataChange(field, event.currentTarget.value)}
                 />
               )}

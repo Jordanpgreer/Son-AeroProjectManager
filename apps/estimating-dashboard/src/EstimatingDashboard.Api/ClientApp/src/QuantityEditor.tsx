@@ -56,6 +56,7 @@ function QuantityInput({
         step={1}
         value={draft}
         aria-label={`Pricing quantity ${index + 1}`}
+        data-import-field={`quantity-${index}`}
         aria-invalid={Boolean(error)}
         disabled={!editable}
         title={error || `Pricing quantity ${quantity.toLocaleString()}`}

@@ -48,7 +48,7 @@ export function MaterialsSection({
       </div>
       <div className="table-scroll">
         <table className="input-table materials-table">
-          <caption>Material quantities, purchase price, and minimum-buy allocation</caption>
+          <caption>Material quantities, purchase price, notes, and minimum-buy allocation</caption>
           <thead>
             <tr>
               <th scope="col">Description</th>
@@ -56,6 +56,7 @@ export function MaterialsSection({
               <th scope="col">Parts qty</th>
               <th scope="col">Unit price</th>
               <th scope="col">Extended</th>
+              <th scope="col">Notes</th>
               <th scope="col">Amortize min buy</th>
             </tr>
           </thead>
@@ -86,9 +87,11 @@ export function MaterialsSection({
                   <input
                     className="uom-input"
                     type="text"
-                    aria-label={`Material ${index + 1} unit of measure`}
-                    value={material.unitOfMeasure}
-                    onChange={(event) => onChange(material.id, { unitOfMeasure: event.currentTarget.value })}
+                      aria-label={`Material ${index + 1} unit of measure`}
+                      value={material.unitOfMeasure}
+                      data-testid={`${idPrefix}material-uom-${index}`}
+                      data-import-field={`material-${material.id}-unitOfMeasure`}
+                      onChange={(event) => onChange(material.id, { unitOfMeasure: event.currentTarget.value })}
                   />
                 </td>
                 <td>
@@ -105,6 +108,7 @@ export function MaterialsSection({
                     onValueChange={(value) => onChange(material.id, { unitPrice: value })}
                     label={`Material ${index + 1} unit price`}
                     testId={`${idPrefix}material-price-${index}`}
+                    importField={`material-${material.id}-unitPrice`}
                   />
                 </td>
                 <td
@@ -113,6 +117,17 @@ export function MaterialsSection({
                   data-raw-value={extendedCosts[material.id] ?? 0}
                 >
                   ${(extendedCosts[material.id] ?? 0).toFixed(2)}
+                </td>
+                <td>
+                  <input
+                    className="material-notes-input"
+                    type="text"
+                    aria-label={`Material ${index + 1} notes`}
+                    value={material.notes ?? ''}
+                    data-testid={`${idPrefix}material-notes-${index}`}
+                    data-import-field={`material-${material.id}-notes`}
+                    onChange={(event) => onChange(material.id, { notes: event.currentTarget.value })}
+                  />
                 </td>
                 <td className={`amortize-cell${material.amortizeMinBuy ? ' is-active' : ''}`}>
                   <label className="inline-check amortize-control">

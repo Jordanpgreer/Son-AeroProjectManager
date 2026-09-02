@@ -132,6 +132,7 @@ function createMaterials(idPrefix = ''): MaterialInput[] {
     unitOfMeasure: '',
     partsQuantity: 0,
     unitPrice: 0,
+    notes: '',
     amortizeMinBuy: false,
   }))
 }

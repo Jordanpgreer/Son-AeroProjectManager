@@ -173,6 +173,7 @@ export async function buildCleanEstimateWorkbook(
     cell(sheet, row, 5, audit?.extendedCost ?? 0)
     writeQuantities(sheet, row, estimate.quantities, (quantity) => audit?.unitCostByQuantity[quantity] ?? 0)
     cell(sheet, row, 14, material.amortizeMinBuy)
+    cell(sheet, row, 15, material.notes ?? '')
   })
   const materialEnd = materialStart + Math.max(estimate.materials.length, 1) - 1
   applyGrid(sheet, materialHeader, materialEnd)

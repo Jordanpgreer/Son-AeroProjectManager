@@ -6,6 +6,7 @@ import {
   FULCRUM_BUILDER_SESSION_KEY,
   buildExportRequest,
   buildRateSnapshot,
+  canFillFulcrumCalculator,
   canGenerateFulcrumEstimate,
   createBuilderStateFromPreview,
   filenameDate,
@@ -112,6 +113,36 @@ test('generation stays blocked until operation overrides and required manual fie
   }])
   assert.deepEqual(request.manualValues, { 'manual-b2': 'Acme', 'manual-d47': 12.5 })
   assert.equal(request.rateYear, 2026)
+})
+
+test('calculator import remains blocked when server preview validation fails', () => {
+  const rejected = preview()
+  rejected.canExport = false
+  rejected.operations = []
+  let state = createBuilderStateFromPreview(rejected)
+  assert.equal(canFillFulcrumCalculator(state), false)
+
+  const errored = preview()
+  errored.issues.push({
+    severity: 'error',
+    sheet: 'Bill of Materials',
+    row: 7,
+    column: 'B',
+    message: 'Material is invalid.',
+  })
+  state = createBuilderStateFromPreview(errored)
+  assert.equal(canFillFulcrumCalculator(state), false)
+
+  const warningOnly = preview()
+  warningOnly.issues.push({
+    severity: 'warning',
+    sheet: 'Routing',
+    row: 11,
+    column: 'B',
+    message: 'Review this operation.',
+  })
+  state = createBuilderStateFromPreview(warningOnly)
+  assert.equal(canFillFulcrumCalculator(state), true)
 })
 
 test('missing OP numbers and out-of-range editor values block generation', () => {
