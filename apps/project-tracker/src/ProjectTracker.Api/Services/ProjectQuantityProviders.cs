@@ -19,11 +19,28 @@ public sealed class ProjectQuantitySyncOptions
 public sealed record ProjectQuantitySnapshot(
     decimal? RequiredQuantity,
     decimal? JobQuantity,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    bool MatchConfirmed = false);
+
+public enum ProjectQuantityLookupKind
+{
+    SalesOrder,
+    Job
+}
+
+public sealed record ProjectQuantityLookupOption(
+    string ExternalId,
+    string Number,
+    string? Name,
+    string Status);
 
 public interface IProjectQuantityProvider : IEnterpriseIntegrationAdapter
 {
     Task<ProjectQuantitySnapshot> PullAsync(Project project, CancellationToken cancellationToken);
+    Task<IReadOnlyList<ProjectQuantityLookupOption>> SearchAsync(
+        ProjectQuantityLookupKind kind,
+        string query,
+        CancellationToken cancellationToken);
 }
 
 public sealed class FulcrumProjectQuantityProvider(
@@ -43,6 +60,17 @@ public sealed class FulcrumProjectQuantityProvider(
         Project project,
         CancellationToken cancellationToken)
     {
+        var partNumber = project.ProgramName.Trim();
+        var warnings = new List<string>();
+        if (partNumber.Length == 0)
+            warnings.Add("Enter a part number before pulling quantities.");
+        if (!int.TryParse(project.SalesOrderNumber, out var salesOrderNumber) || salesOrderNumber <= 0)
+            warnings.Add("Enter a numeric Fulcrum sales order number before pulling quantities.");
+        if (!int.TryParse(project.JobNumber, out var jobNumber) || jobNumber <= 0)
+            warnings.Add("Enter a numeric Fulcrum job number before pulling quantities.");
+        if (warnings.Count > 0)
+            return new ProjectQuantitySnapshot(null, null, warnings);
+
         var baseUri = ReadBaseUri();
         var token = await credentials.GetSecretAsync(
             IntegrationCredentialNames.FulcrumPublicApi,
@@ -51,107 +79,130 @@ public sealed class FulcrumProjectQuantityProvider(
             throw new InvalidOperationException(
                 "The Fulcrum Public API credential is not configured. Add it in Admin Hub under API Keys.");
 
-        var warnings = new List<string>();
-        FulcrumJobDto? job = null;
-        if (int.TryParse(project.JobNumber, out var jobNumber) && jobNumber > 0)
-        {
-            var jobs = await SendAsync<List<FulcrumJobDto>>(
-                baseUri,
-                HttpMethod.Post,
-                "api/jobs/list?Skip=0&Take=10&Sort.Field=Number&Sort.Dir=asc",
-                token,
-                new { numbers = new[] { jobNumber } },
-                cancellationToken);
-            job = jobs.FirstOrDefault(candidate => candidate.Number == jobNumber);
-            if (job is null)
-                warnings.Add($"Fulcrum did not return Job {jobNumber}.");
-        }
-        else
-        {
-            warnings.Add("Enter a numeric Fulcrum job number before pulling job quantity.");
-        }
-
-        FulcrumSalesOrderPartLineItemDto? salesOrderLine = null;
-        if (job is { SalesOrderId.Length: > 0, SalesOrderLineItemId.Length: > 0 })
-        {
-            salesOrderLine = await TryGetSalesOrderLineAsync(
-                baseUri,
-                job.SalesOrderId,
-                job.SalesOrderLineItemId,
-                token,
-                cancellationToken);
-        }
-
-        if (salesOrderLine is null)
-        {
-            salesOrderLine = await FindSalesOrderLineAsync(
-                baseUri,
-                project,
-                token,
-                warnings,
-                cancellationToken);
-        }
-
-        var jobQuantity = PositiveOrNull(job?.QuantityToMake);
-        var requiredQuantity = PositiveOrNull(salesOrderLine?.Quantity);
-        if (job is not null && jobQuantity is null)
-            warnings.Add("The matched Fulcrum job did not contain a positive quantity to make.");
-        if (salesOrderLine is null)
-            warnings.Add("No linked Fulcrum sales-order part line was found for required quantity.");
-        else if (requiredQuantity is null)
-            warnings.Add("The matched Fulcrum sales-order line did not contain a positive quantity.");
-
-        return new ProjectQuantitySnapshot(requiredQuantity, jobQuantity, warnings.Distinct().ToList());
-    }
-
-    private async Task<FulcrumSalesOrderPartLineItemDto?> FindSalesOrderLineAsync(
-        Uri baseUri,
-        Project project,
-        string token,
-        ICollection<string> warnings,
-        CancellationToken cancellationToken)
-    {
-        if (!int.TryParse(project.SalesOrderNumber, out var salesOrderNumber) || salesOrderNumber <= 0)
-        {
-            warnings.Add("Enter a numeric Fulcrum sales order number before pulling required quantity.");
-            return null;
-        }
+        var jobs = await SendAsync<List<FulcrumJobDto>>(
+            baseUri,
+            HttpMethod.Post,
+            "api/jobs/list?Skip=0&Take=10",
+            token,
+            new { numbers = new[] { jobNumber } },
+            cancellationToken);
+        var matchingJobs = jobs.Where(candidate => candidate.Number == jobNumber).ToList();
+        if (matchingJobs.Count != 1)
+            return NoMatch(matchingJobs.Count == 0
+                ? $"Fulcrum did not return Job {jobNumber}."
+                : $"Fulcrum returned more than one Job {jobNumber}; no quantities were changed.");
+        var job = matchingJobs[0];
+        if (!IsActiveJob(job.Status))
+            return NoMatch($"Job {jobNumber} is not active in Fulcrum; no quantities were changed.");
 
         var salesOrders = await SendAsync<List<FulcrumSalesOrderDto>>(
             baseUri,
             HttpMethod.Post,
-            "api/sales-orders/list?Skip=0&Take=10&Sort.Field=Number&Sort.Dir=asc",
+            "api/sales-orders/list?Skip=0&Take=10",
             token,
             new { numbers = new[] { salesOrderNumber } },
             cancellationToken);
-        var salesOrder = salesOrders.FirstOrDefault(candidate => candidate.Number == salesOrderNumber);
-        if (salesOrder is null)
+        var matchingSalesOrders = salesOrders.Where(candidate => candidate.Number == salesOrderNumber).ToList();
+        if (matchingSalesOrders.Count != 1)
+            return NoMatch(matchingSalesOrders.Count == 0
+                ? $"Fulcrum did not return Sales Order {salesOrderNumber}."
+                : $"Fulcrum returned more than one Sales Order {salesOrderNumber}; no quantities were changed.");
+        var salesOrder = matchingSalesOrders[0];
+        if (!IsActiveSalesOrder(salesOrder.Status))
+            return NoMatch($"Sales Order {salesOrderNumber} is not active in Fulcrum; no quantities were changed.");
+
+        if (string.IsNullOrWhiteSpace(job.SalesOrderId)
+            || !string.Equals(job.SalesOrderId, salesOrder.Id, StringComparison.OrdinalIgnoreCase))
+            return NoMatch($"Job {jobNumber} is not linked to Sales Order {salesOrderNumber} in Fulcrum; no quantities were changed.");
+        if (string.IsNullOrWhiteSpace(job.SalesOrderLineItemId))
+            return NoMatch($"Job {jobNumber} is not linked to a part line on Sales Order {salesOrderNumber}; no quantities were changed.");
+
+        var salesOrderLine = await TryGetSalesOrderLineAsync(
+            baseUri,
+            salesOrder.Id,
+            job.SalesOrderLineItemId,
+            token,
+            cancellationToken);
+        if (salesOrderLine is null)
+            return NoMatch($"The part line linked to Job {jobNumber} was not found on Sales Order {salesOrderNumber}; no quantities were changed.");
+        if (!PartNumberMatches(salesOrderLine, partNumber))
+            return NoMatch($"Part {partNumber} does not match the part line linked to Job {jobNumber} and Sales Order {salesOrderNumber}; no quantities were changed.");
+
+        var jobQuantity = PositiveOrNull(job?.QuantityToMake);
+        var requiredQuantity = PositiveOrNull(salesOrderLine?.Quantity);
+        if (jobQuantity is null)
+            warnings.Add("The matched Fulcrum job did not contain a positive quantity to make.");
+        if (requiredQuantity is null)
+            warnings.Add("The matched Fulcrum sales-order line did not contain a positive quantity.");
+
+        return new ProjectQuantitySnapshot(
+            requiredQuantity,
+            jobQuantity,
+            warnings.Distinct().ToList(),
+            MatchConfirmed: true);
+    }
+
+    public async Task<IReadOnlyList<ProjectQuantityLookupOption>> SearchAsync(
+        ProjectQuantityLookupKind kind,
+        string query,
+        CancellationToken cancellationToken)
+    {
+        query = query.Trim();
+        if (query.Length == 0) return [];
+
+        var baseUri = ReadBaseUri();
+        var token = await credentials.GetSecretAsync(
+            IntegrationCredentialNames.FulcrumPublicApi,
+            cancellationToken);
+        if (string.IsNullOrWhiteSpace(token))
+            throw new InvalidOperationException(
+                "The Fulcrum Public API credential is not configured. Add it in Admin Hub under API Keys.");
+
+        if (kind == ProjectQuantityLookupKind.SalesOrder)
         {
-            warnings.Add($"Fulcrum did not return Sales Order {salesOrderNumber}.");
-            return null;
+            if (!int.TryParse(query, out var salesOrderNumber) || salesOrderNumber <= 0) return [];
+            var salesOrders = await SendAsync<List<FulcrumSalesOrderDto>>(
+                baseUri,
+                HttpMethod.Post,
+                "api/sales-orders/list?Skip=0&Take=20",
+                token,
+                new { numbers = new[] { salesOrderNumber } },
+                cancellationToken);
+            return salesOrders
+                .Where(order => order.Number == salesOrderNumber && IsActiveSalesOrder(order.Status))
+                .OrderByDescending(order => order.Number)
+                .Select(order => new ProjectQuantityLookupOption(
+                    order.Id,
+                    order.Number.ToString(),
+                    null,
+                    order.Status!))
+                .ToList();
         }
 
-        var lines = await SendAsync<List<FulcrumSalesOrderPartLineItemDto>>(
+        object filters;
+        if (int.TryParse(query, out var jobNumber) && jobNumber > 0)
+            filters = new { numbers = new[] { jobNumber }, statuses = ActiveJobStatuses };
+        else
+            filters = new { jobNames = new[] { query }, statuses = ActiveJobStatuses };
+        var jobs = await SendAsync<List<FulcrumJobDto>>(
             baseUri,
             HttpMethod.Post,
-            $"api/sales-orders/{Uri.EscapeDataString(salesOrder.Id)}/part-line-items/list",
+            "api/jobs/list?Skip=0&Take=20",
             token,
-            null,
+            filters,
             cancellationToken);
-        var exactMatches = lines.Where(line =>
-                string.Equals(line.Name?.Trim(), project.ProgramName, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(line.CustomerPartNumber?.Trim(), project.ProgramName, StringComparison.OrdinalIgnoreCase))
+        return jobs
+            .Where(job => IsActiveJob(job.Status)
+                && (jobNumber > 0
+                    ? job.Number == jobNumber
+                    : string.Equals(job.Name?.Trim(), query, StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(job => job.Number)
+            .Select(job => new ProjectQuantityLookupOption(
+                job.Id,
+                job.Number.ToString(),
+                job.Name,
+                job.Status!))
             .ToList();
-        if (exactMatches.Count == 1) return exactMatches[0];
-        if (exactMatches.Count > 1)
-        {
-            warnings.Add($"Sales Order {salesOrderNumber} contains more than one line matching part number {project.ProgramName}.");
-            return null;
-        }
-        if (lines.Count == 1) return lines[0];
-
-        warnings.Add($"Sales Order {salesOrderNumber} has no unique part line matching {project.ProgramName}.");
-        return null;
     }
 
     private async Task<FulcrumSalesOrderPartLineItemDto?> TryGetSalesOrderLineAsync(
@@ -230,6 +281,35 @@ public sealed class FulcrumProjectQuantityProvider(
 
     private static decimal? PositiveOrNull(double? value) =>
         value is > 0 and <= 1_000_000_000 ? Convert.ToDecimal(value.Value) : null;
+
+    private static ProjectQuantitySnapshot NoMatch(string warning) =>
+        new(null, null, [warning], MatchConfirmed: false);
+
+    private static bool PartNumberMatches(
+        FulcrumSalesOrderPartLineItemDto line,
+        string partNumber) =>
+        string.Equals(line.Name?.Trim(), partNumber, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(line.CustomerPartNumber?.Trim(), partNumber, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsActiveJob(string? status) =>
+        !string.IsNullOrWhiteSpace(status)
+        && !string.Equals(status, "complete", StringComparison.OrdinalIgnoreCase)
+        && !string.Equals(status, "cancelled", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsActiveSalesOrder(string? status) =>
+        !string.IsNullOrWhiteSpace(status)
+        && !string.Equals(status, "complete", StringComparison.OrdinalIgnoreCase);
+
+    private static readonly string[] ActiveJobStatuses =
+    [
+        "draft",
+        "needsReview",
+        "approved",
+        "engineering",
+        "scheduled",
+        "inProgress",
+        "hold"
+    ];
 }
 
 public sealed class AcumaticaProjectQuantityProvider : IProjectQuantityProvider
@@ -242,6 +322,13 @@ public sealed class AcumaticaProjectQuantityProvider : IProjectQuantityProvider
         CancellationToken cancellationToken) =>
         throw new InvalidOperationException(
             "The Acumatica project-quantity adapter is installed but not configured. Add the tenant endpoint, authentication, and job/sales-order field mappings before activating Acumatica.");
+
+    public Task<IReadOnlyList<ProjectQuantityLookupOption>> SearchAsync(
+        ProjectQuantityLookupKind kind,
+        string query,
+        CancellationToken cancellationToken) =>
+        throw new InvalidOperationException(
+            "The Acumatica project lookup adapter is installed but not configured. Add the tenant endpoint, authentication, and job/sales-order field mappings before activating Acumatica.");
 }
 
 public sealed record FulcrumJobDto(
@@ -250,9 +337,10 @@ public sealed record FulcrumJobDto(
     string? Name,
     double? QuantityToMake,
     string? SalesOrderId,
-    string? SalesOrderLineItemId);
+    string? SalesOrderLineItemId,
+    string? Status);
 
-public sealed record FulcrumSalesOrderDto(string Id, int Number);
+public sealed record FulcrumSalesOrderDto(string Id, int Number, string? Status);
 
 public sealed record FulcrumSalesOrderPartLineItemDto(
     string Id,

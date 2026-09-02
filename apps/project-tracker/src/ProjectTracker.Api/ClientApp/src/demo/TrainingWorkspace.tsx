@@ -568,6 +568,10 @@ export function TrainingWorkspace(props: TrainingWorkspaceProps) {
               onEditOvertime={(task) => previewAction(`Overtime dates for ${task.title} would open here.`)}
               onSaveRow={async (row) => row}
               onReorder={async () => undefined}
+              onSearchQuantityRecords={async (kind, query) => {
+                previewAction(`A read-only ERP ${kind === 'sales-order' ? 'sales order' : 'job'} lookup for ${query} would run here.`)
+                return { provider: 'Configured ERP', records: [] }
+              }}
               onSyncQuantities={async () => {
                 previewAction('A read-only ERP quantity pull would run here.')
                 return { project: props.selectedProject, provider: 'Configured ERP', updatedFields: [], retainedFields: [], warnings: [] }

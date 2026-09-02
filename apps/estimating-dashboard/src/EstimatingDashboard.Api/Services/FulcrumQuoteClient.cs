@@ -61,9 +61,16 @@ internal sealed class FulcrumQuoteClient(
         var pageSize = Math.Clamp(settings.PageSize, 1, 5000);
         var reports = await GetQuoteReportsAsync(pageSize, token, cancellationToken);
         var quotes = await GetQuoteDetailsAsync(pageSize, token, cancellationToken);
+        var skippedReports = reports.Count(report => string.IsNullOrWhiteSpace(report.Id));
         var reportsById = reports
-            .GroupBy(report => report.Id, StringComparer.OrdinalIgnoreCase)
+            .Where(report => !string.IsNullOrWhiteSpace(report.Id))
+            .GroupBy(report => report.Id!, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        if (skippedReports > 0)
+            logger.LogWarning(
+                "Fulcrum returned {SkippedReportCount} quote reporting rows without an ID; those reporting rows were ignored.",
+                skippedReports);
 
         var missingReports = 0;
         var snapshots = quotes.Select(quote =>
@@ -89,7 +96,7 @@ internal sealed class FulcrumQuoteClient(
         while (true)
         {
             var page = await PostAsync<FulcrumQuoteReportPageDto>(
-                $"api/reporting/quote/list?Skip={skip}&Take={pageSize}&Sort.Field=Number&Sort.Dir=asc",
+                $"api/reporting/quote/list?Skip={skip}&Take={pageSize}&Sort.Field=Number&Sort.Dir={FulcrumApiEndpoint.AscendingSortDirection}",
                 token,
                 cancellationToken);
             rows.AddRange(page.Data);
@@ -109,7 +116,7 @@ internal sealed class FulcrumQuoteClient(
         while (true)
         {
             var page = await PostAsync<List<FulcrumQuoteDto>>(
-                $"api/quotes/list?Skip={skip}&Take={pageSize}&Sort.Field=Number&Sort.Dir=asc",
+                $"api/quotes/list?Skip={skip}&Take={pageSize}&Sort.Field=Number&Sort.Dir={FulcrumApiEndpoint.AscendingSortDirection}",
                 token,
                 cancellationToken);
             rows.AddRange(page);
@@ -166,8 +173,8 @@ internal sealed record FulcrumExternalReferenceDto(
     string? DisplayId);
 
 internal sealed record FulcrumQuoteReportDto(
-    string Id,
-    int Number,
+    string? Id,
+    int? Number,
     string? CustomerName,
     string? SalesPersonName,
     string? Status,

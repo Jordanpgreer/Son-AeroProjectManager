@@ -38,6 +38,29 @@ public sealed class ProjectQuantityEndpointTests
             authorization => authorization.Policy == ProjectQuantitySyncEndpoints.AuthorizationPolicy));
     }
 
+    [Fact]
+    public void External_record_lookup_requires_the_quantity_permission_policy()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddAuthorization();
+        builder.Services.AddDbContext<ProjectTrackerDbContext>(options =>
+            options.UseSqlite("Data Source=:memory:"));
+        builder.Services.AddScoped<ProjectAuditService>();
+        builder.Services.AddScoped<IProjectQuantityProvider, AcumaticaProjectQuantityProvider>();
+        builder.Services.AddScoped<IEnterpriseProviderSource, StubProviderSource>();
+        var app = builder.Build();
+        app.MapGroup("/api").MapProjectQuantitySyncEndpoints();
+
+        var route = Assert.Single(((IEndpointRouteBuilder)app).DataSources
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>(),
+            endpoint => endpoint.RoutePattern.RawText == "/api/project-quantity-lookups/{kind}");
+
+        Assert.Contains(
+            route.Metadata.GetOrderedMetadata<IAuthorizeData>(),
+            authorization => authorization.Policy == ProjectQuantitySyncEndpoints.AuthorizationPolicy);
+    }
+
     private sealed class StubProviderSource : IEnterpriseProviderSource
     {
         public Task<string> GetActiveProviderAsync(CancellationToken cancellationToken) =>

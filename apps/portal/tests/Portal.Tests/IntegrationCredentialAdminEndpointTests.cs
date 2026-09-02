@@ -121,6 +121,7 @@ public sealed class IntegrationCredentialAdminEndpointTests
             "https://api.fulcrumpro.us/api/reporting/quote/list?Skip=0&Take=1",
             handler.RequestUri?.ToString(),
             StringComparison.Ordinal);
+        Assert.DoesNotContain("Sort.", handler.RequestUri?.Query, StringComparison.Ordinal);
     }
 
     [Fact]

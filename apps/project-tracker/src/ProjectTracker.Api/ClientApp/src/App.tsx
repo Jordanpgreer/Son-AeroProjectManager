@@ -40,6 +40,8 @@ import type {
   ProjectVersion,
   ProjectMetadataDraft,
   ProjectMetadataChange,
+  ProjectQuantityLookupKind,
+  ProjectQuantityLookupResult,
   ProjectQuantitySyncResult,
   MentionNotification,
 } from './types'
@@ -742,6 +744,12 @@ function App() {
     return result
   }
 
+  async function searchProjectQuantityRecords(kind: ProjectQuantityLookupKind, query: string) {
+    return api<ProjectQuantityLookupResult>(
+      `/api/project-quantity-lookups/${kind}?query=${encodeURIComponent(query)}`,
+    )
+  }
+
   async function completeProject() {
     if (!selectedProject) return
     const project = await api<ProjectDetail>(`/api/projects/${selectedProject.id}/complete`, {
@@ -1346,6 +1354,7 @@ function App() {
                   onReorder={reorderTaskRow}
                   notificationTaskId={notificationTaskId}
                   onBomApplied={async () => { await refreshProjectWorkspace(selectedProject.id) }}
+                  onSearchQuantityRecords={searchProjectQuantityRecords}
                   onSyncQuantities={syncProjectQuantities}
                 />
               )}

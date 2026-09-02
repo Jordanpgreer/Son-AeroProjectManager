@@ -65,6 +65,7 @@ public sealed class FulcrumQuoteSyncTests
         Assert.Equal(2, handler.Requests.Count);
         Assert.All(handler.Requests, request => Assert.Equal("Bearer secret-token", request.Authorization));
         Assert.All(handler.Requests, request => Assert.Equal("api.fulcrumpro.us", request.Host));
+        Assert.All(handler.Requests, request => Assert.Contains("Sort.Dir=ascending", request.Path, StringComparison.Ordinal));
         Assert.Contains(handler.Requests, request => request.Path.StartsWith("/api/reporting/quote/list", StringComparison.Ordinal));
         Assert.Contains(handler.Requests, request => request.Path.StartsWith("/api/quotes/list", StringComparison.Ordinal));
     }
@@ -84,6 +85,24 @@ public sealed class FulcrumQuoteSyncTests
 
         Assert.Contains("Admin Hub", exception.Message);
         Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
+    public void Reporting_contract_accepts_nullable_id_and_number_fields()
+    {
+        var page = JsonSerializer.Deserialize<FulcrumQuoteReportPageDto>(
+            """
+            {
+              "data": [{ "id": null, "number": null, "customerName": "Incomplete row" }],
+              "totalCount": 1,
+              "hasNextPage": false
+            }
+            """,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        var row = Assert.Single(Assert.IsType<FulcrumQuoteReportPageDto>(page).Data);
+        Assert.Null(row.Id);
+        Assert.Null(row.Number);
     }
 
     [Fact]

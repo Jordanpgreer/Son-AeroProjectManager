@@ -18,7 +18,58 @@ public static class ProjectQuantitySyncEndpoints
             .RequireAuthorization(AuthorizationPolicy);
         api.MapPost("/projects/{projectId:int}/quantities/sync/{provider}", SyncLegacyAsync)
             .RequireAuthorization(AuthorizationPolicy);
+        api.MapGet("/project-quantity-lookups/{kind}", SearchAsync)
+            .RequireAuthorization(AuthorizationPolicy);
         return api;
+    }
+
+    private static async Task<IResult> SearchAsync(
+        string kind,
+        string? query,
+        IEnumerable<IProjectQuantityProvider> providers,
+        IEnterpriseProviderSource providerSource,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return Results.BadRequest(new { detail = "Enter an exact sales order number, job number, or job name." });
+        query = query.Trim();
+        if (query.Length > 120)
+            return Results.BadRequest(new { detail = "Search values cannot exceed 120 characters." });
+
+        var lookupKind = kind.Trim().ToLowerInvariant() switch
+        {
+            "sales-order" => ProjectQuantityLookupKind.SalesOrder,
+            "job" => ProjectQuantityLookupKind.Job,
+            _ => (ProjectQuantityLookupKind?)null
+        };
+        if (lookupKind is null)
+            return Results.BadRequest(new { detail = "Choose either sales-order or job lookup." });
+
+        var activeProvider = await providerSource.GetActiveProviderAsync(cancellationToken);
+        IProjectQuantityProvider provider;
+        try
+        {
+            provider = EnterpriseAdapterSelector.Select(
+                providers,
+                activeProvider,
+                EnterpriseDataRoutes.ProjectQuantities);
+            var records = await provider.SearchAsync(lookupKind.Value, query, cancellationToken);
+            return Results.Ok(new
+            {
+                provider = provider.ProviderName,
+                records
+            });
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return Results.Json(
+                new { detail = $"{activeProvider} did not respond before the lookup timed out. Try again." },
+                statusCode: StatusCodes.Status504GatewayTimeout);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or HttpRequestException)
+        {
+            return Results.Json(new { detail = exception.Message }, statusCode: StatusCodes.Status502BadGateway);
+        }
     }
 
     private static Task<IResult> SyncActiveAsync(
@@ -105,6 +156,15 @@ public static class ProjectQuantitySyncEndpoints
                 "This project changed before the quantity pull started. Reload it and try again.",
                 "Project",
                 project.Id));
+        var missingIdentifiers = new List<string>();
+        if (string.IsNullOrWhiteSpace(project.ProgramName)) missingIdentifiers.Add("part number");
+        if (string.IsNullOrWhiteSpace(project.SalesOrderNumber)) missingIdentifiers.Add("sales order number");
+        if (string.IsNullOrWhiteSpace(project.JobNumber)) missingIdentifiers.Add("job number");
+        if (missingIdentifiers.Count > 0)
+            return Results.BadRequest(new
+            {
+                detail = $"Enter and save the {string.Join(", ", missingIdentifiers)} before pulling quantities. All three identifiers must match the same external record chain."
+            });
 
         ProjectQuantitySnapshot snapshot;
         try
@@ -121,6 +181,14 @@ public static class ProjectQuantitySyncEndpoints
         {
             return Results.Json(new { detail = exception.Message }, statusCode: StatusCodes.Status502BadGateway);
         }
+
+        if (!snapshot.MatchConfirmed)
+            return Results.Ok(new ProjectQuantitySyncResultDto(
+                ProjectDtoMapper.ToDetailDto(project),
+                quantityProvider.ProviderName,
+                [],
+                [],
+                snapshot.Warnings));
 
         var before = ProjectAuditService.CaptureProject(project);
         var pulled = new List<string>();

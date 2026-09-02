@@ -3,6 +3,8 @@ namespace SonAero.Platform.Integrations;
 public static class FulcrumApiEndpoint
 {
     public const string ItarBaseUrl = "https://api.fulcrumpro.us/";
+    public const string AscendingSortDirection = "ascending";
+    public const string DescendingSortDirection = "descending";
 
     private const string StandardApiHost = "api.fulcrumpro.com";
     private const string ItarApiHost = "api.fulcrumpro.us";

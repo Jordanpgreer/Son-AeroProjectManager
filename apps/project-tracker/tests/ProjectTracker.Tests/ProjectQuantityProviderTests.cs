@@ -51,8 +51,15 @@ public sealed class ProjectQuantityProviderTests
                       "name": "Job 123",
                       "quantityToMake": 8.5,
                       "salesOrderId": "sales-order-id",
-                      "salesOrderLineItemId": "line-id"
+                      "salesOrderLineItemId": "line-id",
+                      "status": "engineering"
                     }]
+                    """);
+            }
+            if (request.RequestUri.AbsolutePath == "/api/sales-orders/list")
+            {
+                return Json("""
+                    [{"id":"sales-order-id","number":456,"status":"inProgress"}]
                     """);
             }
             if (request.RequestUri.AbsolutePath == "/api/sales-orders/sales-order-id/part-line-items/line-id")
@@ -75,11 +82,75 @@ public sealed class ProjectQuantityProviderTests
 
         Assert.Equal(8.5m, result.JobQuantity);
         Assert.Equal(10.25m, result.RequiredQuantity);
+        Assert.True(result.MatchConfirmed);
         Assert.Empty(result.Warnings);
-        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal(3, handler.Requests.Count);
         Assert.All(handler.Requests, request => Assert.Equal("Bearer saved-token", request.Authorization));
         Assert.All(handler.Requests, request => Assert.Equal("api.fulcrumpro.us", request.RequestUri.Host));
+        Assert.DoesNotContain("Sort.", handler.Requests[0].RequestUri.Query, StringComparison.Ordinal);
+        Assert.DoesNotContain("Sort.", handler.Requests[1].RequestUri.Query, StringComparison.Ordinal);
         Assert.Contains("\"numbers\":[123]", handler.Requests[0].Body, StringComparison.Ordinal);
+        Assert.Contains("\"numbers\":[456]", handler.Requests[1].Body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PullAsync_DoesNotReturnQuantitiesWhenJobAndSalesOrderAreNotLinked()
+    {
+        var handler = new FulcrumHandler(request => request.RequestUri!.AbsolutePath switch
+        {
+            "/api/jobs/list" => Json("""
+                [{"id":"job-id","number":123,"name":"PN-100","quantityToMake":8.5,"salesOrderId":"different-order-id","salesOrderLineItemId":"line-id","status":"engineering"}]
+                """),
+            "/api/sales-orders/list" => Json("""
+                [{"id":"sales-order-id","number":456,"status":"inProgress"}]
+                """),
+            _ => throw new InvalidOperationException("The linked line must not be requested for a mismatched sales order.")
+        });
+        var provider = CreateProvider(handler, "saved-token");
+
+        var result = await provider.PullAsync(new Project
+        {
+            ProgramName = "PN-100",
+            JobNumber = "123",
+            SalesOrderNumber = "456"
+        }, default);
+
+        Assert.False(result.MatchConfirmed);
+        Assert.Null(result.JobQuantity);
+        Assert.Null(result.RequiredQuantity);
+        Assert.Contains(result.Warnings, warning => warning.Contains("not linked", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task PullAsync_DoesNotReturnQuantitiesWhenLinkedLineHasAnotherPartNumber()
+    {
+        var handler = new FulcrumHandler(request => request.RequestUri!.AbsolutePath switch
+        {
+            "/api/jobs/list" => Json("""
+                [{"id":"job-id","number":123,"name":"PN-OTHER","quantityToMake":8.5,"salesOrderId":"sales-order-id","salesOrderLineItemId":"line-id","status":"engineering"}]
+                """),
+            "/api/sales-orders/list" => Json("""
+                [{"id":"sales-order-id","number":456,"status":"inProgress"}]
+                """),
+            "/api/sales-orders/sales-order-id/part-line-items/line-id" => Json("""
+                {"id":"line-id","name":"PN-OTHER","quantity":10.25,"customerPartNumber":null}
+                """),
+            _ => throw new InvalidOperationException($"Unexpected request: {request.RequestUri}")
+        });
+        var provider = CreateProvider(handler, "saved-token");
+
+        var result = await provider.PullAsync(new Project
+        {
+            ProgramName = "PN-100",
+            JobNumber = "123",
+            SalesOrderNumber = "456"
+        }, default);
+
+        Assert.False(result.MatchConfirmed);
+        Assert.Null(result.JobQuantity);
+        Assert.Null(result.RequiredQuantity);
+        Assert.Contains(result.Warnings, warning => warning.Contains("does not match", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -94,6 +165,7 @@ public sealed class ProjectQuantityProviderTests
 
         Assert.Null(result.JobQuantity);
         Assert.Null(result.RequiredQuantity);
+        Assert.False(result.MatchConfirmed);
         Assert.Contains(result.Warnings, warning => warning.Contains("job number", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(result.Warnings, warning => warning.Contains("sales order number", StringComparison.OrdinalIgnoreCase));
         Assert.Empty(handler.Requests);
@@ -106,11 +178,55 @@ public sealed class ProjectQuantityProviderTests
         var provider = CreateProvider(handler, null);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => provider.PullAsync(
-            new Project { ProgramName = "PN-100", JobNumber = "123" },
+            new Project { ProgramName = "PN-100", JobNumber = "123", SalesOrderNumber = "456" },
             CancellationToken.None));
 
         Assert.Contains("Admin Hub", exception.Message, StringComparison.Ordinal);
         Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
+    public async Task SearchAsync_ReturnsOnlyTheExactActiveJob()
+    {
+        var handler = new FulcrumHandler(request => request.RequestUri!.AbsolutePath switch
+        {
+            "/api/jobs/list" => Json("""
+                [
+                  {"id":"job-id","number":123,"name":"PN-100","quantityToMake":8.5,"salesOrderId":"sales-order-id","salesOrderLineItemId":"line-id","status":"engineering"},
+                  {"id":"other-job-id","number":456,"name":"PN-OTHER","status":"engineering"}
+                ]
+                """),
+            _ => throw new InvalidOperationException($"Unexpected request: {request.RequestUri}")
+        });
+        var provider = CreateProvider(handler, "saved-token");
+
+        var result = await provider.SearchAsync(ProjectQuantityLookupKind.Job, "123", default);
+
+        var match = Assert.Single(result);
+        Assert.Equal("job-id", match.ExternalId);
+        Assert.Equal("123", match.Number);
+        Assert.Equal("engineering", match.Status);
+        Assert.DoesNotContain("Sort.", handler.Requests[0].RequestUri.Query, StringComparison.Ordinal);
+        Assert.Contains("\"numbers\":[123]", handler.Requests[0].Body, StringComparison.Ordinal);
+        Assert.Contains("\"statuses\"", handler.Requests[0].Body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SearchAsync_DoesNotOfferCompletedSalesOrders()
+    {
+        var handler = new FulcrumHandler(request => request.RequestUri!.AbsolutePath switch
+        {
+            "/api/sales-orders/list" => Json("""
+                [{"id":"sales-order-id","number":456,"status":"complete"}]
+                """),
+            _ => throw new InvalidOperationException($"Unexpected request: {request.RequestUri}")
+        });
+        var provider = CreateProvider(handler, "saved-token");
+
+        var result = await provider.SearchAsync(ProjectQuantityLookupKind.SalesOrder, "456", default);
+
+        Assert.Empty(result);
+        Assert.DoesNotContain("Sort.", handler.Requests[0].RequestUri.Query, StringComparison.Ordinal);
     }
 
     private static FulcrumProjectQuantityProvider CreateProvider(FulcrumHandler handler, string? token) =>
@@ -137,6 +253,12 @@ public sealed class ProjectQuantityProviderTests
 
         public Task<ProjectQuantitySnapshot> PullAsync(Project project, CancellationToken cancellationToken) =>
             Task.FromResult(new ProjectQuantitySnapshot(null, null, []));
+
+        public Task<IReadOnlyList<ProjectQuantityLookupOption>> SearchAsync(
+            ProjectQuantityLookupKind kind,
+            string query,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ProjectQuantityLookupOption>>([]);
     }
 
     private sealed class FulcrumHandler(

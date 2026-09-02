@@ -43,6 +43,9 @@ import type {
   ProjectDetail,
   ProjectTask,
   ProjectMetadataDraft,
+  ProjectQuantityLookupKind,
+  ProjectQuantityLookupOption,
+  ProjectQuantityLookupResult,
   ProjectQuantitySyncResult,
 } from '../types'
 import {
@@ -209,6 +212,64 @@ function formatQuantity(value: number | null) {
   return value === null ? 'Not set' : value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
+type QuantityLookupState = {
+  kind: ProjectQuantityLookupKind
+  provider: string
+  loading: boolean
+  error: string | null
+  records: ProjectQuantityLookupOption[]
+}
+
+function QuantityLookupResults({
+  lookup,
+  onClose,
+  onSelect,
+}: {
+  lookup: QuantityLookupState
+  onClose: () => void
+  onSelect: (record: ProjectQuantityLookupOption) => void
+}) {
+  const label = lookup.kind === 'sales-order' ? 'sales order' : 'job'
+  return (
+    <div className="project-erp-lookup-results" role="region" aria-label={`Active ${label} matches`}>
+      <div className="project-erp-lookup-heading">
+        <span>
+          <strong>Active {label} matches</strong>
+          {lookup.provider && <small>{lookup.provider}</small>}
+        </span>
+        <button type="button" className="icon-button" onClick={onClose} aria-label="Close search results">
+          <X size={14} />
+        </button>
+      </div>
+      {lookup.loading ? (
+        <div className="project-erp-lookup-state"><RefreshCw size={14} className="spin" /> Searching...</div>
+      ) : lookup.error ? (
+        <div className="project-erp-lookup-state error"><AlertTriangle size={14} /> {lookup.error}</div>
+      ) : lookup.records.length === 0 ? (
+        <div className="project-erp-lookup-state">No active exact match was found.</div>
+      ) : (
+        <div className="project-erp-lookup-options" role="listbox">
+          {lookup.records.map((record) => (
+            <button
+              type="button"
+              role="option"
+              aria-selected="false"
+              key={record.externalId}
+              onClick={() => onSelect(record)}
+            >
+              <span>
+                <strong className="technical-id">{lookup.kind === 'sales-order' ? 'SO' : 'Job'} {record.number}</strong>
+                {record.name && <small>{record.name}</small>}
+              </span>
+              <span className="project-erp-lookup-use">{toOperationTitleCase(record.status)} <ChevronRight size={14} /></span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 
 export function ProjectView({
   project,
@@ -238,6 +299,7 @@ export function ProjectView({
   onReorder,
   notificationTaskId,
   onBomApplied,
+  onSearchQuantityRecords,
   onSyncQuantities,
   showChat = true,
   ganttOpen: controlledGanttOpen,
@@ -272,6 +334,10 @@ export function ProjectView({
   onReorder: (row: ProjectTask, position: number) => Promise<void>
   notificationTaskId: number | null
   onBomApplied?: () => Promise<void>
+  onSearchQuantityRecords: (
+    kind: ProjectQuantityLookupKind,
+    query: string,
+  ) => Promise<ProjectQuantityLookupResult>
   onSyncQuantities: () => Promise<ProjectQuantitySyncResult>
   showChat?: boolean
   ganttOpen?: boolean
@@ -288,6 +354,7 @@ export function ProjectView({
   const [quantitySyncing, setQuantitySyncing] = useState(false)
   const [quantitySyncMessage, setQuantitySyncMessage] = useState<string | null>(null)
   const [quantitySyncError, setQuantitySyncError] = useState<string | null>(null)
+  const [quantityLookup, setQuantityLookup] = useState<QuantityLookupState | null>(null)
   const ganttOpen = controlledGanttOpen ?? internalGanttOpen
   const expandedTaskId = controlledExpandedTaskId !== undefined ? controlledExpandedTaskId : internalExpandedTaskId
   const updateGanttOpen = useCallback((open: boolean) => {
@@ -357,8 +424,35 @@ export function ProjectView({
     }
   }
 
+  const searchQuantityRecords = async (kind: ProjectQuantityLookupKind, value: string) => {
+    const query = value.trim()
+    if (!query) return
+    setQuantityLookup({ kind, provider: '', loading: true, error: null, records: [] })
+    try {
+      const result = await onSearchQuantityRecords(kind, query)
+      setQuantityLookup({ kind, provider: result.provider, loading: false, error: null, records: result.records })
+    } catch (error) {
+      setQuantityLookup({
+        kind,
+        provider: '',
+        loading: false,
+        error: error instanceof Error ? error.message : 'The external record search could not be completed.',
+        records: [],
+      })
+    }
+  }
+
+  const selectQuantityRecord = (record: ProjectQuantityLookupOption) => {
+    if (!quantityLookup) return
+    onProjectMetadataChange(quantityLookup.kind === 'sales-order'
+      ? { ...projectMetadata, salesOrderNumber: record.number }
+      : { ...projectMetadata, jobNumber: record.number })
+    setQuantityLookup(null)
+  }
+
   useEffect(() => {
     setProjectDetailsOpen(true)
+    setQuantityLookup(null)
   }, [editMode, project.id])
 
   useEffect(() => {
@@ -507,24 +601,52 @@ export function ProjectView({
                   placeholder="Customer name"
                 />
               </label>}
-              {hasPermission(permissions, permissionKeys.projectEditSalesOrderNumber) && <label>
-                <span>Sales Order #</span>
-                <input
-                  className="cell-input technical-id-input"
-                  value={projectMetadata.salesOrderNumber}
-                  onChange={(event) => onProjectMetadataChange({ ...projectMetadata, salesOrderNumber: event.target.value })}
-                  placeholder="Sales order number"
-                />
-              </label>}
-              {hasPermission(permissions, permissionKeys.projectEditJobNumber) && <label>
-                <span>Job Number</span>
-                <input
-                  className="cell-input technical-id-input"
-                  value={projectMetadata.jobNumber}
-                  onChange={(event) => onProjectMetadataChange({ ...projectMetadata, jobNumber: event.target.value })}
-                  placeholder="Internal job number"
-                />
-              </label>}
+              {hasPermission(permissions, permissionKeys.projectEditSalesOrderNumber) && <div className="project-erp-lookup-field">
+                <label htmlFor={`project-sales-order-${project.id}`}>Sales Order #</label>
+                <div className="project-erp-lookup-control">
+                  <input
+                    id={`project-sales-order-${project.id}`}
+                    className="cell-input technical-id-input"
+                    value={projectMetadata.salesOrderNumber}
+                    onChange={(event) => onProjectMetadataChange({ ...projectMetadata, salesOrderNumber: event.target.value })}
+                    placeholder="Sales order number"
+                  />
+                  {canEditQuantities && <button
+                    className="button primary project-erp-find-button"
+                    type="button"
+                    disabled={!projectMetadata.salesOrderNumber.trim() || quantityLookup?.loading}
+                    onClick={() => void searchQuantityRecords('sales-order', projectMetadata.salesOrderNumber)}
+                  ><Search size={14} /> Find</button>}
+                </div>
+                {quantityLookup?.kind === 'sales-order' && <QuantityLookupResults
+                  lookup={quantityLookup}
+                  onClose={() => setQuantityLookup(null)}
+                  onSelect={selectQuantityRecord}
+                />}
+              </div>}
+              {hasPermission(permissions, permissionKeys.projectEditJobNumber) && <div className="project-erp-lookup-field">
+                <label htmlFor={`project-job-${project.id}`}>Job Number</label>
+                <div className="project-erp-lookup-control">
+                  <input
+                    id={`project-job-${project.id}`}
+                    className="cell-input technical-id-input"
+                    value={projectMetadata.jobNumber}
+                    onChange={(event) => onProjectMetadataChange({ ...projectMetadata, jobNumber: event.target.value })}
+                    placeholder="Job number or exact job name"
+                  />
+                  {canEditQuantities && <button
+                    className="button primary project-erp-find-button"
+                    type="button"
+                    disabled={!projectMetadata.jobNumber.trim() || quantityLookup?.loading}
+                    onClick={() => void searchQuantityRecords('job', projectMetadata.jobNumber)}
+                  ><Search size={14} /> Find</button>}
+                </div>
+                {quantityLookup?.kind === 'job' && <QuantityLookupResults
+                  lookup={quantityLookup}
+                  onClose={() => setQuantityLookup(null)}
+                  onSelect={selectQuantityRecord}
+                />}
+              </div>}
               {canEditQuantities && <label>
                 <span>Required Quantity{project.requiredQuantitySource ? ` · ${project.requiredQuantitySource}` : ''}</span>
                 <input
@@ -571,6 +693,9 @@ export function ProjectView({
                   placeholder="https://... (optional)"
                 />
               </label>}
+              {canEditQuantities && <p className="project-quantity-match-note">
+                <Lock size={13} /> Quantities update only when Part Number, Sales Order, and Job match the same active ERP record.
+              </p>}
               <div className="project-detail-save-row">
                 <div className={`project-detail-save-state ${projectMetadataDirty ? 'unsaved' : 'saved'}`} role="status">
                   {projectMetadataDirty ? <AlertTriangle size={14} /> : <Check size={14} />}
@@ -587,7 +712,7 @@ export function ProjectView({
           )}
         </div>
         {!editMode && <div className="project-actions" data-guide-id="project-actions" role="group" aria-label="Project actions">
-          {canEditQuantities && <button className="button ghost" type="button" disabled={quantitySyncing} onClick={() => void syncQuantities()}><RefreshCw size={15} className={quantitySyncing ? 'spin' : undefined} /> {quantitySyncing ? 'Pulling Quantities...' : 'Pull Quantities from ERP'}</button>}
+          {canEditQuantities && <button className="button ghost" type="button" title="Validate the saved Part Number, Sales Order, and Job before updating quantities" disabled={quantitySyncing} onClick={() => void syncQuantities()}><RefreshCw size={15} className={quantitySyncing ? 'spin' : undefined} /> {quantitySyncing ? 'Validating & Pulling...' : 'Validate & Pull Quantities'}</button>}
           {canManageBom && <ProjectBomImport project={project} onApplied={onBomApplied} />}
           {showChat && <button className="button ghost" type="button" data-guide-id={chatGuideId} onClick={onOpenChat}><MessageSquare size={15} /> Chat</button>}
           {(isCompleted

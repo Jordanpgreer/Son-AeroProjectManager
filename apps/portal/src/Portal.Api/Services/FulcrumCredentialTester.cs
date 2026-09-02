@@ -46,7 +46,7 @@ public sealed class FulcrumCredentialTester(
         httpClient.BaseAddress = baseUri;
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
-            "api/reporting/quote/list?Skip=0&Take=1&Sort.Field=Number&Sort.Dir=asc")
+            "api/reporting/quote/list?Skip=0&Take=1")
         {
             Content = JsonContent.Create(new { })
         };

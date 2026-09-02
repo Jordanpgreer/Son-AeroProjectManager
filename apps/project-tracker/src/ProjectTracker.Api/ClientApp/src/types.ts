@@ -319,6 +319,20 @@ export type ProjectQuantitySyncResult = {
   warnings: string[]
 }
 
+export type ProjectQuantityLookupKind = 'sales-order' | 'job'
+
+export type ProjectQuantityLookupOption = {
+  externalId: string
+  number: string
+  name: string | null
+  status: string
+}
+
+export type ProjectQuantityLookupResult = {
+  provider: string
+  records: ProjectQuantityLookupOption[]
+}
+
 export type GanttItem = {
   task: ProjectTask
   startMs: number
