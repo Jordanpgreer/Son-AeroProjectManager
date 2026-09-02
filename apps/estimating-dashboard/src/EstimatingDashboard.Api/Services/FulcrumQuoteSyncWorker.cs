@@ -8,6 +8,22 @@ public sealed class EnterpriseQuoteSyncScheduleOptions
 
     public bool Enabled { get; set; }
     public string TimeZoneId { get; set; } = "Mountain Standard Time";
+
+    internal void BindConfiguration(IConfiguration configuration)
+    {
+        var enterpriseSection = configuration.GetSection(SectionName);
+        if (enterpriseSection.Exists())
+        {
+            enterpriseSection.Bind(this);
+            return;
+        }
+
+        // Keep defaults in this class, not the base JSON: a base EnterpriseQuoteSync
+        // section would mask the legacy schedule in preserved Production settings.
+        var legacySection = configuration.GetSection(FulcrumQuoteSyncOptions.SectionName);
+        Enabled = legacySection.GetValue("Enabled", false);
+        TimeZoneId = legacySection.GetValue("TimeZoneId", TimeZoneId) ?? TimeZoneId;
+    }
 }
 
 internal static class FulcrumQuoteSchedule

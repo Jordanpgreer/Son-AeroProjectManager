@@ -25,20 +25,7 @@ builder.Services.AddSingleton<EstimatingHistoryReviewStore>();
 builder.Services.Configure<FulcrumQuoteSyncOptions>(
     builder.Configuration.GetSection(FulcrumQuoteSyncOptions.SectionName));
 builder.Services.AddOptions<EnterpriseQuoteSyncScheduleOptions>()
-    .Configure<IConfiguration>((settings, configuration) =>
-    {
-        var enterpriseSection = configuration.GetSection(EnterpriseQuoteSyncScheduleOptions.SectionName);
-        if (enterpriseSection.Exists())
-        {
-            enterpriseSection.Bind(settings);
-            return;
-        }
-
-        // Existing deployments continue using their original section until configuration is updated.
-        var legacySection = configuration.GetSection(FulcrumQuoteSyncOptions.SectionName);
-        settings.Enabled = legacySection.GetValue("Enabled", false);
-        settings.TimeZoneId = legacySection.GetValue("TimeZoneId", settings.TimeZoneId) ?? settings.TimeZoneId;
-    });
+    .Configure<IConfiguration>((settings, configuration) => settings.BindConfiguration(configuration));
 builder.Services.AddSingleton<SonAero.Platform.Security.IIntegrationSecretProtector,
     SonAero.Platform.Security.MachineIntegrationSecretProtector>();
 builder.Services.AddScoped<IIntegrationCredentialReader, IntegrationCredentialReader>();
