@@ -59,6 +59,20 @@ builder.Services.AddDbContext<EstimatingAccessDbContext>((serviceProvider, optio
         options.UseSqlServer(connectionString);
     }
 });
+builder.Services.AddCors(options => options.AddPolicy("HubAdmin", policy =>
+{
+    var origins = new[]
+    {
+        builder.Configuration["Portal:Url"],
+        "http://localhost:5140",
+        "http://127.0.0.1:5140",
+        "https://hub.son4l.local",
+        "https://SON-IIS2:6140"
+    }.Where(origin => !string.IsNullOrWhiteSpace(origin))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+    policy.WithOrigins(origins!).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+}));
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
@@ -159,6 +173,8 @@ app.Use(async (context, next) =>
     await next();
 });
 
+app.UseRouting();
+app.UseCors("HubAdmin");
 app.UseAuthentication();
 
 app.Use(async (context, next) =>

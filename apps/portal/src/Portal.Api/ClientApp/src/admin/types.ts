@@ -162,6 +162,17 @@ export interface IntegrationCredentialOverview {
   supportedProviders: string[]
 }
 
+export interface EnterpriseQuoteSyncResult {
+  runId: string
+  providerName: string
+  startedAt: string
+  completedAt: string
+  recordsReceived: number
+  newRecords: number
+  updatedRecords: number
+  unchangedRecords: number
+}
+
 export interface EnterpriseIntegrationProvider {
   activeProvider: string
   updatedAt: string

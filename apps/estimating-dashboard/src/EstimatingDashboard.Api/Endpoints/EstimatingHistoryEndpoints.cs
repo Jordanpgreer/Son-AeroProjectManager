@@ -1,6 +1,7 @@
 using EstimatingDashboard.Api.Auth;
 using EstimatingDashboard.Api.Dtos;
 using EstimatingDashboard.Api.Services;
+using System.Text.Json;
 
 namespace EstimatingDashboard.Api.Endpoints;
 
@@ -165,6 +166,33 @@ public static class EstimatingHistoryEndpoints
                 ? Results.NotFound(new ErrorDto("QuoteHistoryNotFound", "The quote record was not found."))
                 : Results.Ok(result);
         }).RequireAuthorization(EstimatingPolicies.ManageHistory);
+
+        history.MapPost("/sync", async (
+            HttpContext context,
+            EnterpriseQuoteSyncService service,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                return Results.Ok(await service.RunManualAsync(
+                    Actor(context),
+                    cancellationToken));
+            }
+            catch (EnterpriseQuoteSyncAlreadyRunningException exception)
+            {
+                return Results.Conflict(new ErrorDto("QuoteSyncAlreadyRunning", exception.Message));
+            }
+            catch (Exception exception) when (
+                exception is HttpRequestException
+                or InvalidOperationException
+                or JsonException)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status502BadGateway,
+                    title: "Manual enterprise quote pull failed",
+                    detail: exception.Message);
+            }
+        }).RequireAuthorization(EstimatingPolicies.Admin);
 
         history.MapPost("/import/validate", async (
             HttpContext context,

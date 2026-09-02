@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Activity, CheckCircle2, KeyRound, Network, RefreshCcw, ShieldCheck, Trash2 } from 'lucide-react'
+import { Activity, CheckCircle2, Download, KeyRound, Network, RefreshCcw, ShieldCheck, Trash2 } from 'lucide-react'
 import { portalApi, toErrorMessage } from './api'
-import type { EnterpriseIntegrationProvider, IntegrationCredential, IntegrationCredentialOverview } from './types'
+import { estimatingAdminApi } from './estimatingApi'
+import type { EnterpriseIntegrationProvider, EnterpriseQuoteSyncResult, IntegrationCredential, IntegrationCredentialOverview } from './types'
 
 const FULCRUM_NAME = 'Fulcrum Public API'
 const FULCRUM_KEY = 'fulcrum-public-api'
@@ -31,6 +32,7 @@ export default function IntegrationCredentialsPanel() {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [testing, setTesting] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState<string | null>(null)
   const [savingProvider, setSavingProvider] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -197,6 +199,32 @@ export default function IntegrationCredentialsPanel() {
     }
   }
 
+  async function runManualPull(credential: IntegrationCredential) {
+    setSyncing(credential.credentialKey)
+    setError(null)
+    setMessage(null)
+    try {
+      const result = await estimatingAdminApi<EnterpriseQuoteSyncResult>(
+        '/api/quote-history/sync',
+        { method: 'POST' },
+      )
+      setCredentials((current) => current.map((item) =>
+        item.credentialKey === credential.credentialKey
+          ? { ...item, lastUsedAt: result.completedAt }
+          : item,
+      ))
+      setMessage(
+        `${result.providerName} pull completed: ${result.recordsReceived.toLocaleString()} received, `
+        + `${result.newRecords.toLocaleString()} new, ${result.updatedRecords.toLocaleString()} updated, `
+        + `${result.unchangedRecords.toLocaleString()} unchanged.`,
+      )
+    } catch (cause) {
+      setError(toErrorMessage(cause))
+    } finally {
+      setSyncing(null)
+    }
+  }
+
   return (
     <div className="integration-credentials-stack">
       <section className="admin-surface integration-credential-intro" aria-labelledby="integration-credentials-heading">
@@ -308,7 +336,8 @@ export default function IntegrationCredentialsPanel() {
                       : credential.credentialKey === FULCRUM_KEY && <span className="integration-test-status untested">Connection not tested yet</span>}
                   </div>
                   <div className="integration-credential-row-actions">
-                    {credential.credentialKey === FULCRUM_KEY && <button type="button" className="solid-button" disabled={testing === credential.credentialKey} onClick={() => void testCredential(credential)}><Activity size={14} aria-hidden="true" /> {testing === credential.credentialKey ? 'Testing...' : 'Test API connection'}</button>}
+                    {credential.credentialKey === FULCRUM_KEY && <button type="button" className="solid-button" disabled={testing === credential.credentialKey || syncing === credential.credentialKey} onClick={() => void testCredential(credential)}><Activity size={14} aria-hidden="true" /> {testing === credential.credentialKey ? 'Testing...' : 'Test API connection'}</button>}
+                    {credential.credentialKey === FULCRUM_KEY && <button type="button" className="ghost-button" disabled={syncing === credential.credentialKey || testing === credential.credentialKey || activeProvider !== 'Fulcrum'} title={activeProvider === 'Fulcrum' ? 'Pull the latest Fulcrum quotes into Estimating Logs' : 'Set Fulcrum as the active provider before starting a pull'} onClick={() => void runManualPull(credential)}><Download size={14} aria-hidden="true" /> {syncing === credential.credentialKey ? 'Pulling quotes...' : 'Pull estimating quotes'}</button>}
                     <button type="button" className="ghost-button" onClick={() => editCredential(credential)}><RefreshCcw size={14} aria-hidden="true" /> Update API key</button>
                     <button type="button" className="ghost-button danger" disabled={deleting === credential.credentialKey} onClick={() => void removeCredential(credential)}><Trash2 size={14} aria-hidden="true" /> {deleting === credential.credentialKey ? 'Deleting...' : 'Delete API key'}</button>
                   </div>

@@ -21,6 +21,7 @@ public sealed class EstimatingHistoryEndpointAuthorizationTests
         builder.Services.AddScoped<EstimatingHistoryReportService>();
         builder.Services.AddScoped<EstimatingHistoryGridExportService>();
         builder.Services.AddScoped<EstimatorSummaryReportService>();
+        builder.Services.AddScoped<EnterpriseQuoteSyncService>();
         var app = builder.Build();
         app.MapGroup("/api").MapEstimatingHistoryEndpoints();
 
@@ -46,6 +47,7 @@ public sealed class EstimatingHistoryEndpointAuthorizationTests
         builder.Services.AddScoped<EstimatingHistoryReportService>();
         builder.Services.AddScoped<EstimatingHistoryGridExportService>();
         builder.Services.AddScoped<EstimatorSummaryReportService>();
+        builder.Services.AddScoped<EnterpriseQuoteSyncService>();
         var app = builder.Build();
         app.MapGroup("/api").MapEstimatingHistoryEndpoints();
 
@@ -68,5 +70,32 @@ public sealed class EstimatingHistoryEndpointAuthorizationTests
                 endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods,
                 method => method == "POST");
         });
+    }
+
+    [Fact]
+    public void Manual_sync_requires_estimating_admin_permission_and_post()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddAuthorization();
+        builder.Services.AddScoped<EstimatingHistoryQueryService>();
+        builder.Services.AddScoped<EstimatingHistoryImportService>();
+        builder.Services.AddScoped<EstimatingHistoryReportService>();
+        builder.Services.AddScoped<EstimatingHistoryGridExportService>();
+        builder.Services.AddScoped<EstimatorSummaryReportService>();
+        builder.Services.AddScoped<EnterpriseQuoteSyncService>();
+        var app = builder.Build();
+        app.MapGroup("/api").MapEstimatingHistoryEndpoints();
+
+        var endpoint = ((IEndpointRouteBuilder)app).DataSources
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Single(candidate => candidate.RoutePattern.RawText == "/api/quote-history/sync");
+        var authorization = endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>();
+
+        Assert.Contains(authorization, data => data.Policy == EstimatingPolicies.ViewHistory);
+        Assert.Contains(authorization, data => data.Policy == EstimatingPolicies.Admin);
+        Assert.Contains(
+            endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods,
+            method => method == "POST");
     }
 }

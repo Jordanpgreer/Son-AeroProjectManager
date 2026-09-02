@@ -208,6 +208,58 @@ public sealed class FulcrumQuoteSyncTests
         Assert.Single(await db.QuoteHistoryAudits.ToListAsync());
     }
 
+    [Fact]
+    public async Task Manual_sync_uses_the_active_provider_and_records_the_admin_actor()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var dbOptions = new DbContextOptionsBuilder<EstimatingAccessDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new EstimatingAccessDbContext(dbOptions);
+        await db.Database.EnsureCreatedAsync();
+        var importer = new EstimatingHistoryImportService(db, new EstimatingHistoryReviewStore());
+        var row = EstimatingHistoryImportService.CreateRow(
+            2,
+            "manual-quote-id",
+            5501,
+            "Manual Pull Customer",
+            null,
+            "Sales One",
+            "Open",
+            null,
+            "Estimator One",
+            100m,
+            null,
+            null,
+            null,
+            null,
+            null,
+            1,
+            null,
+            null);
+        var service = new EnterpriseQuoteSyncService(
+            db,
+            importer,
+            [new StubQuoteProvider(new EnterpriseQuotePullResult([row], 1, []))],
+            new StubProviderSource(),
+            NullLogger<EnterpriseQuoteSyncService>.Instance);
+
+        var result = await service.RunManualAsync("SON4L\\administrator", default);
+
+        Assert.Equal(EnterpriseProviderNames.Fulcrum, result.ProviderName);
+        Assert.Equal(1, result.RecordsReceived);
+        Assert.Equal(1, result.NewRecords);
+        Assert.Equal(0, result.UpdatedRecords);
+        Assert.Equal(0, result.UnchangedRecords);
+        var run = Assert.Single(await db.FulcrumQuoteSyncRuns.ToListAsync());
+        Assert.Equal(FulcrumQuoteSyncStatuses.Completed, run.Status);
+        Assert.Equal(result.RunId, run.Id);
+        var batch = Assert.Single(await db.QuoteHistoryImportBatches.ToListAsync());
+        Assert.Equal("SON4L\\administrator", batch.ImportedBy);
+        Assert.Contains("manual sync", batch.FileName, StringComparison.OrdinalIgnoreCase);
+    }
+
     private sealed class FulcrumHandler : HttpMessageHandler
     {
         public List<CapturedRequest> Requests { get; } = [];
@@ -271,6 +323,21 @@ public sealed class FulcrumQuoteSyncTests
             Assert.Equal(SonAero.Platform.Security.IntegrationCredentialNames.FulcrumPublicApi, credentialKey);
             return Task.FromResult(secret);
         }
+    }
+
+    private sealed class StubQuoteProvider(EnterpriseQuotePullResult result) : IEstimatingQuoteProvider
+    {
+        public string ProviderName => EnterpriseProviderNames.Fulcrum;
+        public string RouteName => EnterpriseDataRoutes.EstimatingQuotes;
+
+        public Task<EnterpriseQuotePullResult> PullAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(result);
+    }
+
+    private sealed class StubProviderSource : IEnterpriseProviderSource
+    {
+        public Task<string> GetActiveProviderAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(EnterpriseProviderNames.Fulcrum);
     }
 
     private sealed record CapturedRequest(string Path, string Host, string? Authorization);

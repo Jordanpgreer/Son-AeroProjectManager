@@ -14,17 +14,80 @@ internal sealed class EnterpriseQuoteSyncService(
     IEnterpriseProviderSource providerSource,
     ILogger<EnterpriseQuoteSyncService> logger)
 {
+    private static readonly SemaphoreSlim SynchronizationGate = new(1, 1);
+
     public async Task RunScheduledAsync(
         DateTimeOffset scheduledForUtc,
         CancellationToken cancellationToken)
     {
-        scheduledForUtc = scheduledForUtc.ToUniversalTime();
+        if (!await SynchronizationGate.WaitAsync(0, cancellationToken))
+        {
+            logger.LogInformation(
+                "Skipped the enterprise quote sync scheduled for {ScheduledForUtc} because another sync is already running.",
+                scheduledForUtc);
+            return;
+        }
+
+        try
+        {
+            var provider = await ResolveProviderAsync(cancellationToken);
+            await RunAsync(
+                provider,
+                scheduledForUtc,
+                $"{provider.ProviderName.ToUpperInvariant()}_API_SCHEDULE",
+                $"{provider.ProviderName} API sync {scheduledForUtc:yyyy-MM-dd HHmm} UTC",
+                cancellationToken);
+        }
+        finally
+        {
+            SynchronizationGate.Release();
+        }
+    }
+
+    public async Task<EnterpriseQuoteSyncResult> RunManualAsync(
+        string actor,
+        CancellationToken cancellationToken)
+    {
+        if (!await SynchronizationGate.WaitAsync(0, cancellationToken))
+            throw new EnterpriseQuoteSyncAlreadyRunningException();
+
+        try
+        {
+            var requestedAt = DateTimeOffset.UtcNow;
+            var provider = await ResolveProviderAsync(cancellationToken);
+            var result = await RunAsync(
+                provider,
+                requestedAt,
+                string.IsNullOrWhiteSpace(actor) ? "UNKNOWN_ADMIN" : actor.Trim(),
+                $"{provider.ProviderName} API manual sync {requestedAt:yyyy-MM-dd HHmmss} UTC",
+                cancellationToken);
+            return result ?? throw new InvalidOperationException(
+                "The manual sync could not be claimed because an identical sync run already exists.");
+        }
+        finally
+        {
+            SynchronizationGate.Release();
+        }
+    }
+
+    private async Task<IEstimatingQuoteProvider> ResolveProviderAsync(
+        CancellationToken cancellationToken)
+    {
         var activeProvider = await providerSource.GetActiveProviderAsync(cancellationToken);
-        var provider = EnterpriseAdapterSelector.Select(
+        return EnterpriseAdapterSelector.Select(
             providers,
             activeProvider,
             EnterpriseDataRoutes.EstimatingQuotes);
-        var actor = $"{provider.ProviderName.ToUpperInvariant()}_API_SCHEDULE";
+    }
+
+    private async Task<EnterpriseQuoteSyncResult?> RunAsync(
+        IEstimatingQuoteProvider provider,
+        DateTimeOffset scheduledForUtc,
+        string actor,
+        string batchName,
+        CancellationToken cancellationToken)
+    {
+        scheduledForUtc = scheduledForUtc.ToUniversalTime();
         var run = new FulcrumQuoteSyncRun
         {
             Id = Guid.NewGuid(),
@@ -48,7 +111,7 @@ internal sealed class EnterpriseQuoteSyncService(
                 logger.LogInformation(
                     "The enterprise quote sync scheduled for {ScheduledForUtc} was already claimed by another process.",
                     scheduledForUtc);
-                return;
+                return null;
             }
             throw;
         }
@@ -66,7 +129,7 @@ internal sealed class EnterpriseQuoteSyncService(
 
             var result = await importer.ApplyAutomatedAsync(
                 pull.Rows,
-                $"{provider.ProviderName} API sync {scheduledForUtc:yyyy-MM-dd HHmm} UTC",
+                batchName,
                 actor,
                 cancellationToken);
             run.Status = FulcrumQuoteSyncStatuses.Completed;
@@ -79,6 +142,15 @@ internal sealed class EnterpriseQuoteSyncService(
             logger.LogInformation(
                 "{Provider} quote sync completed with {QuoteCount} quotes: {NewCount} new, {UpdatedCount} updated, and {UnchangedCount} unchanged.",
                 provider.ProviderName,
+                pull.RecordsReceived,
+                result.NewRecords,
+                result.UpdatedRecords,
+                result.UnchangedRecords);
+            return new EnterpriseQuoteSyncResult(
+                run.Id,
+                provider.ProviderName,
+                run.StartedAt,
+                run.CompletedAt.Value,
                 pull.RecordsReceived,
                 result.NewRecords,
                 result.UpdatedRecords,
@@ -104,6 +176,19 @@ internal sealed class EnterpriseQuoteSyncService(
     private static string Truncate(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength];
 }
+
+internal sealed record EnterpriseQuoteSyncResult(
+    Guid RunId,
+    string ProviderName,
+    DateTimeOffset StartedAt,
+    DateTimeOffset CompletedAt,
+    int RecordsReceived,
+    int NewRecords,
+    int UpdatedRecords,
+    int UnchangedRecords);
+
+internal sealed class EnterpriseQuoteSyncAlreadyRunningException()
+    : Exception("An enterprise quote synchronization is already running. Wait for it to finish before starting another pull.");
 
 internal static class FulcrumQuoteMapper
 {
