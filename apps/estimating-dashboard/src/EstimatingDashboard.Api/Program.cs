@@ -7,6 +7,7 @@ using EstimatingDashboard.Api.Data;
 using EstimatingDashboard.Api.Dtos;
 using EstimatingDashboard.Api.Endpoints;
 using EstimatingDashboard.Api.Services;
+using SonAero.Platform.Features;
 using SonAero.Platform.Integrations;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -288,6 +289,13 @@ api.MapGet("/me", (HttpContext context) =>
         ? Results.Forbid()
         : Results.Ok(EstimatingUserService.Current(access));
 }).RequireAuthorization(EstimatingPolicies.Viewer);
+api.MapGet("/benny/idle-settings", async (
+    EstimatingAccessDbContext db,
+    CancellationToken cancellationToken) => Results.Ok(await BennyIdleSettingsStore.ReadAsync(
+        db.Database.GetDbConnection(),
+        BennyIdleModules.EstimatingDashboard,
+        cancellationToken)))
+    .RequireAuthorization(EstimatingPolicies.Viewer);
 api.MapEstimatingHistoryEndpoints();
 api.MapFulcrumEstimateEndpoints();
 

@@ -433,6 +433,14 @@ namespace ProjectTracker.Api.Data.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("nvarchar(32)");
 
+                    b.Property<string>("ExternalSourceOperationId")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<string>("ExternalSourceProvider")
+                        .HasMaxLength(24)
+                        .HasColumnType("nvarchar(24)");
+
                     b.Property<DateTimeOffset?>("NoteUpdatedAt")
                         .HasColumnType("datetimeoffset");
 
@@ -496,6 +504,8 @@ namespace ProjectTracker.Api.Data.Migrations
 
                     b.HasIndex("ProjectId", "Sequence");
 
+                    b.HasIndex("ProjectId", "ExternalSourceProvider", "ExternalSourceOperationId");
+
                     b.ToTable("Tasks");
                 });
 
@@ -548,6 +558,14 @@ namespace ProjectTracker.Api.Data.Migrations
                 {
                     b.Property<bool>("AssistantEnabled")
                         .HasColumnType("bit");
+
+                    b.Property<int>("AssistantIdleDelayMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<string>("AssistantIdleModules")
+                        .IsRequired()
+                        .HasMaxLength(240)
+                        .HasColumnType("nvarchar(240)");
 
                     b.Property<string>("AssistantName")
                         .IsRequired()

@@ -244,14 +244,23 @@ public sealed record ProjectCreateDto(
     DateOnly? ProgramStart,
     int? TemplateProjectId);
 
-public sealed record ProjectQuantitySyncRequestDto(long Version);
+public sealed record ProjectQuantitySyncRequestDto(
+    long Version,
+    bool PreserveQuantities = false);
+
+public sealed record ProjectRoutingOverrideRequestDto(long Version);
 
 public sealed record ProjectQuantitySyncResultDto(
     ProjectDetailDto Project,
     string Provider,
     IReadOnlyList<string> UpdatedFields,
     IReadOnlyList<string> RetainedFields,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    int RoutingStepsAdded = 0,
+    int RoutingStepsUpdated = 0,
+    int ArdaOnlyOperationsRetained = 0,
+    int RoutingOperationsRemoved = 0,
+    bool ExistingOperationsPreserved = false);
 
 public sealed record TaskUpsertDto(
     int Sequence,
@@ -288,12 +297,16 @@ public sealed record WalkthroughSettingsDto(
     bool Enabled,
     bool AssistantEnabled,
     string AssistantName,
+    IReadOnlyList<string> AssistantIdleModules,
+    int AssistantIdleDelayMinutes,
     DateTimeOffset UpdatedAt);
 
 public sealed record WalkthroughSettingsUpsertDto(
     bool Enabled,
     bool AssistantEnabled,
-    string? AssistantName);
+    string? AssistantName,
+    IReadOnlyList<string>? AssistantIdleModules,
+    int? AssistantIdleDelayMinutes);
 
 public sealed record WalkthroughBootstrapDto(
     bool Enabled,

@@ -7,6 +7,8 @@ public sealed class ProjectTask
     public Project Project { get; set; } = null!;
     public int Sequence { get; set; }
     public string? ExternalTaskId { get; set; }
+    public string? ExternalSourceProvider { get; set; }
+    public string? ExternalSourceOperationId { get; set; }
     public string Title { get; set; } = string.Empty;
     public string? Phase { get; set; }
     public string? WorkStation { get; set; }

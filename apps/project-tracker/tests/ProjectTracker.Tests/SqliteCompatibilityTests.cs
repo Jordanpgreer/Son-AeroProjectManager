@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Models;
+using SonAero.Platform.Features;
 
 namespace ProjectTracker.Tests;
 
@@ -228,11 +229,26 @@ public sealed class SqliteCompatibilityTests
 
         Assert.Equal(System.Data.ConnectionState.Open, connection.State);
         await using var check = connection.CreateCommand();
-        check.CommandText = "SELECT \"AssistantEnabled\", \"AssistantName\" FROM \"FeatureSettings\" WHERE \"Id\" = 1;";
+        check.CommandText = "SELECT \"AssistantEnabled\", \"AssistantName\", \"AssistantIdleDelayMinutes\", \"AssistantIdleModules\" FROM \"FeatureSettings\" WHERE \"Id\" = 1;";
         await using var reader = await check.ExecuteReaderAsync();
         Assert.True(await reader.ReadAsync());
         Assert.Equal(1L, reader.GetInt64(0));
         Assert.Equal("Benny", reader.GetString(1));
+        Assert.Equal(10L, reader.GetInt64(2));
+        Assert.Equal(BennyIdleModules.ProjectTracker, reader.GetString(3));
+        await reader.DisposeAsync();
+
+        var projectSettings = await BennyIdleSettingsStore.ReadAsync(
+            connection,
+            BennyIdleModules.ProjectTracker,
+            CancellationToken.None);
+        var qualitySettings = await BennyIdleSettingsStore.ReadAsync(
+            connection,
+            BennyIdleModules.QualityAssurance,
+            CancellationToken.None);
+        Assert.True(projectSettings.Enabled);
+        Assert.False(qualitySettings.Enabled);
+        Assert.Equal(BennyIdleSettingsStore.DefaultDelayMinutes, projectSettings.IdleDelayMinutes);
     }
 
     private static async Task CreateMalformedLegacyDatabaseAsync(string databasePath)

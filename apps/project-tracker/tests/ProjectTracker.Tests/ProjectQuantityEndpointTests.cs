@@ -20,6 +20,9 @@ public sealed class ProjectQuantityEndpointTests
         builder.Services.AddDbContext<ProjectTrackerDbContext>(options =>
             options.UseSqlite("Data Source=:memory:"));
         builder.Services.AddScoped<ProjectAuditService>();
+        builder.Services.AddSingleton<ScheduleCalculator>();
+        builder.Services.AddScoped<ProjectMetricsService>();
+        builder.Services.AddScoped<ProjectRoutingSyncService>();
         builder.Services.AddScoped<IProjectQuantityProvider, AcumaticaProjectQuantityProvider>();
         builder.Services.AddScoped<IEnterpriseProviderSource, StubProviderSource>();
         var app = builder.Build();
@@ -46,6 +49,9 @@ public sealed class ProjectQuantityEndpointTests
         builder.Services.AddDbContext<ProjectTrackerDbContext>(options =>
             options.UseSqlite("Data Source=:memory:"));
         builder.Services.AddScoped<ProjectAuditService>();
+        builder.Services.AddSingleton<ScheduleCalculator>();
+        builder.Services.AddScoped<ProjectMetricsService>();
+        builder.Services.AddScoped<ProjectRoutingSyncService>();
         builder.Services.AddScoped<IProjectQuantityProvider, AcumaticaProjectQuantityProvider>();
         builder.Services.AddScoped<IEnterpriseProviderSource, StubProviderSource>();
         var app = builder.Build();
@@ -59,6 +65,32 @@ public sealed class ProjectQuantityEndpointTests
         Assert.Contains(
             route.Metadata.GetOrderedMetadata<IAuthorizeData>(),
             authorization => authorization.Policy == ProjectQuantitySyncEndpoints.AuthorizationPolicy);
+    }
+
+    [Fact]
+    public void Project_routing_override_requires_the_administrator_policy()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddAuthorization();
+        builder.Services.AddDbContext<ProjectTrackerDbContext>(options =>
+            options.UseSqlite("Data Source=:memory:"));
+        builder.Services.AddScoped<ProjectAuditService>();
+        builder.Services.AddSingleton<ScheduleCalculator>();
+        builder.Services.AddScoped<ProjectMetricsService>();
+        builder.Services.AddScoped<ProjectRoutingSyncService>();
+        builder.Services.AddScoped<IProjectQuantityProvider, AcumaticaProjectQuantityProvider>();
+        builder.Services.AddScoped<IEnterpriseProviderSource, StubProviderSource>();
+        var app = builder.Build();
+        app.MapGroup("/api").MapProjectQuantitySyncEndpoints();
+
+        var route = Assert.Single(((IEndpointRouteBuilder)app).DataSources
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>(),
+            endpoint => endpoint.RoutePattern.RawText == "/api/projects/{projectId:int}/routing/override");
+
+        Assert.Contains(
+            route.Metadata.GetOrderedMetadata<IAuthorizeData>(),
+            authorization => authorization.Policy == ProjectQuantitySyncEndpoints.RoutingOverrideAuthorizationPolicy);
     }
 
     private sealed class StubProviderSource : IEnterpriseProviderSource

@@ -7,6 +7,7 @@ using QualityAssurance.Api.Data;
 using QualityAssurance.Api.Dtos;
 using QualityAssurance.Api.Endpoints;
 using QualityAssurance.Api.Services;
+using SonAero.Platform.Features;
 using SonAero.Platform.Security;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -178,6 +179,13 @@ api.MapGet("/me", (HttpContext context) =>
         ? Results.Forbid()
         : Results.Ok(QualityAssuranceUserService.Current(access));
 }).RequireAuthorization(QualityAssurancePolicies.ModuleView);
+api.MapGet("/benny/idle-settings", async (
+    QualityAssuranceAccessDbContext db,
+    CancellationToken cancellationToken) => Results.Ok(await BennyIdleSettingsStore.ReadAsync(
+        db.Database.GetDbConnection(),
+        BennyIdleModules.QualityAssurance,
+        cancellationToken)))
+    .RequireAuthorization(QualityAssurancePolicies.ModuleView);
 api.RequireAuthorization(QualityAssurancePolicies.ModuleView)
     .MapQualityShippingEndpoints()
     .MapQualityCommentEndpoints();

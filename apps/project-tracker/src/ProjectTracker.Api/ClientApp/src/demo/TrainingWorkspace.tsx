@@ -548,6 +548,7 @@ export function TrainingWorkspace(props: TrainingWorkspaceProps) {
               workStations={workStations}
               conflictKeys={conflictKeys}
               permissions={[...props.permissions]}
+              isAdmin={props.user.isAdmin}
               editMode={props.editMode}
               projectMetadata={projectMetadata}
               projectMetadataDirty={JSON.stringify(projectMetadata) !== JSON.stringify(trainingMetadata(props.selectedProject))}
@@ -574,7 +575,33 @@ export function TrainingWorkspace(props: TrainingWorkspaceProps) {
               }}
               onSyncQuantities={async () => {
                 previewAction('A read-only ERP quantity pull would run here.')
-                return { project: props.selectedProject, provider: 'Configured ERP', updatedFields: [], retainedFields: [], warnings: [] }
+                return {
+                  project: props.selectedProject,
+                  provider: 'Configured ERP',
+                  updatedFields: [],
+                  retainedFields: [],
+                  warnings: [],
+                  routingStepsAdded: 0,
+                  routingStepsUpdated: 0,
+                  ardaOnlyOperationsRetained: 0,
+                  routingOperationsRemoved: 0,
+                  existingOperationsPreserved: true,
+                }
+              }}
+              onOverrideRouting={async () => {
+                previewAction(`A one-time routing override would apply only to ${props.selectedProject.programName}.`)
+                return {
+                  project: props.selectedProject,
+                  provider: 'Configured ERP',
+                  updatedFields: [],
+                  retainedFields: [],
+                  warnings: [],
+                  routingStepsAdded: 0,
+                  routingStepsUpdated: 0,
+                  ardaOnlyOperationsRetained: 0,
+                  routingOperationsRemoved: 0,
+                  existingOperationsPreserved: false,
+                }
               }}
               notificationTaskId={null}
               showChat={props.permissions.some((permission) => permission.toLocaleLowerCase('en-US') === permissionKeys.moduleView)}

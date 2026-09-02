@@ -14,16 +14,29 @@ public sealed class ProjectQuantitySyncOptions
     public const string SectionName = "ProjectQuantitySync";
 
     public string FulcrumBaseUrl { get; set; } = FulcrumApiEndpoint.ItarBaseUrl;
+    public int LookupCatalogMaxAgeHours { get; set; } = 24;
+    public int[] LookupCatalogRefreshHours { get; set; } = [5, 8, 11, 14, 17];
+    public string LookupCatalogTimeZoneId { get; set; } = "Mountain Standard Time";
 }
+
+public sealed record ProjectRoutingStepSnapshot(
+    string ExternalId,
+    int Sequence,
+    string Name);
 
 public sealed record ProjectQuantitySnapshot(
     decimal? RequiredQuantity,
     decimal? JobQuantity,
     IReadOnlyList<string> Warnings,
-    bool MatchConfirmed = false);
+    bool MatchConfirmed = false,
+    IReadOnlyList<ProjectRoutingStepSnapshot>? RoutingSteps = null)
+{
+    public IReadOnlyList<ProjectRoutingStepSnapshot> ConfirmedRoutingSteps => RoutingSteps ?? [];
+}
 
 public enum ProjectQuantityLookupKind
 {
+    Item,
     SalesOrder,
     Job
 }
@@ -32,7 +45,78 @@ public sealed record ProjectQuantityLookupOption(
     string ExternalId,
     string Number,
     string? Name,
-    string Status);
+    string Status,
+    string? PartNumber = null,
+    string? SalesOrderNumber = null,
+    string? JobNumber = null,
+    decimal? JobQuantity = null);
+
+public sealed class FulcrumProjectLookupCatalog
+{
+    private readonly SemaphoreSlim itemsGate = new(1, 1);
+    private readonly SemaphoreSlim jobsGate = new(1, 1);
+    private readonly SemaphoreSlim salesOrdersGate = new(1, 1);
+    private CatalogEntry<IReadOnlyList<FulcrumItemDto>>? items;
+    private CatalogEntry<IReadOnlyList<FulcrumJobDto>>? jobs;
+    private CatalogEntry<IReadOnlyList<FulcrumSalesOrderDto>>? salesOrders;
+
+    public Task<IReadOnlyList<FulcrumItemDto>> GetItemsAsync(
+        Func<CancellationToken, Task<IReadOnlyList<FulcrumItemDto>>> load,
+        TimeSpan refreshInterval,
+        CancellationToken cancellationToken,
+        bool forceRefresh = false) =>
+        GetAsync(() => items, value => items = value, itemsGate, load, refreshInterval, cancellationToken, forceRefresh);
+
+    public Task<IReadOnlyList<FulcrumJobDto>> GetJobsAsync(
+        Func<CancellationToken, Task<IReadOnlyList<FulcrumJobDto>>> load,
+        TimeSpan refreshInterval,
+        CancellationToken cancellationToken,
+        bool forceRefresh = false) =>
+        GetAsync(() => jobs, value => jobs = value, jobsGate, load, refreshInterval, cancellationToken, forceRefresh);
+
+    public Task<IReadOnlyList<FulcrumSalesOrderDto>> GetSalesOrdersAsync(
+        Func<CancellationToken, Task<IReadOnlyList<FulcrumSalesOrderDto>>> load,
+        TimeSpan refreshInterval,
+        CancellationToken cancellationToken,
+        bool forceRefresh = false) =>
+        GetAsync(() => salesOrders, value => salesOrders = value, salesOrdersGate, load, refreshInterval, cancellationToken, forceRefresh);
+
+    private static async Task<IReadOnlyList<T>> GetAsync<T>(
+        Func<CatalogEntry<IReadOnlyList<T>>?> read,
+        Action<CatalogEntry<IReadOnlyList<T>>> update,
+        SemaphoreSlim gate,
+        Func<CancellationToken, Task<IReadOnlyList<T>>> load,
+        TimeSpan refreshInterval,
+        CancellationToken cancellationToken,
+        bool forceRefresh)
+    {
+        var current = read();
+        if (!forceRefresh
+            && current is not null
+            && DateTimeOffset.UtcNow - current.LoadedAt < refreshInterval)
+            return current.Value;
+
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            current = read();
+            if (!forceRefresh
+                && current is not null
+                && DateTimeOffset.UtcNow - current.LoadedAt < refreshInterval)
+                return current.Value;
+
+            var loaded = await load(cancellationToken);
+            update(new CatalogEntry<IReadOnlyList<T>>(loaded, DateTimeOffset.UtcNow));
+            return loaded;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private sealed record CatalogEntry<T>(T Value, DateTimeOffset LoadedAt);
+}
 
 public interface IProjectQuantityProvider : IEnterpriseIntegrationAdapter
 {
@@ -46,8 +130,10 @@ public interface IProjectQuantityProvider : IEnterpriseIntegrationAdapter
 public sealed class FulcrumProjectQuantityProvider(
     HttpClient httpClient,
     IOptions<ProjectQuantitySyncOptions> options,
-    IProjectTrackerIntegrationCredentialReader credentials) : IProjectQuantityProvider
+    IProjectTrackerIntegrationCredentialReader credentials,
+    FulcrumProjectLookupCatalog catalog) : IProjectQuantityProvider
 {
+    private const int CatalogPageSize = 5000;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -79,6 +165,31 @@ public sealed class FulcrumProjectQuantityProvider(
             throw new InvalidOperationException(
                 "The Fulcrum Public API credential is not configured. Add it in Admin Hub under API Keys.");
 
+        var items = await SendAsync<List<FulcrumItemDto>>(
+            baseUri,
+            HttpMethod.Post,
+            "api/items/list/v2?Skip=0&Take=10",
+            token,
+            new
+            {
+                numbers = new[]
+                {
+                    new { query = partNumber, mode = "equal", casingOption = "caseInsensitive" }
+                },
+                latestRevision = true,
+                isArchived = false
+            },
+            cancellationToken);
+        var matchingItems = items
+            .Where(candidate => !candidate.IsArchived
+                && string.Equals(candidate.Number.Trim(), partNumber, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (matchingItems.Count != 1)
+            return NoMatch(matchingItems.Count == 0
+                ? $"Fulcrum did not return active Item {partNumber}."
+                : $"Fulcrum returned more than one active Item {partNumber}; no quantities were changed.");
+        var item = matchingItems[0];
+
         var jobs = await SendAsync<List<FulcrumJobDto>>(
             baseUri,
             HttpMethod.Post,
@@ -94,6 +205,9 @@ public sealed class FulcrumProjectQuantityProvider(
         var job = matchingJobs[0];
         if (!IsActiveJob(job.Status))
             return NoMatch($"Job {jobNumber} is not active in Fulcrum; no quantities were changed.");
+        if (!string.IsNullOrWhiteSpace(job.ParentItemId)
+            && !string.Equals(job.ParentItemId, item.Id, StringComparison.OrdinalIgnoreCase))
+            return NoMatch($"Job {jobNumber} is not producing Item {partNumber} in Fulcrum; no quantities were changed.");
 
         var salesOrders = await SendAsync<List<FulcrumSalesOrderDto>>(
             baseUri,
@@ -108,7 +222,7 @@ public sealed class FulcrumProjectQuantityProvider(
                 ? $"Fulcrum did not return Sales Order {salesOrderNumber}."
                 : $"Fulcrum returned more than one Sales Order {salesOrderNumber}; no quantities were changed.");
         var salesOrder = matchingSalesOrders[0];
-        if (!IsActiveSalesOrder(salesOrder.Status))
+        if (salesOrder.Deleted || !IsActiveSalesOrder(salesOrder.Status))
             return NoMatch($"Sales Order {salesOrderNumber} is not active in Fulcrum; no quantities were changed.");
 
         if (string.IsNullOrWhiteSpace(job.SalesOrderId)
@@ -125,21 +239,87 @@ public sealed class FulcrumProjectQuantityProvider(
             cancellationToken);
         if (salesOrderLine is null)
             return NoMatch($"The part line linked to Job {jobNumber} was not found on Sales Order {salesOrderNumber}; no quantities were changed.");
-        if (!PartNumberMatches(salesOrderLine, partNumber))
+        if (!string.IsNullOrWhiteSpace(salesOrderLine.ItemId)
+            ? !string.Equals(salesOrderLine.ItemId, item.Id, StringComparison.OrdinalIgnoreCase)
+            : !PartNumberMatches(salesOrderLine, partNumber))
             return NoMatch($"Part {partNumber} does not match the part line linked to Job {jobNumber} and Sales Order {salesOrderNumber}; no quantities were changed.");
 
-        var jobQuantity = PositiveOrNull(job?.QuantityToMake);
-        var requiredQuantity = PositiveOrNull(salesOrderLine?.Quantity);
+        var jobQuantity = PositiveOrNull(job.QuantityToMake);
+        var requiredQuantity = PositiveOrNull(salesOrderLine.Quantity);
         if (jobQuantity is null)
             warnings.Add("The matched Fulcrum job did not contain a positive quantity to make.");
         if (requiredQuantity is null)
             warnings.Add("The matched Fulcrum sales-order line did not contain a positive quantity.");
 
+        var routingDetails = await SendAsync<List<FulcrumJobOperationDetailsDto>>(
+            baseUri,
+            HttpMethod.Post,
+            $"api/jobs/{Uri.EscapeDataString(job.Id)}/operations/list",
+            token,
+            null,
+            cancellationToken);
+        var routingSteps = routingDetails
+            .Select((detail, index) => new { Detail = detail, Index = index })
+            .Where(record => record.Detail.ItemToMake.Depth == 0
+                && string.Equals(record.Detail.ItemToMake.ItemId, item.Id, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(record.Detail.Operation.Id)
+                && !string.IsNullOrWhiteSpace(record.Detail.Operation.Name))
+            .OrderBy(record => record.Detail.Operation.Order)
+            .ThenBy(record => record.Index)
+            .Select(record => new ProjectRoutingStepSnapshot(
+                record.Detail.Operation.Id.Trim(),
+                record.Detail.Operation.Order,
+                record.Detail.Operation.Name!.Trim()))
+            .DistinctBy(step => step.ExternalId, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (routingSteps.Count == 0)
+            warnings.Add($"Job {jobNumber} did not return any top-level routing operations for Item {partNumber}.");
+
         return new ProjectQuantitySnapshot(
             requiredQuantity,
             jobQuantity,
             warnings.Distinct().ToList(),
-            MatchConfirmed: true);
+            MatchConfirmed: true,
+            RoutingSteps: routingSteps);
+    }
+
+    public async Task RefreshLookupCatalogAsync(CancellationToken cancellationToken)
+    {
+        var baseUri = ReadBaseUri();
+        var token = await credentials.GetSecretAsync(
+            IntegrationCredentialNames.FulcrumPublicApi,
+            cancellationToken);
+        if (string.IsNullOrWhiteSpace(token))
+            throw new InvalidOperationException(
+                "The Fulcrum Public API credential is not configured. Add it in Admin Hub under API Keys.");
+
+        var maxAge = LookupCatalogMaxAge();
+        await Task.WhenAll(
+            catalog.GetItemsAsync(
+                ct => LoadAllAsync<FulcrumItemDto>(
+                    baseUri,
+                    "api/items/list/v2",
+                    token,
+                    new { latestRevision = true, isArchived = false },
+                    ct),
+                maxAge,
+                cancellationToken,
+                forceRefresh: true),
+            catalog.GetJobsAsync(
+                ct => LoadAllAsync<FulcrumJobDto>(
+                    baseUri,
+                    "api/jobs/list",
+                    token,
+                    new { statuses = ActiveJobStatuses },
+                    ct),
+                maxAge,
+                cancellationToken,
+                forceRefresh: true),
+            catalog.GetSalesOrdersAsync(
+                ct => LoadAllAsync<FulcrumSalesOrderDto>(baseUri, "api/sales-orders/list", token, new { }, ct),
+                maxAge,
+                cancellationToken,
+                forceRefresh: true));
     }
 
     public async Task<IReadOnlyList<ProjectQuantityLookupOption>> SearchAsync(
@@ -158,51 +338,136 @@ public sealed class FulcrumProjectQuantityProvider(
             throw new InvalidOperationException(
                 "The Fulcrum Public API credential is not configured. Add it in Admin Hub under API Keys.");
 
+        var refreshInterval = LookupCatalogMaxAge();
+
+        if (kind == ProjectQuantityLookupKind.Item)
+        {
+            var items = await catalog.GetItemsAsync(
+                ct => LoadAllAsync<FulcrumItemDto>(
+                    baseUri,
+                    "api/items/list/v2",
+                    token,
+                    new { latestRevision = true, isArchived = false },
+                    ct),
+                refreshInterval,
+                cancellationToken);
+            return items
+                .Where(item => !item.IsArchived
+                    && (Contains(item.Number, query) || Contains(item.Description, query)))
+                .OrderBy(item => MatchRank(item.Number, query))
+                .ThenBy(item => item.Number, StringComparer.OrdinalIgnoreCase)
+                .Take(20)
+                .Select(item => new ProjectQuantityLookupOption(
+                    item.Id,
+                    item.Number,
+                    item.Description,
+                    "active",
+                    PartNumber: item.Number))
+                .ToList();
+        }
+
         if (kind == ProjectQuantityLookupKind.SalesOrder)
         {
-            if (!int.TryParse(query, out var salesOrderNumber) || salesOrderNumber <= 0) return [];
-            var salesOrders = await SendAsync<List<FulcrumSalesOrderDto>>(
-                baseUri,
-                HttpMethod.Post,
-                "api/sales-orders/list?Skip=0&Take=20",
-                token,
-                new { numbers = new[] { salesOrderNumber } },
+            var salesOrders = await catalog.GetSalesOrdersAsync(
+                ct => LoadAllAsync<FulcrumSalesOrderDto>(baseUri, "api/sales-orders/list", token, new { }, ct),
+                refreshInterval,
                 cancellationToken);
             return salesOrders
-                .Where(order => order.Number == salesOrderNumber && IsActiveSalesOrder(order.Status))
-                .OrderByDescending(order => order.Number)
+                .Where(order => !order.Deleted && IsActiveSalesOrder(order.Status)
+                    && order.Number.ToString().Contains(query, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(order => MatchRank(order.Number.ToString(), query))
+                .ThenByDescending(order => order.Number)
+                .Take(20)
                 .Select(order => new ProjectQuantityLookupOption(
                     order.Id,
                     order.Number.ToString(),
                     null,
-                    order.Status!))
+                    order.Status!,
+                    SalesOrderNumber: order.Number.ToString()))
                 .ToList();
         }
 
-        object filters;
-        if (int.TryParse(query, out var jobNumber) && jobNumber > 0)
-            filters = new { numbers = new[] { jobNumber }, statuses = ActiveJobStatuses };
-        else
-            filters = new { jobNames = new[] { query }, statuses = ActiveJobStatuses };
-        var jobs = await SendAsync<List<FulcrumJobDto>>(
-            baseUri,
-            HttpMethod.Post,
-            "api/jobs/list?Skip=0&Take=20",
-            token,
-            filters,
+        var jobsTask = catalog.GetJobsAsync(
+            ct => LoadAllAsync<FulcrumJobDto>(
+                baseUri,
+                "api/jobs/list",
+                token,
+                new { statuses = ActiveJobStatuses },
+                ct),
+            refreshInterval,
             cancellationToken);
+        var itemsTask = catalog.GetItemsAsync(
+            ct => LoadAllAsync<FulcrumItemDto>(
+                baseUri,
+                "api/items/list/v2",
+                token,
+                new { latestRevision = true, isArchived = false },
+                ct),
+            refreshInterval,
+            cancellationToken);
+        var salesOrdersTask = catalog.GetSalesOrdersAsync(
+            ct => LoadAllAsync<FulcrumSalesOrderDto>(baseUri, "api/sales-orders/list", token, new { }, ct),
+            refreshInterval,
+            cancellationToken);
+        await Task.WhenAll(jobsTask, itemsTask, salesOrdersTask);
+        var jobs = await jobsTask;
+        var itemById = (await itemsTask).ToDictionary(item => item.Id, StringComparer.OrdinalIgnoreCase);
+        var salesOrderById = (await salesOrdersTask).ToDictionary(order => order.Id, StringComparer.OrdinalIgnoreCase);
         return jobs
-            .Where(job => IsActiveJob(job.Status)
-                && (jobNumber > 0
-                    ? job.Number == jobNumber
-                    : string.Equals(job.Name?.Trim(), query, StringComparison.OrdinalIgnoreCase)))
-            .OrderByDescending(job => job.Number)
-            .Select(job => new ProjectQuantityLookupOption(
-                job.Id,
-                job.Number.ToString(),
-                job.Name,
-                job.Status!))
+            .Where(job => IsActiveJob(job.Status))
+            .Select(job =>
+            {
+                itemById.TryGetValue(job.ParentItemId ?? string.Empty, out var item);
+                salesOrderById.TryGetValue(job.SalesOrderId ?? string.Empty, out var salesOrder);
+                if (salesOrder is not null
+                    && (salesOrder.Deleted || !IsActiveSalesOrder(salesOrder.Status)))
+                    salesOrder = null;
+                return new { Job = job, Item = item, SalesOrder = salesOrder };
+            })
+            .Where(record =>
+                Contains(record.Job.Number.ToString(), query)
+                || Contains(record.Job.Name, query)
+                || Contains(record.Item?.Number, query)
+                || (record.SalesOrder is not null
+                    && record.SalesOrder.Number.ToString().Contains(query, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(record => MatchRank(record.Job.Number.ToString(), query))
+            .ThenByDescending(record => record.Job.Number)
+            .Take(20)
+            .Select(record => new ProjectQuantityLookupOption(
+                record.Job.Id,
+                record.Job.Number.ToString(),
+                record.Job.Name,
+                record.Job.Status!,
+                record.Item?.Number,
+                record.SalesOrder?.Number.ToString(),
+                record.Job.Number.ToString(),
+                PositiveOrNull(record.Job.QuantityToMake)))
             .ToList();
+    }
+
+    private async Task<IReadOnlyList<T>> LoadAllAsync<T>(
+        Uri baseUri,
+        string relativeUrl,
+        string token,
+        object body,
+        CancellationToken cancellationToken)
+    {
+        var records = new List<T>();
+        for (var skip = 0; skip < 100_000; skip += CatalogPageSize)
+        {
+            var page = await SendAsync<List<T>>(
+                baseUri,
+                HttpMethod.Post,
+                $"{relativeUrl}?Skip={skip}&Take={CatalogPageSize}",
+                token,
+                body,
+                cancellationToken);
+            records.AddRange(page);
+            if (page.Count < CatalogPageSize) return records;
+        }
+
+        throw new InvalidOperationException(
+            "The Fulcrum lookup catalogue exceeded 100,000 records. Narrow the configured catalogue scope before using live search.");
     }
 
     private async Task<FulcrumSalesOrderPartLineItemDto?> TryGetSalesOrderLineAsync(
@@ -279,8 +544,24 @@ public sealed class FulcrumProjectQuantityProvider(
             options.Value.FulcrumBaseUrl,
             "ProjectQuantitySync:FulcrumBaseUrl");
 
+    private TimeSpan LookupCatalogMaxAge() => TimeSpan.FromHours(Math.Clamp(
+        options.Value.LookupCatalogMaxAgeHours,
+        1,
+        7 * 24));
+
     private static decimal? PositiveOrNull(double? value) =>
         value is > 0 and <= 1_000_000_000 ? Convert.ToDecimal(value.Value) : null;
+
+    private static bool Contains(string? value, string query) =>
+        !string.IsNullOrWhiteSpace(value)
+        && value.Contains(query, StringComparison.OrdinalIgnoreCase);
+
+    private static int MatchRank(string? value, string query)
+    {
+        if (string.Equals(value, query, StringComparison.OrdinalIgnoreCase)) return 0;
+        if (value?.StartsWith(query, StringComparison.OrdinalIgnoreCase) == true) return 1;
+        return 2;
+    }
 
     private static ProjectQuantitySnapshot NoMatch(string warning) =>
         new(null, null, [warning], MatchConfirmed: false);
@@ -331,19 +612,41 @@ public sealed class AcumaticaProjectQuantityProvider : IProjectQuantityProvider
             "The Acumatica project lookup adapter is installed but not configured. Add the tenant endpoint, authentication, and job/sales-order field mappings before activating Acumatica.");
 }
 
+public sealed record FulcrumItemDto(
+    string Id,
+    string Number,
+    string? Description,
+    bool IsArchived);
+
 public sealed record FulcrumJobDto(
     string Id,
     int Number,
     string? Name,
     double? QuantityToMake,
+    string? ParentItemId,
     string? SalesOrderId,
     string? SalesOrderLineItemId,
     string? Status);
 
-public sealed record FulcrumSalesOrderDto(string Id, int Number, string? Status);
+public sealed record FulcrumSalesOrderDto(string Id, int Number, string? Status, bool Deleted);
 
 public sealed record FulcrumSalesOrderPartLineItemDto(
     string Id,
     string? Name,
     double? Quantity,
-    string? CustomerPartNumber);
+    string? CustomerPartNumber,
+    string? ItemId);
+
+public sealed record FulcrumJobOperationDetailsDto(
+    FulcrumJobItemToMakeDto ItemToMake,
+    FulcrumJobOperationDto Operation);
+
+public sealed record FulcrumJobItemToMakeDto(
+    string Id,
+    string ItemId,
+    int Depth);
+
+public sealed record FulcrumJobOperationDto(
+    string Id,
+    int Order,
+    string? Name);

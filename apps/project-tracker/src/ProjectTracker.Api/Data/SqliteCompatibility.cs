@@ -85,6 +85,18 @@ public static partial class SqliteCompatibility
             "AssistantName",
             "TEXT NOT NULL DEFAULT 'Benny'",
             cancellationToken);
+        await EnsureColumnAsync(
+            db,
+            "FeatureSettings",
+            "AssistantIdleDelayMinutes",
+            "INTEGER NOT NULL DEFAULT 10",
+            cancellationToken);
+        await EnsureColumnAsync(
+            db,
+            "FeatureSettings",
+            "AssistantIdleModules",
+            "TEXT NOT NULL DEFAULT 'project-tracker'",
+            cancellationToken);
     }
 
     public static async Task EnsureLegacyTablesAsync(ProjectTrackerDbContext db, CancellationToken cancellationToken)
@@ -107,6 +119,8 @@ public static partial class SqliteCompatibility
                 "WalkthroughEnabled" INTEGER NOT NULL DEFAULT 1,
                 "AssistantEnabled" INTEGER NOT NULL DEFAULT 1,
                 "AssistantName" TEXT NOT NULL DEFAULT 'Benny',
+                "AssistantIdleDelayMinutes" INTEGER NOT NULL DEFAULT 10,
+                "AssistantIdleModules" TEXT NOT NULL DEFAULT 'project-tracker',
                 "UpdatedAt" TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS "TaskOvertimeDays" (

@@ -61,6 +61,10 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
     }
     const message = typeof payload === 'object' && payload !== null && 'message' in payload
       ? String(payload.message)
+      : typeof payload === 'object' && payload !== null && 'detail' in payload
+        ? String(payload.detail)
+        : typeof payload === 'object' && payload !== null && 'title' in payload
+          ? String(payload.title)
       : typeof payload === 'string' ? payload : text
     if (response.status === 409 && typeof payload === 'object' && payload !== null && 'code' in payload && payload.code === 'ConcurrencyConflict') {
       window.dispatchEvent(new CustomEvent<ConcurrencyConflict>('project-tracker:concurrency-conflict', { detail: payload as ConcurrencyConflict }))

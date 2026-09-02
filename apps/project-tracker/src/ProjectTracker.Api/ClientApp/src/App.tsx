@@ -128,6 +128,26 @@ function projectMetadataFrom(project: ProjectDetail | null): ProjectMetadataDraf
   }
 }
 
+function projectQuantitySyncSummary(result: ProjectQuantitySyncResult) {
+  const parts = result.updatedFields.length > 0
+    ? [`Pulled ${result.updatedFields.join(' and ')} from ${result.provider}.`]
+    : [`${result.provider} did not change either quantity.`]
+  if (result.retainedFields.length > 0)
+    parts.push(`Kept the existing ${result.retainedFields.join(' and ').toLowerCase()}.`)
+  if (result.existingOperationsPreserved)
+    parts.push('Existing project operations were left unchanged.')
+  if (result.routingStepsAdded > 0)
+    parts.push(`Added ${result.routingStepsAdded} Fulcrum routing operation${result.routingStepsAdded === 1 ? '' : 's'}.`)
+  if (result.routingStepsUpdated > 0)
+    parts.push(`Updated ${result.routingStepsUpdated} existing operation${result.routingStepsUpdated === 1 ? '' : 's'} to match the Fulcrum route.`)
+  if (result.ardaOnlyOperationsRetained > 0)
+    parts.push(`Kept ${result.ardaOnlyOperationsRetained} Arda-only operation${result.ardaOnlyOperationsRetained === 1 ? '' : 's'} after the Fulcrum sequence.`)
+  if (result.routingOperationsRemoved > 0)
+    parts.push(`Removed ${result.routingOperationsRemoved} operation${result.routingOperationsRemoved === 1 ? '' : 's'} that were not in the Fulcrum route.`)
+  if (result.warnings.length > 0) parts.push(result.warnings.join(' '))
+  return parts.join(' ')
+}
+
 type NotificationDestination = {
   notificationId: number | null
   projectId: number
@@ -202,6 +222,8 @@ function App() {
   const [projectMetadata, setProjectMetadata] = useState<ProjectMetadataDraft>(emptyProjectMetadata)
   const [projectMetadataSaving, setProjectMetadataSaving] = useState(false)
   const [projectMetadataError, setProjectMetadataError] = useState<string | null>(null)
+  const [projectQuantityNotice, setProjectQuantityNotice] = useState<string | null>(null)
+  const [projectQuantityError, setProjectQuantityError] = useState<string | null>(null)
   const [unsavedProjectDetailsOpen, setUnsavedProjectDetailsOpen] = useState(false)
   const [importCompletionOpen, setImportCompletionOpen] = useState(false)
   const [importCompletionSaving, setImportCompletionSaving] = useState(false)
@@ -331,6 +353,11 @@ function App() {
     selectedProjectRequiredQuantity,
     selectedProjectJobQuantity,
   ])
+
+  useEffect(() => {
+    setProjectQuantityNotice(null)
+    setProjectQuantityError(null)
+  }, [selectedProjectMetadataId])
 
   useEffect(() => {
     if (!editMode || !projectMetadataDirty) return
@@ -697,6 +724,11 @@ function App() {
       requiredQuantity: projectMetadata.requiredQuantity.trim(),
       jobQuantity: projectMetadata.jobQuantity.trim(),
     }
+    const identifiersChanged = normalized.programName !== selectedProject.programName.trim()
+      || normalized.salesOrderNumber !== (selectedProject.salesOrderNumber ?? '').trim()
+      || normalized.jobNumber !== (selectedProject.jobNumber ?? '').trim()
+    const quantitiesChanged = normalized.requiredQuantity !== (selectedProject.requiredQuantity === null ? '' : String(selectedProject.requiredQuantity))
+      || normalized.jobQuantity !== (selectedProject.jobQuantity === null ? '' : String(selectedProject.jobQuantity))
     try {
       const parseQuantity = (value: string, label: string) => {
         if (!value) return null
@@ -705,7 +737,7 @@ function App() {
           throw new Error(`${label} must be greater than zero and no more than 1,000,000,000, or left blank.`)
         return quantity
       }
-      await updateProject({
+      const updatedProject = await updateProject({
         programName: normalized.programName,
         programManager: normalized.programManager || null,
         engineer: normalized.engineer || null,
@@ -717,7 +749,22 @@ function App() {
         requiredQuantity: parseQuantity(normalized.requiredQuantity, 'Required quantity'),
         jobQuantity: parseQuantity(normalized.jobQuantity, 'Job quantity'),
       })
-      setProjectMetadata(normalized)
+      if (!updatedProject) return false
+      setProjectMetadata(projectMetadataFrom(updatedProject))
+      if (identifiersChanged
+        && normalized.programName
+        && normalized.salesOrderNumber
+        && normalized.jobNumber) {
+        setProjectQuantityNotice(null)
+        setProjectQuantityError(null)
+        try {
+          const result = await syncProjectQuantitiesFor(updatedProject, quantitiesChanged)
+          setProjectQuantityNotice(projectQuantitySyncSummary(result))
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : 'The quantities could not be pulled.'
+          setProjectQuantityError(`Project details were saved, but the automatic ERP job refresh did not finish. ${detail}`)
+        }
+      }
       return true
     } catch (error) {
       setProjectMetadataError(error instanceof Error ? error.message : 'Project details could not be saved.')
@@ -727,10 +774,33 @@ function App() {
     }
   }
 
+  async function syncProjectQuantitiesFor(project: ProjectDetail, preserveQuantities = false) {
+    const result = await api<ProjectQuantitySyncResult>(
+      `/api/projects/${project.id}/quantities/sync`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ version: project.version, preserveQuantities }),
+      },
+    )
+    setSelectedProject(result.project)
+    setProjectMetadata(projectMetadataFrom(result.project))
+    setProjectChangeNotice(null)
+    setDismissedProjectVersion(null)
+    await loadDashboard()
+    return result
+  }
+
   async function syncProjectQuantities() {
     if (!selectedProject) throw new Error('The project is no longer available.')
+    setProjectQuantityNotice(null)
+    setProjectQuantityError(null)
+    return syncProjectQuantitiesFor(selectedProject)
+  }
+
+  async function overrideProjectRouting() {
+    if (!selectedProject) throw new Error('The project is no longer available.')
     const result = await api<ProjectQuantitySyncResult>(
-      `/api/projects/${selectedProject.id}/quantities/sync`,
+      `/api/projects/${selectedProject.id}/routing/override`,
       {
         method: 'POST',
         body: JSON.stringify({ version: selectedProject.version }),
@@ -1332,10 +1402,13 @@ function App() {
                   workStations={knownWorkStations}
                   conflictKeys={workCenterConflicts}
                   permissions={mutationPermissions}
+                  isAdmin={Boolean(user?.isAdmin)}
                   editMode={editMode}
                   projectMetadata={projectMetadata}
                   projectMetadataDirty={projectMetadataDirty}
                   projectMetadataError={projectMetadataError}
+                  quantitySaveMessage={projectQuantityNotice}
+                  quantitySaveError={projectQuantityError}
                   onProjectMetadataChange={setProjectMetadata}
                   onSelectProject={(projectId) => requestNavigation(() => openProject(projectId))}
                   onEditTask={(task) => { setTaskFormError(null); setTaskForm(formFromTask(task)) }}
@@ -1356,6 +1429,7 @@ function App() {
                   onBomApplied={async () => { await refreshProjectWorkspace(selectedProject.id) }}
                   onSearchQuantityRecords={searchProjectQuantityRecords}
                   onSyncQuantities={syncProjectQuantities}
+                  onOverrideRouting={overrideProjectRouting}
                 />
               )}
               {screen === 'calendar' && <CalendarView data={scheduleProjects} holidaySet={holidaySet} workingDaySet={workingDaySet} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} />}

@@ -1589,8 +1589,7 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .program-meta-grid label span { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .project-erp-lookup-field { position: relative; display: grid; gap: 5px; min-width: 0; }
 .project-erp-lookup-field > label { color: var(--muted); font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
-.project-erp-lookup-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; min-width: 0; }
-.project-erp-find-button { min-height: 36px; padding: 0 10px; box-shadow: none; }
+.project-erp-lookup-control { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; }
 .project-erp-lookup-results {
   position: absolute;
   z-index: 80;
@@ -1615,7 +1614,7 @@ textarea { min-height: 84px; padding-top: 9px; resize: vertical; line-height: 1.
 .project-erp-lookup-options > button:hover { border-color: var(--red-tint-2); background: var(--red-tint); }
 .project-erp-lookup-options > button > span:first-child { display: grid; gap: 2px; min-width: 0; }
 .project-erp-lookup-options strong { color: var(--ink); font-size: 11.5px; }
-.project-erp-lookup-options small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.project-erp-lookup-options small { overflow: hidden; color: var(--muted); font-size: 10px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
 .project-erp-lookup-use { display: inline-flex; align-items: center; flex: none; gap: 3px; color: var(--red-700); font-family: var(--font-mono); font-size: 8.5px; font-weight: 700; text-transform: uppercase; }
 .project-quantity-match-note { grid-column: 1 / -1; display: flex; align-items: center; gap: 7px; margin: 1px 0 0; color: var(--muted); font-size: 10.5px; line-height: 1.45; }
 .project-quantity-match-note svg { flex: none; color: var(--red-700); }

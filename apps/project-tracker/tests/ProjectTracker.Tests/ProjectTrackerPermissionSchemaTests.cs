@@ -6,6 +6,7 @@ using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Models;
 using ProjectTracker.Api.Services;
 using ProjectTracker.Api.Endpoints;
+using SonAero.Platform.Features;
 using SonAero.Platform.Security;
 
 namespace ProjectTracker.Tests;
@@ -139,9 +140,15 @@ public sealed class ProjectTrackerPermissionSchemaTests
 
         Assert.Equal(nameof(FeatureSettings.Id), featureSettings.FindPrimaryKey()!.Properties.Single().Name);
         Assert.Equal(FeatureSettings.AssistantNameMaxLength, featureSettings.FindProperty(nameof(FeatureSettings.AssistantName))!.GetMaxLength());
+        Assert.Equal(FeatureSettings.AssistantIdleModulesMaxLength, featureSettings.FindProperty(nameof(FeatureSettings.AssistantIdleModules))!.GetMaxLength());
         Assert.True(defaults.WalkthroughEnabled);
         Assert.True(defaults.AssistantEnabled);
         Assert.Equal("Benny", defaults.AssistantName);
+        Assert.Equal(BennyIdleSettingsStore.DefaultDelayMinutes, defaults.AssistantIdleDelayMinutes);
+        Assert.Equal(BennyIdleModules.ProjectTracker, defaults.AssistantIdleModules);
+        Assert.Equal(
+            [BennyIdleModules.ProjectTracker, BennyIdleModules.EngineeringHub],
+            BennyIdleModules.NormalizeMany(["PROJECT-TRACKER", "unknown", "engineering-hub"]));
     }
 
     [Fact]

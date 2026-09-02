@@ -229,7 +229,8 @@ function QuantityLookupResults({
   onClose: () => void
   onSelect: (record: ProjectQuantityLookupOption) => void
 }) {
-  const label = lookup.kind === 'sales-order' ? 'sales order' : 'job'
+  const label = lookup.kind === 'item' ? 'item' : lookup.kind === 'sales-order' ? 'sales order' : 'job'
+  const prefix = lookup.kind === 'item' ? 'Part' : lookup.kind === 'sales-order' ? 'SO' : 'Job'
   return (
     <div className="project-erp-lookup-results" role="region" aria-label={`Active ${label} matches`}>
       <div className="project-erp-lookup-heading">
@@ -246,7 +247,7 @@ function QuantityLookupResults({
       ) : lookup.error ? (
         <div className="project-erp-lookup-state error"><AlertTriangle size={14} /> {lookup.error}</div>
       ) : lookup.records.length === 0 ? (
-        <div className="project-erp-lookup-state">No active exact match was found.</div>
+        <div className="project-erp-lookup-state">No active matching record was found.</div>
       ) : (
         <div className="project-erp-lookup-options" role="listbox">
           {lookup.records.map((record) => (
@@ -258,8 +259,15 @@ function QuantityLookupResults({
               onClick={() => onSelect(record)}
             >
               <span>
-                <strong className="technical-id">{lookup.kind === 'sales-order' ? 'SO' : 'Job'} {record.number}</strong>
+                <strong className="technical-id">{prefix} {record.number}</strong>
                 {record.name && <small>{record.name}</small>}
+                {lookup.kind === 'job' && (record.partNumber || record.salesOrderNumber) && (
+                  <small>
+                    {record.partNumber ? `Part ${record.partNumber}` : ''}
+                    {record.partNumber && record.salesOrderNumber ? ' · ' : ''}
+                    {record.salesOrderNumber ? `SO ${record.salesOrderNumber}` : ''}
+                  </small>
+                )}
               </span>
               <span className="project-erp-lookup-use">{toOperationTitleCase(record.status)} <ChevronRight size={14} /></span>
             </button>
@@ -268,6 +276,26 @@ function QuantityLookupResults({
       )}
     </div>
   )
+}
+
+function projectDataSyncSummary(result: ProjectQuantitySyncResult) {
+  const parts: string[] = []
+  if (result.updatedFields.length > 0)
+    parts.push(`Pulled ${result.updatedFields.join(' and ')} from ${result.provider}.`)
+  if (result.retainedFields.length > 0)
+    parts.push(`Kept the existing ${result.retainedFields.join(' and ').toLowerCase()}.`)
+  if (result.updatedFields.length === 0 && result.retainedFields.length === 0)
+    parts.push(`${result.provider} did not change project quantities.`)
+  if (result.existingOperationsPreserved)
+    parts.push('Existing project operations and manual edits were left unchanged.')
+  if (result.routingStepsAdded > 0)
+    parts.push(`Added ${result.routingStepsAdded} routing operation${result.routingStepsAdded === 1 ? '' : 's'}.`)
+  if (result.routingStepsUpdated > 0)
+    parts.push(`Updated ${result.routingStepsUpdated} operation${result.routingStepsUpdated === 1 ? '' : 's'} to match the Fulcrum route.`)
+  if (result.routingOperationsRemoved > 0)
+    parts.push(`Removed ${result.routingOperationsRemoved} operation${result.routingOperationsRemoved === 1 ? '' : 's'} that were not in the Fulcrum route.`)
+  if (result.warnings.length > 0) parts.push(result.warnings.join(' '))
+  return parts.join(' ')
 }
 
 
@@ -279,10 +307,13 @@ export function ProjectView({
   workStations,
   conflictKeys,
   permissions,
+  isAdmin,
   editMode,
   projectMetadata,
   projectMetadataDirty,
   projectMetadataError,
+  quantitySaveMessage = null,
+  quantitySaveError = null,
   onProjectMetadataChange,
   onSelectProject,
   onEditTask,
@@ -301,6 +332,7 @@ export function ProjectView({
   onBomApplied,
   onSearchQuantityRecords,
   onSyncQuantities,
+  onOverrideRouting,
   showChat = true,
   ganttOpen: controlledGanttOpen,
   onGanttOpenChange,
@@ -314,10 +346,13 @@ export function ProjectView({
   workStations: string[]
   conflictKeys: Set<string>
   permissions: string[]
+  isAdmin: boolean
   editMode: boolean
   projectMetadata: ProjectMetadataDraft
   projectMetadataDirty: boolean
   projectMetadataError: string | null
+  quantitySaveMessage?: string | null
+  quantitySaveError?: string | null
   onProjectMetadataChange: (metadata: ProjectMetadataDraft) => void
   onSelectProject: (projectId: number) => Promise<void>
   onEditTask: (task: ProjectTask) => void
@@ -339,6 +374,7 @@ export function ProjectView({
     query: string,
   ) => Promise<ProjectQuantityLookupResult>
   onSyncQuantities: () => Promise<ProjectQuantitySyncResult>
+  onOverrideRouting: () => Promise<ProjectQuantitySyncResult>
   showChat?: boolean
   ganttOpen?: boolean
   onGanttOpenChange?: (open: boolean) => void
@@ -354,7 +390,12 @@ export function ProjectView({
   const [quantitySyncing, setQuantitySyncing] = useState(false)
   const [quantitySyncMessage, setQuantitySyncMessage] = useState<string | null>(null)
   const [quantitySyncError, setQuantitySyncError] = useState<string | null>(null)
+  const [routingOverrideOpen, setRoutingOverrideOpen] = useState(false)
+  const [routingOverridePending, setRoutingOverridePending] = useState(false)
+  const [routingOverrideError, setRoutingOverrideError] = useState<string | null>(null)
   const [quantityLookup, setQuantityLookup] = useState<QuantityLookupState | null>(null)
+  const [activeLookupKind, setActiveLookupKind] = useState<ProjectQuantityLookupKind | null>(null)
+  const quantityLookupRequest = useRef(0)
   const ganttOpen = controlledGanttOpen ?? internalGanttOpen
   const expandedTaskId = controlledExpandedTaskId !== undefined ? controlledExpandedTaskId : internalExpandedTaskId
   const updateGanttOpen = useCallback((open: boolean) => {
@@ -378,6 +419,7 @@ export function ProjectView({
   const canShowRowActions = canEditTaskModal || canEditOvertime || canDeleteTask
   const canManageBom = hasPermission(permissions, permissionKeys.importManage)
   const canEditQuantities = !isCompleted && hasPermission(permissions, permissionKeys.projectEditQuantities)
+  const canOverrideRouting = canEditQuantities && isAdmin
   const daysLeft = calculateDaysLeft(project.targetDelivery)
   const total = project.tasks.length
   const behindSchedule = project.status === 'Behind'
@@ -410,13 +452,7 @@ export function ProjectView({
     setQuantitySyncError(null)
     try {
       const result = await onSyncQuantities()
-      const parts = result.updatedFields.length > 0
-        ? [`Pulled ${result.updatedFields.join(' and ')} from ${result.provider}.`]
-        : [`${result.provider} did not return either quantity.`]
-      if (result.retainedFields.length > 0)
-        parts.push(`Kept the existing ${result.retainedFields.join(' and ').toLowerCase()}.`)
-      if (result.warnings.length > 0) parts.push(result.warnings.join(' '))
-      setQuantitySyncMessage(parts.join(' '))
+      setQuantitySyncMessage(projectDataSyncSummary(result))
     } catch (error) {
       setQuantitySyncError(error instanceof Error ? error.message : 'Project quantities could not be pulled.')
     } finally {
@@ -424,14 +460,32 @@ export function ProjectView({
     }
   }
 
-  const searchQuantityRecords = async (kind: ProjectQuantityLookupKind, value: string) => {
+  const overrideRouting = async () => {
+    if (routingOverridePending) return
+    setRoutingOverridePending(true)
+    setRoutingOverrideError(null)
+    setQuantitySyncMessage(null)
+    setQuantitySyncError(null)
+    try {
+      const result = await onOverrideRouting()
+      setQuantitySyncMessage(projectDataSyncSummary(result))
+      setRoutingOverrideOpen(false)
+    } catch (error) {
+      setRoutingOverrideError(error instanceof Error ? error.message : 'The project operations could not be overridden.')
+    } finally {
+      setRoutingOverridePending(false)
+    }
+  }
+
+  const searchQuantityRecords = useCallback(async (kind: ProjectQuantityLookupKind, value: string, requestId: number) => {
     const query = value.trim()
     if (!query) return
-    setQuantityLookup({ kind, provider: '', loading: true, error: null, records: [] })
     try {
       const result = await onSearchQuantityRecords(kind, query)
+      if (requestId !== quantityLookupRequest.current) return
       setQuantityLookup({ kind, provider: result.provider, loading: false, error: null, records: result.records })
     } catch (error) {
+      if (requestId !== quantityLookupRequest.current) return
       setQuantityLookup({
         kind,
         provider: '',
@@ -440,18 +494,49 @@ export function ProjectView({
         records: [],
       })
     }
-  }
+  }, [onSearchQuantityRecords])
 
   const selectQuantityRecord = (record: ProjectQuantityLookupOption) => {
     if (!quantityLookup) return
-    onProjectMetadataChange(quantityLookup.kind === 'sales-order'
-      ? { ...projectMetadata, salesOrderNumber: record.number }
-      : { ...projectMetadata, jobNumber: record.number })
+    const nextMetadata = { ...projectMetadata }
+    if (quantityLookup.kind === 'item') nextMetadata.programName = record.partNumber ?? record.number
+    if (quantityLookup.kind === 'sales-order') nextMetadata.salesOrderNumber = record.salesOrderNumber ?? record.number
+    if (quantityLookup.kind === 'job') {
+      nextMetadata.jobNumber = record.jobNumber ?? record.number
+      if (record.partNumber) nextMetadata.programName = record.partNumber
+      if (record.salesOrderNumber) nextMetadata.salesOrderNumber = record.salesOrderNumber
+    }
+    onProjectMetadataChange(nextMetadata)
+    setActiveLookupKind(null)
     setQuantityLookup(null)
   }
 
+  const activeLookupValue = activeLookupKind === 'item'
+    ? projectMetadata.programName
+    : activeLookupKind === 'sales-order'
+      ? projectMetadata.salesOrderNumber
+      : activeLookupKind === 'job'
+        ? projectMetadata.jobNumber
+        : ''
+
+  useEffect(() => {
+    const query = activeLookupValue.trim()
+    const requestId = ++quantityLookupRequest.current
+    if (!activeLookupKind || query.length === 0) {
+      setQuantityLookup(null)
+      return
+    }
+
+    setQuantityLookup({ kind: activeLookupKind, provider: '', loading: true, error: null, records: [] })
+    const timer = window.setTimeout(() => {
+      void searchQuantityRecords(activeLookupKind, query, requestId)
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [activeLookupKind, activeLookupValue, searchQuantityRecords])
+
   useEffect(() => {
     setProjectDetailsOpen(true)
+    setActiveLookupKind(null)
     setQuantityLookup(null)
   }, [editMode, project.id])
 
@@ -565,15 +650,27 @@ export function ProjectView({
             <div id={projectEditDetailsId} className="project-edit-details" hidden={!projectDetailsOpen}>
               {projectContextLine}
               {canEditMetadata && <div className="program-meta-grid" data-guide-id="project-fields">
-              {hasPermission(permissions, permissionKeys.projectEditProgramName) && <label>
-                <span>Part Number</span>
+              {hasPermission(permissions, permissionKeys.projectEditProgramName) && <div className="project-erp-lookup-field">
+                <label htmlFor={`project-part-number-${project.id}`}>Part Number</label>
                 <input
+                  id={`project-part-number-${project.id}`}
                   className="cell-input technical-id-input"
                   value={projectMetadata.programName}
-                  onChange={(event) => onProjectMetadataChange({ ...projectMetadata, programName: event.target.value })}
-                  placeholder="Part number"
+                  onFocus={() => canEditQuantities && setActiveLookupKind('item')}
+                  onChange={(event) => {
+                    onProjectMetadataChange({ ...projectMetadata, programName: event.target.value })
+                    if (canEditQuantities) setActiveLookupKind('item')
+                  }}
+                  placeholder="Start typing a part number"
+                  autoComplete="off"
+                  aria-autocomplete="list"
                 />
-              </label>}
+                {quantityLookup?.kind === 'item' && <QuantityLookupResults
+                  lookup={quantityLookup}
+                  onClose={() => { setActiveLookupKind(null); setQuantityLookup(null) }}
+                  onSelect={selectQuantityRecord}
+                />}
+              </div>}
               {hasPermission(permissions, permissionKeys.projectEditProgramManager) && <label>
                 <span>Contact Lead</span>
                 <input
@@ -608,19 +705,19 @@ export function ProjectView({
                     id={`project-sales-order-${project.id}`}
                     className="cell-input technical-id-input"
                     value={projectMetadata.salesOrderNumber}
-                    onChange={(event) => onProjectMetadataChange({ ...projectMetadata, salesOrderNumber: event.target.value })}
-                    placeholder="Sales order number"
+                    onFocus={() => canEditQuantities && setActiveLookupKind('sales-order')}
+                    onChange={(event) => {
+                      onProjectMetadataChange({ ...projectMetadata, salesOrderNumber: event.target.value })
+                      if (canEditQuantities) setActiveLookupKind('sales-order')
+                    }}
+                    placeholder="Start typing a sales order"
+                    autoComplete="off"
+                    aria-autocomplete="list"
                   />
-                  {canEditQuantities && <button
-                    className="button primary project-erp-find-button"
-                    type="button"
-                    disabled={!projectMetadata.salesOrderNumber.trim() || quantityLookup?.loading}
-                    onClick={() => void searchQuantityRecords('sales-order', projectMetadata.salesOrderNumber)}
-                  ><Search size={14} /> Find</button>}
                 </div>
                 {quantityLookup?.kind === 'sales-order' && <QuantityLookupResults
                   lookup={quantityLookup}
-                  onClose={() => setQuantityLookup(null)}
+                  onClose={() => { setActiveLookupKind(null); setQuantityLookup(null) }}
                   onSelect={selectQuantityRecord}
                 />}
               </div>}
@@ -631,19 +728,19 @@ export function ProjectView({
                     id={`project-job-${project.id}`}
                     className="cell-input technical-id-input"
                     value={projectMetadata.jobNumber}
-                    onChange={(event) => onProjectMetadataChange({ ...projectMetadata, jobNumber: event.target.value })}
-                    placeholder="Job number or exact job name"
+                    onFocus={() => canEditQuantities && setActiveLookupKind('job')}
+                    onChange={(event) => {
+                      onProjectMetadataChange({ ...projectMetadata, jobNumber: event.target.value })
+                      if (canEditQuantities) setActiveLookupKind('job')
+                    }}
+                    placeholder="Start typing a job, part, or SO"
+                    autoComplete="off"
+                    aria-autocomplete="list"
                   />
-                  {canEditQuantities && <button
-                    className="button primary project-erp-find-button"
-                    type="button"
-                    disabled={!projectMetadata.jobNumber.trim() || quantityLookup?.loading}
-                    onClick={() => void searchQuantityRecords('job', projectMetadata.jobNumber)}
-                  ><Search size={14} /> Find</button>}
                 </div>
                 {quantityLookup?.kind === 'job' && <QuantityLookupResults
                   lookup={quantityLookup}
-                  onClose={() => setQuantityLookup(null)}
+                  onClose={() => { setActiveLookupKind(null); setQuantityLookup(null) }}
                   onSelect={selectQuantityRecord}
                 />}
               </div>}
@@ -694,7 +791,7 @@ export function ProjectView({
                 />
               </label>}
               {canEditQuantities && <p className="project-quantity-match-note">
-                <Lock size={13} /> Quantities update only when Part Number, Sales Order, and Job match the same active ERP record.
+                <Lock size={13} /> After you save, Arda validates the Part Number, Sales Order, and Job and pulls quantities. Fulcrum routing is added only when this project has no named operations; existing operations and manual edits remain unchanged.
               </p>}
               <div className="project-detail-save-row">
                 <div className={`project-detail-save-state ${projectMetadataDirty ? 'unsaved' : 'saved'}`} role="status">
@@ -712,7 +809,8 @@ export function ProjectView({
           )}
         </div>
         {!editMode && <div className="project-actions" data-guide-id="project-actions" role="group" aria-label="Project actions">
-          {canEditQuantities && <button className="button ghost" type="button" title="Validate the saved Part Number, Sales Order, and Job before updating quantities" disabled={quantitySyncing} onClick={() => void syncQuantities()}><RefreshCw size={15} className={quantitySyncing ? 'spin' : undefined} /> {quantitySyncing ? 'Validating & Pulling...' : 'Validate & Pull Quantities'}</button>}
+          {canEditQuantities && <button className="button ghost" type="button" title="Refresh ERP quantities; existing operations are never replaced unless they are all blank" disabled={quantitySyncing || routingOverridePending} onClick={() => void syncQuantities()}><RefreshCw size={15} className={quantitySyncing ? 'spin' : undefined} /> {quantitySyncing ? 'Refreshing ERP Data...' : 'Refresh ERP Data'}</button>}
+          {canOverrideRouting && <button className="button ghost" type="button" title="Administrator-only, one-time override for this project's operations" disabled={quantitySyncing || routingOverridePending} onClick={() => { setRoutingOverrideError(null); setRoutingOverrideOpen(true) }}><RefreshCw size={15} /> Override Operations from ERP</button>}
           {canManageBom && <ProjectBomImport project={project} onApplied={onBomApplied} />}
           {showChat && <button className="button ghost" type="button" data-guide-id={chatGuideId} onClick={onOpenChat}><MessageSquare size={15} /> Chat</button>}
           {(isCompleted
@@ -730,10 +828,10 @@ export function ProjectView({
         </div>}
       </header>
 
-      {(quantitySyncMessage || quantitySyncError) && (
-        <p className={`inline-note ${quantitySyncError ? 'warning' : 'success'} quantity-sync-result`} role={quantitySyncError ? 'alert' : 'status'}>
-          {quantitySyncError ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
-          {quantitySyncError ?? quantitySyncMessage}
+      {(quantitySyncMessage || quantitySyncError || quantitySaveMessage || quantitySaveError) && (
+        <p className={`inline-note ${quantitySyncError || quantitySaveError ? 'warning' : 'success'} quantity-sync-result`} role={quantitySyncError || quantitySaveError ? 'alert' : 'status'}>
+          {quantitySyncError || quantitySaveError ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
+          {quantitySyncError ?? quantitySaveError ?? quantitySyncMessage ?? quantitySaveMessage}
         </p>
       )}
 
@@ -901,6 +999,30 @@ export function ProjectView({
               <GanttChartSquare size={18} className="dock-gicon" />
             </button>
           )}
+        </div>
+      )}
+
+      {routingOverrideOpen && (
+        <div className="modal-backdrop" onClick={() => !routingOverridePending && setRoutingOverrideOpen(false)}>
+          <section className="modal confirmation-modal" role="alertdialog" aria-modal="true" aria-labelledby="routing-override-title" onClick={(event) => event.stopPropagation()}>
+            <div className="confirmation-icon danger"><AlertTriangle size={22} /></div>
+            <div className="confirmation-copy">
+              <span className="kicker">Administrator Override</span>
+              <h2 id="routing-override-title">Replace this project's operation route?</h2>
+              <p>
+                This one-time action applies the current Fulcrum routing only to <strong>{project.programName}</strong>. Operation names and order will be reset, and manual-only operations not found in Fulcrum will be removed. Notes and scheduling data on matched operations will be retained.
+              </p>
+              <p>Future automatic or manual ERP refreshes will return to preserving these operations.</p>
+              {routingOverrideError && <p className="inline-note warning" role="alert"><AlertTriangle size={14} /> {routingOverrideError}</p>}
+            </div>
+            <div className="modal-actions confirmation-actions">
+              <button className="button ghost" type="button" onClick={() => setRoutingOverrideOpen(false)} disabled={routingOverridePending}>Cancel</button>
+              <button className="button danger-solid" type="button" onClick={() => void overrideRouting()} disabled={routingOverridePending} autoFocus>
+                <RefreshCw size={15} className={routingOverridePending ? 'spin' : undefined} />
+                {routingOverridePending ? 'Overriding...' : 'Override This Project'}
+              </button>
+            </div>
+          </section>
         </div>
       )}
     </section>

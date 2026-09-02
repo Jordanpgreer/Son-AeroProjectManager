@@ -11,6 +11,7 @@ namespace ProjectTracker.Api.Endpoints;
 public static class ProjectQuantitySyncEndpoints
 {
     public const string AuthorizationPolicy = "ProjectQuantities";
+    public const string RoutingOverrideAuthorizationPolicy = "ProjectRoutingOverride";
 
     public static RouteGroupBuilder MapProjectQuantitySyncEndpoints(this RouteGroupBuilder api)
     {
@@ -18,6 +19,8 @@ public static class ProjectQuantitySyncEndpoints
             .RequireAuthorization(AuthorizationPolicy);
         api.MapPost("/projects/{projectId:int}/quantities/sync/{provider}", SyncLegacyAsync)
             .RequireAuthorization(AuthorizationPolicy);
+        api.MapPost("/projects/{projectId:int}/routing/override", OverrideRoutingAsync)
+            .RequireAuthorization(RoutingOverrideAuthorizationPolicy);
         api.MapGet("/project-quantity-lookups/{kind}", SearchAsync)
             .RequireAuthorization(AuthorizationPolicy);
         return api;
@@ -31,19 +34,20 @@ public static class ProjectQuantitySyncEndpoints
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(query))
-            return Results.BadRequest(new { detail = "Enter an exact sales order number, job number, or job name." });
+            return Results.BadRequest(new { detail = "Enter an item, sales order, or job search." });
         query = query.Trim();
         if (query.Length > 120)
             return Results.BadRequest(new { detail = "Search values cannot exceed 120 characters." });
 
         var lookupKind = kind.Trim().ToLowerInvariant() switch
         {
+            "item" => ProjectQuantityLookupKind.Item,
             "sales-order" => ProjectQuantityLookupKind.SalesOrder,
             "job" => ProjectQuantityLookupKind.Job,
             _ => (ProjectQuantityLookupKind?)null
         };
         if (lookupKind is null)
-            return Results.BadRequest(new { detail = "Choose either sales-order or job lookup." });
+            return Results.BadRequest(new { detail = "Choose item, sales-order, or job lookup." });
 
         var activeProvider = await providerSource.GetActiveProviderAsync(cancellationToken);
         IProjectQuantityProvider provider;
@@ -79,15 +83,21 @@ public static class ProjectQuantitySyncEndpoints
         IEnumerable<IProjectQuantityProvider> providers,
         IEnterpriseProviderSource providerSource,
         ProjectAuditService audit,
+        ProjectRoutingSyncService routingSync,
+        ProjectMetricsService metrics,
         CancellationToken cancellationToken) =>
         SyncAsync(
             projectId,
             null,
-            request,
+            request.Version,
+            request.PreserveQuantities,
+            ProjectRoutingSyncMode.PopulateWhenBlank,
             db,
             providers,
             providerSource,
             audit,
+            routingSync,
+            metrics,
             cancellationToken);
 
     private static Task<IResult> SyncLegacyAsync(
@@ -98,25 +108,59 @@ public static class ProjectQuantitySyncEndpoints
         IEnumerable<IProjectQuantityProvider> providers,
         IEnterpriseProviderSource providerSource,
         ProjectAuditService audit,
+        ProjectRoutingSyncService routingSync,
+        ProjectMetricsService metrics,
         CancellationToken cancellationToken) =>
         SyncAsync(
             projectId,
             provider,
-            request,
+            request.Version,
+            request.PreserveQuantities,
+            ProjectRoutingSyncMode.PopulateWhenBlank,
             db,
             providers,
             providerSource,
             audit,
+            routingSync,
+            metrics,
+            cancellationToken);
+
+    private static Task<IResult> OverrideRoutingAsync(
+        int projectId,
+        ProjectRoutingOverrideRequestDto request,
+        ProjectTrackerDbContext db,
+        IEnumerable<IProjectQuantityProvider> providers,
+        IEnterpriseProviderSource providerSource,
+        ProjectAuditService audit,
+        ProjectRoutingSyncService routingSync,
+        ProjectMetricsService metrics,
+        CancellationToken cancellationToken) =>
+        SyncAsync(
+            projectId,
+            null,
+            request.Version,
+            preserveQuantities: true,
+            ProjectRoutingSyncMode.ForceOverride,
+            db,
+            providers,
+            providerSource,
+            audit,
+            routingSync,
+            metrics,
             cancellationToken);
 
     private static async Task<IResult> SyncAsync(
         int projectId,
         string? requestedProvider,
-        ProjectQuantitySyncRequestDto request,
+        long requestedVersion,
+        bool preserveQuantities,
+        ProjectRoutingSyncMode routingMode,
         ProjectTrackerDbContext db,
         IEnumerable<IProjectQuantityProvider> providers,
         IEnterpriseProviderSource providerSource,
         ProjectAuditService audit,
+        ProjectRoutingSyncService routingSync,
+        ProjectMetricsService metrics,
         CancellationToken cancellationToken)
     {
         var activeProvider = await providerSource.GetActiveProviderAsync(cancellationToken);
@@ -150,7 +194,7 @@ public static class ProjectQuantitySyncEndpoints
         if (project is null) return Results.NotFound();
         if (project.Status == ProjectStatus.Complete)
             return Results.Conflict(new { detail = "Completed projects are read-only. Make the project active before syncing quantities." });
-        if (project.Version != request.Version)
+        if (project.Version != requestedVersion)
             return Results.Conflict(new ConcurrencyConflictDto(
                 "ConcurrencyConflict",
                 "This project changed before the quantity pull started. Reload it and try again.",
@@ -193,7 +237,7 @@ public static class ProjectQuantitySyncEndpoints
         var before = ProjectAuditService.CaptureProject(project);
         var pulled = new List<string>();
         var retained = new List<string>();
-        if (snapshot.RequiredQuantity is not null)
+        if (!preserveQuantities && snapshot.RequiredQuantity is not null)
         {
             project.RequiredQuantity = snapshot.RequiredQuantity;
             project.RequiredQuantitySource = quantityProvider.ProviderName;
@@ -204,7 +248,7 @@ public static class ProjectQuantitySyncEndpoints
             retained.Add("Required quantity");
         }
 
-        if (snapshot.JobQuantity is not null)
+        if (!preserveQuantities && snapshot.JobQuantity is not null)
         {
             project.JobQuantity = snapshot.JobQuantity;
             project.JobQuantitySource = quantityProvider.ProviderName;
@@ -215,16 +259,41 @@ public static class ProjectQuantitySyncEndpoints
             retained.Add("Job quantity");
         }
 
+        var syncTime = DateTimeOffset.UtcNow;
+        var routingResult = routingSync.Apply(
+            project,
+            snapshot.ConfirmedRoutingSteps,
+            quantityProvider.ProviderName,
+            syncTime,
+            routingMode);
+        if (routingResult.RemovedTasks.Count > 0)
+            db.Tasks.RemoveRange(routingResult.RemovedTasks);
+        var warnings = snapshot.Warnings
+            .Concat(routingResult.Warnings)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
         project.QuantityLastSyncProvider = quantityProvider.ProviderName;
-        project.QuantityLastSyncedAt = DateTimeOffset.UtcNow;
+        project.QuantityLastSyncedAt = syncTime;
         project.UpdatedAt = project.QuantityLastSyncedAt.Value;
         project.Version++;
-        var changes = ProjectAuditService.Diff(before, ProjectAuditService.CaptureProject(project));
+        if (routingResult.Added > 0 || routingResult.Updated > 0 || routingResult.Removed > 0)
+            await metrics.RefreshProjectAsync(db, project, cancellationToken, recalculateDates: true);
+        var changes = ProjectAuditService.Diff(before, ProjectAuditService.CaptureProject(project)).ToList();
+        if (routingResult.Added > 0)
+            changes.Add(new ProjectAuditChange("Routing operations added", null, routingResult.Added.ToString()));
+        if (routingResult.Updated > 0)
+            changes.Add(new ProjectAuditChange("Routing operations updated", null, routingResult.Updated.ToString()));
+        if (routingResult.ArdaOnlyRetained > 0)
+            changes.Add(new ProjectAuditChange("Arda-only operations retained", null, routingResult.ArdaOnlyRetained.ToString()));
+        if (routingResult.Removed > 0)
+            changes.Add(new ProjectAuditChange("Operations removed by routing override", null, routingResult.Removed.ToString()));
         audit.Record(
             db,
             project,
-            "ProjectQuantitySync",
-            $"Pulled project quantities from {quantityProvider.ProviderName}",
+            routingMode == ProjectRoutingSyncMode.ForceOverride ? "ProjectRoutingOverride" : "ProjectQuantitySync",
+            routingMode == ProjectRoutingSyncMode.ForceOverride
+                ? $"Overrode this project's operations from {quantityProvider.ProviderName}"
+                : $"Refreshed project quantities from {quantityProvider.ProviderName}",
             changes);
         await db.SaveChangesAsync(cancellationToken);
 
@@ -233,6 +302,11 @@ public static class ProjectQuantitySyncEndpoints
             quantityProvider.ProviderName,
             pulled,
             retained,
-            snapshot.Warnings));
+            warnings,
+            routingResult.Added,
+            routingResult.Updated,
+            routingResult.ArdaOnlyRetained,
+            routingResult.Removed,
+            routingResult.PreservedExisting));
     }
 }

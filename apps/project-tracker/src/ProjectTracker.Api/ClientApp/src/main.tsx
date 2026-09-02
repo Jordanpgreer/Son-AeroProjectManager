@@ -5,9 +5,11 @@ import App from './App.tsx'
 import { initializeTheme } from './theme.ts'
 import { clearTrainingProfile, type TrainingProfile } from './demo/training-profile.ts'
 import { parsePageTour } from './demo/page-tours.ts'
+import { installBennyIdle } from '../../../../../../shared/frontend/benny-idle.ts'
 import './arda-shell.css'
 
 initializeTheme()
+installBennyIdle()
 
 const searchParams = new URLSearchParams(window.location.search)
 const trainingRequest = searchParams.get('training')

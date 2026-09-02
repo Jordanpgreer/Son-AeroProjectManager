@@ -138,6 +138,7 @@
   .admin-save-bar,
   .admin-walkthrough-preview > footer { align-items: stretch; flex-direction: column; }
   .admin-onboarding-settings { grid-template-columns: 1fr; }
+  .admin-benny-module-grid { grid-template-columns: 1fr; }
   .admin-module-tabs {
     display: flex;
     margin-inline: -16px;

@@ -42,6 +42,12 @@ public sealed class ProjectQuantityProviderTests
     {
         var handler = new FulcrumHandler(request =>
         {
+            if (request.RequestUri!.AbsolutePath == "/api/items/list/v2")
+            {
+                return Json("""
+                    [{"id":"item-id","number":"PN-100","description":"Test part","isArchived":false}]
+                    """);
+            }
             if (request.RequestUri!.AbsolutePath == "/api/jobs/list")
             {
                 return Json("""
@@ -68,6 +74,16 @@ public sealed class ProjectQuantityProviderTests
                     {"id":"line-id","name":"PN-100","quantity":10.25,"customerPartNumber":null}
                     """);
             }
+            if (request.RequestUri.AbsolutePath == "/api/jobs/job-id/operations/list")
+            {
+                return Json("""
+                    [
+                      {"itemToMake":{"id":"top-level","itemId":"item-id","depth":0},"operation":{"id":"op-inspect","order":20,"name":"Final Inspection"}},
+                      {"itemToMake":{"id":"subassembly","itemId":"other-item-id","depth":1},"operation":{"id":"op-sub","order":5,"name":"Subassembly Step"}},
+                      {"itemToMake":{"id":"top-level","itemId":"item-id","depth":0},"operation":{"id":"op-saw","order":10,"name":"Saw"}}
+                    ]
+                    """);
+            }
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         });
         var provider = CreateProvider(handler, "saved-token");
@@ -84,13 +100,29 @@ public sealed class ProjectQuantityProviderTests
         Assert.Equal(10.25m, result.RequiredQuantity);
         Assert.True(result.MatchConfirmed);
         Assert.Empty(result.Warnings);
-        Assert.Equal(3, handler.Requests.Count);
+        Assert.Collection(
+            result.ConfirmedRoutingSteps,
+            step =>
+            {
+                Assert.Equal("op-saw", step.ExternalId);
+                Assert.Equal(10, step.Sequence);
+                Assert.Equal("Saw", step.Name);
+            },
+            step =>
+            {
+                Assert.Equal("op-inspect", step.ExternalId);
+                Assert.Equal(20, step.Sequence);
+                Assert.Equal("Final Inspection", step.Name);
+            });
+        Assert.Equal(5, handler.Requests.Count);
         Assert.All(handler.Requests, request => Assert.Equal("Bearer saved-token", request.Authorization));
         Assert.All(handler.Requests, request => Assert.Equal("api.fulcrumpro.us", request.RequestUri.Host));
-        Assert.DoesNotContain("Sort.", handler.Requests[0].RequestUri.Query, StringComparison.Ordinal);
-        Assert.DoesNotContain("Sort.", handler.Requests[1].RequestUri.Query, StringComparison.Ordinal);
-        Assert.Contains("\"numbers\":[123]", handler.Requests[0].Body, StringComparison.Ordinal);
-        Assert.Contains("\"numbers\":[456]", handler.Requests[1].Body, StringComparison.Ordinal);
+        Assert.All(handler.Requests, request => Assert.DoesNotContain("Sort.", request.RequestUri.Query, StringComparison.Ordinal));
+        Assert.Contains("\"numbers\":[123]", handler.Requests.Single(request => request.RequestUri.AbsolutePath == "/api/jobs/list").Body, StringComparison.Ordinal);
+        Assert.Contains("\"numbers\":[456]", handler.Requests.Single(request => request.RequestUri.AbsolutePath == "/api/sales-orders/list").Body, StringComparison.Ordinal);
+        var routingRequest = handler.Requests.Single(request => request.RequestUri.AbsolutePath == "/api/jobs/job-id/operations/list");
+        Assert.Equal(HttpMethod.Post, routingRequest.Method);
+        Assert.Equal(string.Empty, routingRequest.Body);
     }
 
     [Fact]
@@ -98,6 +130,9 @@ public sealed class ProjectQuantityProviderTests
     {
         var handler = new FulcrumHandler(request => request.RequestUri!.AbsolutePath switch
         {
+            "/api/items/list/v2" => Json("""
+                [{"id":"item-id","number":"PN-100","description":"Test part","isArchived":false}]
+                """),
             "/api/jobs/list" => Json("""
                 [{"id":"job-id","number":123,"name":"PN-100","quantityToMake":8.5,"salesOrderId":"different-order-id","salesOrderLineItemId":"line-id","status":"engineering"}]
                 """),
@@ -119,7 +154,7 @@ public sealed class ProjectQuantityProviderTests
         Assert.Null(result.JobQuantity);
         Assert.Null(result.RequiredQuantity);
         Assert.Contains(result.Warnings, warning => warning.Contains("not linked", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal(3, handler.Requests.Count);
     }
 
     [Fact]
@@ -127,6 +162,9 @@ public sealed class ProjectQuantityProviderTests
     {
         var handler = new FulcrumHandler(request => request.RequestUri!.AbsolutePath switch
         {
+            "/api/items/list/v2" => Json("""
+                [{"id":"item-id","number":"PN-100","description":"Test part","isArchived":false}]
+                """),
             "/api/jobs/list" => Json("""
                 [{"id":"job-id","number":123,"name":"PN-OTHER","quantityToMake":8.5,"salesOrderId":"sales-order-id","salesOrderLineItemId":"line-id","status":"engineering"}]
                 """),
@@ -186,29 +224,38 @@ public sealed class ProjectQuantityProviderTests
     }
 
     [Fact]
-    public async Task SearchAsync_ReturnsOnlyTheExactActiveJob()
+    public async Task SearchAsync_ReturnsPartialActiveJobsWithLinkedItemAndSalesOrder()
     {
         var handler = new FulcrumHandler(request => request.RequestUri!.AbsolutePath switch
         {
             "/api/jobs/list" => Json("""
                 [
-                  {"id":"job-id","number":123,"name":"PN-100","quantityToMake":8.5,"salesOrderId":"sales-order-id","salesOrderLineItemId":"line-id","status":"engineering"},
-                  {"id":"other-job-id","number":456,"name":"PN-OTHER","status":"engineering"}
+                  {"id":"job-id","number":1234,"name":"Alpha production","quantityToMake":8.5,"parentItemId":"item-id","salesOrderId":"sales-order-id","salesOrderLineItemId":"line-id","status":"engineering"},
+                  {"id":"other-job-id","number":456,"name":"PN-OTHER","status":"complete"}
                 ]
+                """),
+            "/api/items/list/v2" => Json("""
+                [{"id":"item-id","number":"PN-100","description":"Test part","isArchived":false}]
+                """),
+            "/api/sales-orders/list" => Json("""
+                [{"id":"sales-order-id","number":7890,"status":"inProgress"}]
                 """),
             _ => throw new InvalidOperationException($"Unexpected request: {request.RequestUri}")
         });
         var provider = CreateProvider(handler, "saved-token");
 
-        var result = await provider.SearchAsync(ProjectQuantityLookupKind.Job, "123", default);
+        var result = await provider.SearchAsync(ProjectQuantityLookupKind.Job, "PN-10", default);
 
         var match = Assert.Single(result);
         Assert.Equal("job-id", match.ExternalId);
-        Assert.Equal("123", match.Number);
+        Assert.Equal("1234", match.Number);
+        Assert.Equal("PN-100", match.PartNumber);
+        Assert.Equal("7890", match.SalesOrderNumber);
+        Assert.Equal(8.5m, match.JobQuantity);
         Assert.Equal("engineering", match.Status);
-        Assert.DoesNotContain("Sort.", handler.Requests[0].RequestUri.Query, StringComparison.Ordinal);
-        Assert.Contains("\"numbers\":[123]", handler.Requests[0].Body, StringComparison.Ordinal);
-        Assert.Contains("\"statuses\"", handler.Requests[0].Body, StringComparison.Ordinal);
+        var jobRequest = handler.Requests.Single(request => request.RequestUri.AbsolutePath == "/api/jobs/list");
+        Assert.DoesNotContain("Sort.", jobRequest.RequestUri.Query, StringComparison.Ordinal);
+        Assert.Contains("\"statuses\"", jobRequest.Body, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -229,11 +276,36 @@ public sealed class ProjectQuantityProviderTests
         Assert.DoesNotContain("Sort.", handler.Requests[0].RequestUri.Query, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task SearchAsync_ReturnsPartialItemMatchesFromTheCachedCatalog()
+    {
+        var handler = new FulcrumHandler(request => request.RequestUri!.AbsolutePath switch
+        {
+            "/api/items/list/v2" => Json("""
+                [
+                  {"id":"item-id","number":"PN-100","description":"Main bracket","isArchived":false},
+                  {"id":"archived-id","number":"PN-101","description":"Old bracket","isArchived":true}
+                ]
+                """),
+            _ => throw new InvalidOperationException($"Unexpected request: {request.RequestUri}")
+        });
+        var provider = CreateProvider(handler, "saved-token");
+
+        var first = await provider.SearchAsync(ProjectQuantityLookupKind.Item, "brack", default);
+        var second = await provider.SearchAsync(ProjectQuantityLookupKind.Item, "PN-1", default);
+
+        var match = Assert.Single(first);
+        Assert.Equal("PN-100", match.PartNumber);
+        Assert.Single(second);
+        Assert.Single(handler.Requests);
+    }
+
     private static FulcrumProjectQuantityProvider CreateProvider(FulcrumHandler handler, string? token) =>
         new(
             new HttpClient(handler),
             Options.Create(new ProjectQuantitySyncOptions()),
-            new CredentialReader(token));
+            new CredentialReader(token),
+            new FulcrumProjectLookupCatalog());
 
     private static HttpResponseMessage Json(string json) => new(HttpStatusCode.OK)
     {

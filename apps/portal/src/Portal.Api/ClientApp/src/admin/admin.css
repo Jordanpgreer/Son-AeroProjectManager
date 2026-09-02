@@ -647,6 +647,19 @@
 .admin-onboarding-setting > header div { display: grid; gap: 2px; }
 .admin-onboarding-setting > header strong { color: var(--ink); font-size: 11.5px; }
 .admin-onboarding-setting > header small { color: var(--muted); font-size: 9px; }
+.admin-benny-idle-setting { grid-column: 1 / -1; }
+.admin-benny-delay-field { display: grid; gap: 5px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); }
+.admin-benny-delay-field > span:first-child { color: var(--ink); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.admin-benny-delay-field small { color: var(--muted); font-size: 9.5px; }
+.admin-benny-delay-input { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
+.admin-benny-delay-input input { width: 78px; }
+.admin-benny-module-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.admin-benny-module { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); }
+.admin-benny-module > label { display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
+.admin-benny-module > label span { display: grid; gap: 2px; min-width: 0; }
+.admin-benny-module > label strong { color: var(--ink); font-size: 10.5px; }
+.admin-benny-module > label small { color: var(--muted); font-size: 9px; }
+.admin-benny-module .ghost-button { flex: 0 0 auto; min-height: 30px; padding: 0 9px; font-size: 9.5px; }
 .admin-assistant-name-field { display: grid; gap: 5px; color: var(--ink); font-size: 10.5px; font-weight: 700; }
 .admin-assistant-name-field input { width: 100%; }
 .admin-assistant-name-field small { color: var(--muted); font-size: 9px; font-weight: 400; }

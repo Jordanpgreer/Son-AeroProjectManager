@@ -59,6 +59,14 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
         {
             entity.HasIndex(task => new { task.ProjectId, task.Sequence });
             entity.Property(task => task.ExternalTaskId).HasMaxLength(32);
+            entity.Property(task => task.ExternalSourceProvider).HasMaxLength(24);
+            entity.Property(task => task.ExternalSourceOperationId).HasMaxLength(80);
+            entity.HasIndex(task => new
+            {
+                task.ProjectId,
+                task.ExternalSourceProvider,
+                task.ExternalSourceOperationId
+            });
             entity.Property(task => task.Title).HasMaxLength(240);
             entity.Property(task => task.Phase).HasMaxLength(120);
             entity.Property(task => task.WorkStation).HasMaxLength(120);
@@ -164,6 +172,8 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
             entity.Property(settings => settings.Id).ValueGeneratedNever();
             entity.Property(settings => settings.AssistantName)
                 .HasMaxLength(Models.FeatureSettings.AssistantNameMaxLength);
+            entity.Property(settings => settings.AssistantIdleModules)
+                .HasMaxLength(Models.FeatureSettings.AssistantIdleModulesMaxLength);
         });
 
         modelBuilder.Entity<Phase>(entity =>

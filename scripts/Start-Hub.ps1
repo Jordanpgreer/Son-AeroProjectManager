@@ -167,6 +167,10 @@ function Get-SourceStamp($clientRoot) {
         $path = Join-Path $clientRoot $file
         if (Test-Path -LiteralPath $path) { $items += Get-Item -LiteralPath $path }
     }
+    $sharedFrontend = Join-Path $repoRoot 'shared\frontend'
+    if (Test-Path -LiteralPath $sharedFrontend) {
+        $items += Get-ChildItem -LiteralPath $sharedFrontend -File -Recurse -ErrorAction SilentlyContinue
+    }
     if ($items.Count -eq 0) { return '0' }
     return (($items | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum.Ticks).ToString()
 }

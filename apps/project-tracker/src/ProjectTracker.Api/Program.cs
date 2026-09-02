@@ -13,6 +13,7 @@ using ProjectTracker.Api.Models;
 using ProjectTracker.Api.Services;
 using ProjectTracker.Api.Services.Import;
 using ProjectTracker.Api.Services.Reports;
+using SonAero.Platform.Features;
 using SonAero.Platform.Integrations;
 using SonAero.Platform.Security;
 
@@ -38,6 +39,7 @@ builder.Services.AddScoped<AccessControlSeeder>();
 builder.Services.AddScoped<ModuleAccessService>();
 builder.Services.AddSingleton<ScheduleCalculator>();
 builder.Services.AddScoped<ProjectMetricsService>();
+builder.Services.AddScoped<ProjectRoutingSyncService>();
 builder.Services.AddScoped<ProjectReadService>();
 builder.Services.Configure<ProjectQuantitySyncOptions>(
     builder.Configuration.GetSection(ProjectQuantitySyncOptions.SectionName));
@@ -45,6 +47,7 @@ builder.Services.AddSingleton<IIntegrationSecretProtector, MachineIntegrationSec
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<IProjectTrackerIntegrationCredentialReader, ProjectTrackerIntegrationCredentialReader>();
 builder.Services.AddScoped<IEnterpriseProviderSource, ProjectTrackerEnterpriseProviderSource>();
+builder.Services.AddSingleton<FulcrumProjectLookupCatalog>();
 builder.Services.AddHttpClient<FulcrumProjectQuantityProvider>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(45);
@@ -52,6 +55,7 @@ builder.Services.AddHttpClient<FulcrumProjectQuantityProvider>(client =>
 builder.Services.AddScoped<IProjectQuantityProvider>(serviceProvider =>
     serviceProvider.GetRequiredService<FulcrumProjectQuantityProvider>());
 builder.Services.AddScoped<IProjectQuantityProvider, AcumaticaProjectQuantityProvider>();
+builder.Services.AddHostedService<FulcrumProjectLookupRefreshWorker>();
 builder.Services.AddScoped<WorkbookImportService>();
 builder.Services.AddScoped<ControlledWorkbookImportService>();
 builder.Services.AddScoped<WorkCenterWorkbookImportService>();
@@ -84,6 +88,8 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("ProjectPriority", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectReorderPriority));
     options.AddPolicy(ProjectQuantitySyncEndpoints.AuthorizationPolicy, policy =>
         policy.RequireClaim(ApplicationClaimTypes.Permission, ProjectTrackerPermissions.ProjectEditQuantities));
+    options.AddPolicy(ProjectQuantitySyncEndpoints.RoutingOverrideAuthorizationPolicy, policy =>
+        policy.RequireClaim(ApplicationClaimTypes.Group, ApplicationGroups.Administrators));
     options.AddPolicy("ProjectComplete", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectComplete));
     options.AddPolicy("ProjectReopen", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectReopen));
     options.AddPolicy("ProjectArchive", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectArchive));
@@ -943,6 +949,8 @@ api.MapGet("/settings/walkthrough", async (ProjectTrackerDbContext db, Cancellat
         settings.WalkthroughEnabled,
         settings.AssistantEnabled,
         settings.AssistantName,
+        BennyIdleSettingsStore.ParseModules(settings.AssistantIdleModules),
+        BennyIdleSettingsStore.NormalizeDelay(settings.AssistantIdleDelayMinutes),
         settings.UpdatedAt);
 }).RequireAuthorization(WalkthroughAuthorization.PolicyName);
 
@@ -959,17 +967,41 @@ api.MapPut("/settings/walkthrough", async (WalkthroughSettingsUpsertDto dto, Pro
     }
 
     var settings = await GetOrCreateFeatureSettingsAsync(db, cancellationToken);
+    var idleDelayMinutes = dto.AssistantIdleDelayMinutes ?? settings.AssistantIdleDelayMinutes;
+    if (idleDelayMinutes is < BennyIdleSettingsStore.MinimumDelayMinutes or > BennyIdleSettingsStore.MaximumDelayMinutes)
+    {
+        return Results.BadRequest(
+            $"Benny's idle delay must be between {BennyIdleSettingsStore.MinimumDelayMinutes} and {BennyIdleSettingsStore.MaximumDelayMinutes} minutes.");
+    }
+    var requestedIdleModules = dto.AssistantIdleModules
+        ?? BennyIdleSettingsStore.ParseModules(settings.AssistantIdleModules);
+    if (requestedIdleModules.Any(module => BennyIdleModules.Normalize(module) is null))
+    {
+        return Results.BadRequest("Choose only supported modules for Benny's idle activity.");
+    }
+
     settings.WalkthroughEnabled = dto.Enabled;
     settings.AssistantEnabled = dto.AssistantEnabled;
     settings.AssistantName = assistantName;
+    settings.AssistantIdleDelayMinutes = idleDelayMinutes;
+    settings.AssistantIdleModules = BennyIdleSettingsStore.SerializeModules(requestedIdleModules);
     settings.UpdatedAt = DateTimeOffset.UtcNow;
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(new WalkthroughSettingsDto(
         settings.WalkthroughEnabled,
         settings.AssistantEnabled,
         settings.AssistantName,
+        BennyIdleSettingsStore.ParseModules(settings.AssistantIdleModules),
+        settings.AssistantIdleDelayMinutes,
         settings.UpdatedAt));
 }).RequireAuthorization(WalkthroughAuthorization.PolicyName);
+
+api.MapGet("/benny/idle-settings", async (
+    ProjectTrackerDbContext db,
+    CancellationToken cancellationToken) => Results.Ok(await BennyIdleSettingsStore.ReadAsync(
+        db.Database.GetDbConnection(),
+        BennyIdleModules.ProjectTracker,
+        cancellationToken)));
 
 app.MapFallbackToFile("index.html");
 
@@ -1240,6 +1272,8 @@ static async Task InitializeDatabaseAsync(WebApplication app)
             await SqliteCompatibility.EnsureBooleanColumnAsync(db, "Tasks", "PercentCompleteManual", cancellationToken: default);
             await SqliteCompatibility.EnsureNullableIntegerColumnAsync(db, "Tasks", "DependencyTaskId", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Tasks", "NoteUpdatedAt", cancellationToken: default);
+            await SqliteCompatibility.EnsureTextColumnAsync(db, "Tasks", "ExternalSourceProvider", cancellationToken: default);
+            await SqliteCompatibility.EnsureTextColumnAsync(db, "Tasks", "ExternalSourceOperationId", cancellationToken: default);
             await SqliteCompatibility.EnsureLongColumnAsync(db, "Projects", "Version", cancellationToken: default);
             await SqliteCompatibility.EnsureLongColumnAsync(db, "Tasks", "Version", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "CustomerName", cancellationToken: default);

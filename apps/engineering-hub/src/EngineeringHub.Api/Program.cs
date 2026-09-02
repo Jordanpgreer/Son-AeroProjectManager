@@ -7,6 +7,7 @@ using EngineeringHub.Api.Data;
 using EngineeringHub.Api.Dtos;
 using EngineeringHub.Api.Endpoints;
 using EngineeringHub.Api.Services;
+using SonAero.Platform.Features;
 using SonAero.Platform.Security;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -241,6 +242,13 @@ api.MapGet("/me", async (EngineeringUserService users, HttpContext httpContext, 
         httpContext.User,
         httpContext.Items[EngineeringAuthorization.AccessItem] as EngineeringModuleAccess,
         cancellationToken));
+
+api.MapGet("/benny/idle-settings", async (
+    EngineeringRoleDbContext db,
+    CancellationToken cancellationToken) => Results.Ok(await BennyIdleSettingsStore.ReadAsync(
+        db.Database.GetDbConnection(),
+        BennyIdleModules.EngineeringHub,
+        cancellationToken)));
 
 api.MapGet("/dashboard", async (
     string? query,

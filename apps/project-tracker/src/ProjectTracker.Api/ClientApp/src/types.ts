@@ -317,15 +317,24 @@ export type ProjectQuantitySyncResult = {
   updatedFields: string[]
   retainedFields: string[]
   warnings: string[]
+  routingStepsAdded: number
+  routingStepsUpdated: number
+  ardaOnlyOperationsRetained: number
+  routingOperationsRemoved: number
+  existingOperationsPreserved: boolean
 }
 
-export type ProjectQuantityLookupKind = 'sales-order' | 'job'
+export type ProjectQuantityLookupKind = 'item' | 'sales-order' | 'job'
 
 export type ProjectQuantityLookupOption = {
   externalId: string
   number: string
   name: string | null
   status: string
+  partNumber: string | null
+  salesOrderNumber: string | null
+  jobNumber: string | null
+  jobQuantity: number | null
 }
 
 export type ProjectQuantityLookupResult = {
