@@ -6,7 +6,8 @@
   },
   "EnterpriseQuoteSync": {
     "Enabled": true,
-    "TimeZoneId": "Mountain Standard Time"
+    "TimeZoneId": "Mountain Standard Time",
+    "IntervalMinutes": 30
   },
   "FulcrumQuoteSync": {
     "BaseUrl": "https://api.fulcrumpro.us/",

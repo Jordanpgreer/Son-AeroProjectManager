@@ -98,4 +98,34 @@ public sealed class EstimatingHistoryEndpointAuthorizationTests
             endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods,
             method => method == "POST");
     }
+
+    [Fact]
+    public void Personal_quote_workflow_reads_require_history_and_updates_require_editor()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddAuthorization();
+        builder.Services.AddScoped<EstimatingQuoteWorkflowService>();
+        var app = builder.Build();
+        app.MapGroup("/api").MapEstimatingQuoteWorkflowEndpoints();
+
+        var endpoints = ((IEndpointRouteBuilder)app).DataSources
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Where(endpoint => endpoint.RoutePattern.RawText?.StartsWith("/api/quote-workflow") == true)
+            .ToList();
+
+        Assert.Equal(2, endpoints.Count);
+        Assert.All(endpoints, endpoint => Assert.Contains(
+            endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
+            authorization => authorization.Policy == EstimatingPolicies.ViewHistory));
+
+        var update = Assert.Single(endpoints, endpoint =>
+            endpoint.RoutePattern.RawText == "/api/quote-workflow/{quoteHistoryId:int}");
+        Assert.Contains(
+            update.Metadata.GetOrderedMetadata<IAuthorizeData>(),
+            authorization => authorization.Policy == EstimatingPolicies.Editor);
+        Assert.Contains(
+            update.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods,
+            method => method == "PUT");
+    }
 }

@@ -149,7 +149,7 @@ public sealed class EstimatingHistoryQueryService(
             EstimatingPermissions.ManageHistory,
             StringComparer.OrdinalIgnoreCase);
         if (!isTeamView)
-            tracked = tracked.Where(record => IsCurrentEstimator(record.EstimatingRep, access)).ToList();
+            tracked = tracked.Where(record => EstimatingEstimatorIdentity.Matches(record.EstimatingRep, access)).ToList();
         var departmentRecords = isTeamView ? currentEmployeeRecords : tracked;
 
         var today = DateTime.Today;
@@ -286,21 +286,6 @@ public sealed class EstimatingHistoryQueryService(
         !string.IsNullOrWhiteSpace(value)
         && !string.Equals(value, "Unassigned", StringComparison.OrdinalIgnoreCase)
         && !string.Equals(value, "Sales", StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsCurrentEstimator(string estimator, EstimatingAccessProfile access)
-    {
-        var normalizedEstimator = estimator.Trim();
-        var displayName = access.DisplayName.Trim();
-        var accountName = access.AccountName.Split('\\').Last().Split('@').First();
-        if (string.Equals(normalizedEstimator, displayName, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(normalizedEstimator, accountName, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        var displayFirstName = displayName.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-        var estimatorFirstName = normalizedEstimator.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-        return displayFirstName is not null
-            && string.Equals(estimatorFirstName, displayFirstName, StringComparison.OrdinalIgnoreCase);
-    }
 
     private static bool IsInQueue(EstimatingQuoteHistoryRecord record) =>
         string.Equals(record.QuoteStatus, "Needs Approval", StringComparison.OrdinalIgnoreCase);

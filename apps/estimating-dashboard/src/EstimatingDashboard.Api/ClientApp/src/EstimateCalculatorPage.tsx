@@ -436,6 +436,8 @@ export default function EstimateCalculatorPage({
           unitPrice: 0,
           notes: '',
           amortizeMinBuy: false,
+          quoteStatus: 'not-requested',
+          attachments: [],
         },
       ],
     }))
@@ -480,15 +482,30 @@ export default function EstimateCalculatorPage({
       if (current.kind !== 'subassembly') return current
       const previous = current.subassemblies.find((item) => item.id === id)
       if (!previous) return current
-      const next = update(previous)
+      const updated = update(previous)
+      const quantityPerParent = Math.max(0.000001, updated.quantityPerParent ?? 1)
+      const quantityChanged = quantityPerParent !== (previous.quantityPerParent ?? 1)
+      const next = quantityChanged
+        ? {
+            ...updated,
+            quantityPerParent,
+            quantitiesByParentQuantity: Object.fromEntries(
+              current.quantities.map((quantity) => [quantity, quantity * quantityPerParent]),
+            ),
+          }
+        : { ...updated, quantityPerParent }
       const partNumberChanged = next.partNumber !== previous.partNumber
       return {
         ...current,
         subassemblies: current.subassemblies.map((item) => item.id === id ? next : item),
-        processes: partNumberChanged
+        processes: partNumberChanged || quantityChanged
           ? current.processes.map((process) => (
               process.subassemblyId === id
-                ? { ...process, description: next.partNumber }
+                ? {
+                    ...process,
+                    description: next.partNumber.trim() || process.description,
+                    quantityPerParent,
+                  }
                 : process
             ))
           : current.processes,
@@ -503,9 +520,30 @@ export default function EstimateCalculatorPage({
         .find((candidate) => !current.subassemblies.some(
           (item) => item.id === `subassembly-${candidate + 1}`,
         )) ?? current.subassemblies.length
-      const created = createSubassemblyDefaults(index)
+      const defaults = createSubassemblyDefaults(index)
+      const created = {
+        ...defaults,
+        quantitiesByParentQuantity: Object.fromEntries(
+          current.quantities.map((quantity) => [quantity, quantity]),
+        ),
+      }
       setSelectedSubassemblyId(created.id)
-      return { ...current, subassemblies: [...current.subassemblies, created] }
+      return {
+        ...current,
+        subassemblies: [...current.subassemblies, created],
+        processes: [
+          ...current.processes.filter((process) => process.subassemblyId),
+          {
+            id: createRowId('subassembly-rollup'),
+            description: `Subassembly ${index + 1}`,
+            setupCost: 0,
+            runCostEach: 0,
+            subassemblyId: created.id,
+            quantityPerParent: created.quantityPerParent ?? 1,
+          },
+          ...current.processes.filter((process) => !process.subassemblyId),
+        ],
+      }
     })
   }
 
@@ -519,11 +557,7 @@ export default function EstimateCalculatorPage({
       return {
         ...current,
         subassemblies: current.subassemblies.filter((item) => item.id !== id),
-        processes: current.processes.map((process) => (
-          process.subassemblyId === id
-            ? { ...process, subassemblyId: undefined, quantityPerParent: undefined }
-            : process
-        )),
+        processes: current.processes.filter((process) => process.subassemblyId !== id),
       }
     })
   }
@@ -831,6 +865,10 @@ export default function EstimateCalculatorPage({
           estimate={estimate}
           onMetadataChange={updateMetadata}
           onYieldChange={(yieldValue) => updateEstimate((current) => ({ ...current, yield: yieldValue }))}
+          onWorkflowStatusChange={(workflowStatus) => updateEstimate((current) => ({
+            ...current,
+            workflowStatus,
+          }))}
           onRubberFieldChange={updateRubberField}
         />
       </fieldset>
@@ -893,7 +931,22 @@ export default function EstimateCalculatorPage({
             editable={canEditEstimate}
             onChange={(quantities) => {
               if (!quantities.includes(selectedQuantity)) setSelectedQuantity(quantities[0])
-              updateEstimate((current) => replaceEstimateQuantities(current, quantities))
+              updateEstimate((current) => {
+                const replaced = replaceEstimateQuantities(current, quantities)
+                if (replaced.kind !== 'subassembly') return replaced
+                return {
+                  ...replaced,
+                  subassemblies: replaced.subassemblies.map((subassembly) => ({
+                    ...subassembly,
+                    quantitiesByParentQuantity: Object.fromEntries(
+                      quantities.map((quantity) => [
+                        quantity,
+                        quantity * (subassembly.quantityPerParent ?? 1),
+                      ]),
+                    ),
+                  })),
+                }
+              })
             }}
           />
         </section>

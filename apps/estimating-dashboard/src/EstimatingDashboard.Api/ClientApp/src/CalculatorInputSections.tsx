@@ -1,10 +1,11 @@
 import { ChevronDown, MessageSquareText, Plus, Trash2 } from 'lucide-react'
 import { Fragment, useEffect, useId, useState } from 'react'
 
-import { evaluateArithmeticExpression } from './arithmeticExpression'
 import { CONTROLLED_OPERATION_OPTIONS } from './estimatingRates'
+import { parseNumberInput } from './numberInput'
 import OperationCombobox from './OperationCombobox'
 import OperationNoteEditor from './OperationNoteEditor'
+import { ESTIMATE_WORKFLOW_STATUS_OPTIONS } from './types'
 import type {
   EstimateInput,
   EstimateMetadata,
@@ -56,33 +57,29 @@ export function SafeNumberInput({
     setInvalid(false)
   }
 
-  const commitExpression = () => {
-    const parsed = evaluateArithmeticExpression(draft)
-    const outOfRange =
-      parsed !== null
-      && (
-        parsed < min
-        || (max !== undefined && parsed > max)
-        || (integer && !Number.isInteger(parsed / scale))
-      )
-    if (parsed === null || outOfRange) {
+  const commit = () => {
+    const parsed = parseNumberInput(draft, {
+      allowExpression,
+      integer,
+      min,
+      max,
+      scale,
+    })
+    if (!parsed.ok) {
       setInvalid(true)
       return false
     }
     setInvalid(false)
-    setDraft(String(parsed))
-    onValueChange(parsed / scale)
+    setDraft(String(parsed.displayValue))
+    onValueChange(parsed.value)
     return true
   }
 
   return (
     <span className="safe-number-field">
       <input
-        type={allowExpression ? 'text' : 'number'}
+        type="text"
         value={draft}
-        min={allowExpression ? undefined : min}
-        max={allowExpression ? undefined : max}
-        step={allowExpression ? undefined : step}
         inputMode={allowExpression ? 'text' : 'decimal'}
         autoComplete="off"
         spellCheck={false}
@@ -92,42 +89,21 @@ export function SafeNumberInput({
         aria-describedby={invalid ? errorId : undefined}
         data-testid={testId}
         data-import-field={importField}
+        data-step={step}
         disabled={disabled}
         onChange={(event) => {
           const nextDraft = event.currentTarget.value
           setDraft(nextDraft)
-          if (allowExpression) {
-            setInvalid(false)
-            return
-          }
-          if (nextDraft.trim() === '') {
-            setInvalid(false)
-            return
-          }
-          const parsed = Number(nextDraft)
-          const outOfRange = parsed < min
-            || (max !== undefined && parsed > max)
-            || (integer && !Number.isInteger(parsed / scale))
-          if (!Number.isFinite(parsed) || outOfRange) {
-            setInvalid(true)
-            return
-          }
           setInvalid(false)
-          onValueChange(parsed / scale)
         }}
         onBlur={() => {
-          if (allowExpression) {
-            if (draft.trim() === '') restore()
-            else commitExpression()
-          } else if (draft.trim() === '' || invalid) {
-            restore()
-          }
+          if (draft.trim() === '') restore()
+          else commit()
         }}
         onKeyDown={(event) => {
-          if (!allowExpression) return
           if (event.key === 'Enter') {
             event.preventDefault()
-            if (commitExpression()) event.currentTarget.select()
+            if (commit()) event.currentTarget.select()
           } else if (event.key === 'Escape') {
             event.preventDefault()
             restore()
@@ -152,6 +128,7 @@ interface EstimateContextFieldsProps {
   estimate: EstimateInput
   onMetadataChange: (field: keyof EstimateMetadata, value: string) => void
   onYieldChange: (value: number) => void
+  onWorkflowStatusChange: (value: EstimateInput['workflowStatus']) => void
   onRubberFieldChange: (
     field: 'difficulty' | 'cavities' | 'toolingMarkup',
     value: number | null,
@@ -185,6 +162,7 @@ export function EstimateContextFields({
   estimate,
   onMetadataChange,
   onYieldChange,
+  onWorkflowStatusChange,
   onRubberFieldChange,
 }: EstimateContextFieldsProps) {
   const optionalMetadataPanelId = useId()
@@ -272,6 +250,20 @@ export function EstimateContextFields({
         </details>
 
         <div className="commercial-inputs">
+        <label>
+          <span>Estimate progress</span>
+          <select
+            value={estimate.workflowStatus ?? 'not-started'}
+            data-testid="estimate-workflow-status"
+            onChange={(event) => onWorkflowStatusChange(
+              event.currentTarget.value as EstimateInput['workflowStatus'],
+            )}
+          >
+            {ESTIMATE_WORKFLOW_STATUS_OPTIONS.map((status) => (
+              <option key={status.value} value={status.value}>{status.label}</option>
+            ))}
+          </select>
+        </label>
         <label>
           <span>Expected yield</span>
           <div className="input-with-suffix">

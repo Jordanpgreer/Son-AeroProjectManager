@@ -108,11 +108,15 @@ public sealed class EstimatingAccessDbContext(
             entity.Property(record => record.QuoteOnTrack).HasMaxLength(40);
             entity.Property(record => record.QuoteComplexity).HasMaxLength(80);
             entity.Property(record => record.EstimatingStatus).HasMaxLength(160);
+            entity.Property(record => record.ArdaStatus).HasMaxLength(80);
+            entity.Property(record => record.ArdaStatusNotes).HasMaxLength(2000);
+            entity.Property(record => record.ArdaStatusChangedBy).HasMaxLength(160);
             entity.Property(record => record.OnTimeStatus).HasMaxLength(24);
             entity.Property(record => record.OnTimeRatio).HasPrecision(8, 4);
             entity.Property(record => record.CompletedMonth).HasMaxLength(16);
             entity.Property(record => record.CompletedMonthAndWeek).HasMaxLength(40);
             entity.Property(record => record.UpdatedBy).HasMaxLength(160);
+            entity.Property(record => record.Version).IsConcurrencyToken();
         });
 
         modelBuilder.Entity<EstimatingQuoteHistoryAuditRecord>(entity =>

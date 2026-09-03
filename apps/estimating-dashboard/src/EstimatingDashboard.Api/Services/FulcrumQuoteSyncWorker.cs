@@ -8,6 +8,9 @@ public sealed class EnterpriseQuoteSyncScheduleOptions
 
     public bool Enabled { get; set; }
     public string TimeZoneId { get; set; } = "Mountain Standard Time";
+    public int IntervalMinutes { get; set; } = 30;
+
+    public TimeSpan Interval => TimeSpan.FromMinutes(IntervalMinutes);
 
     internal void BindConfiguration(IConfiguration configuration)
     {
@@ -15,42 +18,36 @@ public sealed class EnterpriseQuoteSyncScheduleOptions
         if (enterpriseSection.Exists())
         {
             enterpriseSection.Bind(this);
-            return;
+        }
+        else
+        {
+            // Keep defaults in this class, not the base JSON: a base EnterpriseQuoteSync
+            // section would mask legacy enablement in preserved Production settings.
+            var legacySection = configuration.GetSection(FulcrumQuoteSyncOptions.SectionName);
+            Enabled = legacySection.GetValue("Enabled", false);
+            TimeZoneId = legacySection.GetValue("TimeZoneId", TimeZoneId) ?? TimeZoneId;
+            IntervalMinutes = legacySection.GetValue("IntervalMinutes", IntervalMinutes);
         }
 
-        // Keep defaults in this class, not the base JSON: a base EnterpriseQuoteSync
-        // section would mask the legacy schedule in preserved Production settings.
-        var legacySection = configuration.GetSection(FulcrumQuoteSyncOptions.SectionName);
-        Enabled = legacySection.GetValue("Enabled", false);
-        TimeZoneId = legacySection.GetValue("TimeZoneId", TimeZoneId) ?? TimeZoneId;
+        if (IntervalMinutes is < 5 or > 1440)
+            throw new InvalidOperationException(
+                "EnterpriseQuoteSync:IntervalMinutes must be between 5 and 1440 minutes.");
     }
 }
 
 internal static class FulcrumQuoteSchedule
 {
-    private static readonly TimeOnly[] RunTimes =
-    [
-        new(2, 0),
-        new(19, 0)
-    ];
-
-    public static DateTimeOffset NextRunUtc(DateTimeOffset utcNow, TimeZoneInfo timeZone)
+    public static DateTimeOffset NextRunUtc(DateTimeOffset utcNow, TimeSpan interval)
     {
-        var localNow = TimeZoneInfo.ConvertTime(utcNow, timeZone);
-        for (var dayOffset = 0; dayOffset <= 2; dayOffset++)
-        {
-            var date = DateOnly.FromDateTime(localNow.Date).AddDays(dayOffset);
-            foreach (var runTime in RunTimes)
-            {
-                var localCandidate = DateTime.SpecifyKind(date.ToDateTime(runTime), DateTimeKind.Unspecified);
-                if (timeZone.IsInvalidTime(localCandidate))
-                    continue;
-                var candidate = new DateTimeOffset(localCandidate, timeZone.GetUtcOffset(localCandidate));
-                if (candidate.ToUniversalTime() > utcNow.ToUniversalTime())
-                    return candidate.ToUniversalTime();
-            }
-        }
-        throw new InvalidOperationException("Unable to determine the next enterprise quote synchronization time.");
+        if (interval <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(interval));
+
+        var utcTicks = utcNow.ToUniversalTime().UtcDateTime.Ticks;
+        var remainder = utcTicks % interval.Ticks;
+        var nextTicks = remainder == 0
+            ? utcTicks + interval.Ticks
+            : utcTicks + interval.Ticks - remainder;
+        return new DateTimeOffset(nextTicks, TimeSpan.Zero);
     }
 
     public static TimeZoneInfo ResolveTimeZone(string configuredId)
@@ -102,7 +99,7 @@ internal sealed class FulcrumQuoteSyncWorker(
         while (!stoppingToken.IsCancellationRequested)
         {
             var now = timeProvider.GetUtcNow();
-            var scheduledForUtc = FulcrumQuoteSchedule.NextRunUtc(now, timeZone);
+            var scheduledForUtc = FulcrumQuoteSchedule.NextRunUtc(now, settings.Interval);
             var localSchedule = TimeZoneInfo.ConvertTime(scheduledForUtc, timeZone);
             logger.LogInformation(
                 "Next enterprise quote synchronization is scheduled for {ScheduledLocalTime} ({TimeZoneId}).",
@@ -142,8 +139,9 @@ internal sealed class FulcrumQuoteSyncWorker(
             {
                 logger.LogError(
                     exception,
-                    "The enterprise quote synchronization scheduled for {ScheduledForUtc} failed. It will not retry outside the configured synchronization times.",
-                    scheduledForUtc);
+                    "The enterprise quote synchronization scheduled for {ScheduledForUtc} failed. The next pull remains scheduled for the next {IntervalMinutes}-minute boundary.",
+                    scheduledForUtc,
+                    settings.IntervalMinutes);
             }
         }
     }

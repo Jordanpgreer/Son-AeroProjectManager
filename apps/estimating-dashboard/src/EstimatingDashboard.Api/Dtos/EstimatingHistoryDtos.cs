@@ -133,3 +133,26 @@ public sealed record EstimatingQuoteAuditHistoryDto(
     int QuoteNumber,
     string Customer,
     IReadOnlyList<EstimatingQuoteAuditEventDto> Events);
+
+public sealed record EstimatingPersonalQuoteDto(
+    int Id,
+    int QuoteNumber,
+    string Customer,
+    string FulcrumQuoteStatus,
+    string EstimatingRep,
+    decimal TotalValue,
+    DateTime? RfqDueDate,
+    DateTime? AutomaticEstimatingDueDate,
+    DateTime? EstimatingDueDate,
+    bool EstimatingDueDateIsOverride,
+    string? ArdaStatus,
+    string? ArdaStatusNotes,
+    DateTimeOffset? ArdaStatusChangedAt,
+    string? ArdaStatusChangedBy,
+    int Version);
+
+public sealed record UpdateEstimatingQuoteWorkflowDto(
+    string? ArdaStatus,
+    string? Notes,
+    DateTime? EstimatingDueDateOverride,
+    int ExpectedVersion);

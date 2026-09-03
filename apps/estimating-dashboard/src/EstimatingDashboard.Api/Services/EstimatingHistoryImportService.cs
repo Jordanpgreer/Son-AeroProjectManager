@@ -808,6 +808,10 @@ public sealed class EstimatingHistoryImportService(
         string actor,
         DateTimeOffset now)
     {
+        // This is the enterprise-owned projection. ArdaStatus, ArdaStatusNotes,
+        // ArdaStatusChangedAt, ArdaStatusChangedBy, and EstimatingDueDateOverride
+        // must never be assigned here; scheduled Fulcrum refreshes preserve that
+        // internal workflow while the automatic due date follows RfqDueDate.
         record.SourceId = row.SourceId;
         record.QuoteNumber = row.QuoteNumber;
         record.Customer = row.Customer;

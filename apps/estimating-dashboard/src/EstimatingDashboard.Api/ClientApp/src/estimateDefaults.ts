@@ -134,6 +134,8 @@ function createMaterials(idPrefix = ''): MaterialInput[] {
     unitPrice: 0,
     notes: '',
     amortizeMinBuy: false,
+    quoteStatus: 'not-requested',
+    attachments: [],
   }))
 }
 
@@ -153,6 +155,7 @@ function createBaseDefaults() {
     rateYear: 2026 as const,
     yield: 0.95,
     salesMarkup: 0,
+    workflowStatus: 'not-started' as const,
     materials: createMaterials(),
     processes: createProcesses(),
     perQuantityMarginByQuantity: createQuantityValues(() => 0),
@@ -186,6 +189,7 @@ export function createSubassemblyDefaults(index = 0): SubassemblyInput {
     id,
     partNumber: '',
     revision: '',
+    quantityPerParent: 1,
     quantitiesByParentQuantity: createQuantityValues((quantity) => quantity),
     operations: createOperations(SUBASSEMBLY_CHILD_OPERATION_DEFINITIONS, idPrefix),
     materials: createMaterials(idPrefix),

@@ -31,10 +31,17 @@ identity; production uses Windows Authentication.
 
 ## Scheduled Fulcrum quote log synchronization
 
-Production enables an automatic Fulcrum quote-log synchronization at 2:00 AM and 7:00 PM
-Mountain time. The application does not call Fulcrum at startup and does not retry between those
-scheduled windows. Each scheduled run is claimed in the shared database, which prevents duplicate
-calls after an IIS recycle or when more than one application process is active.
+Production enables an automatic Fulcrum quote synchronization every 30 minutes, aligned to the
+top and bottom of each hour. The application does not call Fulcrum at startup. Each scheduled run
+is claimed in the shared database, which prevents duplicate calls after an IIS recycle or when
+more than one application process is active.
+
+The **Quotes** dashboard routes the Fulcrum quote number, quote status, Estimating Rep custom
+field, and RFQ Due Date custom field into each estimator's personal queue. Arda status, Arda notes,
+an estimating-due-date override, changed-by, changed-at, and calculated status age are stored only
+in Arda. Without an override, the estimating due date is calculated as one Monday-through-Thursday
+business day before the RFQ due date and follows later RFQ-date changes automatically. Scheduled and
+manual Fulcrum pulls never map or overwrite those Arda workflow fields.
 
 An Arda administrator configures or rotates the token in **Admin Hub → API Keys** using the
 reserved name **Fulcrum Public API**. The token is encrypted with Windows machine-level

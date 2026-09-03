@@ -249,6 +249,11 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
             "QuoteComplexity" TEXT NULL,
             "NumberOfParts" INTEGER NOT NULL,
             "EstimatingStatus" TEXT NULL,
+            "ArdaStatus" TEXT NULL,
+            "ArdaStatusNotes" TEXT NULL,
+            "ArdaStatusChangedAt" TEXT NULL,
+            "ArdaStatusChangedBy" TEXT NULL,
+            "EstimatingDueDateOverride" TEXT NULL,
             "EstimatingCompletionDate" TEXT NULL,
             "OnTimeStatus" TEXT NOT NULL,
             "DaysLate" INTEGER NOT NULL,
@@ -339,6 +344,11 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
                 [QuoteComplexity] nvarchar(80) NULL,
                 [NumberOfParts] int NOT NULL,
                 [EstimatingStatus] nvarchar(160) NULL,
+                [ArdaStatus] nvarchar(80) NULL,
+                [ArdaStatusNotes] nvarchar(2000) NULL,
+                [ArdaStatusChangedAt] datetimeoffset NULL,
+                [ArdaStatusChangedBy] nvarchar(160) NULL,
+                [EstimatingDueDateOverride] datetime2 NULL,
                 [EstimatingCompletionDate] datetime2 NULL,
                 [OnTimeStatus] nvarchar(24) NOT NULL,
                 [DaysLate] int NOT NULL,
@@ -397,6 +407,20 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
             ALTER TABLE [EstimatingQuoteHistory] ADD [RfqReferenceNumber] nvarchar(500) NULL;
         IF COL_LENGTH(N'EstimatingQuoteHistory', N'QuoteOnTrack') IS NULL
             ALTER TABLE [EstimatingQuoteHistory] ADD [QuoteOnTrack] nvarchar(40) NULL;
+        IF COL_LENGTH(N'EstimatingQuoteHistory', N'ArdaStatus') IS NULL
+            ALTER TABLE [EstimatingQuoteHistory] ADD [ArdaStatus] nvarchar(80) NULL;
+        IF COL_LENGTH(N'EstimatingQuoteHistory', N'ArdaStatusNotes') IS NULL
+            ALTER TABLE [EstimatingQuoteHistory] ADD [ArdaStatusNotes] nvarchar(2000) NULL;
+        IF COL_LENGTH(N'EstimatingQuoteHistory', N'ArdaStatusChangedAt') IS NULL
+            ALTER TABLE [EstimatingQuoteHistory] ADD [ArdaStatusChangedAt] datetimeoffset NULL;
+        IF COL_LENGTH(N'EstimatingQuoteHistory', N'ArdaStatusChangedBy') IS NULL
+            ALTER TABLE [EstimatingQuoteHistory] ADD [ArdaStatusChangedBy] nvarchar(160) NULL;
+        IF COL_LENGTH(N'EstimatingQuoteHistory', N'EstimatingDueDateOverride') IS NULL
+            ALTER TABLE [EstimatingQuoteHistory] ADD [EstimatingDueDateOverride] datetime2 NULL;
+        IF COL_LENGTH(N'EstimatingQuoteHistory', N'ArdaDueDate') IS NOT NULL
+            EXEC(N'UPDATE [EstimatingQuoteHistory]
+                   SET [EstimatingDueDateOverride] = [ArdaDueDate]
+                   WHERE [EstimatingDueDateOverride] IS NULL AND [ArdaDueDate] IS NOT NULL;');
 
         IF EXISTS (
             SELECT 1 FROM sys.indexes
@@ -462,6 +486,20 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
                 await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"RfqReferenceNumber\" TEXT NULL", cancellationToken);
             if (!columns.Contains("QuoteOnTrack"))
                 await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"QuoteOnTrack\" TEXT NULL", cancellationToken);
+            if (!columns.Contains("ArdaStatus"))
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"ArdaStatus\" TEXT NULL", cancellationToken);
+            if (!columns.Contains("ArdaStatusNotes"))
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"ArdaStatusNotes\" TEXT NULL", cancellationToken);
+            if (!columns.Contains("ArdaStatusChangedAt"))
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"ArdaStatusChangedAt\" TEXT NULL", cancellationToken);
+            if (!columns.Contains("ArdaStatusChangedBy"))
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"ArdaStatusChangedBy\" TEXT NULL", cancellationToken);
+            if (!columns.Contains("EstimatingDueDateOverride"))
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"EstimatingDueDateOverride\" TEXT NULL", cancellationToken);
+            if (columns.Contains("ArdaDueDate"))
+                await db.Database.ExecuteSqlRawAsync(
+                    "UPDATE \"EstimatingQuoteHistory\" SET \"EstimatingDueDateOverride\" = \"ArdaDueDate\" WHERE \"EstimatingDueDateOverride\" IS NULL AND \"ArdaDueDate\" IS NOT NULL",
+                    cancellationToken);
 
             await using var duplicateCommand = connection.CreateCommand();
             duplicateCommand.CommandText = """

@@ -23,6 +23,38 @@ export type OperationCostTreatment = 'production' | 'nre' | 'conditional-tooling
 export type OperationNameControl = 'fixed' | 'rate-list'
 export type RubberDifficulty = 1 | 2 | 3 | 4 | 5 | null
 
+export const ESTIMATE_WORKFLOW_STATUS_OPTIONS = [
+  { value: 'not-started', label: 'Not started' },
+  { value: 'in-progress', label: 'In progress' },
+  { value: 'waiting-on-material-quotes', label: 'Waiting on material quotes' },
+  { value: 'ready-for-review', label: 'Ready for review' },
+  { value: 'complete', label: 'Complete' },
+  { value: 'on-hold', label: 'On hold' },
+] as const
+
+export type EstimateWorkflowStatus =
+  (typeof ESTIMATE_WORKFLOW_STATUS_OPTIONS)[number]['value']
+
+export const MATERIAL_QUOTE_STATUS_OPTIONS = [
+  { value: 'not-requested', label: 'Not requested' },
+  { value: 'preparing-rfq', label: 'Preparing RFQ' },
+  { value: 'rfq-sent', label: 'RFQ sent' },
+  { value: 'awaiting-response', label: 'Awaiting response' },
+  { value: 'quote-received', label: 'Quote received' },
+  { value: 'no-quote-needed', label: 'No quote needed' },
+] as const
+
+export type MaterialQuoteStatus =
+  (typeof MATERIAL_QUOTE_STATUS_OPTIONS)[number]['value']
+
+export interface MaterialAttachment {
+  id: string
+  fileName: string
+  contentType: string
+  size: number
+  attachedAt: string
+}
+
 export interface EstimateMetadata {
   customer: string
   partNumber: string
@@ -55,6 +87,8 @@ export interface MaterialInput {
   unitPrice: number
   notes?: string
   amortizeMinBuy: boolean
+  quoteStatus?: MaterialQuoteStatus
+  attachments?: MaterialAttachment[]
 }
 
 export interface ProcessInput {
@@ -72,6 +106,7 @@ interface BaseEstimateInput {
   rateYear: EstimateYear
   yield: number
   salesMarkup: number
+  workflowStatus?: EstimateWorkflowStatus
   operations: EstimateOperationInput[]
   materials: MaterialInput[]
   processes: ProcessInput[]
@@ -96,6 +131,8 @@ export interface SubassemblyInput {
   id: string
   partNumber: string
   revision: string
+  /** Number of this child required for each top-level assembly. */
+  quantityPerParent?: number
   /** Child build quantity used for each parent quote tier. */
   quantitiesByParentQuantity: QuantityValues<number>
   operations: EstimateOperationInput[]
@@ -219,7 +256,7 @@ export function replaceEstimateQuantities(
         input.quantities,
         quantities,
         replacements,
-        (quantity) => quantity,
+        (quantity) => quantity * (child.quantityPerParent ?? 1),
       ),
       perQuantityMarginByQuantity: remapMargins(child.perQuantityMarginByQuantity),
       facilitiesByQuantity: remapLegacyFacilities(child.facilitiesByQuantity),

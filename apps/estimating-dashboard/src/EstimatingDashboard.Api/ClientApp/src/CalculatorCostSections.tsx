@@ -1,6 +1,11 @@
-import { ChevronDown, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, Download, Paperclip, Plus, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
 
+import {
+  downloadMaterialAttachment,
+  formatAttachmentSize,
+  saveMaterialAttachment,
+} from './calculatorAttachments'
 import { SafeNumberInput } from './CalculatorInputSections'
 import type {
   EstimateInput,
@@ -8,7 +13,7 @@ import type {
   ProcessInput,
   QuantityTier,
 } from './types'
-import { QUANTITY_TIERS } from './types'
+import { MATERIAL_QUOTE_STATUS_OPTIONS, QUANTITY_TIERS } from './types'
 
 interface MaterialsSectionProps {
   materials: MaterialInput[]
@@ -31,6 +36,39 @@ export function MaterialsSection({
   onAdd,
   onRemove,
 }: MaterialsSectionProps) {
+  const [attachmentMessage, setAttachmentMessage] = useState('')
+  const [busyMaterialId, setBusyMaterialId] = useState<string | null>(null)
+
+  const attachFiles = async (material: MaterialInput, files: FileList | null) => {
+    if (!files?.length) return
+    setBusyMaterialId(material.id)
+    setAttachmentMessage('')
+    try {
+      const attachments = await Promise.all(
+        Array.from(files).map(saveMaterialAttachment),
+      )
+      onChange(material.id, {
+        attachments: [...(material.attachments ?? []), ...attachments],
+      })
+      setAttachmentMessage(
+        `${attachments.length} file${attachments.length === 1 ? '' : 's'} attached to ${material.description.trim() || 'material row'}.`,
+      )
+    } catch (error) {
+      setAttachmentMessage(error instanceof Error ? error.message : 'The attachment could not be saved.')
+    } finally {
+      setBusyMaterialId(null)
+    }
+  }
+
+  const downloadAttachment = async (attachment: NonNullable<MaterialInput['attachments']>[number]) => {
+    setAttachmentMessage('')
+    try {
+      await downloadMaterialAttachment(attachment)
+    } catch (error) {
+      setAttachmentMessage(error instanceof Error ? error.message : 'The attachment could not be downloaded.')
+    }
+  }
+
   return (
     <section className="calc-card" aria-labelledby={`${idPrefix}materials-heading`}>
       <div className="calc-section-heading">
@@ -48,7 +86,7 @@ export function MaterialsSection({
       </div>
       <div className="table-scroll">
         <table className="input-table materials-table">
-          <caption>Material quantities, purchase price, notes, and minimum-buy allocation</caption>
+          <caption>Material quantities, purchase price, RFQ status, attachments, notes, and minimum-buy allocation</caption>
           <thead>
             <tr>
               <th scope="col">Description</th>
@@ -56,6 +94,8 @@ export function MaterialsSection({
               <th scope="col">Parts qty</th>
               <th scope="col">Unit price</th>
               <th scope="col">Extended</th>
+              <th scope="col">RFQ status</th>
+              <th scope="col">Email / RFQ files</th>
               <th scope="col">Notes</th>
               <th scope="col">Amortize min buy</th>
             </tr>
@@ -119,6 +159,68 @@ export function MaterialsSection({
                   ${(extendedCosts[material.id] ?? 0).toFixed(2)}
                 </td>
                 <td>
+                  <select
+                    className="material-status-select"
+                    aria-label={`Material ${index + 1} RFQ status`}
+                    value={material.quoteStatus ?? 'not-requested'}
+                    data-testid={`${idPrefix}material-status-${index}`}
+                    onChange={(event) => onChange(material.id, {
+                      quoteStatus: event.currentTarget.value as MaterialInput['quoteStatus'],
+                    })}
+                  >
+                    {MATERIAL_QUOTE_STATUS_OPTIONS.map((status) => (
+                      <option key={status.value} value={status.value}>{status.label}</option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  <div className="material-attachments">
+                    {(material.attachments ?? []).map((attachment) => (
+                      <span className="material-attachment" key={attachment.id}>
+                        <a
+                          href="#"
+                          title={`${attachment.fileName} (${formatAttachmentSize(attachment.size)})`}
+                          onClick={(event) => {
+                            event.preventDefault()
+                            void downloadAttachment(attachment)
+                          }}
+                        >
+                          <Download size={12} aria-hidden="true" />
+                          <span>{attachment.fileName}</span>
+                        </a>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${attachment.fileName}`}
+                          title="Remove attachment from this estimate"
+                          onClick={() => onChange(material.id, {
+                            attachments: (material.attachments ?? []).filter(
+                              (candidate) => candidate.id !== attachment.id,
+                            ),
+                          })}
+                        >
+                          <X size={12} aria-hidden="true" />
+                        </button>
+                      </span>
+                    ))}
+                    <label className="material-attachment-picker">
+                      <Paperclip size={13} aria-hidden="true" />
+                      <span>{busyMaterialId === material.id ? 'Attaching...' : 'Attach'}</span>
+                      <input
+                        type="file"
+                        multiple
+                        accept=".eml,.msg,.pdf,.txt,.doc,.docx,.xls,.xlsx,image/*"
+                        disabled={busyMaterialId !== null}
+                        onChange={(event) => {
+                          const input = event.currentTarget
+                          void attachFiles(material, input.files).finally(() => {
+                            input.value = ''
+                          })
+                        }}
+                      />
+                    </label>
+                  </div>
+                </td>
+                <td>
                   <input
                     className="material-notes-input"
                     type="text"
@@ -145,13 +247,16 @@ export function MaterialsSection({
           </tbody>
         </table>
       </div>
+      {attachmentMessage && (
+        <p className="material-attachment-message" role="status">{attachmentMessage}</p>
+      )}
     </section>
   )
 }
 
 interface ProcessesSectionProps {
   processes: ProcessInput[]
-  subassemblies?: readonly { id: string; partNumber: string }[]
+  subassemblies?: readonly { id: string; partNumber: string; quantityPerParent?: number }[]
   idPrefix?: string
   title?: string
   kicker?: string
@@ -214,7 +319,7 @@ export function ProcessesSection({
                           onChange(process.id, {
                             subassemblyId,
                             description: selected?.partNumber ?? '',
-                            quantityPerParent: process.quantityPerParent ?? 1,
+                            quantityPerParent: selected?.quantityPerParent ?? 1,
                           })
                         }}
                       >
@@ -269,20 +374,20 @@ export function ProcessesSection({
                           }
                         }}
                       />
-                      <span>{process.subassemblyId ? 'Linked' : 'No'}</span>
+                      <span>{process.subassemblyId ? 'Subassembly' : 'No'}</span>
                     </label>
                   </td>
                 )}
                 {supportsSubassemblies && (
                   <td>
                     {process.subassemblyId ? (
-                      <SafeNumberInput
-                        value={process.quantityPerParent ?? 1}
-                        onValueChange={(value) => onChange(process.id, { quantityPerParent: value })}
-                        label={`Process ${index + 1} subassembly quantity per parent`}
-                        min={0.000001}
-                        testId={`${idPrefix}process-subassembly-quantity-${index}`}
-                      />
+                      <span
+                        className="linked-subassembly-quantity numeric"
+                        data-testid={`${idPrefix}process-subassembly-quantity-${index}`}
+                      >
+                        {subassemblies.find((item) => item.id === process.subassemblyId)
+                          ?.quantityPerParent ?? process.quantityPerParent ?? 1}
+                      </span>
                     ) : <span className="not-applicable">—</span>}
                   </td>
                 )}

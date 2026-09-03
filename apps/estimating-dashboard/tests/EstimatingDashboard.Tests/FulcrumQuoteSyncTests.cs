@@ -28,15 +28,16 @@ public sealed class FulcrumQuoteSyncTests
 
     [Theory]
     [InlineData("2026-09-01T01:30:00+00:00", "2026-09-01T02:00:00+00:00")]
-    [InlineData("2026-09-01T02:00:01+00:00", "2026-09-01T19:00:00+00:00")]
-    [InlineData("2026-09-01T19:00:01+00:00", "2026-09-02T02:00:00+00:00")]
-    public void Schedule_returns_only_the_next_two_configured_windows(
+    [InlineData("2026-09-01T02:00:01+00:00", "2026-09-01T02:30:00+00:00")]
+    [InlineData("2026-09-01T19:00:01+00:00", "2026-09-01T19:30:00+00:00")]
+    [InlineData("2026-09-01T23:59:59+00:00", "2026-09-02T00:00:00+00:00")]
+    public void Schedule_returns_the_next_thirty_minute_boundary(
         string nowValue,
         string expectedValue)
     {
         var actual = FulcrumQuoteSchedule.NextRunUtc(
             DateTimeOffset.Parse(nowValue),
-            TimeZoneInfo.Utc);
+            TimeSpan.FromMinutes(30));
 
         Assert.Equal(DateTimeOffset.Parse(expectedValue), actual);
     }
@@ -152,7 +153,12 @@ public sealed class FulcrumQuoteSyncTests
               "Number of Parts in Quote": 4,
               "Estimating Status": "Quote Assigned",
               "Estimating Rep": "Bethany",
-              "Estimating Completion Date": "2026-09-04"
+              "Estimating Completion Date": "2026-09-04",
+              "Arda Status": "Must not import",
+              "Arda Notes": "Must not import",
+              "Arda Changed By": "Must not import",
+              "Arda Changed At": "2026-09-01T12:00:00Z",
+              "Estimating Due Date": "2026-09-03"
             }
             """);
         var snapshot = new FulcrumQuoteSnapshot(
@@ -204,8 +210,46 @@ public sealed class FulcrumQuoteSyncTests
         var record = Assert.Single(await db.QuoteHistory.ToListAsync());
         Assert.Equal("quote-id", record.SourceId);
         Assert.Equal("Bethany", record.EstimatingRep);
+        Assert.Null(record.ArdaStatus);
+        Assert.Null(record.ArdaStatusNotes);
+        Assert.Null(record.ArdaStatusChangedBy);
+        Assert.Null(record.ArdaStatusChangedAt);
+        Assert.Null(record.EstimatingDueDateOverride);
         Assert.Equal(2, await db.QuoteHistoryImportBatches.CountAsync());
         Assert.Single(await db.QuoteHistoryAudits.ToListAsync());
+
+        var ardaChangedAt = new DateTimeOffset(2026, 9, 2, 16, 30, 0, TimeSpan.Zero);
+        record.ArdaStatus = EstimatingArdaStatuses.InProgress;
+        record.ArdaStatusNotes = "Internal pricing follow-up";
+        record.ArdaStatusChangedAt = ardaChangedAt;
+        record.ArdaStatusChangedBy = "SON4L\\bethany";
+        record.EstimatingDueDateOverride = new DateTime(2026, 9, 12);
+        record.Version++;
+        await db.SaveChangesAsync();
+
+        var changedFulcrumRow = mapping.Rows[0] with
+        {
+            QuoteStatus = "Open",
+            EstimatingRep = "Bethany R.",
+            RfqDueDate = new DateTime(2026, 9, 11)
+        };
+        var third = await importer.ApplyAutomatedAsync(
+            [changedFulcrumRow],
+            "Fulcrum API test",
+            "FULCRUM_API_SCHEDULE",
+            default);
+        db.ChangeTracker.Clear();
+        var refreshed = await db.QuoteHistory.SingleAsync();
+
+        Assert.Equal(1, third.UpdatedRecords);
+        Assert.Equal("Open", refreshed.QuoteStatus);
+        Assert.Equal("Bethany R.", refreshed.EstimatingRep);
+        Assert.Equal(new DateTime(2026, 9, 11), refreshed.RfqDueDate);
+        Assert.Equal(EstimatingArdaStatuses.InProgress, refreshed.ArdaStatus);
+        Assert.Equal("Internal pricing follow-up", refreshed.ArdaStatusNotes);
+        Assert.Equal(ardaChangedAt, refreshed.ArdaStatusChangedAt);
+        Assert.Equal("SON4L\\bethany", refreshed.ArdaStatusChangedBy);
+        Assert.Equal(new DateTime(2026, 9, 12), refreshed.EstimatingDueDateOverride);
     }
 
     [Fact]

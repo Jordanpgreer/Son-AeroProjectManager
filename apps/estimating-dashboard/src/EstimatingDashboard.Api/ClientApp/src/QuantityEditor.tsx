@@ -51,9 +51,9 @@ function QuantityInput({
   return (
     <div className="quantity-tier-field">
       <input
-        type="number"
-        min={1}
-        step={1}
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
         value={draft}
         aria-label={`Pricing quantity ${index + 1}`}
         data-import-field={`quantity-${index}`}

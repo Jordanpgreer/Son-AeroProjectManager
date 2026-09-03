@@ -364,6 +364,18 @@ function readProcesses(
       throw new Error(`Linked process row ${row} references "${description}", but no matching subassembly sheet was imported.`)
     }
     if (!description && !setupCost && !runCostEach && !linked) continue
+    const quantityPerParent = linked
+      ? constrainedCellNumber(
+          sheet,
+          row,
+          2,
+          `Linked process row ${row} quantity per parent`,
+          { min: 0.000001 },
+        ) ?? 1
+      : undefined
+    if (linked && quantityPerParent !== undefined) {
+      linked.quantityPerParent = quantityPerParent
+    }
     processes.push({
       id: importedId(idPrefix, processes.length),
       description,
@@ -371,13 +383,7 @@ function readProcesses(
       runCostEach: linked ? 0 : runCostEach,
       ...(linked ? {
         subassemblyId: linked.id,
-        quantityPerParent: constrainedCellNumber(
-          sheet,
-          row,
-          2,
-          `Linked process row ${row} quantity per parent`,
-          { min: 0.000001 },
-        ) ?? 1,
+        quantityPerParent,
       } : {}),
     })
   }

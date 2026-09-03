@@ -1,4 +1,10 @@
-import { ESTIMATE_YEARS, type EstimateInput } from './types.ts'
+import {
+  ESTIMATE_WORKFLOW_STATUS_OPTIONS,
+  ESTIMATE_YEARS,
+  MATERIAL_QUOTE_STATUS_OPTIONS,
+  type EstimateInput,
+  type MaterialInput,
+} from './types.ts'
 import { normalizePerQuantityMargins } from './calculations.ts'
 
 export type QuoteStatus = 'draft' | 'current' | 'past'
@@ -99,6 +105,15 @@ function isEstimateOperation(value: unknown) {
     && typeof value.amortizeNre === 'boolean'
 }
 
+function isMaterialAttachment(value: unknown) {
+  if (!isRecord(value)) return false
+  return typeof value.id === 'string'
+    && typeof value.fileName === 'string'
+    && typeof value.contentType === 'string'
+    && isFiniteNumber(value.size)
+    && typeof value.attachedAt === 'string'
+}
+
 function isMaterial(value: unknown) {
   if (!isRecord(value)) return false
   return typeof value.id === 'string'
@@ -108,6 +123,14 @@ function isMaterial(value: unknown) {
     && isFiniteNumber(value.unitPrice)
     && (value.notes === undefined || typeof value.notes === 'string')
     && typeof value.amortizeMinBuy === 'boolean'
+    && (
+      value.quoteStatus === undefined
+      || MATERIAL_QUOTE_STATUS_OPTIONS.some((status) => status.value === value.quoteStatus)
+    )
+    && (
+      value.attachments === undefined
+      || (Array.isArray(value.attachments) && value.attachments.every(isMaterialAttachment))
+    )
 }
 
 function isProcess(value: unknown) {
@@ -138,9 +161,13 @@ function isSubassembly(value: unknown) {
   return typeof value.id === 'string'
     && typeof value.partNumber === 'string'
     && typeof value.revision === 'string'
+    && (
+      value.quantityPerParent === undefined
+      || isFiniteNumber(value.quantityPerParent, 0.000001)
+    )
     && isQuantityValues(
       value.quantitiesByParentQuantity,
-      { integer: true, min: 1, max: Number.MAX_SAFE_INTEGER },
+      { min: 0.000001, max: Number.MAX_SAFE_INTEGER },
     )
     && hasValidCostCollections(value)
 }
@@ -159,6 +186,12 @@ function isEstimate(value: unknown): value is EstimateInput {
     || !ESTIMATE_YEARS.includes(value.rateYear as (typeof ESTIMATE_YEARS)[number])
     || !isFiniteNumber(value.yield, 0, 1)
     || !isFiniteNumber(value.salesMarkup, 0, 10)
+    || (
+      value.workflowStatus !== undefined
+      && !ESTIMATE_WORKFLOW_STATUS_OPTIONS.some(
+        (status) => status.value === value.workflowStatus,
+      )
+    )
     || !hasValidCostCollections(value)
   ) return false
 
@@ -276,10 +309,39 @@ function migrateLegacyQuote(legacy: LegacyQuoteRecord): QuoteRecord {
   }
 }
 
+function normalizeMaterialTracking(material: MaterialInput): MaterialInput {
+  return {
+    ...material,
+    quoteStatus: material.quoteStatus ?? 'not-requested',
+    attachments: material.attachments ?? [],
+  }
+}
+
+function normalizeEstimateTracking(estimate: EstimateInput): EstimateInput {
+  const shared = {
+    ...estimate,
+    workflowStatus: estimate.workflowStatus ?? 'not-started',
+    materials: estimate.materials.map(normalizeMaterialTracking),
+  }
+  if (shared.kind !== 'subassembly') return shared
+
+  return {
+    ...shared,
+    subassemblies: shared.subassemblies.map((subassembly) => ({
+      ...subassembly,
+      quantityPerParent: subassembly.quantityPerParent
+        ?? shared.processes.find((process) => process.subassemblyId === subassembly.id)
+          ?.quantityPerParent
+        ?? 1,
+      materials: subassembly.materials.map(normalizeMaterialTracking),
+    })),
+  }
+}
+
 function normalizeQuoteMargins(quote: QuoteRecord): QuoteRecord {
   const normalizeRevision = (revision: QuoteRevision): QuoteRevision => ({
     ...revision,
-    estimate: normalizePerQuantityMargins(revision.estimate),
+    estimate: normalizeEstimateTracking(normalizePerQuantityMargins(revision.estimate)),
   })
   return {
     ...quote,

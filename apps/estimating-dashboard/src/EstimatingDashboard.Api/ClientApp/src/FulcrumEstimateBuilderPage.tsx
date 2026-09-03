@@ -21,6 +21,7 @@ import {
   operationReviewComplete,
   previewAllowsCalculatorImport,
 } from './fulcrumEstimateModel'
+import { parseNumberInput } from './numberInput'
 import './estimate-import.css'
 
 interface EstimateImportDialogProps {
@@ -213,8 +214,8 @@ export default function EstimateImportDialog({
                         <strong>{operation.targetOperation ?? 'Rule required'}</strong>
                         {!operation.targetOperation && <a href="#/operation-rules" onClick={onClose}>Open Operation Rules</a>}
                       </div>
-                      <label><span>Setup minutes</span><input type="number" min="0" max={MAX_FULCRUM_OPERATION_MINUTES} step="any" disabled={!canEdit} value={values?.setupMinutes ?? ''} onChange={(event) => dispatch({ type: 'set-operation-value', operationId: operation.id, field: 'setupMinutes', value: event.currentTarget.value })} /></label>
-                      <label><span>Run minutes</span><input type="number" min="0" max={MAX_FULCRUM_OPERATION_MINUTES} step="any" disabled={!canEdit} value={values?.runMinutes ?? ''} onChange={(event) => dispatch({ type: 'set-operation-value', operationId: operation.id, field: 'runMinutes', value: event.currentTarget.value })} /></label>
+                      <label><span>Setup minutes</span><input type="text" inputMode="decimal" disabled={!canEdit} value={values?.setupMinutes ?? ''} onChange={(event) => dispatch({ type: 'set-operation-value', operationId: operation.id, field: 'setupMinutes', value: event.currentTarget.value })} onBlur={(event) => { const parsed = parseNumberInput(event.currentTarget.value, { max: MAX_FULCRUM_OPERATION_MINUTES }); if (parsed.ok) dispatch({ type: 'set-operation-value', operationId: operation.id, field: 'setupMinutes', value: String(parsed.displayValue) }) }} /></label>
+                      <label><span>Run minutes</span><input type="text" inputMode="decimal" disabled={!canEdit} value={values?.runMinutes ?? ''} onChange={(event) => dispatch({ type: 'set-operation-value', operationId: operation.id, field: 'runMinutes', value: event.currentTarget.value })} onBlur={(event) => { const parsed = parseNumberInput(event.currentTarget.value, { max: MAX_FULCRUM_OPERATION_MINUTES }); if (parsed.ok) dispatch({ type: 'set-operation-value', operationId: operation.id, field: 'runMinutes', value: String(parsed.displayValue) }) }} /></label>
                     </article>
                   )
                 })}

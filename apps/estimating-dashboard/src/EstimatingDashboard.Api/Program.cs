@@ -17,6 +17,7 @@ builder.Services.AddScoped<EstimatingAccessPreviewService>();
 builder.Services.AddScoped<IEstimatingAccessStore, EstimatingAccessStore>();
 builder.Services.AddScoped<EstimatingHistorySchemaInitializer>();
 builder.Services.AddScoped<EstimatingHistoryQueryService>();
+builder.Services.AddScoped<EstimatingQuoteWorkflowService>();
 builder.Services.AddScoped<EstimatingEstimatorSettingsService>();
 builder.Services.AddScoped<EstimatingHistoryImportService>();
 builder.Services.AddScoped<EstimatingHistoryReportService>();
@@ -297,6 +298,7 @@ api.MapGet("/benny/idle-settings", async (
         cancellationToken)))
     .RequireAuthorization(EstimatingPolicies.Viewer);
 api.MapEstimatingHistoryEndpoints();
+api.MapEstimatingQuoteWorkflowEndpoints();
 api.MapFulcrumEstimateEndpoints();
 
 app.MapFallback("/api/{**path}", async context =>

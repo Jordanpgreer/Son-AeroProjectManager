@@ -9,7 +9,7 @@ public sealed class EnterpriseQuoteSyncConfigurationTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void Shipped_defaults_preserve_legacy_production_schedule(bool enabled)
+    public void Shipped_defaults_preserve_legacy_enablement_with_thirty_minute_interval(bool enabled)
     {
         using var configuration = BuildConfiguration($$"""
             {
@@ -24,6 +24,7 @@ public sealed class EnterpriseQuoteSyncConfigurationTests
 
         Assert.Equal(enabled, settings.Enabled);
         Assert.Equal("Eastern Standard Time", settings.TimeZoneId);
+        Assert.Equal(30, settings.IntervalMinutes);
     }
 
     [Fact]
@@ -35,6 +36,7 @@ public sealed class EnterpriseQuoteSyncConfigurationTests
 
         Assert.False(settings.Enabled);
         Assert.Equal("Mountain Standard Time", settings.TimeZoneId);
+        Assert.Equal(30, settings.IntervalMinutes);
     }
 
     [Theory]
@@ -50,7 +52,8 @@ public sealed class EnterpriseQuoteSyncConfigurationTests
               },
               "EnterpriseQuoteSync": {
                 "Enabled": {{enabled.ToString().ToLowerInvariant()}},
-                "TimeZoneId": "Pacific Standard Time"
+                "TimeZoneId": "Pacific Standard Time",
+                "IntervalMinutes": 45
               }
             }
             """);
@@ -59,6 +62,7 @@ public sealed class EnterpriseQuoteSyncConfigurationTests
 
         Assert.Equal(enabled, settings.Enabled);
         Assert.Equal("Pacific Standard Time", settings.TimeZoneId);
+        Assert.Equal(45, settings.IntervalMinutes);
     }
 
     [Fact]
@@ -69,13 +73,15 @@ public sealed class EnterpriseQuoteSyncConfigurationTests
             new Dictionary<string, string?>
             {
                 ["EnterpriseQuoteSync:Enabled"] = "false",
-                ["EnterpriseQuoteSync:TimeZoneId"] = "UTC"
+                ["EnterpriseQuoteSync:TimeZoneId"] = "UTC",
+                ["EnterpriseQuoteSync:IntervalMinutes"] = "30"
             });
 
         var settings = ReadSchedule(configuration);
 
         Assert.False(settings.Enabled);
         Assert.Equal("UTC", settings.TimeZoneId);
+        Assert.Equal(30, settings.IntervalMinutes);
     }
 
     [Fact]
@@ -85,6 +91,24 @@ public sealed class EnterpriseQuoteSyncConfigurationTests
             {
               "FulcrumQuoteSync": { "Enabled": true },
               "EnterpriseQuoteSync": { "Enabled": "invalid" }
+            }
+            """);
+
+        Assert.Throws<InvalidOperationException>(() => ReadSchedule(configuration));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4)]
+    [InlineData(1441)]
+    public void Invalid_sync_intervals_fail_closed(int intervalMinutes)
+    {
+        using var configuration = BuildConfiguration($$"""
+            {
+              "EnterpriseQuoteSync": {
+                "Enabled": true,
+                "IntervalMinutes": {{intervalMinutes}}
+              }
             }
             """);
 

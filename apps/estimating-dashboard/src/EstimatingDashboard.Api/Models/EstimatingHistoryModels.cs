@@ -19,6 +19,11 @@ public sealed class EstimatingQuoteHistoryRecord
     public string? QuoteComplexity { get; set; }
     public int NumberOfParts { get; set; }
     public string? EstimatingStatus { get; set; }
+    public string? ArdaStatus { get; set; }
+    public string? ArdaStatusNotes { get; set; }
+    public DateTimeOffset? ArdaStatusChangedAt { get; set; }
+    public string? ArdaStatusChangedBy { get; set; }
+    public DateTime? EstimatingDueDateOverride { get; set; }
     public DateTime? EstimatingCompletionDate { get; set; }
     public string OnTimeStatus { get; set; } = EstimatingOnTimeStatuses.NoData;
     public int DaysLate { get; set; }
@@ -102,4 +107,47 @@ public static class EstimatingQuoteAuditActions
 {
     public const string Created = "Created";
     public const string Updated = "Updated";
+    public const string WorkflowUpdated = "WorkflowUpdated";
+}
+
+public static class EstimatingArdaStatuses
+{
+    public const string NotStarted = "Not started";
+    public const string InProgress = "In progress";
+    public const string WaitingOnInformation = "Waiting on information";
+    public const string ReadyForReview = "Ready for review";
+    public const string Complete = "Complete";
+    public const string OnHold = "On hold";
+
+    public static readonly IReadOnlyList<string> All =
+    [
+        NotStarted,
+        InProgress,
+        WaitingOnInformation,
+        ReadyForReview,
+        Complete,
+        OnHold
+    ];
+
+    public static string? Normalize(string? value)
+    {
+        var clean = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        return clean is null
+            ? null
+            : All.FirstOrDefault(status => string.Equals(status, clean, StringComparison.OrdinalIgnoreCase));
+    }
+}
+
+public static class EstimatingDueDates
+{
+    public static DateTime? AutomaticFromRfq(DateTime? rfqDueDate)
+    {
+        if (!rfqDueDate.HasValue) return null;
+        var candidate = rfqDueDate.Value.Date.AddDays(-1);
+        while (candidate.DayOfWeek is DayOfWeek.Friday
+            or DayOfWeek.Saturday
+            or DayOfWeek.Sunday)
+            candidate = candidate.AddDays(-1);
+        return candidate;
+    }
 }
