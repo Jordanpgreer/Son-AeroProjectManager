@@ -28,6 +28,12 @@ public sealed class QualityShipment
     public DateTimeOffset? ShippedAt { get; set; }
     public string? ShippedByAccountName { get; set; }
     public string? ShippedByDisplayName { get; set; }
+    public string? ExternalShipmentId { get; set; }
+    public string? ExternalShipmentUrl { get; set; }
+    public string? ExternalShipmentStatus { get; set; }
+    public string? ExternalSyncProvider { get; set; }
+    public string? ExternalSyncError { get; set; }
+    public DateTimeOffset? ExternalSyncedAt { get; set; }
     public long Version { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public string CreatedByAccountName { get; set; } = string.Empty;
@@ -37,6 +43,20 @@ public sealed class QualityShipment
     public string UpdatedByDisplayName { get; set; } = string.Empty;
     public ICollection<QualityShipmentAuditEntry> AuditEntries { get; set; } = [];
     public ICollection<QualityShipmentComment> CommentThread { get; set; } = [];
+    public ICollection<QualityShipmentPart> Parts { get; set; } = [];
+}
+
+public sealed class QualityShipmentPart
+{
+    public int Id { get; set; }
+    public int ShipmentId { get; set; }
+    public QualityShipment Shipment { get; set; } = null!;
+    public string PartNumber { get; set; } = string.Empty;
+    public int? Quantity { get; set; }
+    public decimal? UnitPrice { get; set; }
+    public decimal? TotalValue { get; set; }
+    public string? ExternalItemId { get; set; }
+    public int DisplayOrder { get; set; }
 }
 
 public sealed class QualityShipmentAuditEntry

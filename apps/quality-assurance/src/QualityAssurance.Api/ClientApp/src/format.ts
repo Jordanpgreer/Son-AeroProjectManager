@@ -23,7 +23,7 @@ export function formatCurrency(value: number | null | undefined) {
 }
 
 export function formatDuration(hours: number | null | undefined) {
-  if (hours == null) return 'No completions yet'
+  if (hours == null) return 'No Completions Yet'
   if (hours < 24) return `${Math.round(hours)} hr`
   return `${(hours / 24).toFixed(1)} days`
 }

@@ -15,6 +15,7 @@ public sealed record QualityShipmentDto(
     string? SalesOrderNumber,
     DateOnly? QaArrivalDate,
     string? PartNumber,
+    IReadOnlyList<QualityShipmentPartDto> Parts,
     string? PurchaseOrderNumber,
     string? Customer,
     string? TaskType,
@@ -34,7 +35,25 @@ public sealed record QualityShipmentDto(
     string DueState,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    DateTimeOffset? ShippedAt);
+    DateTimeOffset? ShippedAt,
+    string? ExternalShipmentUrl,
+    string? ExternalShipmentStatus,
+    string? ExternalSyncProvider,
+    string? ExternalSyncError,
+    DateTimeOffset? ExternalSyncedAt);
+
+public sealed record QualityShipmentPartDto(
+    int Id,
+    string PartNumber,
+    int? Quantity,
+    decimal? UnitPrice,
+    decimal? TotalValue,
+    int DisplayOrder);
+
+public sealed record QualityShipmentPartInputDto(
+    string? PartNumber,
+    int? Quantity,
+    decimal? UnitPrice);
 
 public sealed record QualityShipmentListDto(
     IReadOnlyList<QualityShipmentDto> Items,
@@ -59,7 +78,8 @@ public sealed record QualityShipmentCreateDto(
     string? HoldReason,
     DateOnly? SourceRequestedDate,
     string? NextAction,
-    string? Comments);
+    string? Comments,
+    IReadOnlyList<QualityShipmentPartInputDto>? Parts = null);
 
 public sealed record QualityShipmentPatchDto(
     long Version,

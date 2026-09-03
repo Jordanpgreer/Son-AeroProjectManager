@@ -14,7 +14,8 @@ public sealed class QualitySqlServerMigrationTests
         "20260813181727_InitialQualityShipping",
         "20260813190849_AddQualityShippingLayoutPreferences",
         "20260826201500_AddQualityShipmentComments",
-        "20260901133114_AddLegacyQualityAssigneeTags"
+        "20260901133114_AddLegacyQualityAssigneeTags",
+        "20260903215032_AddQualityShipmentFulcrumSyncAndParts"
     ];
 
     [Fact]
@@ -54,7 +55,8 @@ public sealed class QualitySqlServerMigrationTests
             ["QualityShipmentAuditEntries"] = "bigint",
             ["QualityShippingLayoutPreferences"] = "int",
             ["QualityShipmentComments"] = "bigint",
-            ["QualityMentionNotifications"] = "bigint"
+            ["QualityMentionNotifications"] = "bigint",
+            ["QualityShipmentParts"] = "int"
         };
         foreach (var (table, identityType) in identityTypes)
         {
@@ -68,6 +70,9 @@ public sealed class QualitySqlServerMigrationTests
         Assert.Contains("[Quantity] decimal(18,3) NULL", script);
         Assert.Contains("[DollarValue] decimal(18,2) NULL", script);
         Assert.Contains("[LegacyAssigneeTag] nvarchar(160) NULL", script);
+        Assert.Contains("[ExternalShipmentUrl] nvarchar(1000) NULL", script);
+        Assert.Contains("[UnitPrice] decimal(18,2) NULL", script);
+        Assert.Contains("INSERT INTO QualityShipmentParts", script);
         Assert.Contains("[CreatedAt] datetimeoffset NOT NULL", script);
         Assert.Contains("[IsShipped] bit NOT NULL", script);
         Assert.Contains("LEFT(CONVERT(nvarchar(max), Comments), 8000)", script);

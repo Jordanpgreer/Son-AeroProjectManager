@@ -8,6 +8,7 @@ using QualityAssurance.Api.Dtos;
 using QualityAssurance.Api.Endpoints;
 using QualityAssurance.Api.Services;
 using SonAero.Platform.Features;
+using SonAero.Platform.Integrations;
 using SonAero.Platform.Security;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -22,6 +23,21 @@ builder.Services.AddScoped<QualityShipmentImportService>();
 builder.Services.AddScoped<QualityShipmentGridExportService>();
 builder.Services.AddScoped<QualityShippingLayoutService>();
 builder.Services.AddScoped<QualityPermissionSeeder>();
+builder.Services.Configure<QualityIntegrationOptions>(
+    builder.Configuration.GetSection(QualityIntegrationOptions.SectionName));
+builder.Services.AddSingleton<IIntegrationSecretProtector, MachineIntegrationSecretProtector>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<IQualityIntegrationCredentialReader, QualityIntegrationCredentialReader>();
+builder.Services.AddScoped<IEnterpriseProviderSource, QualityEnterpriseProviderSource>();
+builder.Services.AddHttpClient<FulcrumQualityShipmentProvider>(client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(5);
+});
+builder.Services.AddScoped<IQualityShipmentProvider>(serviceProvider =>
+    serviceProvider.GetRequiredService<FulcrumQualityShipmentProvider>());
+builder.Services.AddScoped<IQualityShipmentProvider, AcumaticaQualityShipmentProvider>();
+builder.Services.AddScoped<IQualityShipmentSyncService, QualityShipmentSyncService>();
+builder.Services.AddHostedService<QualityShipmentSyncWorker>();
 builder.Services.AddDbContext<QualityAssuranceAccessDbContext>((serviceProvider, options) =>
 {
     var configuration = serviceProvider.GetRequiredService<IConfiguration>();

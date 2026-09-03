@@ -83,8 +83,8 @@ public sealed class QualityShipmentGridExportService(QualityShipmentService ship
     {
         var columns = new List<ExportColumn>();
         Add("status", "Status");
-        Add("salesOrderNumber", "Sales Order #");
-        Add("qaArrivalDate", "QA Arrival");
+        Add("salesOrderNumber", "Shipper Number");
+        Add("qaArrivalDate", "Shipment Arrival");
         Add("partNumber", "Part Number");
         Add("purchaseOrderNumber", "P.O.");
         Add("customer", "Customer");

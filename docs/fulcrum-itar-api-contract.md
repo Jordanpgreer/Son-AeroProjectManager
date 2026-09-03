@@ -11,6 +11,8 @@ The contract was checked against the live ITAR OpenAPI schema at
 | Project job lookup | `POST /api/jobs/list` | `JobRequestFindParameters` using `numbers`, `jobNames`, or `statuses` | Job array | View Job |
 | Project sales-order lookup | `POST /api/sales-orders/list` | `SalesOrderRequestFindParameters` using `numbers` | Sales-order array | View Sales Order |
 | Required quantity | `GET /api/sales-orders/{salesOrderId}/part-line-items/{lineItemId}` | Path identifiers from the matched job | Sales-order part line | View Sales Order |
+| Quality shipper lookup | `POST /api/shipments/list` | `ShipmentsListParameters` using exact `names`; `Skip`, `Take`, and sort are query parameters | Shipment array | View Shipment |
+| Quality shipping values | `POST /api/reporting/shipping/list` | Shipping report filter; `Skip`, `Take`, and sort are query parameters | Paged shipment-line reporting rows | View Shipping Report |
 
 Contract safeguards:
 
@@ -20,3 +22,5 @@ Contract safeguards:
 - Job status filters use only the published values: `draft`, `needsReview`, `approved`, `engineering`, `scheduled`, `inProgress`, `complete`, `cancelled`, and `hold`.
 - Reporting quote rows may contain null `id` or `number` values. Such reporting rows cannot be joined and are ignored without discarding the corresponding quote detail.
 - Exact job, sales-order, and part-number relationships are verified before quantities are applied.
+- Quality records are joined only on an exact shipper-number match. Fulcrum ship-by date, customer, purchase order, shipped status, part quantities, and unit prices are mapped into Arda; no Quality workflow writes back to Fulcrum.
+- The Fulcrum browser-record URL is tenant-specific and is not returned by the public API. Production must configure `QualityIntegration:FulcrumShipmentUrlTemplate` as an absolute HTTPS template using `{id}` and optionally `{shipperNumber}` before Arda renders shipper hyperlinks.

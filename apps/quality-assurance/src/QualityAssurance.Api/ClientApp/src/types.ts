@@ -38,6 +38,7 @@ export interface Shipment {
   salesOrderNumber: string | null
   qaArrivalDate: string | null
   partNumber: string | null
+  parts: ShipmentPart[]
   purchaseOrderNumber: string | null
   customer: string | null
   taskType: string | null
@@ -58,6 +59,20 @@ export interface Shipment {
   createdAt: string
   updatedAt: string
   shippedAt: string | null
+  externalShipmentUrl: string | null
+  externalShipmentStatus: string | null
+  externalSyncProvider: string | null
+  externalSyncError: string | null
+  externalSyncedAt: string | null
+}
+
+export interface ShipmentPart {
+  id: number
+  partNumber: string
+  quantity: number | null
+  unitPrice: number | null
+  totalValue: number | null
+  displayOrder: number
 }
 
 export interface ShipmentList {

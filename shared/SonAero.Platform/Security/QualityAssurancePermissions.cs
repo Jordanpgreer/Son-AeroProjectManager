@@ -51,8 +51,8 @@ public static class QualityAssurancePermissions
     public static readonly IReadOnlyList<PermissionDefinition> FieldViewDefinitions =
     [
         Field(StatusView, "View status", "View shipment workflow status."),
-        Field(SalesOrderView, "View sales order", "View sales order numbers."),
-        Field(QaArrivalDateView, "View QA arrival date", "View when work arrived in Quality."),
+        Field(SalesOrderView, "View shipper number", "View Fulcrum shipper numbers."),
+        Field(QaArrivalDateView, "View shipment arrival date", "View the shipment arrival date."),
         Field(PartNumberView, "View part number", "View shipment part numbers."),
         Field(PurchaseOrderView, "View purchase order", "View customer purchase order numbers."),
         Field(CustomerView, "View customer", "View shipment customer names."),
@@ -70,8 +70,8 @@ public static class QualityAssurancePermissions
     public static readonly IReadOnlyList<PermissionDefinition> FieldEditDefinitions =
     [
         Field(StatusEdit, "Edit status", "Change shipment workflow status."),
-        Field(SalesOrderEdit, "Edit sales order", "Change sales order numbers."),
-        Field(QaArrivalDateEdit, "Edit QA arrival date", "Change when work arrived in Quality."),
+        Field(SalesOrderEdit, "Edit shipper number", "Change Fulcrum shipper numbers."),
+        Field(QaArrivalDateEdit, "Edit shipment arrival date", "Change the shipment arrival date."),
         Field(PartNumberEdit, "Edit part number", "Change shipment part numbers."),
         Field(PurchaseOrderEdit, "Edit purchase order", "Change customer purchase order numbers."),
         Field(CustomerEdit, "Edit customer", "Change shipment customer names."),

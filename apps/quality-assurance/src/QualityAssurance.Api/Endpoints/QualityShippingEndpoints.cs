@@ -165,6 +165,21 @@ public static class QualityShippingEndpoints
             return updated is null ? Results.NotFound() : Results.Ok(updated);
         }).RequireAuthorization(QualityAssurancePermissions.MarkShipped);
 
+        api.MapPost("/shipments/{id:int}/qa-complete", async (
+            int id,
+            QualityShipmentVersionDto dto,
+            HttpContext context,
+            QualityShipmentService shipments,
+            CancellationToken cancellationToken) =>
+        {
+            var updated = await shipments.MarkQaCompleteAsync(
+                id,
+                dto.Version,
+                Access(context),
+                cancellationToken);
+            return updated is null ? Results.NotFound() : Results.Ok(updated);
+        }).RequireAuthorization(QualityAssurancePermissions.MarkShipped);
+
         api.MapGet("/shipments/{id:int}/audit", async (
             int id,
             HttpContext context,

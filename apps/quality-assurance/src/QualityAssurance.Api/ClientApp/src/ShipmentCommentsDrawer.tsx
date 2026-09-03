@@ -168,7 +168,7 @@ export default function ShipmentCommentsDrawer({
       <aside className="quality-chat-drawer" role="dialog" aria-modal="true" aria-labelledby="quality-chat-title" aria-describedby="quality-chat-context">
         <header className="quality-chat-head">
           <div>
-            <span className="eyebrow">Shipment communication</span>
+            <span className="eyebrow">Shipment Communication</span>
             <h2 id="quality-chat-title">Comments</h2>
             <p id="quality-chat-context">{shipment.salesOrderNumber ?? `Shipment ${shipment.id}`} · {shipment.partNumber ?? 'Part number hidden'}</p>
           </div>
@@ -181,7 +181,7 @@ export default function ShipmentCommentsDrawer({
           ) : comments.length === 0 ? (
             <div className="quality-chat-empty">
               <MessageSquare size={25} />
-              <strong>No comments yet</strong>
+              <strong>No Comments Yet</strong>
               <span>Start the shipment conversation below.</span>
             </div>
           ) : comments.map((comment) => {

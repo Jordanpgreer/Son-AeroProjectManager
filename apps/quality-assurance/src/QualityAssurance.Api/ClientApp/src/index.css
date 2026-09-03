@@ -688,6 +688,15 @@ mark { padding: 0 2px; color: inherit; background: #ffe071; border-radius: 2px; 
 .detail-section dt { color: var(--muted); font-size: 9px; text-transform: uppercase; }
 .detail-section dd { margin: 0; color: var(--ink); font-size: 11.5px; font-weight: 600; }
 .detail-section.narrative p { color: var(--ink-2); font-size: 11.5px; line-height: 1.65; white-space: pre-wrap; }
+.external-record-link { display: inline-flex; gap: 6px; align-items: center; color: var(--accent); text-decoration: none; }
+.external-record-link:hover { text-decoration: underline; }
+.shipment-part-list { overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-sm); }
+.shipment-part-list-head, .shipment-part-list-row { display: grid; grid-template-columns: minmax(120px, 1fr) repeat(3, minmax(65px, auto)); gap: 12px; align-items: center; padding: 9px 11px; }
+.shipment-part-list-head { color: var(--muted); background: var(--surface); font-size: 8.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.shipment-part-list-row { color: var(--ink-2); border-top: 1px solid var(--line); font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
+.shipment-part-list-row strong { overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; }
+.shipment-part-list-head span:not(:first-child), .shipment-part-list-row span:not(:first-child) { text-align: right; }
+.sync-warning { display: flex; gap: 7px; align-items: flex-start; margin-top: 13px; color: var(--warning); font-size: 10.5px; line-height: 1.45; }
 .audit-section { background: transparent; }
 .audit-entry { position: relative; display: grid; grid-template-columns: 12px 1fr; gap: 10px; padding: 0 0 18px; }
 .audit-entry:not(:last-child)::before { position: absolute; top: 10px; bottom: -2px; left: 4px; width: 1px; background: var(--line-2); content: ''; }
@@ -713,6 +722,18 @@ mark { padding: 0 2px; color: inherit; background: #ffe071; border-radius: 2px; 
 .form-grid input, .form-grid select, .form-grid textarea, .assignment-fields select { width: 100%; min-height: 38px; padding: 8px 10px; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r-sm); outline: 0; font-size: 11.5px; font-weight: 450; resize: vertical; }
 .form-grid input:focus, .form-grid select:focus, .form-grid textarea:focus, .assignment-fields select:focus { border-color: var(--steel); box-shadow: 0 0 0 3px rgba(var(--qa-accent-rgb), .12); }
 .form-grid .span-2 { grid-column: 1 / -1; }
+.shipment-parts-editor { min-width: 0; margin: 2px 0; padding: 0; border: 0; }
+.shipment-parts-editor legend { margin-bottom: 8px; color: var(--ink-2); font-size: 10px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
+.shipment-part-row { display: grid; grid-template-columns: minmax(145px, 1.5fr) minmax(90px, .65fr) minmax(105px, .8fr) minmax(105px, .8fr) 34px; gap: 10px; align-items: end; margin-bottom: 9px; padding: 11px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.shipment-part-row label { font-size: 9px; }
+.currency-field > div { position: relative; display: flex; align-items: center; }
+.currency-field > div > b { position: absolute; left: 10px; z-index: 1; color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+.currency-field input { padding-left: 23px; font-family: 'IBM Plex Mono', monospace; }
+.part-line-total { display: grid; min-width: 0; gap: 7px; padding-bottom: 8px; }
+.part-line-total small { color: var(--muted); font-size: 9px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
+.part-line-total strong { overflow: hidden; color: var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.part-remove { margin-bottom: 2px; }
+.add-part-line { margin-top: 2px; }
 .modal footer { display: flex; gap: 8px; justify-content: flex-end; padding-top: 15px; border-top: 1px solid var(--line); }
 .shipping-import-modal { width: min(620px, 100%); }
 .shipping-import-modal > header p { max-width: 470px; margin-top: 6px; color: var(--muted); font-size: 11px; line-height: 1.45; }
@@ -787,6 +808,10 @@ mark { padding: 0 2px; color: inherit; background: #ffe071; border-radius: 2px; 
   .drawer-head, .drawer-actions, .drawer-scroll { padding-right: 16px; padding-left: 16px; }
   .detail-section dl, .form-grid { grid-template-columns: 1fr; }
   .form-grid .span-2 { grid-column: auto; }
+  .shipment-part-row { grid-template-columns: 1fr 1fr; }
+  .shipment-part-row label:first-child, .part-line-total { grid-column: 1 / -1; }
+  .shipment-part-row .part-remove { grid-column: 2; grid-row: 3; justify-self: end; }
+  .shipment-part-list-head, .shipment-part-list-row { gap: 7px; padding-right: 7px; padding-left: 7px; }
   .drawer-confirm { grid-template-columns: 26px 1fr; }
   .drawer-confirm .button { width: 100%; }
   .modal-backdrop { padding: 8px; }

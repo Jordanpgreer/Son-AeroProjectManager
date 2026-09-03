@@ -39,6 +39,74 @@ public sealed class QualityShipmentWorkflowTests
     }
 
     [Fact]
+    public async Task Create_supports_multiple_parts_and_calculates_record_totals()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var created = await fixture.Shipments.CreateAsync(new QualityShipmentCreateDto(
+            "WIP", "SHIP-MULTI", new DateOnly(2026, 9, 3), "LEGACY", "PO-MULTI", "Customer A",
+            "General", null, null, new DateOnly(2026, 9, 12), null, null, null, null,
+            [
+                new QualityShipmentPartInputDto("PART-A", 2, 12.50m),
+                new QualityShipmentPartInputDto("PART-B", 3, 20m)
+            ]), fixture.Admin, default);
+
+        Assert.Equal(2, created.Parts.Count);
+        Assert.Equal(5m, created.Quantity);
+        Assert.Equal(85m, created.DollarValue);
+        Assert.Equal("PART-A, PART-B", created.PartNumber);
+    }
+
+    [Fact]
+    public async Task Qa_complete_routes_quality_work_to_shipping_without_marking_it_shipped()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var shipment = ShipmentForGrid("SHIP-QA", "WIP", "Customer", 100, 99);
+        fixture.Db.Shipments.Add(shipment);
+        await fixture.Db.SaveChangesAsync();
+
+        var updated = await fixture.Shipments.MarkQaCompleteAsync(
+            shipment.Id,
+            shipment.Version,
+            fixture.Admin,
+            default);
+
+        Assert.NotNull(updated);
+        Assert.Equal("Ready to Ship", updated.Status);
+        Assert.Equal(20, updated.AssignedGroupId);
+        Assert.Equal("Shipping", updated.AssignedGroupName);
+        Assert.Null(updated.AssignedUserId);
+        Assert.False(updated.IsShipped);
+        Assert.Contains(await fixture.Db.ShipmentAuditEntries.ToListAsync(), entry => entry.EventType == "QaCompleted");
+    }
+
+    [Fact]
+    public async Task Shipping_group_members_see_ready_to_ship_group_work_in_their_default_queue()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var shipment = ShipmentForGrid("SHIP-GROUP-QUEUE", "Ready to Ship", "Customer", 100, null);
+        shipment.AssignedGroupId = 20;
+        shipment.AssignedGroupName = "Shipping";
+        shipment.ShipDate = new DateOnly(2026, 9, 8);
+        fixture.Db.Shipments.Add(shipment);
+        await fixture.Db.SaveChangesAsync();
+        var shippingUser = new QualityAssuranceAccessProfile(
+            40,
+            "TEST\\shipping",
+            "Shipping User",
+            ApplicationRoles.Editor,
+            [.. QualityAssurancePermissions.EditorDefaults],
+            [new QualityAssuranceAccessGroup(20, "Shipping")]);
+
+        var list = await fixture.Shipments.ListAsync(
+            shippingUser, "open", "mine", "ship-date", "asc", null, null, null, null, default);
+        var dashboard = await fixture.Shipments.DashboardAsync(shippingUser, default);
+
+        Assert.Equal("SHIP-GROUP-QUEUE", Assert.Single(list.Items).SalesOrderNumber);
+        Assert.Equal("SHIP-GROUP-QUEUE", Assert.Single(dashboard.Queue).SalesOrderNumber);
+        Assert.NotNull(await fixture.Shipments.GetAsync(shipment.Id, shippingUser, default));
+    }
+
+    [Fact]
     public async Task CreatingWorkDoesNotAssignAnIneligibleCreatorAsTheOwner()
     {
         await using var fixture = await WorkflowFixture.CreateAsync();
@@ -48,8 +116,8 @@ public sealed class QualityShipmentWorkflowTests
         var creator = fixture.Admin with { Permissions = permissions };
 
         var created = await fixture.Shipments.CreateAsync(new QualityShipmentCreateDto(
-            "WIP", "SO-INELIGIBLE-CREATOR", null, "PN-CREATOR", null, "Customer",
-            "General", null, null, null, null, null, null, null),
+            "WIP", "SO-INELIGIBLE-CREATOR", new DateOnly(2026, 9, 1), "PN-CREATOR", "PO-CREATOR", "Customer",
+            "General", null, null, new DateOnly(2026, 9, 10), null, null, null, null),
             creator,
             default);
 
@@ -92,8 +160,8 @@ public sealed class QualityShipmentWorkflowTests
         await fixture.Db.SaveChangesAsync();
 
         var created = await fixture.Shipments.CreateAsync(new QualityShipmentCreateDto(
-            "WIP", "SO-200", null, "PN-200", null, "Customer A", "General",
-            null, null, null, null, null, null, null), fixture.Admin, CancellationToken.None);
+            "WIP", "SO-200", new DateOnly(2026, 9, 1), "PN-200", "PO-200", "Customer A", "General",
+            null, null, new DateOnly(2026, 9, 10), null, null, null, null), fixture.Admin, CancellationToken.None);
 
         Assert.Equal(2, created.AssignedUserId);
         Assert.Equal("Person Two", created.AssignedDisplayName);
@@ -624,7 +692,7 @@ public sealed class QualityShipmentWorkflowTests
         using var workbook = new XLWorkbook(new MemoryStream(file.Content));
         var sheet = workbook.Worksheet("Grid Results");
         var salesOrderColumn = sheet.Row(1).CellsUsed()
-            .Single(cell => cell.GetString() == "Sales Order #")
+            .Single(cell => cell.GetString() == "Shipper Number")
             .Address.ColumnNumber;
         Assert.Equal("SO-ACME-UNASSIGNED", sheet.Cell(2, salesOrderColumn).GetString());
         Assert.Contains("quality-shipping-results-", file.FileName);
@@ -709,7 +777,7 @@ public sealed class QualityShipmentWorkflowTests
         using var workbook = new XLWorkbook(new MemoryStream(file.Content));
         var sheet = workbook.Worksheet("Grid Results");
         var salesOrderColumn = sheet.Row(1).CellsUsed()
-            .Single(cell => cell.GetString() == "Sales Order #")
+            .Single(cell => cell.GetString() == "Shipper Number")
             .Address.ColumnNumber;
         var exportedSalesOrders = sheet.Column(salesOrderColumn).CellsUsed()
             .Skip(1)
@@ -847,7 +915,10 @@ public sealed class QualityShipmentWorkflowTests
     private sealed class TestAccessStore : IQualityAssuranceAccessStore
     {
         private readonly IReadOnlyList<QualityDirectoryGroup> groups =
-            [new QualityDirectoryGroup(10, "Quality", "Quality group", 3)];
+        [
+            new QualityDirectoryGroup(10, "Quality", "Quality group", 3),
+            new QualityDirectoryGroup(20, "Shipping", "Shipping group", 0)
+        ];
         private readonly IReadOnlyList<QualityDirectoryUser> users =
         [
             new QualityDirectoryUser(1, "TEST\\one", "Person One", [10]),

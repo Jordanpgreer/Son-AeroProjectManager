@@ -73,7 +73,7 @@ export default function CustomerFilterCombobox({
 
   return (
     <div className="customer-filter-field" ref={root}>
-      <div className="filter-field-label"><span>Customer</span><small>Match any selected customer</small></div>
+      <div className="filter-field-label"><span>Customer</span><small>Match Any Selected Customer</small></div>
       {selected.length > 0 && (
         <div className="customer-filter-chips" aria-label="Selected customers">
           {selected.map((customer) => (
@@ -109,7 +109,7 @@ export default function CustomerFilterCombobox({
       {open && (
         <div className="customer-combobox-menu" id="shipping-customer-listbox" role="listbox" aria-label="Customer options">
           {loading ? <p>Loading customers…</p>
-            : suggestions.length === 0 ? <p>{query.trim() ? 'No matching customers' : 'No more customers to add'}</p>
+            : suggestions.length === 0 ? <p>{query.trim() ? 'No Matching Customers' : 'No More Customers To Add'}</p>
               : suggestions.map((customer, index) => (
                 <button
                   className={index === activeIndex ? 'active' : ''}

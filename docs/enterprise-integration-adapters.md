@@ -13,7 +13,7 @@ The applications use one provider-neutral integration boundary so module code do
 
 The Estimating job schedule is provider-neutral under `EnterpriseQuoteSync`. Existing deployments that still use schedule values under `FulcrumQuoteSync` remain compatible until their configuration file is updated.
 
-Engineering and Quality route names are reserved in the shared contract. Their adapters can be added when the exact records to exchange are defined without changing their screens or the provider selector.
+Engineering remains reserved in the shared contract. Quality uses the provider-neutral `quality-records` route for read-only shipment synchronization.
 
 ## Current adapters
 
@@ -22,7 +22,7 @@ Engineering and Quality route names are reserved in the shared contract. Their a
 | Estimating quotes | Live | Safe placeholder |
 | Project quantities | Live | Safe placeholder |
 | Engineering records | Route reserved | Route reserved |
-| Quality records | Route reserved | Route reserved |
+| Quality records | Live, read-only shipper sync | Safe placeholder |
 
 The Acumatica placeholders intentionally stop with a clear configuration message. They must not return dummy data or silently fall back to Fulcrum after Acumatica is selected.
 
@@ -38,6 +38,6 @@ Before activation:
 4. Add contract tests using representative Acumatica responses.
 5. Run a read-only comparison against Fulcrum output for the same records.
 6. Activate Acumatica in Admin Hub after the comparison passes.
-7. Confirm the next scheduled Estimating run and a manual Project Tracker quantity pull.
+7. Confirm the next scheduled Estimating and Quality runs and a manual Project Tracker quantity pull.
 
 Adding future push behavior follows the same pattern: define a stable business route and internal request/result types, implement one adapter per provider, and keep module screens and workflows provider-neutral.

@@ -7,6 +7,7 @@ public sealed class QualityAssuranceDbContext(
     DbContextOptions<QualityAssuranceDbContext> options) : DbContext(options)
 {
     public DbSet<QualityShipment> Shipments => Set<QualityShipment>();
+    public DbSet<QualityShipmentPart> ShipmentParts => Set<QualityShipmentPart>();
     public DbSet<QualityShipmentAuditEntry> ShipmentAuditEntries => Set<QualityShipmentAuditEntry>();
     public DbSet<QualityShipmentComment> ShipmentComments => Set<QualityShipmentComment>();
     public DbSet<QualityMentionNotification> MentionNotifications => Set<QualityMentionNotification>();
@@ -31,11 +32,17 @@ public sealed class QualityAssuranceDbContext(
             entity.Property(shipment => shipment.AssignedGroupName).HasMaxLength(160);
             entity.Property(shipment => shipment.AssignedAccountName).HasMaxLength(160);
             entity.Property(shipment => shipment.AssignedDisplayName).HasMaxLength(160);
+            entity.Property(shipment => shipment.ExternalShipmentId).HasMaxLength(80);
+            entity.Property(shipment => shipment.ExternalShipmentUrl).HasMaxLength(1000);
+            entity.Property(shipment => shipment.ExternalShipmentStatus).HasMaxLength(40);
+            entity.Property(shipment => shipment.ExternalSyncProvider).HasMaxLength(40);
+            entity.Property(shipment => shipment.ExternalSyncError).HasMaxLength(1000);
             entity.Property(shipment => shipment.Version).IsConcurrencyToken();
             entity.HasIndex(shipment => new { shipment.IsShipped, shipment.AssignedUserId, shipment.CreatedAt });
             entity.HasIndex(shipment => new { shipment.IsShipped, shipment.AssignedGroupId, shipment.ShipDate });
             entity.HasIndex(shipment => shipment.Customer);
             entity.HasIndex(shipment => shipment.TaskType);
+            entity.HasIndex(shipment => shipment.ExternalShipmentId);
             entity.HasMany(shipment => shipment.AuditEntries)
                 .WithOne(entry => entry.Shipment)
                 .HasForeignKey(entry => entry.ShipmentId)
@@ -44,6 +51,22 @@ public sealed class QualityAssuranceDbContext(
                 .WithOne(comment => comment.Shipment)
                 .HasForeignKey(comment => comment.ShipmentId)
                 .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(shipment => shipment.Parts)
+                .WithOne(part => part.Shipment)
+                .HasForeignKey(part => part.ShipmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<QualityShipmentPart>(entity =>
+        {
+            entity.ToTable("QualityShipmentParts");
+            entity.HasKey(part => part.Id);
+            entity.Property(part => part.PartNumber).HasMaxLength(160);
+            entity.Property(part => part.UnitPrice).HasPrecision(18, 2);
+            entity.Property(part => part.TotalValue).HasPrecision(18, 2);
+            entity.Property(part => part.ExternalItemId).HasMaxLength(80);
+            entity.HasIndex(part => new { part.ShipmentId, part.DisplayOrder });
+            entity.HasIndex(part => part.PartNumber);
         });
 
         modelBuilder.Entity<QualityShipmentAuditEntry>(entity =>

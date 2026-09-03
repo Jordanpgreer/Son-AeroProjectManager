@@ -107,7 +107,7 @@ export default function QualityNotificationCenter({
       {open && (
         <section className="quality-notification-popover" role="dialog" aria-label="Quality notifications">
           <header>
-            <div><span className="eyebrow">Quality mentions</span><h2>Notifications</h2></div>
+            <div><span className="eyebrow">Quality Mentions</span><h2>Notifications</h2></div>
             {unread > 0 && <button type="button" onClick={() => void markAllRead()}><CheckCheck size={14} /> Mark all read</button>}
           </header>
           {operationError && <p className="quality-notification-operation-error" role="alert">{operationError}</p>}

@@ -1,5 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using QualityAssurance.Api.Data;
 
 namespace QualityAssurance.Tests;
@@ -48,6 +50,7 @@ public sealed class QualitySqliteMigrationTests
                     "QualityMentionNotifications",
                     "QualityShipmentAuditEntries",
                     "QualityShipmentComments",
+                    "QualityShipmentParts",
                     "QualityShipments",
                     "QualityShippingLayoutPreferences",
                     "__EFMigrationsHistory"
@@ -63,6 +66,38 @@ public sealed class QualitySqliteMigrationTests
             if (File.Exists(databasePath))
                 File.Delete(databasePath);
         }
+    }
+
+    [Fact]
+    public async Task Parts_migration_backfills_existing_single_part_shipments()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<QualityAssuranceDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new QualityAssuranceDbContext(options);
+        var migrator = db.Database.GetService<IMigrator>();
+        await migrator.MigrateAsync("20260901133114_AddLegacyQualityAssigneeTags");
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO QualityShipments
+                (Status, SalesOrderNumber, PartNumber, Customer, TaskType, Quantity, DollarValue,
+                 IsShipped, CreatedAt, CreatedByAccountName, CreatedByDisplayName, UpdatedAt,
+                 UpdatedByAccountName, UpdatedByDisplayName, Version)
+            VALUES
+                ('WIP', 'SHIP-LEGACY', 'PART-42', 'Legacy Customer', 'General', 4, 50.00,
+                 0, '2026-09-03T00:00:00+00:00', 'TEST\\admin', 'Admin',
+                 '2026-09-03T00:00:00+00:00', 'TEST\\admin', 'Admin', 1);
+            """);
+
+        await migrator.MigrateAsync();
+
+        var part = await db.ShipmentParts.SingleAsync();
+        Assert.Equal("PART-42", part.PartNumber);
+        Assert.Equal(4, part.Quantity);
+        Assert.Equal(12.50m, part.UnitPrice);
+        Assert.Equal(50.00m, part.TotalValue);
     }
 
     [Fact]

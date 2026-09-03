@@ -142,11 +142,12 @@ export default function App() {
     : { eyebrow: 'Quality Operations', title: 'Shipping Status', description: 'Controlled shipment queue, ownership, and completion tracking.' }
   const userPermissions = user.permissions
 
-  function openMentionedShipment(shipmentId: number, isShipped: boolean) {
+  function openShippingShipment(shipmentId: number, isShipped: boolean, openComments = false) {
     const notificationScope = userPermissions.includes('quality-assurance.shipments.view-all')
       ? 'all'
       : userPermissions.includes('quality-assurance.dashboard.team-view') ? 'team' : 'mine'
-    window.location.hash = `#/shipping-status?shipment=${shipmentId}&comments=1&scope=${notificationScope}&status=${isShipped ? 'shipped' : 'open'}`
+    const comments = openComments ? '&comments=1' : ''
+    window.location.hash = `#/shipping-status?shipment=${shipmentId}${comments}&scope=${notificationScope}&status=${isShipped ? 'shipped' : 'open'}`
     setRoute('shipping-status')
     setReloadKey((value) => value + 1)
   }
@@ -178,12 +179,12 @@ export default function App() {
           <div className="topbar-actions">
             <a className="topbar-brand-link" href={hubUrl} target="_top" aria-label="Return to Arda applications" title="Return to Arda applications"><img className="topbar-brand-mark-standard" src="/brand/arda-mark.png" alt="" /><img className="topbar-brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" /></a>
             <div className="topbar-identity"><ThemeSwitch theme={theme} onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} /><div className="user-chip topbar-user-chip" title={`${user.displayName}\n${user.groups.join(', ')}`}><span className="user-copy"><strong>{user.displayName}</strong></span><span className="avatar">{initials(user.displayName)}</span></div></div>
-            {userPermissions.includes('quality-assurance.shipments.view') && userPermissions.includes('quality-assurance.fields.comments.view') && <QualityNotificationCenter onOpenShipment={openMentionedShipment} />}
+            {userPermissions.includes('quality-assurance.shipments.view') && userPermissions.includes('quality-assurance.fields.comments.view') && <QualityNotificationCenter onOpenShipment={(shipmentId, isShipped) => openShippingShipment(shipmentId, isShipped, true)} />}
             {route === 'shipping-status' && userPermissions.includes('quality-assurance.shipments.import') && <button className="button ghost" type="button" onClick={() => window.dispatchEvent(new Event('quality:open-shipping-import'))}><FileUp size={15} /> Import Excel</button>}
             <button className="button ghost" type="button" onClick={() => setReloadKey((value) => value + 1)}><RefreshCw size={15} /> Refresh</button>
           </div>
         </header>
-        <div className="main-scroll">{route === 'dashboard' ? <Dashboard reloadKey={reloadKey} /> : <ShippingStatus user={user} reloadKey={reloadKey} />}</div>
+        <div className="main-scroll">{route === 'dashboard' ? <Dashboard reloadKey={reloadKey} onOpenShipment={(shipment) => openShippingShipment(shipment.id, shipment.isShipped)} /> : <ShippingStatus user={user} reloadKey={reloadKey} />}</div>
       </main>
     </div>
   )

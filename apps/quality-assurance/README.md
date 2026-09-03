@@ -7,14 +7,17 @@ permission-controlled register without making the workbook the live data store.
 The Dashboard shows the current user's open queue, overdue work, completed volume, and average
 completion time. Authorized managers can also see queue statistics for other users. Shipping Status
 defaults to open shipments, supports own/team/all scope and oldest/ship-date ordering, and keeps
-shipped records available through the Past Shipments filter.
+shipped records available through the Past Shipments filter. Shipper numbers replace the previous
+Sales Order label, and each record can contain multiple part lines with whole-number quantities,
+per-unit pricing, and calculated currency totals.
 
 Each user can save a personal Shipping Status register layout with a custom column order, widths,
 and optional-column visibility. Status, Part Number, and Action can be moved or resized but are
 always retained in the register. Preferences are stored by user in the Quality database so they
 follow the account across browsers and workstations.
 
-Every create, field edit, assignment, and shipment completion writes an immutable audit entry.
+Every create, field edit, assignment, external synchronization, QA completion, and shipment
+completion writes an immutable audit entry.
 Assignments can target a shared group or a user in that group. Quality administrators manage
 customer or task-type routing rules from the central Admin Console, including specific-owner and
 least-loaded assignment modes.
@@ -31,6 +34,21 @@ application catalog. The service uses the shared Project Tracker development dat
 groups, and permissions, plus `quality-assurance-dev.db` for shipments, assignment rules, and audit
 history. Production uses the separate `QualityAssurance` SQL Server database configured by
 `ConnectionStrings:QualityStore`.
+
+## Fulcrum shipment synchronization
+
+The `quality-records` enterprise adapter performs read-only exact shipper-number matching against
+Fulcrum. It pulls Ship By, customer, purchase order, part quantities, unit prices, and Fulcrum
+status. A Fulcrum `shipped` status automatically moves the Arda record to Past Shipments. QA
+Complete is an Arda-only action that changes the record to Ready to Ship and places it in the
+Shipping group queue; it never pushes a Fulcrum status change.
+
+The background sync interval defaults to five minutes and a new or edited shipper number is checked
+immediately. Local development disables external synchronization. Production requires the protected
+Fulcrum Public API credential from Admin Hub and should set
+`QualityIntegration:FulcrumShipmentUrlTemplate` to the tenant's HTTPS shipment-detail route. The
+template supports `{id}` and `{shipperNumber}` placeholders. If it is blank, synchronization still
+works but Arda does not render a Fulcrum hyperlink.
 
 SQL Server is the canonical design-time migration provider. Migration operations remain compatible
 with SQLite for local development, and the Quality test suite generates the complete SQL Server

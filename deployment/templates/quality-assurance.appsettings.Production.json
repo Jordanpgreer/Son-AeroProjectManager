@@ -15,6 +15,17 @@
   "QualityDatabase": {
     "Provider": "SqlServer"
   },
+  "QualityWorkflow": {
+    "QualityGroupName": "Quality",
+    "ShippingGroupName": "Shipping"
+  },
+  "QualityIntegration": {
+    "Enabled": true,
+    "FulcrumBaseUrl": "https://api.fulcrumpro.us/",
+    "FulcrumShipmentUrlTemplate": "",
+    "SyncIntervalMinutes": 5,
+    "PageSize": 5000
+  },
   "ConnectionStrings": {
     "ModuleAccessStore": "Server=tcp:SON-SQL2,1433;Database=ProjectTracker;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true",
     "QualityStore": "Server=tcp:SON-SQL2,1433;Database=QualityAssurance;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"

@@ -249,6 +249,10 @@ public sealed class QualityShipmentImportService(
                 var lastWorked = Date(sheet, rowNumber, columns, "Date Last Worked On", rowIssues);
                 var comments = Text(sheet, rowNumber, columns, "COMMENTS", 8000, rowIssues);
                 if (quantity < 0) rowIssues.Add(new ImportIssue(rowNumber, "Quantity", "value cannot be negative"));
+                if (quantity.HasValue && decimal.Truncate(quantity.Value) != quantity.Value)
+                    rowIssues.Add(new ImportIssue(rowNumber, "Quantity", "value must be a whole number"));
+                if (quantity > int.MaxValue)
+                    rowIssues.Add(new ImportIssue(rowNumber, "Quantity", $"value cannot exceed {int.MaxValue:N0}"));
                 if (dollarValue < 0) rowIssues.Add(new ImportIssue(rowNumber, "Dollar Value", "value cannot be negative"));
 
                 rows.Add(new ImportRow(
@@ -315,6 +319,17 @@ public sealed class QualityShipmentImportService(
             UpdatedByDisplayName = actor.DisplayName,
             Version = 1
         };
+        var wholeQuantity = row.Quantity.HasValue ? decimal.ToInt32(row.Quantity.Value) : (int?)null;
+        shipment.Parts.Add(new QualityShipmentPart
+        {
+            PartNumber = row.PartNumber,
+            Quantity = wholeQuantity,
+            UnitPrice = wholeQuantity > 0 && row.DollarValue.HasValue
+                ? decimal.Round(row.DollarValue.Value / wholeQuantity.Value, 2, MidpointRounding.AwayFromZero)
+                : null,
+            TotalValue = row.DollarValue,
+            DisplayOrder = 0
+        });
         if (!string.IsNullOrWhiteSpace(row.Comments))
         {
             shipment.CommentThread.Add(new QualityShipmentComment
