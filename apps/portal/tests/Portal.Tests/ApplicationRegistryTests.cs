@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.Extensions.Configuration;
+using Portal.Api.Dtos;
 using Portal.Api.Models;
 using Portal.Api.Services;
 using SonAero.Platform.Security;
@@ -142,5 +143,22 @@ public sealed class ApplicationRegistryTests
         Assert.Single(registry.GetVisibleFor("Viewer", qualityAccess));
         Assert.Empty(registry.GetVisibleFor("Admin", new HashSet<string>()));
         Assert.Single(registry.GetVisibleFor("Admin", qualityAccess));
+    }
+
+    [Theory]
+    [InlineData(PortalAccountStatus.PendingSetup)]
+    [InlineData(PortalAccountStatus.Inactive)]
+    [InlineData(PortalAccountStatus.Unavailable)]
+    public void GetVisibleFor_NonConfiguredAccountReturnsNoApplications(PortalAccountStatus status)
+    {
+        var registry = new ApplicationRegistry(BuildConfiguration(CatalogJson));
+        var currentUser = new MeDto(
+            @"SON4L\new.user",
+            "New User",
+            status,
+            null,
+            []);
+
+        Assert.Empty(registry.GetVisibleFor(currentUser));
     }
 }

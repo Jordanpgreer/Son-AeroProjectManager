@@ -10,7 +10,7 @@ namespace Portal.Tests;
 public sealed class PortalRoleStoreTests
 {
     [Fact]
-    public async Task FindRoleAsync_ReadsTrackerUserRoleCaseInsensitively()
+    public async Task FindAccountAsync_ReadsTrackerUserCaseInsensitively()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -27,11 +27,15 @@ public sealed class PortalRoleStoreTests
 
         var store = new PortalRoleStore(db, NullLogger<PortalRoleStore>.Instance);
 
-        Assert.Equal("Editor", await store.FindRoleAsync("sonaero/planner.one"));
+        var account = await store.FindAccountAsync("sonaero/planner.one");
+
+        Assert.Equal(PortalAccountLookupStatus.Found, account.Status);
+        Assert.True(account.IsActive);
+        Assert.Equal("Editor", account.Role);
     }
 
     [Fact]
-    public async Task FindDisplayNameAsync_ReadsAdministratorConfiguredNameCaseInsensitively()
+    public async Task FindAccountAsync_ReadsAdministratorConfiguredNameCaseInsensitively()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -51,11 +55,11 @@ public sealed class PortalRoleStoreTests
 
         Assert.Equal(
             "Preferred Application Name",
-            await store.FindDisplayNameAsync("sonaero/planner.one"));
+            (await store.FindAccountAsync("sonaero/planner.one")).DisplayName);
     }
 
     [Fact]
-    public async Task FindModuleRolesAsync_DerivesRolesFromSharedGroupPermissions()
+    public async Task FindAccountAsync_DerivesRolesFromSharedGroupPermissions()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -87,13 +91,13 @@ public sealed class PortalRoleStoreTests
         await db.SaveChangesAsync();
 
         var store = new PortalRoleStore(db, NullLogger<PortalRoleStore>.Instance);
-        var roles = await store.FindModuleRolesAsync("sonaero/estimator.one");
+        var account = await store.FindAccountAsync("sonaero/estimator.one");
 
-        Assert.Equal("Editor", Assert.Single(roles).Value);
+        Assert.Equal("Editor", Assert.Single(account.ModuleRoles).Value);
     }
 
     [Fact]
-    public async Task FindModuleRolesAsync_QualityEntryPermissionIsEnoughForLiveCatalogVisibility()
+    public async Task FindAccountAsync_QualityEntryPermissionIsEnoughForLiveCatalogVisibility()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -127,13 +131,13 @@ public sealed class PortalRoleStoreTests
         await db.SaveChangesAsync();
 
         var store = new PortalRoleStore(db, NullLogger<PortalRoleStore>.Instance);
-        var roles = await store.FindModuleRolesAsync("sonaero/quality.one");
+        var account = await store.FindAccountAsync("sonaero/quality.one");
 
-        Assert.Equal(ApplicationRoles.Viewer, roles[ApplicationModules.QualityAssurance]);
+        Assert.Equal(ApplicationRoles.Viewer, account.ModuleRoles[ApplicationModules.QualityAssurance]);
     }
 
     [Fact]
-    public async Task FindRoleAsync_DoesNotReturnRoleForInactiveUser()
+    public async Task FindAccountAsync_PreservesInactiveState()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -151,7 +155,141 @@ public sealed class PortalRoleStoreTests
 
         var store = new PortalRoleStore(db, NullLogger<PortalRoleStore>.Instance);
 
-        Assert.Null(await store.FindRoleAsync("son4l/inactive.user"));
+        var account = await store.FindAccountAsync("son4l/inactive.user");
+
+        Assert.Equal(PortalAccountLookupStatus.Found, account.Status);
+        Assert.False(account.IsActive);
+        Assert.Equal("Admin", account.Role);
+    }
+
+    [Fact]
+    public async Task FindAccountAsync_ReturnsMissingForUnknownAccount()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<PortalRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new PortalRoleDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
+        var account = await new PortalRoleStore(db, NullLogger<PortalRoleStore>.Instance)
+            .FindAccountAsync(@"SON4L\unknown.user");
+
+        Assert.Equal(PortalAccountLookupStatus.Missing, account.Status);
+        Assert.False(account.HasProjectTrackerAccess);
+        Assert.Empty(account.ModuleRoles);
+    }
+
+    [Fact]
+    public async Task FindAccountAsync_ActiveAccountWithoutAccessHasNoEffectiveApplications()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<PortalRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new PortalRoleDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        db.Users.Add(new PortalRoleRecord
+        {
+            AccountName = @"SON4L\pending.user",
+            DisplayName = "Pending User",
+            Role = ApplicationRoles.Viewer,
+            IsActive = true
+        });
+        await db.SaveChangesAsync();
+
+        var account = await new PortalRoleStore(db, NullLogger<PortalRoleStore>.Instance)
+            .FindAccountAsync(@"SON4L\pending.user");
+
+        Assert.Equal(PortalAccountLookupStatus.Found, account.Status);
+        Assert.True(account.IsActive);
+        Assert.False(account.HasProjectTrackerAccess);
+        Assert.Empty(account.ModuleRoles);
+    }
+
+    [Fact]
+    public async Task FindAccountAsync_RecognizesProjectTrackerModuleViewPermission()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<PortalRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new PortalRoleDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        db.Users.Add(new PortalRoleRecord
+        {
+            AccountName = @"SON4L\tracker.viewer",
+            DisplayName = "Tracker Viewer",
+            Role = ApplicationRoles.Viewer,
+            IsActive = true,
+            ProjectTrackerGroupMemberships =
+            [
+                new PortalProjectTrackerMembershipRecord
+                {
+                    Group = new PortalProjectTrackerGroupRecord
+                    {
+                        Name = "Tracker viewers",
+                        Permissions =
+                        [
+                            new PortalProjectTrackerPermissionRecord
+                            {
+                                PermissionKey = ApplicationPermissions.ModuleView
+                            }
+                        ]
+                    }
+                }
+            ]
+        });
+        await db.SaveChangesAsync();
+
+        var account = await new PortalRoleStore(db, NullLogger<PortalRoleStore>.Instance)
+            .FindAccountAsync(@"SON4L\tracker.viewer");
+
+        Assert.True(account.HasProjectTrackerAccess);
+    }
+
+    [Fact]
+    public async Task FindAccountAsync_RecognizesValidDirectModuleAssignment()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<PortalRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new PortalRoleDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        db.Users.Add(new PortalRoleRecord
+        {
+            AccountName = @"SON4L\assigned.user",
+            DisplayName = "Assigned User",
+            Role = ApplicationRoles.Viewer,
+            IsActive = true,
+            ModuleAccessAssignments =
+            [
+                new PortalModuleAccessRecord
+                {
+                    ModuleKey = ApplicationModules.Engineering,
+                    Role = ApplicationRoles.Viewer
+                }
+            ]
+        });
+        await db.SaveChangesAsync();
+
+        var account = await new PortalRoleStore(db, NullLogger<PortalRoleStore>.Instance)
+            .FindAccountAsync(@"SON4L\assigned.user");
+
+        Assert.Equal(ApplicationRoles.Viewer, account.ModuleRoles[ApplicationModules.Engineering]);
+    }
+
+    [Fact]
+    public async Task FindAccountAsync_ReturnsUnavailableWhenStoreCannotBeRead()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<PortalRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new PortalRoleDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        await connection.CloseAsync();
+
+        var account = await new PortalRoleStore(db, NullLogger<PortalRoleStore>.Instance)
+            .FindAccountAsync(@"SON4L\ordinary.user");
+
+        Assert.Equal(PortalAccountLookupStatus.Unavailable, account.Status);
     }
 
     [Fact]

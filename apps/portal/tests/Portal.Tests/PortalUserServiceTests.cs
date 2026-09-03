@@ -8,23 +8,25 @@ namespace Portal.Tests;
 
 public sealed class PortalUserServiceTests
 {
-    private sealed class StubRoleStore(
-        string? role = null,
-        IReadOnlyDictionary<string, string>? moduleRoles = null,
-        string? displayName = null) : IPortalRoleStore
+    private sealed class StubRoleStore(PortalAccountLookup account) : IPortalRoleStore
     {
-        public Task<string?> FindDisplayNameAsync(string accountName, CancellationToken cancellationToken = default)
-            => Task.FromResult(displayName);
-
-        public Task<string?> FindRoleAsync(string accountName, CancellationToken cancellationToken = default)
-            => Task.FromResult(role);
-
-        public Task<IReadOnlyDictionary<string, string>> FindModuleRolesAsync(
+        public Task<PortalAccountLookup> FindAccountAsync(
             string accountName,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(moduleRoles
-                ?? (IReadOnlyDictionary<string, string>)new Dictionary<string, string>());
+            CancellationToken cancellationToken = default) => Task.FromResult(account);
     }
+
+    private static PortalAccountLookup Found(
+        string role = "Viewer",
+        IReadOnlyDictionary<string, string>? moduleRoles = null,
+        string? displayName = null,
+        bool hasProjectTrackerAccess = false,
+        bool isActive = true) => new(
+            PortalAccountLookupStatus.Found,
+            isActive,
+            role,
+            displayName,
+            hasProjectTrackerAccess,
+            moduleRoles ?? new Dictionary<string, string>());
 
     private static IConfiguration BuildConfiguration(string json)
     {
@@ -41,12 +43,16 @@ public sealed class PortalUserServiceTests
           "Portal": { "DevelopmentRole": "Editor" }
         }
         """);
-        var service = new PortalUserService(new HttpContextAccessor { HttpContext = null }, configuration, new StubRoleStore());
+        var service = new PortalUserService(
+            new HttpContextAccessor { HttpContext = null },
+            configuration,
+            new StubRoleStore(PortalAccountLookup.Missing()));
 
         var me = await service.CurrentAsync();
 
         Assert.Equal("SONAERO\\jane.doe", me.AccountName);
         Assert.Equal("Jane Doe", me.DisplayName);
+        Assert.Equal(Portal.Api.Dtos.PortalAccountStatus.Configured, me.AccountStatus);
         Assert.Equal("Editor", me.Role);
         Assert.All(me.Modules, module => Assert.Equal("Editor", module.Role));
         Assert.Contains(me.Modules, module =>
@@ -68,9 +74,8 @@ public sealed class PortalUserServiceTests
         var service = new PortalUserService(
             new HttpContextAccessor { HttpContext = httpContext },
             configuration,
-            new StubRoleStore(
-                "Viewer",
-                new Dictionary<string, string> { ["estimating"] = "Editor" }));
+            new StubRoleStore(Found(
+                moduleRoles: new Dictionary<string, string> { ["estimating"] = "Editor" })));
 
         var me = await service.CurrentAsync();
 
@@ -94,7 +99,9 @@ public sealed class PortalUserServiceTests
         var service = new PortalUserService(
             new HttpContextAccessor { HttpContext = httpContext },
             configuration,
-            new StubRoleStore(displayName: "Preferred Application Name"));
+            new StubRoleStore(Found(
+                displayName: "Preferred Application Name",
+                hasProjectTrackerAccess: true)));
 
         Assert.Equal("Preferred Application Name", (await service.CurrentAsync()).DisplayName);
     }
@@ -113,9 +120,8 @@ public sealed class PortalUserServiceTests
         var service = new PortalUserService(
             new HttpContextAccessor { HttpContext = httpContext },
             configuration,
-            new StubRoleStore(
-                "Viewer",
-                new Dictionary<string, string> { ["quality-assurance"] = "Viewer" }));
+            new StubRoleStore(Found(
+                moduleRoles: new Dictionary<string, string> { ["quality-assurance"] = "Viewer" })));
 
         var module = Assert.Single((await service.CurrentAsync()).Modules);
         Assert.Equal("quality-assurance", module.ModuleKey);
@@ -137,16 +143,20 @@ public sealed class PortalUserServiceTests
             User = new ClaimsPrincipal(new ClaimsIdentity(
                 new[] { new Claim(ClaimTypes.Name, "SONAERO\\lead.planner") }, "TestAuth")),
         };
-        var service = new PortalUserService(new HttpContextAccessor { HttpContext = httpContext }, configuration, new StubRoleStore());
+        var service = new PortalUserService(
+            new HttpContextAccessor { HttpContext = httpContext },
+            configuration,
+            new StubRoleStore(PortalAccountLookup.Missing()));
 
         var me = await service.CurrentAsync();
 
         Assert.Equal("SONAERO\\lead.planner", me.AccountName);
+        Assert.Equal(Portal.Api.Dtos.PortalAccountStatus.Configured, me.AccountStatus);
         Assert.Equal("Admin", me.Role);
     }
 
     [Fact]
-    public async Task Current_WindowsMode_UnknownAccountDefaultsToViewer()
+    public async Task Current_WindowsMode_UnknownAccountIsPendingWithoutRoleOrModules()
     {
         var configuration = BuildConfiguration("""
         { "Authentication": { "Mode": "Windows" }, "Portal": {} }
@@ -156,13 +166,19 @@ public sealed class PortalUserServiceTests
             User = new ClaimsPrincipal(new ClaimsIdentity(
                 new[] { new Claim(ClaimTypes.Name, "SONAERO\\random.user") }, "TestAuth")),
         };
-        var service = new PortalUserService(new HttpContextAccessor { HttpContext = httpContext }, configuration, new StubRoleStore());
+        var service = new PortalUserService(
+            new HttpContextAccessor { HttpContext = httpContext },
+            configuration,
+            new StubRoleStore(PortalAccountLookup.Missing()));
 
-        Assert.Equal("Viewer", (await service.CurrentAsync()).Role);
+        var me = await service.CurrentAsync();
+        Assert.Equal(Portal.Api.Dtos.PortalAccountStatus.PendingSetup, me.AccountStatus);
+        Assert.Null(me.Role);
+        Assert.Empty(me.Modules);
     }
 
     [Fact]
-    public async Task Current_WindowsMode_PrefersSharedRoleStoreOverBootstrapConfiguration()
+    public async Task Current_WindowsMode_ActiveAccountWithoutEffectiveAccessStaysPending()
     {
         var configuration = BuildConfiguration("""
         {
@@ -178,8 +194,109 @@ public sealed class PortalUserServiceTests
         var service = new PortalUserService(
             new HttpContextAccessor { HttpContext = httpContext },
             configuration,
-            new StubRoleStore("Viewer"));
+            new StubRoleStore(Found()));
 
-        Assert.Equal("Viewer", (await service.CurrentAsync()).Role);
+        var me = await service.CurrentAsync();
+        Assert.Equal(Portal.Api.Dtos.PortalAccountStatus.PendingSetup, me.AccountStatus);
+        Assert.Null(me.Role);
+        Assert.Empty(me.Modules);
+    }
+
+    [Fact]
+    public async Task Current_WindowsMode_ProjectTrackerViewPermissionConfiguresViewer()
+    {
+        var configuration = BuildConfiguration("""
+        { "Authentication": { "Mode": "Windows" }, "Portal": {} }
+        """);
+        var httpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                new[] { new Claim(ClaimTypes.Name, "SONAERO\\tracker.viewer") }, "TestAuth")),
+        };
+        var service = new PortalUserService(
+            new HttpContextAccessor { HttpContext = httpContext },
+            configuration,
+            new StubRoleStore(Found(hasProjectTrackerAccess: true)));
+
+        var me = await service.CurrentAsync();
+
+        Assert.Equal(Portal.Api.Dtos.PortalAccountStatus.Configured, me.AccountStatus);
+        Assert.Equal("Viewer", me.Role);
+    }
+
+    [Fact]
+    public async Task Current_WindowsMode_InactiveAccountDoesNotUseBootstrapRole()
+    {
+        var configuration = BuildConfiguration("""
+        {
+          "Authentication": { "Mode": "Windows" },
+          "Portal": { "Admins": [ "SONAERO\\disabled.admin" ] }
+        }
+        """);
+        var httpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                new[] { new Claim(ClaimTypes.Name, "SONAERO\\disabled.admin") }, "TestAuth")),
+        };
+        var service = new PortalUserService(
+            new HttpContextAccessor { HttpContext = httpContext },
+            configuration,
+            new StubRoleStore(Found(
+                role: "Admin",
+                hasProjectTrackerAccess: true,
+                isActive: false)));
+
+        var me = await service.CurrentAsync();
+
+        Assert.Equal(Portal.Api.Dtos.PortalAccountStatus.Inactive, me.AccountStatus);
+        Assert.Null(me.Role);
+        Assert.Empty(me.Modules);
+    }
+
+    [Fact]
+    public async Task Current_WindowsMode_UnavailableStoreIsDistinctFromPending()
+    {
+        var configuration = BuildConfiguration("""
+        { "Authentication": { "Mode": "Windows" }, "Portal": {} }
+        """);
+        var httpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                new[] { new Claim(ClaimTypes.Name, "SONAERO\\ordinary.user") }, "TestAuth")),
+        };
+        var service = new PortalUserService(
+            new HttpContextAccessor { HttpContext = httpContext },
+            configuration,
+            new StubRoleStore(PortalAccountLookup.Unavailable()));
+
+        var me = await service.CurrentAsync();
+
+        Assert.Equal(Portal.Api.Dtos.PortalAccountStatus.Unavailable, me.AccountStatus);
+        Assert.Null(me.Role);
+    }
+
+    [Fact]
+    public async Task Current_WindowsMode_BootstrapEditorRemainsConfiguredWhenStoreIsUnavailable()
+    {
+        var configuration = BuildConfiguration("""
+        {
+          "Authentication": { "Mode": "Windows" },
+          "Portal": { "Editors": [ "SONAERO\\bootstrap.editor" ] }
+        }
+        """);
+        var httpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                new[] { new Claim(ClaimTypes.Name, "SONAERO\\bootstrap.editor") }, "TestAuth")),
+        };
+        var service = new PortalUserService(
+            new HttpContextAccessor { HttpContext = httpContext },
+            configuration,
+            new StubRoleStore(PortalAccountLookup.Unavailable()));
+
+        var me = await service.CurrentAsync();
+
+        Assert.Equal(Portal.Api.Dtos.PortalAccountStatus.Configured, me.AccountStatus);
+        Assert.Equal("Editor", me.Role);
     }
 }

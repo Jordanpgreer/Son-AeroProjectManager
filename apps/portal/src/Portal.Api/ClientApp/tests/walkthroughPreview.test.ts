@@ -17,6 +17,7 @@ function group(
     title,
     subtitle: `${title} permissions`,
     role: 'Shared group',
+    accountStatus: 'configured',
     applications,
   }
 }

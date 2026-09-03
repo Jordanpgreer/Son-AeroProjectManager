@@ -31,5 +31,5 @@ export function filterWalkthroughGroups(
   return groups.filter((target) =>
     target.title.toLocaleLowerCase('en-US').includes(value)
     || target.subtitle.toLocaleLowerCase('en-US').includes(value)
-    || target.role.toLocaleLowerCase('en-US').includes(value))
+    || target.role?.toLocaleLowerCase('en-US').includes(value) === true)
 }

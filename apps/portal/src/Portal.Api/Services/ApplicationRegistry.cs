@@ -1,4 +1,5 @@
 using Portal.Api.Models;
+using Portal.Api.Dtos;
 
 namespace Portal.Api.Services;
 
@@ -18,6 +19,19 @@ public sealed class ApplicationRegistry
     }
 
     public IReadOnlyList<ApplicationEntry> All => _applications;
+
+    public IReadOnlyList<ApplicationEntry> GetVisibleFor(MeDto currentUser)
+    {
+        if (currentUser.AccountStatus != PortalAccountStatus.Configured || currentUser.Role is null)
+        {
+            return [];
+        }
+
+        var accessibleModules = currentUser.Modules
+            .Select(module => module.ModuleKey)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return GetVisibleFor(currentUser.Role, accessibleModules);
+    }
 
     public IReadOnlyList<ApplicationEntry> GetVisibleFor(
         string role,

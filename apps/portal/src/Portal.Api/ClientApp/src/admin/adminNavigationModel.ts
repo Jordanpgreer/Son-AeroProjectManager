@@ -5,6 +5,7 @@ import {
   Eye,
   GanttChart,
   KeyRound,
+  MessageCircleQuestion,
   Settings2,
   ShieldCheck,
   Users,
@@ -19,6 +20,8 @@ export const ADMIN_MODULES: {
   icon: typeof Settings2
   href: string
   openUrl?: string
+  /** Hidden from the navigation entirely unless the viewer is a full Arda administrator. */
+  adminOnly?: boolean
 }[] = [
   {
     key: 'access',
@@ -65,6 +68,14 @@ export const ADMIN_MODULES: {
     icon: ClipboardCheck,
     href: '#/admin/quality-assurance/assignment-rules',
     openUrl: resolveModuleApplicationUrl(window.location, 5170),
+  },
+  {
+    key: 'benny',
+    label: 'Benny',
+    description: 'Assistant and idle activity across every module',
+    icon: MessageCircleQuestion,
+    href: '#/admin/benny/settings',
+    adminOnly: true,
   },
 ]
 

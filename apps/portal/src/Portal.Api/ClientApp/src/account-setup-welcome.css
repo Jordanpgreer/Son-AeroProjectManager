@@ -1,0 +1,307 @@
+.account-setup-main {
+  display: grid;
+  width: min(100%, 1260px);
+  max-width: 1260px;
+  min-height: clamp(520px, calc(100vh - 184px), 760px);
+  place-items: center;
+  padding: clamp(28px, 5vw, 64px) 32px;
+}
+
+.account-setup-gateway {
+  position: relative;
+  display: grid;
+  width: min(100%, 980px);
+  grid-template-columns: minmax(270px, 0.82fr) minmax(0, 1.18fr);
+  overflow: hidden;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: calc(var(--r-lg) + 3px);
+  box-shadow: var(--shadow-pop);
+}
+
+.account-setup-gateway::before {
+  position: absolute;
+  z-index: 2;
+  inset: 0 0 auto;
+  height: 3px;
+  content: '';
+  background: linear-gradient(
+    90deg,
+    var(--steel) 0 70%,
+    var(--arda-red, #e23b2c) 70% 100%
+  );
+}
+
+.account-setup-visual {
+  display: grid;
+  min-height: 410px;
+  place-items: center;
+  background: var(--surface);
+  border-right: 1px solid var(--line-2);
+}
+
+.account-setup-mark {
+  display: block;
+  width: 156px;
+  height: 156px;
+  object-fit: contain;
+}
+
+.account-setup-mark--reversed {
+  display: none;
+}
+
+.account-setup-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(38px, 6vw, 72px);
+}
+
+.account-setup-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.account-setup-meta .kicker {
+  margin: 0;
+}
+
+.account-setup-badge {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border: 1px solid color-mix(in srgb, var(--steel) 27%, var(--line));
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.account-setup-gateway--inactive .account-setup-badge {
+  color: var(--warn-700);
+  background: var(--warn-tint);
+  border-color: color-mix(in srgb, var(--warn) 35%, var(--line));
+}
+
+.account-setup-gateway--unavailable .account-setup-badge {
+  color: var(--risk-700);
+  background: var(--risk-tint);
+  border-color: color-mix(in srgb, var(--risk) 35%, var(--line));
+}
+
+.account-setup-person {
+  margin: 0 0 9px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.account-setup-person strong {
+  color: var(--ink-2);
+  font-weight: 650;
+}
+
+.account-setup-copy h1 {
+  max-width: 11ch;
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: clamp(42px, 5vw, 66px);
+  font-weight: 650;
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+  text-wrap: balance;
+}
+
+.account-setup-gateway--inactive .account-setup-copy h1,
+.account-setup-gateway--unavailable .account-setup-copy h1 {
+  max-width: 14ch;
+  font-size: clamp(36px, 4.4vw, 56px);
+  line-height: 1.02;
+}
+
+.account-setup-detail {
+  max-width: 43ch;
+  margin: 22px 0 0;
+  color: var(--ink-2);
+  font-size: clamp(16px, 1.6vw, 18px);
+  line-height: 1.62;
+  text-wrap: pretty;
+}
+
+.account-setup-reassurance {
+  display: flex;
+  max-width: 48ch;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 24px;
+  padding-top: 18px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.account-setup-reassurance svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--steel-700);
+}
+
+.account-setup-retry {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  align-self: flex-start;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 24px;
+  padding: 0 17px;
+  color: #ffffff;
+  background: var(--steel-action);
+  border: 1px solid var(--steel-action);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.account-setup-retry:hover {
+  background: var(--steel-action-hover);
+  border-color: var(--steel-action-hover);
+  box-shadow: var(--shadow-1);
+}
+
+.account-setup-retry:focus-visible {
+  outline: 3px solid var(--steel);
+  outline-offset: 3px;
+}
+
+:root[data-theme='dark'] .account-setup-mark--standard {
+  display: none;
+}
+
+:root[data-theme='dark'] .account-setup-mark--reversed {
+  display: block;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .account-setup-gateway {
+    animation: accountSetupArrive 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+@keyframes accountSetupArrive {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 760px) {
+  .account-setup-main {
+    min-height: auto;
+    padding: 26px 16px 42px;
+  }
+
+  .account-setup-gateway {
+    grid-template-columns: 1fr;
+  }
+
+  .account-setup-visual {
+    min-height: 210px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line-2);
+  }
+
+  .account-setup-mark {
+    width: 112px;
+    height: 112px;
+  }
+
+  .account-setup-copy {
+    align-items: center;
+    padding: clamp(32px, 8vw, 48px) clamp(22px, 7vw, 40px);
+    text-align: center;
+  }
+
+  .account-setup-meta {
+    width: 100%;
+  }
+
+  .account-setup-copy h1 {
+    max-width: 12ch;
+    font-size: clamp(40px, 12vw, 58px);
+  }
+
+  .account-setup-gateway--inactive .account-setup-copy h1,
+  .account-setup-gateway--unavailable .account-setup-copy h1 {
+    font-size: clamp(34px, 10vw, 48px);
+  }
+
+  .account-setup-reassurance {
+    justify-content: center;
+    text-align: left;
+  }
+
+  .account-setup-retry {
+    align-self: center;
+  }
+}
+
+@media (max-width: 420px) {
+  .account-setup-main {
+    padding-inline: 12px;
+  }
+
+  .account-setup-visual {
+    min-height: 180px;
+  }
+
+  .account-setup-meta {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .account-setup-copy {
+    padding: 30px 20px 34px;
+  }
+
+  .account-setup-detail {
+    margin-top: 18px;
+    font-size: 15.5px;
+  }
+
+  .account-setup-reassurance {
+    margin-top: 20px;
+    padding-top: 16px;
+  }
+
+  .account-setup-retry {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .account-setup-gateway {
+    animation: none;
+  }
+
+  .account-setup-retry {
+    transition: none;
+  }
+}

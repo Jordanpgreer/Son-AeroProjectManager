@@ -5,8 +5,17 @@ namespace Portal.Api.Dtos;
 public sealed record MeDto(
     string AccountName,
     string DisplayName,
-    string Role,
+    PortalAccountStatus AccountStatus,
+    string? Role,
     IReadOnlyList<PortalModuleAccessDto> Modules);
+
+public enum PortalAccountStatus
+{
+    Configured,
+    PendingSetup,
+    Inactive,
+    Unavailable
+}
 
 public sealed record PortalModuleAccessDto(
     string ModuleKey,
@@ -35,7 +44,8 @@ public sealed record AdminAccessPreviewTargetDto(
     string Kind,
     string Title,
     string Subtitle,
-    string Role,
+    PortalAccountStatus AccountStatus,
+    string? Role,
     IReadOnlyList<ApplicationDto> Applications);
 
 public sealed record AdminAccessPreviewLaunchDto(

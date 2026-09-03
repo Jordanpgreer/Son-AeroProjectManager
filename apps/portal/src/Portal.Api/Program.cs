@@ -113,10 +113,7 @@ api.MapGet("/me", (PortalUserService users, CancellationToken cancellationToken)
 api.MapGet("/apps", async (PortalUserService users, ApplicationRegistry registry, CancellationToken cancellationToken) =>
 {
     var currentUser = await users.CurrentAsync(cancellationToken);
-    var accessibleModules = currentUser.Modules
-        .Select(module => module.ModuleKey)
-        .ToHashSet(StringComparer.OrdinalIgnoreCase);
-    return registry.GetVisibleFor(currentUser.Role, accessibleModules)
+    return registry.GetVisibleFor(currentUser)
         .Select(ToApplicationDto)
         .ToList();
 }).RequireAuthorization();

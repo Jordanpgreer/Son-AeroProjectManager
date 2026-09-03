@@ -4,14 +4,18 @@ import type { AdminModuleKey, ArdaAccessSection } from './types'
 
 export function AdminModuleTabs({
   selected,
+  canSeeAdminOnly,
   onKeyDown,
 }: {
   selected: AdminModuleKey
+  /** Full Arda administrators only; module admins never see adminOnly tabs. */
+  canSeeAdminOnly: boolean
   onKeyDown: (event: KeyboardEvent<HTMLElement>) => void
 }) {
+  const modules = ADMIN_MODULES.filter((module) => canSeeAdminOnly || !module.adminOnly)
   return (
     <nav className="admin-module-tabs" role="tablist" aria-label="Admin modules" onKeyDown={onKeyDown}>
-      {ADMIN_MODULES.map((module) => {
+      {modules.map((module) => {
         const ModuleIcon = module.icon
         const active = module.key === selected
         return (

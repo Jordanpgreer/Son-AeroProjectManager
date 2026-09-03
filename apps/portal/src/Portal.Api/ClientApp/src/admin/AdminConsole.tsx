@@ -14,6 +14,7 @@ import {
   Waypoints,
 } from 'lucide-react'
 import AccessPanel from './AccessPanel'
+import BennySettingsPanel from './BennySettingsPanel'
 import AccessPreviewPanel from './AccessPreviewPanel'
 import { AdminModuleTabs, ArdaAccessTabs } from './AdminNavigation'
 import { ADMIN_MODULES, ARDA_ACCESS_SECTIONS } from './adminNavigationModel'
@@ -127,6 +128,8 @@ function parseRoute(hash = window.location.hash): AdminRoute {
                 ? 'assignment-rules'
               : module === 'integrations'
                 ? 'api-keys'
+              : module === 'benny'
+                ? 'settings'
               : 'overview',
   }
 }
@@ -235,6 +238,10 @@ export default function AdminConsole({
   const isAdministrator = trackerUser?.groups.some(
     (group) => group.toLowerCase() === 'administrators',
   ) ?? false
+  // Mirrors the API's ManageWalkthrough policy (Administrators group +
+  // access.manageGroups). Module admins satisfy neither, so Benny's tab is
+  // hidden from them and the panel refuses to render if they guess the URL.
+  const canAdministerBenny = isAdministrator && canManageGroups
   const canOpenSection = (section: ProjectTrackerAdminSection) => {
     if (section === 'walkthrough') return isAdministrator && canManageGroups
     if (section === 'calendar') return granted.has(PERMISSIONS.calendar)
@@ -317,7 +324,11 @@ export default function AdminConsole({
         <span className="admin-controlled-badge"><ShieldCheck size={15} /> Permission controlled</span>
       </header>
 
-      <AdminModuleTabs selected={route.module} onKeyDown={(event) => handleTabKeys(event, activeModule.href)} />
+      <AdminModuleTabs
+        selected={route.module}
+        canSeeAdminOnly={!permissionsLoading && !permissionsError && canAdministerBenny}
+        onKeyDown={(event) => handleTabKeys(event, activeModule.href)}
+      />
 
       <section className="admin-module-panel" id="admin-module-panel" role="tabpanel" aria-labelledby={`admin-module-tab-${route.module}`}>
         <header className="admin-module-head">
@@ -470,6 +481,10 @@ export default function AdminConsole({
                 : <p className="admin-readonly-note">Active estimator settings require the Administer Estimating Settings permission.</p>}
             </div>
           )}
+          {route.module === 'benny' && permissionsLoading && <div className="admin-loading" role="status">Checking Benny permissions...</div>}
+          {route.module === 'benny' && !permissionsLoading && permissionsError && <NoAccess detail={permissionsError} />}
+          {route.module === 'benny' && !permissionsLoading && !permissionsError && !canAdministerBenny && <NoAccess detail="Benny administration requires the Arda Administrators group and the Manage Permission Groups permission." />}
+          {route.module === 'benny' && !permissionsLoading && !permissionsError && canAdministerBenny && <BennySettingsPanel />}
           {route.module === 'integrations' && currentPortalRole !== 'Admin' && <NoAccess detail="API key management requires the Arda Administrator role." />}
           {route.module === 'integrations' && currentPortalRole === 'Admin' && <IntegrationCredentialsPanel />}
         </div>

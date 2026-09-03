@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Eye, Search, UserRoundSearch, UsersRound } from 'lucide-react'
 import { portalApi, toErrorMessage } from './api'
+import {
+  accessPreviewTargetBadge,
+  accessPreviewTargetSummary,
+  filterAccessPreviewTargets,
+  isFirstSignInPreview,
+} from './accessPreviewTarget'
 import type {
   AdminAccessPreviewOverview,
   AdminAccessPreviewTarget,
@@ -38,14 +44,10 @@ export default function AccessPreviewPanel({
     () => [...(overview?.users ?? []), ...(overview?.groups ?? [])],
     [overview],
   )
-  const filtered = useMemo(() => {
-    const value = query.trim().toLowerCase()
-    if (!value) return targets
-    return targets.filter((target) =>
-      target.title.toLowerCase().includes(value)
-      || target.subtitle.toLowerCase().includes(value)
-      || target.role.toLowerCase().includes(value))
-  }, [query, targets])
+  const filtered = useMemo(
+    () => filterAccessPreviewTargets(targets, query),
+    [query, targets],
+  )
   const selected = targets.find((target) => target.key === selectedKey) ?? null
 
   return (
@@ -81,15 +83,17 @@ export default function AccessPreviewPanel({
               >
                 <span>{target.kind === 'user' ? <UserRoundSearch size={17} /> : <UsersRound size={17} />}</span>
                 <span><strong>{target.title}</strong><small>{target.subtitle}</small></span>
-                <em>{target.role}</em>
+                <em>{accessPreviewTargetBadge(target)}</em>
               </button>
             ))}
             {filtered.length === 0 && <p>No users or groups match that search.</p>}
           </div>
           <footer>
-            <p>{selected ? `${selected.applications.length} application${selected.applications.length === 1 ? '' : 's'} visible to ${selected.title}` : 'Select a user or group to preview.'}</p>
+            <p>{selected ? accessPreviewTargetSummary(selected) : 'Select a user or group to preview.'}</p>
             <button className="solid-button" type="button" disabled={!selected} onClick={() => selected && onPreview(selected)}>
-              <Eye size={15} /> Start read-only preview
+              <Eye size={15} /> {selected && isFirstSignInPreview(selected)
+                ? 'Preview first-sign-in screen'
+                : 'Start read-only preview'}
             </button>
           </footer>
         </>

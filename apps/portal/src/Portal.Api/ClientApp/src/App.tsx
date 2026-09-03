@@ -24,6 +24,8 @@ import './portal-dark.css'
 import './hub-catalog.css'
 import { persistTheme, readThemePreference } from './theme'
 import type { AppTheme } from './theme'
+import AccountSetupWelcome from './AccountSetupWelcome'
+import type { AccountStatus } from './AccountSetupWelcome'
 import AdminConsole from './admin/AdminConsole'
 import { isAdminHash } from './admin/api'
 import {
@@ -50,7 +52,8 @@ interface PortalApp {
 interface Me {
   accountName: string
   displayName: string
-  role: string
+  accountStatus: 'configured' | AccountStatus
+  role: string | null
 }
 
 interface ApplicationNotification {
@@ -157,12 +160,20 @@ export default function App() {
 
   useEffect(() => {
     void load()
+  }, [])
+
+  useEffect(() => {
+    if (me?.accountStatus !== 'configured') {
+      setNotificationCounts({})
+      return
+    }
+
     void loadApplicationNotifications()
     const notificationInterval = window.setInterval(() => {
       void loadApplicationNotifications()
     }, 20_000)
     return () => window.clearInterval(notificationInterval)
-  }, [])
+  }, [me?.accountStatus])
 
   useEffect(() => {
     persistTheme(theme)
@@ -193,6 +204,13 @@ export default function App() {
   const catalogApps = accessPreview?.applications ?? apps
   const requestedAdminRoute = isAdminHash(locationHash)
   const adminRoute = requestedAdminRoute && canOpenAdminConsole(me?.role)
+  const previewAccountStatus = accessPreview?.kind === 'user'
+    && accessPreview.accountStatus !== 'configured'
+    ? accessPreview.accountStatus
+    : null
+  const accountStatus = previewAccountStatus
+    ?? (!accessPreview && me?.accountStatus !== 'configured' ? me?.accountStatus : null)
+  const accountDisplayName = accessPreview?.title ?? me?.displayName ?? ''
 
   useEffect(() => {
     if (!adminRoute) document.title = 'Arda · Applications'
@@ -364,7 +382,13 @@ export default function App() {
         </div>
       )}
 
-      {adminRoute ? (
+      {accountStatus ? (
+        <AccountSetupWelcome
+          accountStatus={accountStatus}
+          displayName={accountDisplayName}
+          onRetry={() => void load()}
+        />
+      ) : adminRoute ? (
         <AdminConsole
           currentAccountName={me?.accountName ?? null}
           currentPortalRole={me?.role ?? null}

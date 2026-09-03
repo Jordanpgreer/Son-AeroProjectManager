@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text;
 using Portal.Api.Data;
+using Portal.Api.Dtos;
 using Portal.Api.Endpoints;
 using Portal.Api.Services;
 using SonAero.Platform.Security;
@@ -148,6 +149,78 @@ public sealed class AdminAccessPreviewEndpointTests
 
         Assert.DoesNotContain(sales, application => application.Id == ApplicationRegistry.AdminConsoleApplicationId);
         Assert.Contains(administrator, application => application.Id == ApplicationRegistry.AdminConsoleApplicationId);
+    }
+
+    [Fact]
+    public void User_overview_prepends_exact_unregistered_user_preview()
+    {
+        var targets = AdminAccessPreviewEndpoints.UserTargetsForOverview(
+            [],
+            BuildRegistry(),
+            @"SON4L\administrator");
+
+        var target = Assert.Single(targets);
+        Assert.Equal("unregistered-user", target.Key);
+        Assert.Equal(AccessPreviewTargetKinds.User, target.Kind);
+        Assert.Equal("Unregistered user", target.Title);
+        Assert.Equal("First-time Arda visitor", target.Subtitle);
+        Assert.Equal(PortalAccountStatus.PendingSetup, target.AccountStatus);
+        Assert.Null(target.Role);
+        Assert.Empty(target.Applications);
+    }
+
+    [Fact]
+    public void Registered_user_without_effective_entry_access_is_pending_setup()
+    {
+        var target = AdminAccessPreviewEndpoints.ToUserTarget(
+            new PortalRoleRecord
+            {
+                Id = 17,
+                AccountName = @"SON4L\pending.user",
+                DisplayName = "Pending User",
+                Role = ApplicationRoles.Viewer,
+                IsActive = true
+            },
+            BuildRegistry());
+
+        Assert.Equal(PortalAccountStatus.PendingSetup, target.AccountStatus);
+        Assert.Null(target.Role);
+        Assert.Empty(target.Applications);
+    }
+
+    [Fact]
+    public void Registered_user_with_project_tracker_entry_access_is_configured()
+    {
+        var target = AdminAccessPreviewEndpoints.ToUserTarget(
+            new PortalRoleRecord
+            {
+                Id = 18,
+                AccountName = @"SON4L\tracker.viewer",
+                DisplayName = "Tracker Viewer",
+                Role = ApplicationRoles.Viewer,
+                IsActive = true,
+                ProjectTrackerGroupMemberships =
+                [
+                    new PortalProjectTrackerMembershipRecord
+                    {
+                        Group = new PortalProjectTrackerGroupRecord
+                        {
+                            Permissions =
+                            [
+                                new PortalProjectTrackerPermissionRecord
+                                {
+                                    PermissionKey = ApplicationPermissions.ModuleView
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            BuildRegistry());
+
+        Assert.Equal(PortalAccountStatus.Configured, target.AccountStatus);
+        Assert.Equal(ApplicationRoles.Viewer, target.Role);
+        Assert.Equal(AccessPreviewApplications.ProjectTracker, Assert.Single(target.Applications).Id);
     }
 
     private static ApplicationRegistry BuildRegistry()

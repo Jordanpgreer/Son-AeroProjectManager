@@ -5,11 +5,15 @@ export type AdminModuleKey =
   | 'estimating'
   | 'integrations'
   | 'quality-assurance'
+  | 'benny'
 
 export type ArdaAccessSection =
   | 'groups'
   | 'people'
   | 'preview'
+
+export type BennyAdminSection =
+  | 'settings'
 
 export type ProjectTrackerAdminSection =
   | 'walkthrough'
@@ -83,7 +87,8 @@ export interface AdminAccessPreviewTarget {
   kind: 'user' | 'group'
   title: string
   subtitle: string
-  role: string
+  role: string | null
+  accountStatus: 'configured' | 'pendingSetup' | 'inactive' | 'unavailable'
   applications: AdminPreviewApplication[]
 }
 

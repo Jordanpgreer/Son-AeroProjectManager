@@ -25,10 +25,15 @@ public sealed class PortalUserService(
         accountName = WindowsAccountNames.Normalize(accountName)
             ?? throw new UnauthorizedAccessException("A valid Windows account name is required.");
 
-        var role = await ResolveRoleAsync(accountName, cancellationToken);
-        var displayName = await roleStore.FindDisplayNameAsync(accountName, cancellationToken);
-        var moduleRoles = await roleStore.FindModuleRolesAsync(accountName, cancellationToken);
-        if (moduleRoles.Count == 0 && IsDevelopmentMode())
+        var account = await roleStore.FindAccountAsync(accountName, cancellationToken);
+        var isDevelopment = IsDevelopmentMode();
+        var bootstrapRole = ResolveBootstrapRole(accountName);
+        var status = ResolveStatus(account, isDevelopment, bootstrapRole);
+        var role = ResolveRole(account, status, isDevelopment, bootstrapRole);
+        var moduleRoles = status == PortalAccountStatus.Configured
+            ? account.ModuleRoles
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (moduleRoles.Count == 0 && isDevelopment)
         {
             var developmentRole = ApplicationModuleRoles.Normalize(role) ?? ApplicationRoles.Admin;
             moduleRoles = ApplicationModuleCatalog.All
@@ -53,38 +58,70 @@ public sealed class PortalUserService(
 
         return new MeDto(
             accountName,
-            string.IsNullOrWhiteSpace(displayName) ? ToDisplayName(accountName) : displayName,
+            string.IsNullOrWhiteSpace(account.DisplayName) ? ToDisplayName(accountName) : account.DisplayName,
+            status,
             role,
             modules);
     }
 
-    private async Task<string> ResolveRoleAsync(string accountName, CancellationToken cancellationToken)
+    private static PortalAccountStatus ResolveStatus(
+        PortalAccountLookup account,
+        bool isDevelopment,
+        string? bootstrapRole)
     {
-        if (IsDevelopmentMode())
+        if (isDevelopment)
+        {
+            return PortalAccountStatus.Configured;
+        }
+
+        if (account.Status == PortalAccountLookupStatus.Found)
+        {
+            if (!account.IsActive) return PortalAccountStatus.Inactive;
+            return account.HasProjectTrackerAccess || account.ModuleRoles.Count > 0
+                ? PortalAccountStatus.Configured
+                : PortalAccountStatus.PendingSetup;
+        }
+
+        if (bootstrapRole is not null) return PortalAccountStatus.Configured;
+        return account.Status == PortalAccountLookupStatus.Unavailable
+            ? PortalAccountStatus.Unavailable
+            : PortalAccountStatus.PendingSetup;
+    }
+
+    private string? ResolveRole(
+        PortalAccountLookup account,
+        PortalAccountStatus status,
+        bool isDevelopment,
+        string? bootstrapRole)
+    {
+        if (status != PortalAccountStatus.Configured)
+        {
+            return null;
+        }
+
+        if (isDevelopment)
         {
             return ApplicationRoles.Normalize(configuration["Portal:DevelopmentRole"]) ?? ApplicationRoles.Admin;
         }
 
-        var storedRole = ApplicationRoles.Normalize(await roleStore.FindRoleAsync(accountName, cancellationToken));
-        if (storedRole is not null)
+        if (account.Status == PortalAccountLookupStatus.Found)
         {
-            return storedRole;
+            return ApplicationRoles.Normalize(account.Role) ?? ApplicationRoles.Viewer;
         }
 
-        var admins = configuration.GetSection("Portal:Admins").Get<string[]>() ?? Array.Empty<string>();
-        var editors = configuration.GetSection("Portal:Editors").Get<string[]>() ?? Array.Empty<string>();
+        return bootstrapRole;
+    }
 
+    private string? ResolveBootstrapRole(string accountName)
+    {
+        var admins = configuration.GetSection("Portal:Admins").Get<string[]>() ?? [];
         if (admins.Any(account => WindowsAccountNames.Equals(account, accountName)))
-        {
             return ApplicationRoles.Admin;
-        }
 
-        if (editors.Any(account => WindowsAccountNames.Equals(account, accountName)))
-        {
-            return ApplicationRoles.Editor;
-        }
-
-        return ApplicationRoles.Viewer;
+        var editors = configuration.GetSection("Portal:Editors").Get<string[]>() ?? [];
+        return editors.Any(account => WindowsAccountNames.Equals(account, accountName))
+            ? ApplicationRoles.Editor
+            : null;
     }
 
     private bool IsDevelopmentMode()
