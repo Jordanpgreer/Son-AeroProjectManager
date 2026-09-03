@@ -39,6 +39,10 @@ public sealed class AccessControlSeederTests
         Assert.Contains(administratorGroup.Permissions, permission =>
             permission.PermissionKey == ProjectTrackerPermissions.WorkCentersImport);
         Assert.Contains(administratorGroup.Permissions, permission =>
+            permission.PermissionKey == ProjectTrackerPermissions.ProjectNotificationsManage);
+        Assert.Contains(administratorGroup.Permissions, permission =>
+            permission.PermissionKey == ProjectTrackerPermissions.ProjectEditSalesPerson);
+        Assert.Contains(administratorGroup.Permissions, permission =>
             permission.PermissionKey == "estimating.history.import");
         Assert.DoesNotContain(administratorGroup.Permissions, permission =>
             permission.PermissionKey == QualityAssurancePermissions.AssignmentEligible);
@@ -64,6 +68,15 @@ public sealed class AccessControlSeederTests
         Assert.False(engineeringGroup.IsSystemGroup);
         Assert.Contains(engineeringGroup.Permissions, permission =>
             permission.PermissionKey == ProjectTrackerPermissions.OperationScheduleConfirm);
+        Assert.Contains(engineeringGroup.Permissions, permission =>
+            permission.PermissionKey == ProjectTrackerPermissions.ProjectNotificationsManage);
+        var salesGroup = await fixture.Db.Groups
+            .Include(group => group.Permissions)
+            .SingleAsync(group => group.Name == ApplicationGroups.Sales);
+        Assert.Contains(salesGroup.Permissions, permission =>
+            permission.PermissionKey == ProjectTrackerPermissions.OperationScheduleConfirm);
+        Assert.Contains(salesGroup.Permissions, permission =>
+            permission.PermissionKey == ProjectTrackerPermissions.ProjectNotificationsManage);
     }
 
     [Fact]

@@ -179,7 +179,8 @@ public sealed class NotificationReadService(
                             AND notification.[SnoozedUntil] IS NULL
                             AND notification.[ScheduledDate] = task.[StartDate]
                             AND CAST(task.[PercentComplete] AS REAL) = 0
-                            AND task.[PercentCompleteManual] = 1)
+                            AND task.[PercentCompleteManual] = 1
+                            AND task.[ExternalActualStartDate] IS NULL)
                         OR
                         (notification.[Kind] = {OperationFinishConfirmation}
                             AND task.[Id] IS NOT NULL

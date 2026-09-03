@@ -8,6 +8,7 @@ public sealed class Project
     public string ProgramName { get; set; } = string.Empty;
     public string? ProgramManager { get; set; }
     public string? Engineer { get; set; }
+    public string? SalesPerson { get; set; }
     public string? CustomerName { get; set; }
     public string? SalesOrderNumber { get; set; }
     public string? SalesOrderUrl { get; set; }
@@ -41,6 +42,7 @@ public sealed class Project
     public List<ProjectMessage> Messages { get; set; } = [];
     public List<ProjectAuditEntry> AuditEntries { get; set; } = [];
     public List<UserNotification> Notifications { get; set; } = [];
+    public List<ProjectNotificationPreference> NotificationPreferences { get; set; } = [];
 }
 
 public static class ProjectQuantitySources

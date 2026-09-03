@@ -116,7 +116,9 @@ public sealed class ProjectRoutingSyncServiceTests
         Assert.Equal("Manually Renamed Cut", cut.Title);
         Assert.Equal("Keep this operator note", cut.Notes);
         Assert.Equal(new DateOnly(2026, 9, 1), cut.StartDate);
+        Assert.Equal(new DateOnly(2026, 9, 1), cut.ExternalActualStartDate);
         Assert.Equal(new DateOnly(2026, 9, 5), cut.EndDate);
+        Assert.Equal(new DateOnly(2026, 9, 5), cut.ExternalActualCompletionDate);
         Assert.Equal(new DateOnly(2026, 8, 25), cut.OriginalStartDate);
         Assert.Equal(new DateOnly(2026, 9, 8), cut.OriginalEndDate);
         Assert.Equal(1m, cut.PercentComplete);
@@ -127,10 +129,13 @@ public sealed class ProjectRoutingSyncServiceTests
         Assert.Equal("Final Inspection", inspection.Title);
         Assert.Equal("fulcrum-inspect", inspection.ExternalSourceOperationId);
         Assert.Equal(new DateOnly(2026, 9, 6), inspection.StartDate);
+        Assert.Equal(new DateOnly(2026, 9, 6), inspection.ExternalActualStartDate);
         Assert.Equal(new DateOnly(2026, 9, 12), inspection.EndDate);
         Assert.Equal(new DateOnly(2026, 9, 4), inspection.OriginalStartDate);
         Assert.Equal(new DateOnly(2026, 9, 11), inspection.OriginalEndDate);
         Assert.Equal(0.25m, inspection.PercentComplete);
+        Assert.True(inspection.PercentCompleteManual);
+        Assert.True(inspection.StartDateLocked);
         Assert.Equal(5, inspection.Version);
 
         var secondResult = service.Apply(project, progress, "Fulcrum", now.AddHours(1));

@@ -299,6 +299,10 @@ namespace ProjectTracker.Api.Data.Migrations
                         .HasMaxLength(2048)
                         .HasColumnType("nvarchar(2048)");
 
+                    b.Property<string>("SalesPerson")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(24)
@@ -320,6 +324,31 @@ namespace ProjectTracker.Api.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("Projects");
+                });
+
+            modelBuilder.Entity("ProjectTracker.Api.Models.ProjectNotificationPreference", b =>
+                {
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("AppUserId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("UpdatedByAccountName")
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.HasKey("ProjectId", "AppUserId");
+
+                    b.HasIndex("AppUserId");
+
+                    b.ToTable("ProjectNotificationPreferences");
                 });
 
             modelBuilder.Entity("ProjectTracker.Api.Models.ProjectAuditEntry", b =>
@@ -406,6 +435,25 @@ namespace ProjectTracker.Api.Data.Migrations
                     b.ToTable("ProjectMessages");
                 });
 
+            modelBuilder.Entity("ProjectTracker.Api.Models.ProjectNotificationPreference", b =>
+                {
+                    b.HasOne("ProjectTracker.Api.Models.Project", "Project")
+                        .WithMany("NotificationPreferences")
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ProjectTracker.Api.Models.AppUser", "User")
+                        .WithMany("ProjectNotificationPreferences")
+                        .HasForeignKey("AppUserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Project");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("ProjectTracker.Api.Models.ProjectTask", b =>
                 {
                     b.Property<int>("Id")
@@ -428,6 +476,12 @@ namespace ProjectTracker.Api.Data.Migrations
 
                     b.Property<int?>("EstimatedDuration")
                         .HasColumnType("int");
+
+                    b.Property<DateOnly?>("ExternalActualCompletionDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("ExternalActualStartDate")
+                        .HasColumnType("date");
 
                     b.Property<string>("ExternalTaskId")
                         .HasMaxLength(32)
@@ -1000,6 +1054,8 @@ namespace ProjectTracker.Api.Data.Migrations
 
                     b.Navigation("Notifications");
 
+                    b.Navigation("ProjectNotificationPreferences");
+
                     b.Navigation("PushSubscriptions");
                 });
 
@@ -1010,6 +1066,8 @@ namespace ProjectTracker.Api.Data.Migrations
                     b.Navigation("Messages");
 
                     b.Navigation("Notifications");
+
+                    b.Navigation("NotificationPreferences");
 
                     b.Navigation("Tasks");
                 });

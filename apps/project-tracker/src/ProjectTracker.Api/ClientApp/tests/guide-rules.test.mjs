@@ -226,7 +226,7 @@ test('builds four independent page tours from effective view access', () => {
 })
 
 test('maps every Project Tracker access checkbox to a walkthrough capability', () => {
-  assert.equal(allProjectTrackerPermissionKeys.length, 41)
+  assert.equal(allProjectTrackerPermissionKeys.length, 43)
   assert.deepEqual(
     Object.keys(TRAINING_PERMISSION_COVERAGE).sort(),
     [...allProjectTrackerPermissionKeys].sort(),
@@ -349,6 +349,7 @@ test('does not broaden the project edit lesson beyond the granted capability gro
     permissionKeys.projectEditProgramName,
     permissionKeys.projectEditProgramManager,
     permissionKeys.projectEditEngineer,
+    permissionKeys.projectEditSalesPerson,
     permissionKeys.projectEditCustomerName,
     permissionKeys.projectEditSalesOrderNumber,
     permissionKeys.projectEditJobNumber,

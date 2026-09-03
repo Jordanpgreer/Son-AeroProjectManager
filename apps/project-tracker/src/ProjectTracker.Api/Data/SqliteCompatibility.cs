@@ -279,6 +279,17 @@ public static partial class SqliteCompatibility
             );
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_PushSubscriptions_Endpoint" ON "PushSubscriptions" ("Endpoint");
             CREATE INDEX IF NOT EXISTS "IX_PushSubscriptions_AppUserId" ON "PushSubscriptions" ("AppUserId");
+            CREATE TABLE IF NOT EXISTS "ProjectNotificationPreferences" (
+                "ProjectId" INTEGER NOT NULL,
+                "AppUserId" INTEGER NOT NULL,
+                "Enabled" INTEGER NOT NULL,
+                "UpdatedAt" TEXT NOT NULL,
+                "UpdatedByAccountName" TEXT NULL,
+                CONSTRAINT "PK_ProjectNotificationPreferences" PRIMARY KEY ("ProjectId", "AppUserId"),
+                CONSTRAINT "FK_ProjectNotificationPreferences_Projects_ProjectId" FOREIGN KEY ("ProjectId") REFERENCES "Projects" ("Id") ON DELETE CASCADE,
+                CONSTRAINT "FK_ProjectNotificationPreferences_Users_AppUserId" FOREIGN KEY ("AppUserId") REFERENCES "Users" ("Id")
+            );
+            CREATE INDEX IF NOT EXISTS "IX_ProjectNotificationPreferences_AppUserId" ON "ProjectNotificationPreferences" ("AppUserId");
             """;
 
         var connection = db.Database.GetDbConnection();

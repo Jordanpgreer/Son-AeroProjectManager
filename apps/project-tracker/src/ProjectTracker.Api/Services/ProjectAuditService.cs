@@ -68,6 +68,7 @@ public sealed class ProjectAuditService(CurrentUserService currentUser)
             ["Part number"] = project.ProgramName,
             ["Contact lead"] = project.ProgramManager,
             ["Engineer"] = project.Engineer,
+            ["Sales person"] = project.SalesPerson,
             ["Customer"] = project.CustomerName,
             ["Sales order"] = project.SalesOrderNumber,
             ["Sales order link"] = project.SalesOrderUrl,

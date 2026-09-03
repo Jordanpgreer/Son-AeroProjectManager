@@ -103,6 +103,7 @@ const emptyProjectMetadata: ProjectMetadataDraft = {
   programName: '',
   programManager: '',
   engineer: '',
+  salesPerson: '',
   customerName: '',
   salesOrderNumber: '',
   salesOrderUrl: '',
@@ -118,6 +119,7 @@ function projectMetadataFrom(project: ProjectDetail | null): ProjectMetadataDraf
     programName: project.programName,
     programManager: project.programManager ?? '',
     engineer: project.engineer ?? '',
+    salesPerson: project.salesPerson ?? '',
     customerName: project.customerName ?? '',
     salesOrderNumber: project.salesOrderNumber ?? '',
     salesOrderUrl: project.salesOrderUrl ?? '',
@@ -263,11 +265,12 @@ function App() {
 
   const projectPayload = (
     project: ProjectDetail,
-    patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber' | 'salesOrderUrl' | 'jobNumber' | 'jobUrl' | 'requiredQuantity' | 'jobQuantity'>> = {},
+    patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'salesPerson' | 'customerName' | 'salesOrderNumber' | 'salesOrderUrl' | 'jobNumber' | 'jobUrl' | 'requiredQuantity' | 'jobQuantity'>> = {},
   ) => ({
     programName: 'programName' in patch ? patch.programName : project.programName,
     programManager: 'programManager' in patch ? patch.programManager : project.programManager,
     engineer: 'engineer' in patch ? patch.engineer : project.engineer,
+    salesPerson: 'salesPerson' in patch ? patch.salesPerson : project.salesPerson,
     customerName: 'customerName' in patch ? patch.customerName : project.customerName,
     salesOrderNumber: 'salesOrderNumber' in patch ? patch.salesOrderNumber : project.salesOrderNumber,
     salesOrderUrl: 'salesOrderUrl' in patch ? patch.salesOrderUrl : project.salesOrderUrl,
@@ -285,6 +288,7 @@ function App() {
       { key: 'programName', label: 'Part Number' },
       { key: 'programManager', label: 'Contact Lead' },
       { key: 'engineer', label: 'Engineer' },
+      { key: 'salesPerson', label: 'Sales Person' },
       { key: 'customerName', label: 'Customer Name' },
       { key: 'salesOrderNumber', label: 'Sales Order #' },
       { key: 'salesOrderUrl', label: 'Sales Order Link' },
@@ -308,6 +312,7 @@ function App() {
   const selectedProjectProgramName = selectedProject?.programName ?? ''
   const selectedProjectProgramManager = selectedProject?.programManager ?? ''
   const selectedProjectEngineer = selectedProject?.engineer ?? ''
+  const selectedProjectSalesPerson = selectedProject?.salesPerson ?? ''
   const selectedProjectCustomerName = selectedProject?.customerName ?? ''
   const selectedProjectSalesOrderNumber = selectedProject?.salesOrderNumber ?? ''
   const selectedProjectSalesOrderUrl = selectedProject?.salesOrderUrl ?? ''
@@ -333,6 +338,7 @@ function App() {
       programName: selectedProjectProgramName,
       programManager: selectedProjectProgramManager,
       engineer: selectedProjectEngineer,
+      salesPerson: selectedProjectSalesPerson,
       customerName: selectedProjectCustomerName,
       salesOrderNumber: selectedProjectSalesOrderNumber,
       salesOrderUrl: selectedProjectSalesOrderUrl,
@@ -347,6 +353,7 @@ function App() {
     selectedProjectProgramName,
     selectedProjectProgramManager,
     selectedProjectEngineer,
+    selectedProjectSalesPerson,
     selectedProjectCustomerName,
     selectedProjectSalesOrderNumber,
     selectedProjectSalesOrderUrl,
@@ -675,7 +682,7 @@ function App() {
     }
   }
 
-  async function updateProject(patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'customerName' | 'salesOrderNumber' | 'salesOrderUrl' | 'jobNumber' | 'jobUrl' | 'requiredQuantity' | 'jobQuantity'>>) {
+  async function updateProject(patch: Partial<Pick<ProjectDetail, 'programName' | 'programManager' | 'engineer' | 'salesPerson' | 'customerName' | 'salesOrderNumber' | 'salesOrderUrl' | 'jobNumber' | 'jobUrl' | 'requiredQuantity' | 'jobQuantity'>>) {
     if (!selectedProject) return
     const project = await api<ProjectDetail>(`/api/projects/${selectedProject.id}`, {
       method: 'PUT',
@@ -718,6 +725,7 @@ function App() {
       programName: projectMetadata.programName.trim(),
       programManager: projectMetadata.programManager.trim(),
       engineer: projectMetadata.engineer.trim(),
+      salesPerson: projectMetadata.salesPerson.trim(),
       customerName: projectMetadata.customerName.trim(),
       salesOrderNumber: projectMetadata.salesOrderNumber.trim(),
       salesOrderUrl: projectMetadata.salesOrderUrl.trim(),
@@ -743,6 +751,7 @@ function App() {
         programName: normalized.programName,
         programManager: normalized.programManager || null,
         engineer: normalized.engineer || null,
+        salesPerson: normalized.salesPerson || null,
         customerName: normalized.customerName || null,
         salesOrderNumber: normalized.salesOrderNumber || null,
         salesOrderUrl: normalized.salesOrderUrl || null,

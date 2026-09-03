@@ -103,6 +103,36 @@ public sealed class SqlServerRelationshipModelTests
     }
 
     [Fact]
+    public void ProjectNotificationMigration_UsesSafeRelationshipsAndNullableActualDateMarkers()
+    {
+        var builder = new MigrationBuilder("Microsoft.EntityFrameworkCore.SqlServer");
+        new TestableProjectNotificationMigration().Build(builder);
+        var table = Assert.Single(builder.Operations.OfType<CreateTableOperation>(), operation =>
+            operation.Name == "ProjectNotificationPreferences");
+
+        Assert.Equal(
+            ReferentialAction.Cascade,
+            Assert.Single(table.ForeignKeys, key => key.PrincipalTable == "Projects").OnDelete);
+        Assert.Equal(
+            ReferentialAction.NoAction,
+            Assert.Single(table.ForeignKeys, key => key.PrincipalTable == "Users").OnDelete);
+        Assert.Collection(
+            builder.Operations.OfType<AddColumnOperation>()
+                .Where(column => column.Table == "Tasks")
+                .OrderBy(column => column.Name),
+            column =>
+            {
+                Assert.Equal("ExternalActualCompletionDate", column.Name);
+                Assert.True(column.IsNullable);
+            },
+            column =>
+            {
+                Assert.Equal("ExternalActualStartDate", column.Name);
+                Assert.True(column.IsNullable);
+            });
+    }
+
+    [Fact]
     public void HandwrittenMigrations_AreDiscoverableBeforeDependencyEnforcement()
     {
         var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>()
@@ -131,6 +161,11 @@ public sealed class SqlServerRelationshipModelTests
     }
 
     private sealed class TestableExternalLinksMigration : AddProjectExternalLinks
+    {
+        public void Build(MigrationBuilder builder) => Up(builder);
+    }
+
+    private sealed class TestableProjectNotificationMigration : AddSalesPersonAndProjectNotificationPreferences
     {
         public void Build(MigrationBuilder builder) => Up(builder);
     }

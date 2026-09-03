@@ -282,20 +282,28 @@ public sealed class ProjectRoutingSyncService
         var changed = false;
         if (step.ActualStartDate is { } actualStart)
         {
-            changed = task.StartDate != actualStart || !task.StartDateLocked || changed;
+            changed = task.StartDate != actualStart
+                || !task.StartDateLocked
+                || task.ExternalActualStartDate != actualStart
+                || changed;
             task.StartDate = actualStart;
+            task.ExternalActualStartDate = actualStart;
             task.StartDateLocked = true;
         }
 
-        if (!step.IsComplete) return changed;
+        var completed = step.IsComplete || step.ActualCompletionDate is not null;
+        if (!completed) return changed;
 
         changed = task.PercentComplete != 1m || !task.PercentCompleteManual || changed;
         task.PercentComplete = 1m;
         task.PercentCompleteManual = true;
         if (step.ActualCompletionDate is { } actualCompletion)
         {
-            changed = task.EndDate != actualCompletion || changed;
+            changed = task.EndDate != actualCompletion
+                || task.ExternalActualCompletionDate != actualCompletion
+                || changed;
             task.EndDate = actualCompletion;
+            task.ExternalActualCompletionDate = actualCompletion;
         }
 
         return changed;

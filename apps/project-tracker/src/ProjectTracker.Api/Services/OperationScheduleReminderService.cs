@@ -34,7 +34,8 @@ public sealed class OperationScheduleReminderService(
     ProjectTrackerDbContext db,
     ScheduleCalculator scheduleCalculator,
     ProjectMetricsService metrics,
-    IPushNotificationQueue pushQueue)
+    IPushNotificationQueue pushQueue,
+    ProjectNotificationAudienceService notificationAudience)
 {
     private const string SystemAccountName = "PROJECT-TRACKER";
     private const string SystemDisplayName = "Project Tracker";
@@ -52,28 +53,14 @@ public sealed class OperationScheduleReminderService(
         var awakened = await WakeDueSnoozesAsync(today, cancellationToken);
         var calendar = await LoadCalendarAsync(cancellationToken);
         var scheduledDate = scheduleCalculator.PreviousWorkingDay(today, calendar);
-        var recipientIds = await db.Users
-            .AsNoTracking()
-            .Where(user =>
-                user.IsActive
-                && user.GroupMemberships.Any(membership => membership.Group.Permissions.Any(permission =>
-                    permission.PermissionKey == ApplicationPermissions.ModuleView))
-                && user.GroupMemberships.Any(membership => membership.Group.Permissions.Any(permission =>
-                    permission.PermissionKey == ProjectTrackerPermissions.OperationScheduleConfirm)))
-            .Select(user => user.Id)
-            .ToListAsync(cancellationToken);
-        if (recipientIds.Count == 0)
-        {
-            return awakened;
-        }
-
         var tasks = await db.Tasks
             .AsNoTracking()
             .Include(task => task.Project)
             .Where(task => task.Project.CompletedOn == null
                 && ((task.StartDate == scheduledDate
                         && task.PercentComplete == 0m
-                        && task.PercentCompleteManual)
+                        && task.PercentCompleteManual
+                        && task.ExternalActualStartDate == null)
                     || (task.EndDate == scheduledDate && task.PercentComplete < 1m)))
             .ToListAsync(cancellationToken);
         if (tasks.Count == 0)
@@ -86,8 +73,7 @@ public sealed class OperationScheduleReminderService(
             .IgnoreQueryFilters()
             .AsNoTracking()
             .Where(notification =>
-                recipientIds.Contains(notification.RecipientUserId)
-                && notification.ProjectTaskId != null
+                notification.ProjectTaskId != null
                 && taskIds.Contains(notification.ProjectTaskId.Value)
                 && notification.ScheduledDate == scheduledDate
                 && (notification.Kind == NotificationKind.OperationStartConfirmation
@@ -104,9 +90,20 @@ public sealed class OperationScheduleReminderService(
             .ToHashSet();
 
         var created = new List<UserNotification>();
+        var recipientsByProject = new Dictionary<int, IReadOnlyCollection<int>>();
         foreach (var task in tasks)
         {
-            if (task.StartDate == scheduledDate && task.PercentComplete == 0m && task.PercentCompleteManual)
+            if (!recipientsByProject.TryGetValue(task.ProjectId, out var recipientIds))
+            {
+                recipientIds = (await notificationAudience.LoadRecipientsAsync(task.Project, cancellationToken))
+                    .Select(user => user.Id)
+                    .ToArray();
+                recipientsByProject[task.ProjectId] = recipientIds;
+            }
+            if (task.StartDate == scheduledDate
+                && task.PercentComplete == 0m
+                && task.PercentCompleteManual
+                && task.ExternalActualStartDate is null)
             {
                 AddForRecipients(task, NotificationKind.OperationStartConfirmation, "start", recipientIds, existingKeys, created, today, scheduledDate);
             }
@@ -166,6 +163,30 @@ public sealed class OperationScheduleReminderService(
             today,
             cancellationToken);
 
+    public Task<int> ResolveFromExternalProgressAsync(
+        IReadOnlyCollection<int> startedTaskIds,
+        IReadOnlyCollection<int> completedTaskIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (startedTaskIds.Count == 0 && completedTaskIds.Count == 0)
+            return Task.FromResult(0);
+
+        var resolvedAt = DateTimeOffset.UtcNow;
+        return db.UserNotifications
+            .IgnoreQueryFilters()
+            .Where(notification =>
+                notification.ProjectTaskId != null
+                && notification.RespondedAt == null
+                && ((notification.Kind == NotificationKind.OperationStartConfirmation
+                        && startedTaskIds.Contains(notification.ProjectTaskId.Value))
+                    || (notification.Kind == NotificationKind.OperationFinishConfirmation
+                        && completedTaskIds.Contains(notification.ProjectTaskId.Value))))
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(notification => notification.ReadAt, notification => notification.ReadAt ?? resolvedAt)
+                .SetProperty(notification => notification.RespondedAt, resolvedAt),
+                cancellationToken);
+    }
+
     public async Task<OperationScheduleConfirmationResult> RespondAsync(
         int notificationId,
         int recipientUserId,
@@ -216,7 +237,8 @@ public sealed class OperationScheduleReminderService(
             || (notification.Kind == NotificationKind.OperationStartConfirmation
                 && (task.StartDate != scheduledDate
                     || task.PercentComplete > 0m
-                    || !task.PercentCompleteManual))
+                    || !task.PercentCompleteManual
+                    || task.ExternalActualStartDate is not null))
             || (notification.Kind == NotificationKind.OperationFinishConfirmation
                 && (task.EndDate != scheduledDate || task.PercentComplete >= 1m)))
         {
@@ -388,10 +410,10 @@ public sealed class OperationScheduleReminderService(
                 && notification.ScheduledDate == scheduledDate)
             .Select(notification => notification.RecipientUserId)
             .ToListAsync(cancellationToken);
-        var recipientIds = await EntitledUsers()
+        var recipientIds = (await notificationAudience.LoadRecipientsAsync(task.Project, cancellationToken))
             .Where(user => user.Id != actorUserId && !existingRecipientIds.Contains(user.Id))
             .Select(user => user.Id)
-            .ToListAsync(cancellationToken);
+            .ToList();
         if (recipientIds.Count == 0)
         {
             return [];
@@ -421,8 +443,11 @@ public sealed class OperationScheduleReminderService(
         DateOnly today,
         CancellationToken cancellationToken)
     {
-        var candidateIds = await db.UserNotifications
+        var candidates = await db.UserNotifications
             .AsNoTracking()
+            .Include(notification => notification.Project)
+            .Include(notification => notification.RecipientUser)
+                .ThenInclude(user => user.ProjectNotificationPreferences)
             .Where(notification =>
                 notification.SnoozedUntil != null
                 && notification.SnoozedUntil <= today
@@ -441,12 +466,18 @@ public sealed class OperationScheduleReminderService(
                 && ((notification.Kind == NotificationKind.OperationStartConfirmation
                         && notification.ScheduledDate == notification.ProjectTask.StartDate
                         && notification.ProjectTask.PercentComplete == 0m
-                        && notification.ProjectTask.PercentCompleteManual)
+                        && notification.ProjectTask.PercentCompleteManual
+                        && notification.ProjectTask.ExternalActualStartDate == null)
                     || (notification.Kind == NotificationKind.OperationFinishConfirmation
                         && notification.ScheduledDate == notification.ProjectTask.EndDate
                         && notification.ProjectTask.PercentComplete < 1m)))
-            .Select(notification => notification.Id)
             .ToListAsync(cancellationToken);
+        var candidateIds = candidates
+            .Where(notification => ProjectNotificationAudienceService.IsEnabled(
+                notification.Project,
+                notification.RecipientUser))
+            .Select(notification => notification.Id)
+            .ToList();
 
         var awakenedIds = new List<int>(candidateIds.Count);
         foreach (var notificationId in candidateIds)
@@ -478,14 +509,6 @@ public sealed class OperationScheduleReminderService(
         return awakenedIds.Count;
     }
 
-    private IQueryable<AppUser> EntitledUsers() => db.Users
-        .Where(user =>
-            user.IsActive
-            && user.GroupMemberships.Any(membership => membership.Group.Permissions.Any(permission =>
-                permission.PermissionKey == ApplicationPermissions.ModuleView))
-            && user.GroupMemberships.Any(membership => membership.Group.Permissions.Any(permission =>
-                permission.PermissionKey == ProjectTrackerPermissions.OperationScheduleConfirm)));
-
     private static bool IsCurrentPrompt(
         UserNotification notification,
         ProjectTask? task,
@@ -497,7 +520,8 @@ public sealed class OperationScheduleReminderService(
         && ((notification.Kind == NotificationKind.OperationStartConfirmation
                 && task.StartDate == scheduledDate
                 && task.PercentComplete == 0m
-                && task.PercentCompleteManual)
+                && task.PercentCompleteManual
+                && task.ExternalActualStartDate is null)
             || (notification.Kind == NotificationKind.OperationFinishConfirmation
                 && task.EndDate == scheduledDate
                 && task.PercentComplete < 1m));

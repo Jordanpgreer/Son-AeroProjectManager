@@ -93,6 +93,7 @@ public static class ProjectQuantitySyncEndpoints
         ProjectAuditService audit,
         ProjectRoutingSyncService routingSync,
         ProjectMetricsService metrics,
+        OperationScheduleReminderService reminders,
         CancellationToken cancellationToken) =>
         SyncAsync(
             projectId,
@@ -106,6 +107,7 @@ public static class ProjectQuantitySyncEndpoints
             audit,
             routingSync,
             metrics,
+            reminders,
             cancellationToken);
 
     private static Task<IResult> SyncLegacyAsync(
@@ -118,6 +120,7 @@ public static class ProjectQuantitySyncEndpoints
         ProjectAuditService audit,
         ProjectRoutingSyncService routingSync,
         ProjectMetricsService metrics,
+        OperationScheduleReminderService reminders,
         CancellationToken cancellationToken) =>
         SyncAsync(
             projectId,
@@ -131,6 +134,7 @@ public static class ProjectQuantitySyncEndpoints
             audit,
             routingSync,
             metrics,
+            reminders,
             cancellationToken);
 
     private static Task<IResult> OverrideRoutingAsync(
@@ -142,6 +146,7 @@ public static class ProjectQuantitySyncEndpoints
         ProjectAuditService audit,
         ProjectRoutingSyncService routingSync,
         ProjectMetricsService metrics,
+        OperationScheduleReminderService reminders,
         CancellationToken cancellationToken) =>
         SyncAsync(
             projectId,
@@ -155,6 +160,7 @@ public static class ProjectQuantitySyncEndpoints
             audit,
             routingSync,
             metrics,
+            reminders,
             cancellationToken);
 
     private static async Task<IResult> SyncAsync(
@@ -169,6 +175,7 @@ public static class ProjectQuantitySyncEndpoints
         ProjectAuditService audit,
         ProjectRoutingSyncService routingSync,
         ProjectMetricsService metrics,
+        OperationScheduleReminderService reminders,
         CancellationToken cancellationToken)
     {
         var activeProvider = await providerSource.GetActiveProviderAsync(cancellationToken);
@@ -315,6 +322,31 @@ public static class ProjectQuantitySyncEndpoints
                 : $"Refreshed project quantities from {quantityProvider.ProviderName}",
             changes);
         await db.SaveChangesAsync(cancellationToken);
+
+        var startedExternalIds = snapshot.ConfirmedRoutingSteps
+            .Where(step => step.ActualStartDate is not null || step.IsComplete)
+            .Select(step => step.ExternalId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var completedExternalIds = snapshot.ConfirmedRoutingSteps
+            .Where(step => step.ActualCompletionDate is not null || step.IsComplete)
+            .Select(step => step.ExternalId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var startedTaskIds = project.Tasks
+            .Where(task => task.Id > 0
+                && task.ExternalSourceOperationId is not null
+                && startedExternalIds.Contains(task.ExternalSourceOperationId))
+            .Select(task => task.Id)
+            .ToArray();
+        var completedTaskIds = project.Tasks
+            .Where(task => task.Id > 0
+                && task.ExternalSourceOperationId is not null
+                && completedExternalIds.Contains(task.ExternalSourceOperationId))
+            .Select(task => task.Id)
+            .ToArray();
+        await reminders.ResolveFromExternalProgressAsync(
+            startedTaskIds,
+            completedTaskIds,
+            cancellationToken);
 
         return Results.Ok(new ProjectQuantitySyncResultDto(
             ProjectDtoMapper.ToDetailDto(project),

@@ -26,6 +26,7 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
     public DbSet<StatusHistory> StatusHistory => Set<StatusHistory>();
     public DbSet<AccessPreviewSessionRecord> AccessPreviewSessions => Set<AccessPreviewSessionRecord>();
     public DbSet<PushSubscriptionRecord> PushSubscriptions => Set<PushSubscriptionRecord>();
+    public DbSet<ProjectNotificationPreference> ProjectNotificationPreferences => Set<ProjectNotificationPreference>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -35,6 +36,7 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
             entity.Property(project => project.ProgramName).HasMaxLength(160);
             entity.Property(project => project.ProgramManager).HasMaxLength(120);
             entity.Property(project => project.Engineer).HasMaxLength(120);
+            entity.Property(project => project.SalesPerson).HasMaxLength(120);
             entity.Property(project => project.CustomerName).HasMaxLength(160);
             entity.Property(project => project.SalesOrderNumber).HasMaxLength(80);
             entity.Property(project => project.SalesOrderUrl).HasMaxLength(ProjectExternalLinks.MaxLength);
@@ -244,6 +246,21 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
         {
             entity.HasKey(permission => new { permission.AppGroupId, permission.PermissionKey });
             entity.Property(permission => permission.PermissionKey).HasMaxLength(120);
+        });
+
+        modelBuilder.Entity<ProjectNotificationPreference>(entity =>
+        {
+            entity.HasKey(preference => new { preference.ProjectId, preference.AppUserId });
+            entity.HasIndex(preference => preference.AppUserId);
+            entity.Property(preference => preference.UpdatedByAccountName).HasMaxLength(160);
+            entity.HasOne(preference => preference.Project)
+                .WithMany(project => project.NotificationPreferences)
+                .HasForeignKey(preference => preference.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(preference => preference.User)
+                .WithMany(user => user.ProjectNotificationPreferences)
+                .HasForeignKey(preference => preference.AppUserId)
+                .OnDelete(DeleteBehavior.NoAction);
         });
 
         modelBuilder.Entity<StatusHistory>(entity =>

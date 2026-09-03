@@ -3,6 +3,8 @@ import './project-detail-progress.css'
 import { useState, useEffect, useMemo, useRef, useCallback, Fragment } from 'react'
 import {
   AlertTriangle,
+  Bell,
+  BellOff,
   CalendarPlus,
   CheckCircle2,
   ChevronDown,
@@ -37,6 +39,7 @@ import {
   startOfTodayMs,
   clamp,
   toOperationTitleCase,
+  api,
 } from '../lib'
 import type {
   ProjectSummary,
@@ -47,6 +50,7 @@ import type {
   ProjectQuantityLookupOption,
   ProjectQuantityLookupResult,
   ProjectQuantitySyncResult,
+  ProjectNotificationPreference,
 } from '../types'
 import {
   ConflictIcon,
@@ -400,6 +404,9 @@ export function ProjectView({
   const [routingOverrideError, setRoutingOverrideError] = useState<string | null>(null)
   const [quantityLookup, setQuantityLookup] = useState<QuantityLookupState | null>(null)
   const [activeLookupKind, setActiveLookupKind] = useState<ProjectQuantityLookupKind | null>(null)
+  const [notificationPreference, setNotificationPreference] = useState<ProjectNotificationPreference | null>(null)
+  const [notificationPreferenceSaving, setNotificationPreferenceSaving] = useState(false)
+  const [notificationPreferenceError, setNotificationPreferenceError] = useState<string | null>(null)
   const quantityLookupRequest = useRef(0)
   const ganttOpen = controlledGanttOpen ?? internalGanttOpen
   const expandedTaskId = controlledExpandedTaskId !== undefined ? controlledExpandedTaskId : internalExpandedTaskId
@@ -425,6 +432,7 @@ export function ProjectView({
   const canManageBom = hasPermission(permissions, permissionKeys.importManage)
   const canEditQuantities = !isCompleted && hasPermission(permissions, permissionKeys.projectEditQuantities)
   const canOverrideRouting = canEditQuantities && isAdmin
+  const canManageProjectNotifications = hasPermission(permissions, permissionKeys.projectNotificationsManage)
   const daysLeft = calculateDaysLeft(project.targetDelivery)
   const total = project.tasks.length
   const behindSchedule = project.status === 'Behind'
@@ -449,6 +457,38 @@ export function ProjectView({
         ? `${completionVariance} day${completionVariance === 1 ? '' : 's'} late`
         : `${Math.abs(completionVariance)} day${completionVariance === -1 ? '' : 's'} early`
   const projectEditDetailsId = `project-edit-details-${project.id}`
+
+  useEffect(() => {
+    let active = true
+    setNotificationPreference(null)
+    setNotificationPreferenceError(null)
+    if (!canManageProjectNotifications) return () => { active = false }
+    void api<ProjectNotificationPreference>(`/api/projects/${project.id}/notification-preference`)
+      .then((preference) => {
+        if (active) setNotificationPreference(preference)
+      })
+      .catch((error) => {
+        if (active) setNotificationPreferenceError(error instanceof Error ? error.message : 'Notification preference could not be loaded.')
+      })
+    return () => { active = false }
+  }, [project.id, project.programManager, project.engineer, project.salesPerson, canManageProjectNotifications])
+
+  const toggleProjectNotifications = async () => {
+    if (!notificationPreference || notificationPreferenceSaving) return
+    setNotificationPreferenceSaving(true)
+    setNotificationPreferenceError(null)
+    try {
+      const updated = await api<ProjectNotificationPreference>(`/api/projects/${project.id}/notification-preference`, {
+        method: 'PUT',
+        body: JSON.stringify({ enabled: !notificationPreference.enabled }),
+      })
+      setNotificationPreference(updated)
+    } catch (error) {
+      setNotificationPreferenceError(error instanceof Error ? error.message : 'Notification preference could not be saved.')
+    } finally {
+      setNotificationPreferenceSaving(false)
+    }
+  }
 
   const syncQuantities = async () => {
     if (quantitySyncing) return
@@ -623,6 +663,7 @@ export function ProjectView({
       <span className="program-facts">
         {!editMode && <span><i>Lead</i> {project.programManager || 'Unassigned'}</span>}
         {!editMode && <span><i>Eng</i> {project.engineer || 'Unassigned'}</span>}
+        {!editMode && <span><i>Sales</i> {project.salesPerson || 'Unassigned'}</span>}
         {!editMode && <span><i>Customer</i> {project.customerName || 'Not set'}</span>}
         {!editMode && <span><i>SO</i> {project.salesOrderNumber ? <ExternalProjectReference value={project.salesOrderNumber} url={project.salesOrderUrl} /> : <b>Not set</b>}</span>}
         {!editMode && <span><i>Job</i> {project.jobNumber ? <ExternalProjectReference value={project.jobNumber} url={project.jobUrl} /> : <b>Not set</b>}</span>}
@@ -701,6 +742,15 @@ export function ProjectView({
                   value={projectMetadata.engineer}
                   onChange={(event) => onProjectMetadataChange({ ...projectMetadata, engineer: event.target.value })}
                   placeholder="Assigned engineer"
+                />
+              </label>}
+              {hasPermission(permissions, permissionKeys.projectEditSalesPerson) && <label>
+                <span>Sales Person</span>
+                <input
+                  className="cell-input"
+                  value={projectMetadata.salesPerson}
+                  onChange={(event) => onProjectMetadataChange({ ...projectMetadata, salesPerson: event.target.value })}
+                  placeholder="Assigned sales person"
                 />
               </label>}
               {hasPermission(permissions, permissionKeys.projectEditCustomerName) && <label>
@@ -823,6 +873,19 @@ export function ProjectView({
           )}
         </div>
         {!editMode && <div className="project-actions" data-guide-id="project-actions" role="group" aria-label="Project actions">
+          {canManageProjectNotifications && notificationPreference && <button
+            className={`button ghost ${notificationPreference.enabled ? '' : 'muted'}`}
+            type="button"
+            title={notificationPreference.enabled
+              ? `Turn off operation notifications for this project${notificationPreference.assignedRoles.length ? ` (automatic role: ${notificationPreference.assignedRoles.join(', ')})` : ''}`
+              : 'Turn on operation notifications for this project'}
+            disabled={notificationPreferenceSaving}
+            aria-pressed={notificationPreference.enabled}
+            onClick={() => void toggleProjectNotifications()}
+          >
+            {notificationPreference.enabled ? <Bell size={15} /> : <BellOff size={15} />}
+            {notificationPreferenceSaving ? 'Saving...' : `Notifications ${notificationPreference.enabled ? 'On' : 'Off'}`}
+          </button>}
           {canEditQuantities && <button className="button ghost" type="button" title="Refresh ERP quantities; existing operations are never replaced unless they are all blank" disabled={quantitySyncing || routingOverridePending} onClick={() => void syncQuantities()}><RefreshCw size={15} className={quantitySyncing ? 'spin' : undefined} /> {quantitySyncing ? 'Refreshing ERP Data...' : 'Refresh ERP Data'}</button>}
           {canOverrideRouting && <button className="button ghost" type="button" title="Administrator-only, one-time override for this project's operations" disabled={quantitySyncing || routingOverridePending} onClick={() => { setRoutingOverrideError(null); setRoutingOverrideOpen(true) }}><RefreshCw size={15} /> Override Operations from ERP</button>}
           {canManageBom && <ProjectBomImport project={project} onApplied={onBomApplied} />}
@@ -847,6 +910,9 @@ export function ProjectView({
           {quantitySyncError || quantitySaveError ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
           {quantitySyncError ?? quantitySaveError ?? quantitySyncMessage ?? quantitySaveMessage}
         </p>
+      )}
+      {notificationPreferenceError && (
+        <p className="inline-note warning quantity-sync-result" role="alert"><AlertTriangle size={14} /> {notificationPreferenceError}</p>
       )}
 
       {isCompleted && (

@@ -73,6 +73,8 @@ export function AddProjectWizard({
     requiredQuantity: '',
     jobQuantity: '',
     programManager: defaultManager,
+    engineer: '',
+    salesPerson: '',
     programStart: todayIso(),
     templateProjectId: '',
   })
@@ -98,6 +100,8 @@ export function AddProjectWizard({
         requiredQuantity: form.requiredQuantity ? Number(form.requiredQuantity) : null,
         jobQuantity: form.jobQuantity ? Number(form.jobQuantity) : null,
         programManager: form.programManager.trim() || null,
+        engineer: form.engineer.trim() || null,
+        salesPerson: form.salesPerson.trim() || null,
         programStart: form.programStart || null,
         templateProjectId: sourceMode === 'copy' ? Number(form.templateProjectId) : null,
       })
@@ -132,6 +136,10 @@ export function AddProjectWizard({
               <div className="field-row">
                 <label className="field"><span>Customer</span><input value={form.customerName} onChange={(event) => setForm({ ...form, customerName: event.target.value })} placeholder="Customer name" /></label>
                 <label className="field"><span>Project Manager</span><input value={form.programManager} onChange={(event) => setForm({ ...form, programManager: event.target.value })} placeholder="Project owner" /></label>
+              </div>
+              <div className="field-row">
+                <label className="field"><span>Engineer</span><input value={form.engineer} onChange={(event) => setForm({ ...form, engineer: event.target.value })} placeholder="Assigned engineer" /></label>
+                <label className="field"><span>Sales Person</span><input value={form.salesPerson} onChange={(event) => setForm({ ...form, salesPerson: event.target.value })} placeholder="Assigned sales person" /></label>
               </div>
               <label className="field"><span>Job Number</span><input className="technical-id-input" value={form.jobNumber} onChange={(event) => setForm({ ...form, jobNumber: event.target.value })} placeholder="Optional internal job number" /></label>
               <div className="field-row">
@@ -188,6 +196,8 @@ export function AddProjectWizard({
               {canEditExternalLinks && <div><span>Sales Order Link</span><strong>{form.salesOrderUrl ? 'Configured' : 'Not set'}</strong></div>}
               {canEditExternalLinks && <div><span>Job Link</span><strong>{form.jobUrl ? 'Configured' : 'Not set'}</strong></div>}
               <div><span>Project Manager</span><strong>{form.programManager || 'Unassigned'}</strong></div>
+              <div><span>Engineer</span><strong>{form.engineer || 'Unassigned'}</strong></div>
+              <div><span>Sales Person</span><strong>{form.salesPerson || 'Unassigned'}</strong></div>
               <div><span>Start Date</span><strong>{compactDate(form.programStart)}</strong></div>
               <div><span>Operations</span><strong>{sourceMode === 'copy' ? `${template?.tasks.length ?? 0} copied from ${template?.programName}` : 'Blank schedule'}</strong></div>
               <p><CheckCircle2 size={16} /> The project will open in edit mode after creation.</p>

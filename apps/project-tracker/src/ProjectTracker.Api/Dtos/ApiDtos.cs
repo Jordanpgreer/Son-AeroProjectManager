@@ -129,6 +129,7 @@ public sealed record ProjectSummaryDto(
     string ProgramName,
     string? ProgramManager,
     string? Engineer,
+    string? SalesPerson,
     string? CustomerName,
     string? SalesOrderNumber,
     string? SalesOrderUrl,
@@ -162,6 +163,7 @@ public sealed record ProjectDetailDto(
     string ProgramName,
     string? ProgramManager,
     string? Engineer,
+    string? SalesPerson,
     string? CustomerName,
     string? SalesOrderNumber,
     string? SalesOrderUrl,
@@ -221,6 +223,7 @@ public sealed record ProjectUpsertDto(
     string ProgramName,
     string? ProgramManager,
     string? Engineer,
+    string? SalesPerson,
     string? CustomerName,
     string? SalesOrderNumber,
     string? SalesOrderUrl,
@@ -234,6 +237,7 @@ public sealed record ProjectCreateDto(
     string ProgramName,
     string? ProgramManager,
     string? Engineer,
+    string? SalesPerson,
     string? CustomerName,
     string? SalesOrderNumber,
     string? SalesOrderUrl,
@@ -370,6 +374,14 @@ public sealed record UserNotificationDto(
     DateTimeOffset? ReadAt);
 
 public sealed record NotificationCountDto(int UnreadCount);
+
+public sealed record ProjectNotificationPreferenceDto(
+    int ProjectId,
+    bool Enabled,
+    bool IsAutomatic,
+    IReadOnlyList<string> AssignedRoles);
+
+public sealed record ProjectNotificationPreferenceUpdateDto(bool Enabled);
 
 public sealed record OperationScheduleResponseDto(string Response);
 

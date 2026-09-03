@@ -25,6 +25,7 @@ builder.Services.AddScoped<ProjectTrackerAccessPreviewService>();
 builder.Services.AddScoped<ProjectAuditService>();
 builder.Services.AddScoped<MentionNotificationService>();
 builder.Services.AddScoped<NotificationReadService>();
+builder.Services.AddScoped<ProjectNotificationAudienceService>();
 builder.Services.AddScoped<OperationScheduleReminderService>();
 builder.Services.AddScoped<PushSubscriptionService>();
 builder.Services.AddOptions<WebPushOptions>()
@@ -94,6 +95,7 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("ProjectReopen", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectReopen));
     options.AddPolicy("ProjectArchive", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectArchive));
     options.AddPolicy("ProjectActivityView", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ProjectTrackerPermissions.ProjectActivityView));
+    options.AddPolicy("ManageProjectNotifications", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ProjectTrackerPermissions.ProjectNotificationsManage));
     options.AddPolicy("TaskCreate", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.TaskCreate));
     options.AddPolicy("TaskDelete", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.TaskDelete));
     options.AddPolicy("ManageCalendar", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.SettingsWorkCalendarManage));
@@ -327,6 +329,7 @@ api.MapPost("/projects", async (ProjectCreateDto dto, ProjectTrackerDbContext db
         ProgramName = programName,
         ProgramManager = Clean(dto.ProgramManager),
         Engineer = Clean(dto.Engineer),
+        SalesPerson = Clean(dto.SalesPerson),
         CustomerName = Clean(dto.CustomerName),
         SalesOrderNumber = Clean(dto.SalesOrderNumber),
         SalesOrderUrl = salesOrderUrl,
@@ -384,7 +387,7 @@ api.MapPost("/projects", async (ProjectCreateDto dto, ProjectTrackerDbContext db
     return Results.Created($"/api/projects/{project.Id}", ToDetailDto(project));
 }).RequireAuthorization("ProjectCreate");
 
-api.MapPut("/projects/{id:int}", async (int id, ProjectUpsertDto dto, ProjectTrackerDbContext db, CurrentUserService currentUser, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
+api.MapPut("/projects/{id:int}", async (int id, ProjectUpsertDto dto, ProjectTrackerDbContext db, CurrentUserService currentUser, ProjectMetricsService metrics, ProjectAuditService audit, ProjectNotificationAudienceService notificationAudience, CancellationToken cancellationToken) =>
 {
     var project = await db.Projects.Include(project => project.Tasks).ThenInclude(task => task.OvertimeDays).FirstOrDefaultAsync(project => project.Id == id, cancellationToken);
     if (project is null)
@@ -428,6 +431,7 @@ api.MapPut("/projects/{id:int}", async (int id, ProjectUpsertDto dto, ProjectTra
         audit.Record(db, project, "ProjectUpdated", "Updated project details", changes);
     }
     await db.SaveChangesAsync(cancellationToken);
+    await notificationAudience.ReconcileOpenPromptsAsync(project, cancellationToken);
     return Results.Ok(ToDetailDto(project));
 }).RequireAuthorization(ProjectTrackerAccessAuthorization.PolicyName);
 
@@ -1017,6 +1021,7 @@ static void ApplyProjectDto(Project project, ProjectUpsertDto dto, string? sales
     project.ProgramName = dto.ProgramName.Trim();
     project.ProgramManager = Clean(dto.ProgramManager);
     project.Engineer = Clean(dto.Engineer);
+    project.SalesPerson = Clean(dto.SalesPerson);
     project.CustomerName = Clean(dto.CustomerName);
     project.SalesOrderNumber = Clean(dto.SalesOrderNumber);
     project.SalesOrderUrl = salesOrderUrl;
@@ -1274,9 +1279,12 @@ static async Task InitializeDatabaseAsync(WebApplication app)
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Tasks", "NoteUpdatedAt", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Tasks", "ExternalSourceProvider", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Tasks", "ExternalSourceOperationId", cancellationToken: default);
+            await SqliteCompatibility.EnsureTextColumnAsync(db, "Tasks", "ExternalActualStartDate", cancellationToken: default);
+            await SqliteCompatibility.EnsureTextColumnAsync(db, "Tasks", "ExternalActualCompletionDate", cancellationToken: default);
             await SqliteCompatibility.EnsureLongColumnAsync(db, "Projects", "Version", cancellationToken: default);
             await SqliteCompatibility.EnsureLongColumnAsync(db, "Tasks", "Version", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "CustomerName", cancellationToken: default);
+            await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "SalesPerson", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "SalesOrderNumber", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "SalesOrderUrl", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "Projects", "JobNumber", cancellationToken: default);
@@ -1385,6 +1393,11 @@ static string? FindDeniedProjectPermission(
         && !currentUser.HasPermission(ApplicationPermissions.ProjectEditEngineer))
     {
         return ApplicationPermissions.ProjectEditEngineer;
+    }
+    if (!string.Equals(project.SalesPerson, Clean(dto.SalesPerson), StringComparison.Ordinal)
+        && !currentUser.HasPermission(ProjectTrackerPermissions.ProjectEditSalesPerson))
+    {
+        return ProjectTrackerPermissions.ProjectEditSalesPerson;
     }
 
     if (!string.Equals(project.CustomerName, Clean(dto.CustomerName), StringComparison.Ordinal)

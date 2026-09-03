@@ -16,9 +16,11 @@ public sealed class ProjectTask
     public ProjectTask? DependencyTask { get; set; }
     public List<ProjectTask> DependentTasks { get; set; } = [];
     public DateOnly? StartDate { get; set; }
+    public DateOnly? ExternalActualStartDate { get; set; }
     public bool StartDateLocked { get; set; }
     public DateOnly? OriginalStartDate { get; set; }
     public DateOnly? EndDate { get; set; }
+    public DateOnly? ExternalActualCompletionDate { get; set; }
     public DateOnly? OriginalEndDate { get; set; }
     public int? EstimatedDuration { get; set; }
     public int? ActualDuration { get; set; }

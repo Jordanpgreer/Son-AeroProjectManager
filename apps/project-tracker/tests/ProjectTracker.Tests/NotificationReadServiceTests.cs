@@ -298,6 +298,12 @@ public sealed class NotificationReadServiceTests
         reminder.ReadAt = null;
         await db.SaveChangesAsync();
 
+        task.ExternalActualStartDate = new DateOnly(2026, 8, 13);
+        await db.SaveChangesAsync();
+        Assert.Empty(await service.GetAsync(user.Id, user.AccountName, false, 20, includeScheduleConfirmations: true));
+        task.ExternalActualStartDate = null;
+        await db.SaveChangesAsync();
+
         reminder.RespondedAt = DateTimeOffset.UtcNow;
         reminder.ReadAt = reminder.RespondedAt;
         await db.SaveChangesAsync();

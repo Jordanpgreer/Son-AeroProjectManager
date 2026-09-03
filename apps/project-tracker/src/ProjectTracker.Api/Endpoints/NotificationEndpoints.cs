@@ -10,6 +10,36 @@ public static class NotificationEndpoints
 {
     public static RouteGroupBuilder MapNotificationEndpoints(this RouteGroupBuilder api)
     {
+        api.MapGet("/projects/{projectId:int}/notification-preference", async (
+            int projectId,
+            CurrentUserService currentUser,
+            ProjectNotificationAudienceService audience,
+            CancellationToken cancellationToken) =>
+        {
+            var preference = await audience.GetAsync(
+                projectId,
+                currentUser.EffectiveAccountName,
+                cancellationToken);
+            return preference is null ? Results.NotFound() : Results.Ok(preference);
+        });
+
+        api.MapPut("/projects/{projectId:int}/notification-preference", async (
+            int projectId,
+            ProjectNotificationPreferenceUpdateDto dto,
+            CurrentUserService currentUser,
+            ProjectNotificationAudienceService audience,
+            CancellationToken cancellationToken) =>
+        {
+            if (currentUser.IsAccessPreview) return Results.Forbid();
+            var preference = await audience.SetAsync(
+                projectId,
+                currentUser.AccountName,
+                dto.Enabled,
+                currentUser.AccountName,
+                cancellationToken);
+            return preference is null ? Results.NotFound() : Results.Ok(preference);
+        }).RequireAuthorization("ManageProjectNotifications");
+
         api.MapGet("/notifications", async (
             bool? unreadOnly,
             int? take,

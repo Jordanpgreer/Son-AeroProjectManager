@@ -16,6 +16,7 @@ public sealed class AccessControlSeeder
     private const string OperationScheduleConfirmationPermissionVersion = "operation-schedule-confirmation-permission-v1";
     private const string WorkCenterImportPermissionVersion = "work-center-import-permission-v1";
     private const string ProjectQuantitiesPermissionVersion = "project-quantities-permission-v1";
+    private const string ProjectNotificationScopingPermissionsVersion = "project-notification-scoping-permissions-v1";
     private const string EstimatingHistoryImportPermissionVersion = "estimating-history-import-permission-v1";
     private const string LegacyEstimatingEditorCompatibilityGroup = "Estimating Editor Access";
 
@@ -131,6 +132,41 @@ public sealed class AccessControlSeeder
                     cancellationToken);
             }
             await RecordVersionAsync(db, ProjectQuantitiesPermissionVersion, cancellationToken);
+        }
+        var addProjectNotificationScopingPermissions = !await HasVersionAsync(
+            db,
+            ProjectNotificationScopingPermissionsVersion,
+            cancellationToken);
+        if (addProjectNotificationScopingPermissions)
+        {
+            foreach (var groupName in new[]
+                     {
+                         ApplicationGroups.Administrators,
+                         ApplicationGroups.Managers,
+                         ApplicationGroups.Engineering,
+                         ApplicationGroups.Sales
+                     })
+            {
+                if (!groupIds.TryGetValue(groupName, out var groupId)) continue;
+                IReadOnlyCollection<string> permissions = groupName switch
+                {
+                    ApplicationGroups.Engineering =>
+                        new[] { ProjectTrackerPermissions.ProjectNotificationsManage },
+                    ApplicationGroups.Sales =>
+                        [
+                            ProjectTrackerPermissions.ProjectEditSalesPerson,
+                            ProjectTrackerPermissions.ProjectNotificationsManage,
+                            ProjectTrackerPermissions.OperationScheduleConfirm
+                        ],
+                    _ =>
+                        [
+                            ProjectTrackerPermissions.ProjectEditSalesPerson,
+                            ProjectTrackerPermissions.ProjectNotificationsManage
+                        ]
+                };
+                await AddPermissionsToGroupAsync(db, groupId, permissions, cancellationToken);
+            }
+            await RecordVersionAsync(db, ProjectNotificationScopingPermissionsVersion, cancellationToken);
         }
         var makeEstimatingHistoryImportOptIn = !await HasVersionAsync(
             db,

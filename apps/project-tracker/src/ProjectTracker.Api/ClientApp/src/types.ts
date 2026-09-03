@@ -52,6 +52,7 @@ export type ProjectSummary = {
   programName: string
   programManager: string | null
   engineer: string | null
+  salesPerson: string | null
   customerName: string | null
   salesOrderNumber: string | null
   salesOrderUrl: string | null
@@ -96,6 +97,7 @@ export type ProjectDetail = {
   programName: string
   programManager: string | null
   engineer: string | null
+  salesPerson: string | null
   customerName: string | null
   salesOrderNumber: string | null
   salesOrderUrl: string | null
@@ -134,6 +136,7 @@ export type ProjectMetadataDraft = {
   programName: string
   programManager: string
   engineer: string
+  salesPerson: string
   customerName: string
   salesOrderNumber: string
   salesOrderUrl: string
@@ -300,6 +303,8 @@ export type ImportApplyResult = {
 export type ProjectCreateRequest = {
   programName: string
   programManager: string | null
+  engineer: string | null
+  salesPerson: string | null
   customerName: string | null
   salesOrderNumber: string | null
   salesOrderUrl: string | null
@@ -323,6 +328,13 @@ export type ProjectQuantitySyncResult = {
   routingOperationsRemoved: number
   existingOperationsPreserved: boolean
   operationProgressUpdated: number
+}
+
+export type ProjectNotificationPreference = {
+  projectId: number
+  enabled: boolean
+  isAutomatic: boolean
+  assignedRoles: string[]
 }
 
 export type ProjectQuantityLookupKind = 'item' | 'sales-order' | 'job'

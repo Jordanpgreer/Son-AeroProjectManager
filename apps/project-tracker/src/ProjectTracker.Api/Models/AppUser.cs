@@ -10,6 +10,7 @@ public sealed class AppUser
     public ICollection<AppUserGroupMembership> GroupMemberships { get; set; } = [];
     public ICollection<AppUserModuleAccess> ModuleAccessAssignments { get; set; } = [];
     public ICollection<UserNotification> Notifications { get; set; } = [];
+    public ICollection<ProjectNotificationPreference> ProjectNotificationPreferences { get; set; } = [];
     public ICollection<PushSubscriptionRecord> PushSubscriptions { get; set; } = [];
 }
 

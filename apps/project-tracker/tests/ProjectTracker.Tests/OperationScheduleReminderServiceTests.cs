@@ -373,9 +373,153 @@ public sealed class OperationScheduleReminderServiceTests
         Assert.All(await fixture.Db.UserNotifications.ToListAsync(), candidate => Assert.Null(candidate.RespondedAt));
     }
 
+    [Fact]
+    public async Task EnsureRemindersAsync_AutoSubscribesAssignedRolesButNotUnassignedPermittedUsers()
+    {
+        await using var fixture = await ReminderFixture.CreateAsync();
+        var contact = fixture.AddUser("Contact", includeReminderPermission: true);
+        var engineer = fixture.AddUser("Engineer", includeReminderPermission: true);
+        var sales = fixture.AddUser("Sales", includeReminderPermission: true);
+        var project = fixture.AddProject(DueStartTask());
+        var unassignedAdmin = fixture.AddUser("Unassigned admin", includeReminderPermission: true);
+        await fixture.Db.SaveChangesAsync();
+
+        var created = await fixture.Service.EnsureRemindersAsync(new DateOnly(2026, 8, 17));
+
+        Assert.Equal(3, created);
+        var recipientIds = await fixture.Db.UserNotifications
+            .Select(notification => notification.RecipientUserId)
+            .ToListAsync();
+        Assert.Contains(contact.Id, recipientIds);
+        Assert.Contains(engineer.Id, recipientIds);
+        Assert.Contains(sales.Id, recipientIds);
+        Assert.DoesNotContain(unassignedAdmin.Id, recipientIds);
+        Assert.Equal(contact.DisplayName, project.ProgramManager);
+        Assert.Equal(engineer.DisplayName, project.Engineer);
+        Assert.Equal(sales.DisplayName, project.SalesPerson);
+    }
+
+    [Fact]
+    public async Task EnsureRemindersAsync_ExplicitPreferenceOverridesAutomaticAssignment()
+    {
+        await using var fixture = await ReminderFixture.CreateAsync();
+        var assigned = fixture.AddUser("Assigned", includeReminderPermission: true);
+        var project = fixture.AddProject(DueStartTask());
+        var optedIn = fixture.AddUser("Opted in", includeReminderPermission: true);
+        project.NotificationPreferences.Add(new ProjectNotificationPreference
+        {
+            Project = project,
+            User = assigned,
+            Enabled = false
+        });
+        project.NotificationPreferences.Add(new ProjectNotificationPreference
+        {
+            Project = project,
+            User = optedIn,
+            Enabled = true
+        });
+        await fixture.Db.SaveChangesAsync();
+
+        var created = await fixture.Service.EnsureRemindersAsync(new DateOnly(2026, 8, 17));
+
+        Assert.Equal(1, created);
+        var notification = await fixture.Db.UserNotifications.SingleAsync();
+        Assert.Equal(optedIn.Id, notification.RecipientUserId);
+        Assert.NotEqual(assigned.Id, notification.RecipientUserId);
+    }
+
+    [Fact]
+    public async Task EnsureRemindersAsync_DoesNotAskAboutAStartAlreadyConfirmedByFulcrum()
+    {
+        await using var fixture = await ReminderFixture.CreateAsync();
+        fixture.AddUser("Assigned", includeReminderPermission: true);
+        var task = DueStartTask();
+        task.ExternalActualStartDate = task.StartDate;
+        fixture.AddProject(task);
+        await fixture.Db.SaveChangesAsync();
+
+        Assert.Equal(0, await fixture.Service.EnsureRemindersAsync(new DateOnly(2026, 8, 17)));
+        Assert.Empty(await fixture.Db.UserNotifications.ToListAsync());
+    }
+
+    [Fact]
+    public async Task ResolveFromExternalProgressAsync_ClosesMatchingStartAndFinishPrompts()
+    {
+        await using var fixture = await ReminderFixture.CreateAsync();
+        var user = fixture.AddUser("Assigned", includeReminderPermission: true);
+        var task = DueStartTask();
+        var project = fixture.AddProject(task);
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.UserNotifications.AddRange(
+            new UserNotification
+            {
+                RecipientUserId = user.Id,
+                ProjectId = project.Id,
+                ProjectTaskId = task.Id,
+                Kind = NotificationKind.OperationStartConfirmation,
+                Title = "Did Build start?"
+            },
+            new UserNotification
+            {
+                RecipientUserId = user.Id,
+                ProjectId = project.Id,
+                ProjectTaskId = task.Id,
+                Kind = NotificationKind.OperationFinishConfirmation,
+                Title = "Did Build finish?"
+            });
+        await fixture.Db.SaveChangesAsync();
+
+        Assert.Equal(1, await fixture.Service.ResolveFromExternalProgressAsync([task.Id], []));
+        Assert.Equal(1, await fixture.Db.UserNotifications.CountAsync(notification => notification.RespondedAt != null));
+        Assert.Equal(1, await fixture.Service.ResolveFromExternalProgressAsync([], [task.Id]));
+        fixture.Db.ChangeTracker.Clear();
+        Assert.All(await fixture.Db.UserNotifications.ToListAsync(), notification =>
+        {
+            Assert.NotNull(notification.ReadAt);
+            Assert.NotNull(notification.RespondedAt);
+        });
+    }
+
+    [Fact]
+    public async Task ProjectPreference_DisablingAssignedUserClosesExistingPromptsAndPersistsOptOut()
+    {
+        await using var fixture = await ReminderFixture.CreateAsync();
+        var assigned = fixture.AddUser("Assigned", includeReminderPermission: true);
+        var project = fixture.AddProject(DueStartTask());
+        await fixture.Db.SaveChangesAsync();
+        await fixture.Service.EnsureRemindersAsync(new DateOnly(2026, 8, 17));
+
+        var preference = await fixture.Audience.SetAsync(
+            project.Id,
+            assigned.AccountName,
+            enabled: false,
+            actorAccountName: assigned.AccountName);
+
+        Assert.NotNull(preference);
+        Assert.False(preference.Enabled);
+        Assert.False(preference.IsAutomatic);
+        Assert.Contains("Contact Lead", preference.AssignedRoles);
+        fixture.Db.ChangeTracker.Clear();
+        var notification = await fixture.Db.UserNotifications.SingleAsync();
+        Assert.NotNull(notification.ReadAt);
+        Assert.NotNull(notification.RespondedAt);
+        Assert.Empty(await fixture.Audience.LoadRecipientsAsync(project));
+    }
+
+    private static ProjectTask DueStartTask() => new()
+    {
+        Sequence = 1,
+        Title = "Build",
+        StartDate = new DateOnly(2026, 8, 13),
+        EndDate = new DateOnly(2026, 8, 19),
+        EstimatedDuration = 4,
+        PercentCompleteManual = true
+    };
+
     private sealed class ReminderFixture : IAsyncDisposable
     {
         private readonly SqliteConnection connection;
+        private readonly List<AppUser> reminderUsers = [];
         private int userNumber;
 
         private ReminderFixture(SqliteConnection connection, ProjectTrackerDbContext db)
@@ -383,15 +527,18 @@ public sealed class OperationScheduleReminderServiceTests
             this.connection = connection;
             Db = db;
             Queue = new RecordingQueue();
+            Audience = new ProjectNotificationAudienceService(db);
             Service = new OperationScheduleReminderService(
                 db,
                 new ScheduleCalculator(),
                 new ProjectMetricsService(new ScheduleCalculator()),
-                Queue);
+                Queue,
+                Audience);
         }
 
         public ProjectTrackerDbContext Db { get; }
         public RecordingQueue Queue { get; }
+        public ProjectNotificationAudienceService Audience { get; }
         public OperationScheduleReminderService Service { get; }
 
         public static async Task<ReminderFixture> CreateAsync()
@@ -436,6 +583,10 @@ public sealed class OperationScheduleReminderServiceTests
                 GroupMemberships = [new AppUserGroupMembership { Group = group }]
             };
             Db.Users.Add(user);
+            if (includeReminderPermission)
+            {
+                reminderUsers.Add(user);
+            }
             return user;
         }
 
@@ -445,6 +596,9 @@ public sealed class OperationScheduleReminderServiceTests
             {
                 ProgramName = $"Reminder project {Guid.NewGuid():N}",
                 ProgramStart = tasks.Min(task => task.StartDate),
+                ProgramManager = reminderUsers.ElementAtOrDefault(0)?.DisplayName,
+                Engineer = reminderUsers.ElementAtOrDefault(1)?.DisplayName,
+                SalesPerson = reminderUsers.ElementAtOrDefault(2)?.DisplayName,
                 Tasks = tasks.ToList()
             };
             Db.Projects.Add(project);

@@ -57,6 +57,21 @@ public sealed class ProjectTrackerPermissionSchemaTests
             ProjectTrackerPermissions.OperationScheduleConfirm,
             ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Engineering));
         Assert.Contains(ProjectTrackerPermissions.All, permission =>
+            permission.Key == ProjectTrackerPermissions.ProjectNotificationsManage
+            && permission.Label == "Manage Project Notifications");
+        Assert.Contains(
+            ProjectTrackerPermissions.ProjectNotificationsManage,
+            ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Administrators));
+        Assert.Contains(
+            ProjectTrackerPermissions.ProjectNotificationsManage,
+            ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Sales));
+        Assert.Contains(ProjectTrackerPermissions.All, permission =>
+            permission.Key == ProjectTrackerPermissions.ProjectEditSalesPerson
+            && permission.Label == "Edit Sales Person");
+        Assert.Contains(
+            ProjectTrackerPermissions.ProjectEditSalesPerson,
+            ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Sales));
+        Assert.Contains(ProjectTrackerPermissions.All, permission =>
             permission.Key == ProjectTrackerPermissions.WorkCentersImport
             && permission.Label == "Import Work Centers");
         Assert.Contains(
@@ -102,6 +117,14 @@ public sealed class ProjectTrackerPermissionSchemaTests
         Assert.Equal(80, db.Model.FindEntityType(typeof(Project))!.FindProperty(nameof(Project.JobNumber))!.GetMaxLength());
         Assert.Equal(ProjectExternalLinks.MaxLength, db.Model.FindEntityType(typeof(Project))!.FindProperty(nameof(Project.SalesOrderUrl))!.GetMaxLength());
         Assert.Equal(ProjectExternalLinks.MaxLength, db.Model.FindEntityType(typeof(Project))!.FindProperty(nameof(Project.JobUrl))!.GetMaxLength());
+        Assert.Equal(120, db.Model.FindEntityType(typeof(Project))!.FindProperty(nameof(Project.SalesPerson))!.GetMaxLength());
+        var projectNotificationPreference = db.Model.FindEntityType(typeof(ProjectNotificationPreference))!;
+        Assert.Equal(
+            DeleteBehavior.Cascade,
+            projectNotificationPreference.GetForeignKeys().Single(key => key.Properties.Single().Name == nameof(ProjectNotificationPreference.ProjectId)).DeleteBehavior);
+        Assert.Equal(
+            DeleteBehavior.NoAction,
+            projectNotificationPreference.GetForeignKeys().Single(key => key.Properties.Single().Name == nameof(ProjectNotificationPreference.AppUserId)).DeleteBehavior);
         var reminderIndex = notification.GetIndexes().Single(index =>
             index.Properties.Select(property => property.Name).SequenceEqual([
                 nameof(UserNotification.RecipientUserId),
