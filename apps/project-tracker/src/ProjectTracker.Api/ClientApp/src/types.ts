@@ -322,6 +322,7 @@ export type ProjectQuantitySyncResult = {
   ardaOnlyOperationsRetained: number
   routingOperationsRemoved: number
   existingOperationsPreserved: boolean
+  operationProgressUpdated: number
 }
 
 export type ProjectQuantityLookupKind = 'item' | 'sales-order' | 'job'

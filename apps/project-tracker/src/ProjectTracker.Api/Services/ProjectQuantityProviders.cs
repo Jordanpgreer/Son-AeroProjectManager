@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 using ProjectTracker.Api.Models;
 using SonAero.Platform.Integrations;
@@ -22,7 +23,10 @@ public sealed class ProjectQuantitySyncOptions
 public sealed record ProjectRoutingStepSnapshot(
     string ExternalId,
     int Sequence,
-    string Name);
+    string Name,
+    DateOnly? ActualStartDate = null,
+    DateOnly? ActualCompletionDate = null,
+    bool IsComplete = false);
 
 public sealed record ProjectQuantitySnapshot(
     decimal? RequiredQuantity,
@@ -124,7 +128,8 @@ public interface IProjectQuantityProvider : IEnterpriseIntegrationAdapter
     Task<IReadOnlyList<ProjectQuantityLookupOption>> SearchAsync(
         ProjectQuantityLookupKind kind,
         string query,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? partNumber = null);
 }
 
 public sealed class FulcrumProjectQuantityProvider(
@@ -134,6 +139,7 @@ public sealed class FulcrumProjectQuantityProvider(
     FulcrumProjectLookupCatalog catalog) : IProjectQuantityProvider
 {
     private const int CatalogPageSize = 5000;
+    private const decimal MaximumQuantity = 1_000_000_000m;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -165,25 +171,23 @@ public sealed class FulcrumProjectQuantityProvider(
             throw new InvalidOperationException(
                 "The Fulcrum Public API credential is not configured. Add it in Admin Hub under API Keys.");
 
+        var itemQuery = NormalizePartNumber(partNumber);
         var items = await SendAsync<List<FulcrumItemDto>>(
             baseUri,
             HttpMethod.Post,
-            "api/items/list/v2?Skip=0&Take=10",
+            "api/items/list/v2?Skip=0&Take=50",
             token,
             new
             {
                 numbers = new[]
                 {
-                    new { query = partNumber, mode = "equal", casingOption = "caseInsensitive" }
+                    new { query = itemQuery, mode = "startsWith", casingOption = "caseInsensitive" }
                 },
                 latestRevision = true,
                 isArchived = false
             },
             cancellationToken);
-        var matchingItems = items
-            .Where(candidate => !candidate.IsArchived
-                && string.Equals(candidate.Number.Trim(), partNumber, StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var matchingItems = FindMatchingItems(items, partNumber);
         if (matchingItems.Count != 1)
             return NoMatch(matchingItems.Count == 0
                 ? $"Fulcrum did not return active Item {partNumber}."
@@ -231,25 +235,42 @@ public sealed class FulcrumProjectQuantityProvider(
         if (string.IsNullOrWhiteSpace(job.SalesOrderLineItemId))
             return NoMatch($"Job {jobNumber} is not linked to a part line on Sales Order {salesOrderNumber}; no quantities were changed.");
 
-        var salesOrderLine = await TryGetSalesOrderLineAsync(
+        var salesOrderLines = await SendAsync<List<FulcrumSalesOrderPartLineItemDto>>(
             baseUri,
-            salesOrder.Id,
-            job.SalesOrderLineItemId,
+            HttpMethod.Post,
+            $"api/sales-orders/{Uri.EscapeDataString(salesOrder.Id)}/part-line-items/list",
             token,
+            null,
             cancellationToken);
+        var salesOrderLine = salesOrderLines.SingleOrDefault(line =>
+            string.Equals(line.Id, job.SalesOrderLineItemId, StringComparison.OrdinalIgnoreCase));
         if (salesOrderLine is null)
             return NoMatch($"The part line linked to Job {jobNumber} was not found on Sales Order {salesOrderNumber}; no quantities were changed.");
-        if (!string.IsNullOrWhiteSpace(salesOrderLine.ItemId)
-            ? !string.Equals(salesOrderLine.ItemId, item.Id, StringComparison.OrdinalIgnoreCase)
-            : !PartNumberMatches(salesOrderLine, partNumber))
+        if (!SalesOrderLineMatchesItem(salesOrderLine, item, partNumber))
             return NoMatch($"Part {partNumber} does not match the part line linked to Job {jobNumber} and Sales Order {salesOrderNumber}; no quantities were changed.");
 
+        var matchingSalesOrderLines = salesOrderLines
+            .Where(line => SalesOrderLineMatchesItem(line, item, partNumber))
+            .ToList();
+        var matchingRequiredQuantities = matchingSalesOrderLines
+            .Select(line => PositiveOrNull(line.Quantity))
+            .Where(quantity => quantity is not null)
+            .Select(quantity => quantity!.Value)
+            .ToList();
+
         var jobQuantity = PositiveOrNull(job.QuantityToMake);
-        var requiredQuantity = PositiveOrNull(salesOrderLine.Quantity);
+        var requiredQuantityTotal = matchingRequiredQuantities.Sum();
+        decimal? requiredQuantity = requiredQuantityTotal is > 0 and <= MaximumQuantity
+            ? requiredQuantityTotal
+            : null;
         if (jobQuantity is null)
             warnings.Add("The matched Fulcrum job did not contain a positive quantity to make.");
         if (requiredQuantity is null)
-            warnings.Add("The matched Fulcrum sales-order line did not contain a positive quantity.");
+            warnings.Add(requiredQuantityTotal > MaximumQuantity
+                ? $"The total required quantity exceeds the supported maximum of {MaximumQuantity:N0}; the existing value was retained."
+                : "The matching Fulcrum sales-order lines did not contain a positive quantity.");
+        else if (matchingRequiredQuantities.Count < matchingSalesOrderLines.Count)
+            warnings.Add("Required quantity excludes matching Fulcrum sales-order lines without a positive quantity.");
 
         var routingDetails = await SendAsync<List<FulcrumJobOperationDetailsDto>>(
             baseUri,
@@ -258,7 +279,7 @@ public sealed class FulcrumProjectQuantityProvider(
             token,
             null,
             cancellationToken);
-        var routingSteps = routingDetails
+        var topLevelRoutingDetails = routingDetails
             .Select((detail, index) => new { Detail = detail, Index = index })
             .Where(record => record.Detail.ItemToMake.Depth == 0
                 && string.Equals(record.Detail.ItemToMake.ItemId, item.Id, StringComparison.OrdinalIgnoreCase)
@@ -266,10 +287,29 @@ public sealed class FulcrumProjectQuantityProvider(
                 && !string.IsNullOrWhiteSpace(record.Detail.Operation.Name))
             .OrderBy(record => record.Detail.Operation.Order)
             .ThenBy(record => record.Index)
+            .ToList();
+        var timers = topLevelRoutingDetails.Count == 0
+            ? []
+            : await LoadJobTimersAsync(baseUri, job.Id, token, cancellationToken);
+        var actualStartByOperationId = timers
+            .Where(timer => !string.IsNullOrWhiteSpace(timer.JobOperationId)
+                && timer.StartedOnUtc is not null)
+            .GroupBy(timer => timer.JobOperationId!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Min(timer => timer.StartedOnUtc!.Value),
+                StringComparer.OrdinalIgnoreCase);
+        var timeZone = ResolveLookupTimeZone();
+        var routingSteps = topLevelRoutingDetails
             .Select(record => new ProjectRoutingStepSnapshot(
                 record.Detail.Operation.Id.Trim(),
                 record.Detail.Operation.Order,
-                record.Detail.Operation.Name!.Trim()))
+                record.Detail.Operation.Name!.Trim(),
+                actualStartByOperationId.TryGetValue(record.Detail.Operation.Id, out var actualStart)
+                    ? ToLocalDate(actualStart, timeZone)
+                    : null,
+                ToLocalDate(record.Detail.Operation.CompletedOnUtc, timeZone),
+                IsCompleteOperation(record.Detail.Operation)))
             .DistinctBy(step => step.ExternalId, StringComparer.OrdinalIgnoreCase)
             .ToList();
         if (routingSteps.Count == 0)
@@ -325,7 +365,8 @@ public sealed class FulcrumProjectQuantityProvider(
     public async Task<IReadOnlyList<ProjectQuantityLookupOption>> SearchAsync(
         ProjectQuantityLookupKind kind,
         string query,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? partNumber = null)
     {
         query = query.Trim();
         if (query.Length == 0) return [];
@@ -372,17 +413,40 @@ public sealed class FulcrumProjectQuantityProvider(
                 ct => LoadAllAsync<FulcrumSalesOrderDto>(baseUri, "api/sales-orders/list", token, new { }, ct),
                 refreshInterval,
                 cancellationToken);
-            return salesOrders
+            var matchingOrders = salesOrders
                 .Where(order => !order.Deleted && IsActiveSalesOrder(order.Status)
                     && order.Number.ToString().Contains(query, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(order => MatchRank(order.Number.ToString(), query))
                 .ThenByDescending(order => order.Number)
+                .Take(500)
+                .ToList();
+            var normalizedPartNumber = NormalizePartNumber(partNumber);
+            if (normalizedPartNumber.Length > 0 && matchingOrders.Count > 0)
+            {
+                var lines = await LoadSalesOrderLineReportsAsync(
+                    baseUri,
+                    matchingOrders.Select(order => order.Number).ToArray(),
+                    token,
+                    cancellationToken);
+                var matchingOrderNumbers = lines
+                    .Where(line => line.SalesOrderNumber is not null
+                        && (PartNumberValuesMatch(line.LineItem, normalizedPartNumber)
+                            || PartNumberValuesMatch(line.CustomerPartNumber, normalizedPartNumber)))
+                    .Select(line => line.SalesOrderNumber!.Value)
+                    .ToHashSet();
+                matchingOrders = matchingOrders
+                    .Where(order => matchingOrderNumbers.Contains(order.Number))
+                    .ToList();
+            }
+
+            return matchingOrders
                 .Take(20)
                 .Select(order => new ProjectQuantityLookupOption(
                     order.Id,
                     order.Number.ToString(),
                     null,
                     order.Status!,
+                    PartNumber: normalizedPartNumber.Length == 0 ? null : partNumber!.Trim(),
                     SalesOrderNumber: order.Number.ToString()))
                 .ToList();
         }
@@ -470,26 +534,52 @@ public sealed class FulcrumProjectQuantityProvider(
             "The Fulcrum lookup catalogue exceeded 100,000 records. Narrow the configured catalogue scope before using live search.");
     }
 
-    private async Task<FulcrumSalesOrderPartLineItemDto?> TryGetSalesOrderLineAsync(
+    private async Task<IReadOnlyList<FulcrumJobTrackingTimerDto>> LoadJobTimersAsync(
         Uri baseUri,
-        string salesOrderId,
-        string lineItemId,
+        string jobId,
         string token,
         CancellationToken cancellationToken)
     {
-        using var request = CreateRequest(
-            baseUri,
-            HttpMethod.Get,
-            $"api/sales-orders/{Uri.EscapeDataString(salesOrderId)}/part-line-items/{Uri.EscapeDataString(lineItemId)}",
-            token,
-            null);
-        using var response = await httpClient.SendAsync(
-            request,
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken);
-        if (response.StatusCode == HttpStatusCode.NotFound) return null;
-        EnsureSuccess(response);
-        return await response.Content.ReadFromJsonAsync<FulcrumSalesOrderPartLineItemDto>(JsonOptions, cancellationToken);
+        var records = new List<FulcrumJobTrackingTimerDto>();
+        for (var skip = 0; skip < 100_000; skip += CatalogPageSize)
+        {
+            var page = await SendAsync<FulcrumPagedResultDto<FulcrumJobTrackingTimerDto>>(
+                baseUri,
+                HttpMethod.Post,
+                $"api/job-tracking-timers/list?Skip={skip}&Take={CatalogPageSize}",
+                token,
+                new { jobId },
+                cancellationToken);
+            records.AddRange(page.Data);
+            if (!page.HasNextPage || page.Data.Count == 0) return records;
+        }
+
+        throw new InvalidOperationException(
+            $"Fulcrum returned more than 100,000 time records for Job {jobId}; operation start dates were not synchronized.");
+    }
+
+    private async Task<IReadOnlyList<FulcrumSalesOrderLineReportDto>> LoadSalesOrderLineReportsAsync(
+        Uri baseUri,
+        IReadOnlyCollection<int> salesOrderNumbers,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        var records = new List<FulcrumSalesOrderLineReportDto>();
+        for (var skip = 0; skip < 100_000; skip += CatalogPageSize)
+        {
+            var page = await SendAsync<FulcrumPagedResultDto<FulcrumSalesOrderLineReportDto>>(
+                baseUri,
+                HttpMethod.Post,
+                $"api/reporting/sales-order-lines/list?Skip={skip}&Take={CatalogPageSize}",
+                token,
+                new { salesOrderNumbers },
+                cancellationToken);
+            records.AddRange(page.Data);
+            if (!page.HasNextPage || page.Data.Count == 0) return records;
+        }
+
+        throw new InvalidOperationException(
+            "Fulcrum returned more than 100,000 sales-order lines for the lookup; narrow the sales-order search and try again.");
     }
 
     private async Task<T> SendAsync<T>(
@@ -533,7 +623,7 @@ public sealed class FulcrumProjectQuantityProvider(
         var message = response.StatusCode switch
         {
             HttpStatusCode.Unauthorized => "Fulcrum rejected the saved token. Replace it in Admin Hub and try again.",
-            HttpStatusCode.Forbidden => "The Fulcrum token does not have permission to view jobs and sales orders.",
+            HttpStatusCode.Forbidden => "The Fulcrum token does not have permission to view the jobs, sales orders, operations, or time tracking records required for this pull.",
             _ => $"Fulcrum returned HTTP {(int)response.StatusCode} ({response.ReasonPhrase})."
         };
         throw new HttpRequestException(message, null, response.StatusCode);
@@ -549,8 +639,29 @@ public sealed class FulcrumProjectQuantityProvider(
         1,
         7 * 24));
 
+    private TimeZoneInfo ResolveLookupTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(options.Value.LookupCatalogTimeZoneId);
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return TimeZoneInfo.Local;
+        }
+        catch (InvalidTimeZoneException)
+        {
+            return TimeZoneInfo.Local;
+        }
+    }
+
+    private static DateOnly? ToLocalDate(DateTimeOffset? value, TimeZoneInfo timeZone) =>
+        value is null
+            ? null
+            : DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(value.Value, timeZone).DateTime);
+
     private static decimal? PositiveOrNull(double? value) =>
-        value is > 0 and <= 1_000_000_000 ? Convert.ToDecimal(value.Value) : null;
+        value is > 0 and <= (double)MaximumQuantity ? Convert.ToDecimal(value.Value) : null;
 
     private static bool Contains(string? value, string query) =>
         !string.IsNullOrWhiteSpace(value)
@@ -566,11 +677,91 @@ public sealed class FulcrumProjectQuantityProvider(
     private static ProjectQuantitySnapshot NoMatch(string warning) =>
         new(null, null, [warning], MatchConfirmed: false);
 
+    private static List<FulcrumItemDto> FindMatchingItems(
+        IEnumerable<FulcrumItemDto> items,
+        string projectPartNumber)
+    {
+        var activeItems = items.Where(item => !item.IsArchived).ToList();
+        var normalizedProjectNumber = NormalizePartNumber(projectPartNumber);
+        var exactMatches = activeItems
+            .Where(item => ItemPartNumberMatchesExactly(item, normalizedProjectNumber))
+            .ToList();
+        if (exactMatches.Count > 0) return exactMatches;
+
+        // A supplied revision must still match exactly. Fuzzy matching is only for
+        // a project number that omits the trailing Fulcrum revision.
+        if (TryStripRevision(normalizedProjectNumber, out _)) return [];
+
+        return activeItems
+            .Where(item =>
+            {
+                var itemNumber = NormalizePartNumber(item.Number);
+                return item.Revision?.Revision is not null
+                    ? string.Equals(itemNumber, normalizedProjectNumber, StringComparison.Ordinal)
+                    : TryStripRevision(itemNumber, out var baseNumber)
+                        && string.Equals(baseNumber, normalizedProjectNumber, StringComparison.Ordinal);
+            })
+            .ToList();
+    }
+
+    private static bool ItemPartNumberMatchesExactly(FulcrumItemDto item, string normalizedProjectNumber)
+    {
+        var itemNumber = NormalizePartNumber(item.Number);
+        if (string.Equals(itemNumber, normalizedProjectNumber, StringComparison.Ordinal)) return true;
+        var revision = NormalizePartNumber(item.Revision?.Revision);
+        if (revision.Length == 0) return false;
+        return string.Equals($"{itemNumber.TrimEnd('-')}-{revision}", normalizedProjectNumber, StringComparison.Ordinal);
+    }
+
+    private static bool SalesOrderLineMatchesItem(
+        FulcrumSalesOrderPartLineItemDto line,
+        FulcrumItemDto item,
+        string projectPartNumber)
+    {
+        return string.Equals(line.ItemId, item.Id, StringComparison.OrdinalIgnoreCase)
+            || PartNumberMatches(line, item.Number)
+            || PartNumberMatches(line, projectPartNumber);
+    }
+
     private static bool PartNumberMatches(
         FulcrumSalesOrderPartLineItemDto line,
         string partNumber) =>
-        string.Equals(line.Name?.Trim(), partNumber, StringComparison.OrdinalIgnoreCase)
-        || string.Equals(line.CustomerPartNumber?.Trim(), partNumber, StringComparison.OrdinalIgnoreCase);
+        PartNumberValuesMatch(line.Name, partNumber)
+        || PartNumberValuesMatch(line.CustomerPartNumber, partNumber);
+
+    private static bool PartNumberValuesMatch(string? left, string? right)
+    {
+        var normalizedLeft = NormalizePartNumber(left);
+        var normalizedRight = NormalizePartNumber(right);
+        if (normalizedLeft.Length == 0 || normalizedRight.Length == 0) return false;
+        if (string.Equals(normalizedLeft, normalizedRight, StringComparison.Ordinal)) return true;
+
+        var leftHasRevision = TryStripRevision(normalizedLeft, out var leftBase);
+        var rightHasRevision = TryStripRevision(normalizedRight, out var rightBase);
+        if (leftHasRevision == rightHasRevision) return false;
+        return leftHasRevision
+            ? string.Equals(leftBase, normalizedRight, StringComparison.Ordinal)
+            : string.Equals(normalizedLeft, rightBase, StringComparison.Ordinal);
+    }
+
+    private static string NormalizePartNumber(string? value) =>
+        string.Concat((value ?? string.Empty).Where(character => !char.IsWhiteSpace(character)))
+            .Replace('_', '-')
+            .ToUpperInvariant();
+
+    private static bool TryStripRevision(string value, out string baseNumber)
+    {
+        foreach (var pattern in RevisionSuffixPatterns)
+        {
+            var match = pattern.Match(value);
+            if (!match.Success) continue;
+            baseNumber = match.Groups["base"].Value.TrimEnd('-');
+            return baseNumber.Length > 0;
+        }
+
+        baseNumber = value;
+        return false;
+    }
 
     private static bool IsActiveJob(string? status) =>
         !string.IsNullOrWhiteSpace(status)
@@ -581,6 +772,10 @@ public sealed class FulcrumProjectQuantityProvider(
         !string.IsNullOrWhiteSpace(status)
         && !string.Equals(status, "complete", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsCompleteOperation(FulcrumJobOperationDto operation) =>
+        operation.CompletedOnUtc is not null
+        || string.Equals(operation.Status, "complete", StringComparison.OrdinalIgnoreCase);
+
     private static readonly string[] ActiveJobStatuses =
     [
         "draft",
@@ -590,6 +785,12 @@ public sealed class FulcrumProjectQuantityProvider(
         "scheduled",
         "inProgress",
         "hold"
+    ];
+
+    private static readonly Regex[] RevisionSuffixPatterns =
+    [
+        new(@"^(?<base>.+?)-(?<revision>[A-Z]|N/?C)$", RegexOptions.Compiled | RegexOptions.CultureInvariant),
+        new(@"^(?<base>.+?)-?REV(?:ISION)?-?(?<revision>[A-Z0-9]{1,3}|N/?C)$", RegexOptions.Compiled | RegexOptions.CultureInvariant)
     ];
 }
 
@@ -607,7 +808,8 @@ public sealed class AcumaticaProjectQuantityProvider : IProjectQuantityProvider
     public Task<IReadOnlyList<ProjectQuantityLookupOption>> SearchAsync(
         ProjectQuantityLookupKind kind,
         string query,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        string? partNumber = null) =>
         throw new InvalidOperationException(
             "The Acumatica project lookup adapter is installed but not configured. Add the tenant endpoint, authentication, and job/sales-order field mappings before activating Acumatica.");
 }
@@ -616,7 +818,10 @@ public sealed record FulcrumItemDto(
     string Id,
     string Number,
     string? Description,
-    bool IsArchived);
+    bool IsArchived,
+    FulcrumItemRevisionDto? Revision = null);
+
+public sealed record FulcrumItemRevisionDto(bool IsLatestRevision, string? Revision);
 
 public sealed record FulcrumJobDto(
     string Id,
@@ -637,6 +842,11 @@ public sealed record FulcrumSalesOrderPartLineItemDto(
     string? CustomerPartNumber,
     string? ItemId);
 
+public sealed record FulcrumSalesOrderLineReportDto(
+    int? SalesOrderNumber,
+    string? LineItem,
+    string? CustomerPartNumber);
+
 public sealed record FulcrumJobOperationDetailsDto(
     FulcrumJobItemToMakeDto ItemToMake,
     FulcrumJobOperationDto Operation);
@@ -649,4 +859,14 @@ public sealed record FulcrumJobItemToMakeDto(
 public sealed record FulcrumJobOperationDto(
     string Id,
     int Order,
-    string? Name);
+    string? Name,
+    string? Status,
+    DateTimeOffset? CompletedOnUtc);
+
+public sealed record FulcrumJobTrackingTimerDto(
+    string? JobOperationId,
+    DateTimeOffset? StartedOnUtc);
+
+public sealed record FulcrumPagedResultDto<T>(
+    IReadOnlyList<T> Data,
+    bool HasNextPage);

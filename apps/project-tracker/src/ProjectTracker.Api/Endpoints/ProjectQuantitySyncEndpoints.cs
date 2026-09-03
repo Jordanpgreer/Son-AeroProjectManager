@@ -29,6 +29,7 @@ public static class ProjectQuantitySyncEndpoints
     private static async Task<IResult> SearchAsync(
         string kind,
         string? query,
+        string? partNumber,
         IEnumerable<IProjectQuantityProvider> providers,
         IEnterpriseProviderSource providerSource,
         CancellationToken cancellationToken)
@@ -38,6 +39,9 @@ public static class ProjectQuantitySyncEndpoints
         query = query.Trim();
         if (query.Length > 120)
             return Results.BadRequest(new { detail = "Search values cannot exceed 120 characters." });
+        partNumber = string.IsNullOrWhiteSpace(partNumber) ? null : partNumber.Trim();
+        if (partNumber?.Length > 120)
+            return Results.BadRequest(new { detail = "Part numbers cannot exceed 120 characters." });
 
         var lookupKind = kind.Trim().ToLowerInvariant() switch
         {
@@ -57,7 +61,11 @@ public static class ProjectQuantitySyncEndpoints
                 providers,
                 activeProvider,
                 EnterpriseDataRoutes.ProjectQuantities);
-            var records = await provider.SearchAsync(lookupKind.Value, query, cancellationToken);
+            var records = await provider.SearchAsync(
+                lookupKind.Value,
+                query,
+                cancellationToken,
+                lookupKind == ProjectQuantityLookupKind.SalesOrder ? partNumber : null);
             return Results.Ok(new
             {
                 provider = provider.ProviderName,
@@ -276,13 +284,24 @@ public static class ProjectQuantitySyncEndpoints
         project.QuantityLastSyncedAt = syncTime;
         project.UpdatedAt = project.QuantityLastSyncedAt.Value;
         project.Version++;
-        if (routingResult.Added > 0 || routingResult.Updated > 0 || routingResult.Removed > 0)
-            await metrics.RefreshProjectAsync(db, project, cancellationToken, recalculateDates: true);
+        if (routingResult.Added > 0
+            || routingResult.Updated > 0
+            || routingResult.ProgressUpdated > 0
+            || routingResult.Removed > 0)
+        {
+            await metrics.RefreshProjectAsync(
+                db,
+                project,
+                cancellationToken,
+                preserveTaskSchedule: true);
+        }
         var changes = ProjectAuditService.Diff(before, ProjectAuditService.CaptureProject(project)).ToList();
         if (routingResult.Added > 0)
             changes.Add(new ProjectAuditChange("Routing operations added", null, routingResult.Added.ToString()));
         if (routingResult.Updated > 0)
             changes.Add(new ProjectAuditChange("Routing operations updated", null, routingResult.Updated.ToString()));
+        if (routingResult.ProgressUpdated > 0)
+            changes.Add(new ProjectAuditChange("Fulcrum operation progress updated", null, routingResult.ProgressUpdated.ToString()));
         if (routingResult.ArdaOnlyRetained > 0)
             changes.Add(new ProjectAuditChange("Arda-only operations retained", null, routingResult.ArdaOnlyRetained.ToString()));
         if (routingResult.Removed > 0)
@@ -307,6 +326,7 @@ public static class ProjectQuantitySyncEndpoints
             routingResult.Updated,
             routingResult.ArdaOnlyRetained,
             routingResult.Removed,
-            routingResult.PreservedExisting));
+            routingResult.PreservedExisting,
+            routingResult.ProgressUpdated));
     }
 }

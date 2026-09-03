@@ -569,8 +569,8 @@ export function TrainingWorkspace(props: TrainingWorkspaceProps) {
               onEditOvertime={(task) => previewAction(`Overtime dates for ${task.title} would open here.`)}
               onSaveRow={async (row) => row}
               onReorder={async () => undefined}
-              onSearchQuantityRecords={async (kind, query) => {
-                previewAction(`A read-only ERP ${kind === 'sales-order' ? 'sales order' : 'job'} lookup for ${query} would run here.`)
+              onSearchQuantityRecords={async (kind, query, partNumber) => {
+                previewAction(`A read-only ERP ${kind === 'sales-order' ? 'sales order' : 'job'} lookup for ${query}${partNumber ? ` and Part ${partNumber}` : ''} would run here.`)
                 return { provider: 'Configured ERP', records: [] }
               }}
               onSyncQuantities={async () => {
@@ -586,6 +586,7 @@ export function TrainingWorkspace(props: TrainingWorkspaceProps) {
                   ardaOnlyOperationsRetained: 0,
                   routingOperationsRemoved: 0,
                   existingOperationsPreserved: true,
+                  operationProgressUpdated: 0,
                 }
               }}
               onOverrideRouting={async () => {
@@ -601,6 +602,7 @@ export function TrainingWorkspace(props: TrainingWorkspaceProps) {
                   ardaOnlyOperationsRetained: 0,
                   routingOperationsRemoved: 0,
                   existingOperationsPreserved: false,
+                  operationProgressUpdated: 0,
                 }
               }}
               notificationTaskId={null}

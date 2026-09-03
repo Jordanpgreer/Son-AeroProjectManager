@@ -5,6 +5,7 @@ namespace ProjectTracker.Api.Services;
 public sealed record ProjectRoutingSyncResult(
     int Added,
     int Updated,
+    int ProgressUpdated,
     int ArdaOnlyRetained,
     int Removed,
     bool PreservedExisting,
@@ -47,13 +48,14 @@ public sealed class ProjectRoutingSyncService
             .ToList();
         var hasMeaningfulOperations = existingInOrder.Any(task => !string.IsNullOrWhiteSpace(task.Title));
         if (mode == ProjectRoutingSyncMode.PopulateWhenBlank && hasMeaningfulOperations)
-            return new ProjectRoutingSyncResult(0, 0, 0, 0, true, [], []);
+            return ApplyProgressOnly(project, sourceSteps, provider, now);
 
         var unmatched = new HashSet<ProjectTask>(existingInOrder);
         var ordered = new List<ProjectTask>(sourceSteps.Count + existingInOrder.Count);
         var addedTasks = new HashSet<ProjectTask>();
         var changedTasks = new HashSet<ProjectTask>();
         var updatedRoutingTasks = new HashSet<ProjectTask>();
+        var progressUpdated = 0;
         var providerName = provider.Trim();
 
         for (var index = 0; index < sourceSteps.Count; index++)
@@ -91,6 +93,12 @@ public sealed class ProjectRoutingSyncService
                     changedTasks.Add(task);
                     updatedRoutingTasks.Add(task);
                 }
+            }
+
+            if (SetProgressValues(task, step))
+            {
+                progressUpdated++;
+                if (!addedTasks.Contains(task)) changedTasks.Add(task);
             }
 
             ordered.Add(task);
@@ -145,11 +153,64 @@ public sealed class ProjectRoutingSyncService
         return new ProjectRoutingSyncResult(
             addedTasks.Count,
             updatedRoutingTasks.Count,
+            progressUpdated,
             retained.Count,
             removedTasks.Count,
             false,
             warnings,
             removedTasks);
+    }
+
+    private static ProjectRoutingSyncResult ApplyProgressOnly(
+        Project project,
+        IReadOnlyList<ProjectRoutingStepSnapshot> sourceSteps,
+        string provider,
+        DateTimeOffset now)
+    {
+        var unmatched = new HashSet<ProjectTask>(project.Tasks);
+        var providerName = provider.Trim();
+        var progressUpdated = 0;
+        var unmatchedProgress = 0;
+
+        for (var index = 0; index < sourceSteps.Count; index++)
+        {
+            var step = sourceSteps[index];
+            if (!HasProgress(step)) continue;
+
+            var task = FindExisting(
+                unmatched,
+                step,
+                providerName,
+                index + 1,
+                allowBlankFallback: false);
+            if (task is null)
+            {
+                unmatchedProgress++;
+                continue;
+            }
+
+            unmatched.Remove(task);
+            var sourceChanged = SetSourceIdentity(task, step, providerName);
+            var progressChanged = SetProgressValues(task, step);
+            if (!sourceChanged && !progressChanged) continue;
+
+            task.Version++;
+            task.UpdatedAt = now;
+            progressUpdated++;
+        }
+
+        IReadOnlyList<string> warnings = unmatchedProgress == 0
+            ? []
+            : [$"Could not match {unmatchedProgress} Fulcrum operation progress record{(unmatchedProgress == 1 ? string.Empty : "s")} to the existing project operations; operation names and order were preserved."];
+        return new ProjectRoutingSyncResult(
+            0,
+            0,
+            progressUpdated,
+            0,
+            0,
+            true,
+            warnings,
+            []);
     }
 
     private static ProjectTask? FindExisting(
@@ -203,10 +264,52 @@ public sealed class ProjectRoutingSyncService
         return changed;
     }
 
+    private static bool SetSourceIdentity(
+        ProjectTask task,
+        ProjectRoutingStepSnapshot step,
+        string provider)
+    {
+        var sourceId = step.ExternalId.Trim();
+        var changed = !string.Equals(task.ExternalSourceProvider, provider, StringComparison.Ordinal)
+            || !string.Equals(task.ExternalSourceOperationId, sourceId, StringComparison.Ordinal);
+        task.ExternalSourceProvider = provider;
+        task.ExternalSourceOperationId = sourceId;
+        return changed;
+    }
+
+    private static bool SetProgressValues(ProjectTask task, ProjectRoutingStepSnapshot step)
+    {
+        var changed = false;
+        if (step.ActualStartDate is { } actualStart)
+        {
+            changed = task.StartDate != actualStart || !task.StartDateLocked || changed;
+            task.StartDate = actualStart;
+            task.StartDateLocked = true;
+        }
+
+        if (!step.IsComplete) return changed;
+
+        changed = task.PercentComplete != 1m || !task.PercentCompleteManual || changed;
+        task.PercentComplete = 1m;
+        task.PercentCompleteManual = true;
+        if (step.ActualCompletionDate is { } actualCompletion)
+        {
+            changed = task.EndDate != actualCompletion || changed;
+            task.EndDate = actualCompletion;
+        }
+
+        return changed;
+    }
+
+    private static bool HasProgress(ProjectRoutingStepSnapshot step) =>
+        step.ActualStartDate is not null
+        || step.ActualCompletionDate is not null
+        || step.IsComplete;
+
     private static string NormalizeName(string value) =>
         string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
             .ToUpperInvariant();
 
     private static ProjectRoutingSyncResult EmptyResult() =>
-        new(0, 0, 0, 0, false, [], []);
+        new(0, 0, 0, 0, 0, false, [], []);
 }

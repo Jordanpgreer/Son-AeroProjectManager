@@ -135,11 +135,13 @@ function projectQuantitySyncSummary(result: ProjectQuantitySyncResult) {
   if (result.retainedFields.length > 0)
     parts.push(`Kept the existing ${result.retainedFields.join(' and ').toLowerCase()}.`)
   if (result.existingOperationsPreserved)
-    parts.push('Existing project operations were left unchanged.')
+    parts.push('Existing operation names, order, notes, and original dates were preserved.')
   if (result.routingStepsAdded > 0)
     parts.push(`Added ${result.routingStepsAdded} Fulcrum routing operation${result.routingStepsAdded === 1 ? '' : 's'}.`)
   if (result.routingStepsUpdated > 0)
     parts.push(`Updated ${result.routingStepsUpdated} existing operation${result.routingStepsUpdated === 1 ? '' : 's'} to match the Fulcrum route.`)
+  if (result.operationProgressUpdated > 0)
+    parts.push(`Updated Fulcrum progress and actual dates for ${result.operationProgressUpdated} operation${result.operationProgressUpdated === 1 ? '' : 's'}.`)
   if (result.ardaOnlyOperationsRetained > 0)
     parts.push(`Kept ${result.ardaOnlyOperationsRetained} Arda-only operation${result.ardaOnlyOperationsRetained === 1 ? '' : 's'} after the Fulcrum sequence.`)
   if (result.routingOperationsRemoved > 0)
@@ -814,9 +816,15 @@ function App() {
     return result
   }
 
-  async function searchProjectQuantityRecords(kind: ProjectQuantityLookupKind, query: string) {
+  async function searchProjectQuantityRecords(
+    kind: ProjectQuantityLookupKind,
+    query: string,
+    partNumber?: string | null,
+  ) {
+    const parameters = new URLSearchParams({ query })
+    if (kind === 'sales-order' && partNumber?.trim()) parameters.set('partNumber', partNumber.trim())
     return api<ProjectQuantityLookupResult>(
-      `/api/project-quantity-lookups/${kind}?query=${encodeURIComponent(query)}`,
+      `/api/project-quantity-lookups/${kind}?${parameters.toString()}`,
     )
   }
 

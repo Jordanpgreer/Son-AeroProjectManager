@@ -40,6 +40,48 @@ public sealed class ProjectMetricsServiceTests
     }
 
     [Fact]
+    public void RefreshProject_PreservesExternallySynchronizedTaskDatesAndDurations()
+    {
+        var project = new Project
+        {
+            ProgramName = "Fulcrum progress",
+            ProgramStart = new DateOnly(2026, 8, 25),
+            Tasks =
+            [
+                new ProjectTask
+                {
+                    Sequence = 1,
+                    Title = "Completed operation",
+                    StartDate = new DateOnly(2026, 9, 1),
+                    StartDateLocked = true,
+                    OriginalStartDate = new DateOnly(2026, 8, 25),
+                    EndDate = new DateOnly(2026, 9, 5),
+                    OriginalEndDate = new DateOnly(2026, 9, 3),
+                    EstimatedDuration = 3,
+                    PercentComplete = 1m,
+                    PercentCompleteManual = true
+                }
+            ]
+        };
+
+        metrics.RefreshProject(
+            project,
+            ScheduleCalendar.Default,
+            new DateOnly(2026, 9, 6),
+            recalculateDates: true,
+            preserveTaskSchedule: true);
+
+        var operation = Assert.Single(project.Tasks);
+        Assert.Equal(new DateOnly(2026, 9, 1), operation.StartDate);
+        Assert.Equal(new DateOnly(2026, 9, 5), operation.EndDate);
+        Assert.Equal(new DateOnly(2026, 8, 25), operation.OriginalStartDate);
+        Assert.Equal(new DateOnly(2026, 9, 3), operation.OriginalEndDate);
+        Assert.Equal(3, operation.EstimatedDuration);
+        Assert.Equal(new DateOnly(2026, 9, 5), project.TargetDelivery);
+        Assert.Equal(1m, project.Progress);
+    }
+
+    [Fact]
     public void RefreshProject_UsesDependencyEndDateWhenDependencyIsSelected()
     {
         var project = new Project

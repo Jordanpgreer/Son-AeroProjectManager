@@ -214,6 +214,7 @@ function formatQuantity(value: number | null) {
 
 type QuantityLookupState = {
   kind: ProjectQuantityLookupKind
+  partNumber: string | null
   provider: string
   loading: boolean
   error: string | null
@@ -236,7 +237,7 @@ function QuantityLookupResults({
       <div className="project-erp-lookup-heading">
         <span>
           <strong>Active {label} matches</strong>
-          {lookup.provider && <small>{lookup.provider}</small>}
+          {lookup.provider && <small>{lookup.provider}{lookup.partNumber ? ` · Part ${lookup.partNumber}` : ''}</small>}
         </span>
         <button type="button" className="icon-button" onClick={onClose} aria-label="Close search results">
           <X size={14} />
@@ -268,6 +269,7 @@ function QuantityLookupResults({
                     {record.salesOrderNumber ? `SO ${record.salesOrderNumber}` : ''}
                   </small>
                 )}
+                {lookup.kind === 'sales-order' && record.partNumber && <small>Matches Part {record.partNumber}</small>}
               </span>
               <span className="project-erp-lookup-use">{toOperationTitleCase(record.status)} <ChevronRight size={14} /></span>
             </button>
@@ -287,11 +289,13 @@ function projectDataSyncSummary(result: ProjectQuantitySyncResult) {
   if (result.updatedFields.length === 0 && result.retainedFields.length === 0)
     parts.push(`${result.provider} did not change project quantities.`)
   if (result.existingOperationsPreserved)
-    parts.push('Existing project operations and manual edits were left unchanged.')
+    parts.push('Existing operation names, order, notes, and original dates were preserved.')
   if (result.routingStepsAdded > 0)
     parts.push(`Added ${result.routingStepsAdded} routing operation${result.routingStepsAdded === 1 ? '' : 's'}.`)
   if (result.routingStepsUpdated > 0)
     parts.push(`Updated ${result.routingStepsUpdated} operation${result.routingStepsUpdated === 1 ? '' : 's'} to match the Fulcrum route.`)
+  if (result.operationProgressUpdated > 0)
+    parts.push(`Updated Fulcrum progress and actual dates for ${result.operationProgressUpdated} operation${result.operationProgressUpdated === 1 ? '' : 's'}.`)
   if (result.routingOperationsRemoved > 0)
     parts.push(`Removed ${result.routingOperationsRemoved} operation${result.routingOperationsRemoved === 1 ? '' : 's'} that were not in the Fulcrum route.`)
   if (result.warnings.length > 0) parts.push(result.warnings.join(' '))
@@ -372,6 +376,7 @@ export function ProjectView({
   onSearchQuantityRecords: (
     kind: ProjectQuantityLookupKind,
     query: string,
+    partNumber?: string | null,
   ) => Promise<ProjectQuantityLookupResult>
   onSyncQuantities: () => Promise<ProjectQuantitySyncResult>
   onOverrideRouting: () => Promise<ProjectQuantitySyncResult>
@@ -477,17 +482,23 @@ export function ProjectView({
     }
   }
 
-  const searchQuantityRecords = useCallback(async (kind: ProjectQuantityLookupKind, value: string, requestId: number) => {
+  const searchQuantityRecords = useCallback(async (
+    kind: ProjectQuantityLookupKind,
+    value: string,
+    requestId: number,
+    partNumber: string | null,
+  ) => {
     const query = value.trim()
     if (!query) return
     try {
-      const result = await onSearchQuantityRecords(kind, query)
+      const result = await onSearchQuantityRecords(kind, query, partNumber)
       if (requestId !== quantityLookupRequest.current) return
-      setQuantityLookup({ kind, provider: result.provider, loading: false, error: null, records: result.records })
+      setQuantityLookup({ kind, partNumber, provider: result.provider, loading: false, error: null, records: result.records })
     } catch (error) {
       if (requestId !== quantityLookupRequest.current) return
       setQuantityLookup({
         kind,
+        partNumber,
         provider: '',
         loading: false,
         error: error instanceof Error ? error.message : 'The external record search could not be completed.',
@@ -518,6 +529,9 @@ export function ProjectView({
       : activeLookupKind === 'job'
         ? projectMetadata.jobNumber
         : ''
+  const salesOrderPartNumber = activeLookupKind === 'sales-order'
+    ? projectMetadata.programName.trim() || null
+    : null
 
   useEffect(() => {
     const query = activeLookupValue.trim()
@@ -527,12 +541,12 @@ export function ProjectView({
       return
     }
 
-    setQuantityLookup({ kind: activeLookupKind, provider: '', loading: true, error: null, records: [] })
+    setQuantityLookup({ kind: activeLookupKind, partNumber: salesOrderPartNumber, provider: '', loading: true, error: null, records: [] })
     const timer = window.setTimeout(() => {
-      void searchQuantityRecords(activeLookupKind, query, requestId)
+      void searchQuantityRecords(activeLookupKind, query, requestId, salesOrderPartNumber)
     }, 300)
     return () => window.clearTimeout(timer)
-  }, [activeLookupKind, activeLookupValue, searchQuantityRecords])
+  }, [activeLookupKind, activeLookupValue, salesOrderPartNumber, searchQuantityRecords])
 
   useEffect(() => {
     setProjectDetailsOpen(true)
@@ -791,7 +805,7 @@ export function ProjectView({
                 />
               </label>}
               {canEditQuantities && <p className="project-quantity-match-note">
-                <Lock size={13} /> After you save, Arda validates the Part Number, Sales Order, and Job and pulls quantities. Fulcrum routing is added only when this project has no named operations; existing operations and manual edits remain unchanged.
+                <Lock size={13} /> After you save, Arda validates the Part Number, Sales Order, and Job, then pulls quantities and Fulcrum operation progress. Actual starts and completions update current dates only; original dates remain unchanged. Routing is added only when this project has no named operations.
               </p>}
               <div className="project-detail-save-row">
                 <div className={`project-detail-save-state ${projectMetadataDirty ? 'unsaved' : 'saved'}`} role="status">
