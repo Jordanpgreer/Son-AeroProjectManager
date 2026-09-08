@@ -25,13 +25,13 @@ export type BennyImpactResponse = {
   reboundDistance: number
 }
 
-type BennyScene = 'wander' | 'read' | 'erase' | 'impact'
+type BennyScene = 'wander' | 'read' | 'erase' | 'impact' | 'sit'
 type BennyPace = 'slow' | 'medium' | 'fast'
 type Position = { x: number; y: number }
 type ActiveBenny = {
   root: HTMLElement
   image: HTMLImageElement
-  eyes: HTMLDivElement
+  limbs: HTMLDivElement
   originalSource: string | null
   originRect: DOMRect
   owned: boolean
@@ -70,8 +70,10 @@ const sceneChoices: BennyScene[] = [
   'wander', 'wander', 'wander', 'wander',
   'read', 'read',
   'erase',
+  'sit', 'sit',
   'impact', 'impact', 'impact', 'impact',
 ]
+const LEG_STEP_MILLISECONDS: Record<BennyPace, number> = { slow: 960, medium: 720, fast: 520 }
 
 declare global {
   interface Window {
@@ -144,6 +146,7 @@ export function installBennyIdle(endpoint = '/api/benny/idle-settings') {
   let lastTarget: HTMLElement | null = null
   const animations = new Set<Animation>()
   const interactionFrames = new Set<number>()
+  const limbTimers = new Set<number>()
   const displacedTargets = new Map<HTMLElement, DisplacedTarget>()
   const erasedTargets = new Map<HTMLElement, Animation>()
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -165,8 +168,10 @@ export function installBennyIdle(endpoint = '/api/benny/idle-settings') {
     sceneTimer = null
     for (const animation of animations) animation.cancel()
     for (const frame of interactionFrames) window.cancelAnimationFrame(frame)
+    for (const timer of limbTimers) window.clearTimeout(timer)
     animations.clear()
     interactionFrames.clear()
+    limbTimers.clear()
     displacedTargets.clear()
     erasedTargets.clear()
     currentBennyAnimations = []
@@ -182,7 +187,7 @@ export function installBennyIdle(endpoint = '/api/benny/idle-settings') {
     delete benny.root.dataset.bennyIntent
     delete benny.root.dataset.bennyPace
     delete benny.root.dataset.bennyScene
-    benny.eyes.remove()
+    benny.limbs.remove()
     if (benny.owned) benny.root.remove()
     benny = null
   }
@@ -233,18 +238,28 @@ export function installBennyIdle(endpoint = '/api/benny/idle-settings') {
     const requestedScene = reducedMotion.matches ? 'read' : chooseNextScene()
     const target = requestedScene === 'read' || requestedScene === 'erase'
       ? chooseTextTarget()
-      : choosePhysicalTarget()
+      : requestedScene === 'sit'
+        ? chooseSitTarget()
+        : choosePhysicalTarget()
     const plan = planScene(requestedScene, target)
     benny.root.dataset.bennyScene = plan.scene
     benny.root.dataset.bennyIntent = plan.intent
     benny.root.dataset.bennyPace = plan.pace
-    setEyeExpression(benny.eyes, plan.scene, {
-      x: plan.destination.x - currentPosition.x,
-      y: plan.destination.y - currentPosition.y,
-    })
+
+    setLimbPose(benny.limbs, 'walking', plan.pace)
+    setLimbFacing(benny.limbs, plan.destination.x - currentPosition.x)
+    const settle = limbSettlement(plan)
+    if (settle) {
+      const limbs = benny.limbs
+      const timer = window.setTimeout(() => {
+        limbTimers.delete(timer)
+        if (active && !disposed) setLimbPose(limbs, settle.pose)
+      }, plan.duration * settle.at)
+      limbTimers.add(timer)
+    }
 
     const previousBennyAnimations = currentBennyAnimations
-    currentBennyAnimations = [benny.root, benny.eyes].map((element) => {
+    currentBennyAnimations = [benny.root, benny.limbs].map((element) => {
       const animation = element.animate(plan.keyframes, {
         duration: plan.duration,
         easing: plan.easing,
@@ -301,8 +316,8 @@ export function installBennyIdle(endpoint = '/api/benny/idle-settings') {
     root.classList.add('benny-idle-roaming')
     root.dataset.bennyIdle = 'true'
     const originRect = root.getBoundingClientRect()
-    const eyes = createEyeLayer(originRect)
-    return { root, image, eyes, originalSource, originRect, owned }
+    const limbs = createLimbLayer(originRect, window.getComputedStyle(image).filter)
+    return { root, image, limbs, originalSource, originRect, owned }
   }
 
   function chooseNextScene() {
@@ -314,6 +329,7 @@ export function installBennyIdle(endpoint = '/api/benny/idle-settings') {
 
   function planScene(scene: BennyScene, target: HTMLElement | null): MotionPlan {
     if (scene === 'impact' && target) return planImpact(target, Math.random() < 0.68)
+    if (scene === 'sit' && !target) scene = 'wander'
     if (scene === 'erase' && !target) scene = 'wander'
     if (scene === 'read' && !target) scene = 'wander'
 
@@ -324,7 +340,9 @@ export function installBennyIdle(endpoint = '/api/benny/idle-settings') {
     const startScreen = toScreen(currentPosition, origin)
     const destinationScreen = scene === 'wander'
       ? wanderDestination(rect, width, height)
-      : readingDestination(rect!, width, height, false)
+      : scene === 'sit'
+        ? sitDestination(rect!, width, height)
+        : readingDestination(rect!, width, height, false)
     const blocker = findBlockingTarget(startScreen, destinationScreen, target)
 
     if (blocker && !reducedMotion.matches && Math.random() < 0.42)
@@ -367,6 +385,20 @@ export function installBennyIdle(endpoint = '/api/benny/idle-settings') {
         easing: 'ease-in-out',
         eraseTarget: scene === 'erase' ? target! : undefined,
         interactionOffset: scene === 'erase' ? 0.67 : undefined,
+      }
+    }
+
+    if (scene === 'sit') {
+      return {
+        scene,
+        intent: 'curious',
+        pace: movement.pace,
+        duration,
+        // He stays perched for a while before moving on.
+        restMilliseconds: randomBetween(2_400, 5_200),
+        destination,
+        keyframes,
+        easing: 'ease-in-out',
       }
     }
 
@@ -605,6 +637,18 @@ export function installBennyIdle(endpoint = '/api/benny/idle-settings') {
     return replaceTargetChoice(collectPhysicalTargets())
   }
 
+  function chooseSitTarget() {
+    const candidates = collectPhysicalTargets().filter((element) => {
+      const rect = element.getBoundingClientRect()
+      // Needs a broad top edge to perch on, and roughly his own height of clearance above it.
+      return rect.width >= 120
+        && rect.height >= 38
+        && rect.top > 72
+        && rect.top < window.innerHeight - 40
+    })
+    return replaceTargetChoice(candidates)
+  }
+
   function chooseTextTarget() {
     const candidates = Array.from(document.querySelectorAll<HTMLElement>(
       'main h1, main h2, main h3, main h4, main p, main label, main th, main td, main [class*="title"], main [class*="name"]',
@@ -716,32 +760,62 @@ export function installBennyIdle(endpoint = '/api/benny/idle-settings') {
   return cleanup
 }
 
-function createEyeLayer(origin: DOMRect) {
-  const eyes = document.createElement('div')
-  eyes.className = 'benny-idle-eyes is-wander'
-  eyes.dataset.bennyIdle = 'true'
-  eyes.setAttribute('aria-hidden', 'true')
-  eyes.style.left = `${origin.left}px`
-  eyes.style.top = `${origin.top}px`
-  eyes.style.width = `${origin.width || BENNY_SIZE}px`
-  eyes.style.height = `${origin.height || BENNY_SIZE}px`
-  eyes.innerHTML = `
-    <svg viewBox="0 0 58 58" focusable="false" aria-hidden="true">
-      <ellipse class="benny-eye-white benny-eye-white--left" cx="28.4" cy="32.1" rx="2.2" ry="3.9" />
-      <ellipse class="benny-eye-white benny-eye-white--right" cx="36.5" cy="32.1" rx="1.9" ry="1.8" />
-      <circle class="benny-eye-pupil benny-eye-pupil--left" cx="28.4" cy="32.1" r=".72" />
-      <circle class="benny-eye-pupil benny-eye-pupil--right" cx="36.5" cy="32.1" r=".68" />
-    </svg>`
-  document.body.append(eyes)
-  return eyes
+function sitDestination(rect: DOMRect, width: number, height: number): Position {
+  const inset = width * 0.6
+  const spread = rect.width - inset * 2
+  const x = spread > 0 ? randomBetween(rect.left + inset, rect.right - inset) : rect.left + rect.width / 2
+  // Seat him on the top edge so the legs dangle down over the front of it.
+  return { x, y: rect.top - height * 0.24 }
 }
 
-function setEyeExpression(eyes: HTMLElement, scene: BennyScene, direction: Position) {
-  eyes.classList.remove('is-wander', 'is-read', 'is-erase', 'is-impact')
-  eyes.classList.add(`is-${scene}`)
-  const magnitude = Math.max(1, Math.hypot(direction.x, direction.y))
-  eyes.style.setProperty('--benny-look-x', `${direction.x / magnitude * 1.15}px`)
-  eyes.style.setProperty('--benny-look-y', `${direction.y / magnitude * 0.8}px`)
+function limbSettlement(plan: MotionPlan): { pose: LimbPose; at: number } | null {
+  if (plan.scene === 'sit') return { pose: 'sitting', at: 0.96 }
+  if (plan.scene === 'erase') return { pose: 'erasing', at: plan.interactionOffset ?? 0.67 }
+  if (plan.scene === 'read') return { pose: 'standing', at: 0.68 }
+  if (plan.scene === 'impact') return { pose: 'bracing', at: 0.62 }
+  return { pose: 'standing', at: 1 }
+}
+
+function createLimbLayer(origin: DOMRect, bodyFilter: string) {
+  const limbs = document.createElement('div')
+  limbs.className = 'benny-idle-limbs is-walking'
+  limbs.dataset.bennyIdle = 'true'
+  limbs.setAttribute('aria-hidden', 'true')
+  limbs.style.left = `${origin.left}px`
+  limbs.style.top = `${origin.top}px`
+  limbs.style.width = `${origin.width || BENNY_SIZE}px`
+  limbs.style.height = `${origin.height || BENNY_SIZE}px`
+  // Wear whatever recolour the host app puts on his body, so the limbs always match him.
+  if (bodyFilter && bodyFilter !== 'none') limbs.style.filter = bodyFilter
+  limbs.innerHTML = `
+    <svg viewBox="0 0 58 58" focusable="false" aria-hidden="true">
+      <g class="benny-limb-set">
+        <g class="benny-limb benny-arm benny-arm--left"><path d="M18 33Q12 37 10 43" /><g class="benny-forearm" style="transform-origin:10px 43px"><path d="M10 43Q8 48 10 51" /></g></g>
+        <g class="benny-limb benny-arm benny-arm--right"><path d="M40 33Q46 37 48 43" /><g class="benny-forearm" style="transform-origin:48px 43px"><path d="M48 43Q50 48 48 51" /></g></g>
+        <g class="benny-limb benny-leg benny-leg--left">
+          <path d="M24 40Q22.5 46 24 51" /><g class="benny-shin" style="transform-origin:24px 51px"><path d="M24 51Q22.5 56 24 61Q26 62 28 61.5" /></g>
+        </g>
+        <g class="benny-limb benny-leg benny-leg--right">
+          <path d="M34 40Q32.5 46 34 51" /><g class="benny-shin" style="transform-origin:34px 51px"><path d="M34 51Q32.5 56 34 61Q36 62 38 61.5" /></g>
+        </g>
+      </g>
+    </svg>`
+  document.body.append(limbs)
+  return limbs
+}
+
+type LimbPose = 'walking' | 'standing' | 'sitting' | 'erasing' | 'bracing'
+
+/** Mirrors the limb set so his feet and stride always lead the way he is heading. */
+function setLimbFacing(limbs: HTMLElement, deltaX: number) {
+  if (Math.abs(deltaX) < 2) return
+  limbs.classList.toggle('is-facing-left', deltaX < 0)
+}
+
+function setLimbPose(limbs: HTMLElement, pose: LimbPose, pace?: BennyPace) {
+  limbs.classList.remove('is-walking', 'is-standing', 'is-sitting', 'is-erasing', 'is-bracing')
+  limbs.classList.add(`is-${pose}`)
+  if (pace) limbs.style.setProperty('--benny-step', `${LEG_STEP_MILLISECONDS[pace]}ms`)
 }
 
 function choosePace(scene: BennyScene): { pace: BennyPace; speed: number } {
@@ -933,31 +1007,83 @@ function ensureStyles() {
     .benny-idle-roaming{
       z-index:2147482000!important;pointer-events:none!important;transform-origin:50% 85%;will-change:transform,opacity
     }
-    .benny-idle-eyes{
-      --benny-look-x:0px;--benny-look-y:0px;position:fixed;z-index:2147482001;pointer-events:none;
+    .benny-idle-limbs{
+      --benny-step:460ms;position:fixed;z-index:2147481999;pointer-events:none;
       transform-origin:50% 85%;will-change:transform,opacity
     }
-    .benny-idle-eyes svg{display:block;width:100%;height:100%;overflow:visible}
-    .benny-eye-white{
-      fill:#fff;opacity:0;transform-box:fill-box;transform-origin:center;transition:transform 140ms ease,opacity 140ms ease
+    .benny-idle-limbs svg{
+      display:block;width:100%;height:100%;overflow:visible;transform-origin:50% 42%;
+      animation:benny-limbs-emerge 380ms cubic-bezier(.34,1.56,.64,1) both
     }
-    .benny-eye-pupil{
-      fill:#173a53;opacity:.68;transform:translate(var(--benny-look-x),var(--benny-look-y));
-      transform-box:fill-box;transform-origin:center
+    .benny-limb-set{transform-box:view-box;transform-origin:50% 50%}
+    .benny-idle-limbs.is-facing-left .benny-limb-set{transform:scaleX(-1)}
+    .benny-limb path{
+      fill:none;stroke:#e8483f;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round
     }
-    .benny-idle-eyes.is-read .benny-eye-white,
-    .benny-idle-eyes.is-impact .benny-eye-white,
-    .benny-idle-eyes.is-erase .benny-eye-white{opacity:1}
-    .benny-idle-eyes.is-read .benny-eye-white--left{transform:scale(1.16,1.13)}
-    .benny-idle-eyes.is-read .benny-eye-white--right{transform:scale(1.28,1.42)}
-    .benny-idle-eyes.is-impact .benny-eye-white{transform:scale(1.22,1.32)}
-    .benny-idle-eyes.is-erase .benny-eye-white{transform:scale(1.04,.82)}
-    .benny-idle-eyes.is-read .benny-eye-pupil{animation:benny-eye-scan 1.35s ease-in-out infinite alternate}
-    .benny-idle-eyes.is-impact .benny-eye-pupil{opacity:.82;transform:translate(var(--benny-look-x),var(--benny-look-y)) scale(.82)}
-    .benny-idle-eyes.is-erase .benny-eye-pupil{opacity:.86;transform:translate(1px,var(--benny-look-y)) scale(.82)}
-    @keyframes benny-eye-scan{
-      0%,18%{transform:translate(-.9px,.15px)}
-      72%,100%{transform:translate(1px,.15px)}
+    .benny-arm path{stroke-width:2}
+    .benny-limb,.benny-shin,.benny-forearm{
+      transform-box:view-box;
+      animation-duration:var(--benny-step);animation-iteration-count:infinite;
+      animation-timing-function:linear;transition:transform 220ms ease
+    }
+    .benny-arm--left{transform-origin:18px 33px}
+    .benny-arm--right{transform-origin:40px 33px}
+    .benny-leg--left{transform-origin:24px 40px}
+    .benny-leg--right{transform-origin:34px 40px}
+    @keyframes benny-limbs-emerge{
+      from{transform:scaleY(.12);opacity:0}
+      to{transform:scaleY(1);opacity:1}
+    }
+    @keyframes benny-step{
+      0%,100%{transform:rotate(-22deg)}
+      25%{transform:rotate(0deg)}
+      50%{transform:rotate(22deg)}
+      75%{transform:rotate(2deg)}
+    }
+    @keyframes benny-knee{
+      0%,45%,100%{transform:rotate(0deg)}
+      65%{transform:rotate(38deg)}
+      82%{transform:rotate(24deg)}
+    }
+    @keyframes benny-swing{0%,100%{transform:rotate(10deg)}50%{transform:rotate(-10deg)}}
+    @keyframes benny-elbow{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(12deg)}}
+    @keyframes benny-dangle-a{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(9deg)}}
+    @keyframes benny-dangle-b{0%,100%{transform:rotate(7deg)}50%{transform:rotate(-5deg)}}
+    @keyframes benny-scrub{0%,100%{transform:rotate(-12deg)}50%{transform:rotate(16deg)}}
+    .benny-idle-limbs.is-walking .benny-leg{animation-name:benny-step}
+    .benny-idle-limbs.is-walking .benny-shin{animation-name:benny-knee}
+    .benny-idle-limbs.is-walking .benny-arm{animation-name:benny-swing;animation-timing-function:ease-in-out}
+    .benny-idle-limbs.is-walking .benny-forearm{animation-name:benny-elbow;animation-timing-function:ease-in-out}
+    .benny-idle-limbs.is-walking .benny-leg--right,
+    .benny-idle-limbs.is-walking .benny-leg--right .benny-shin,
+    .benny-idle-limbs.is-walking .benny-arm--right,
+    .benny-idle-limbs.is-walking .benny-arm--right .benny-forearm{animation-delay:calc(var(--benny-step) * -.5)}
+    .benny-idle-limbs.is-standing .benny-limb{animation-name:none}
+    .benny-idle-limbs.is-standing .benny-arm--left{transform:rotate(-6deg)}
+    .benny-idle-limbs.is-standing .benny-arm--right{transform:rotate(6deg)}
+    .benny-idle-limbs.is-sitting .benny-leg--left{
+      transform:rotate(-12deg);animation-name:none
+    }
+    .benny-idle-limbs.is-sitting .benny-leg--right{
+      transform:rotate(-8deg);animation-name:none
+    }
+    .benny-idle-limbs.is-sitting .benny-leg--left .benny-shin{animation:benny-dangle-a 2.2s ease-in-out infinite}
+    .benny-idle-limbs.is-sitting .benny-leg--right .benny-shin{animation:benny-dangle-b 2.6s ease-in-out infinite}
+    .benny-idle-limbs.is-sitting .benny-arm--left{transform:rotate(-24deg);animation-name:none}
+    .benny-idle-limbs.is-sitting .benny-arm--right{transform:rotate(24deg);animation-name:none}
+    .benny-idle-limbs.is-erasing .benny-leg--left,
+    .benny-idle-limbs.is-erasing .benny-leg--right{animation-name:none}
+    .benny-idle-limbs.is-erasing .benny-arm--left{transform:rotate(-10deg);animation-name:none}
+    .benny-idle-limbs.is-erasing .benny-arm--right{
+      transform:rotate(-38deg);animation-name:none
+    }
+    .benny-idle-limbs.is-erasing .benny-arm--right .benny-forearm{animation:benny-scrub 520ms ease-in-out infinite}
+    .benny-idle-limbs.is-bracing .benny-limb{animation-name:none}
+    .benny-idle-limbs.is-bracing .benny-arm--left{transform:rotate(-40deg)}
+    .benny-idle-limbs.is-bracing .benny-arm--right{transform:rotate(40deg)}
+    @media (prefers-reduced-motion:reduce){
+      .benny-idle-limbs .benny-limb,.benny-idle-limbs .benny-shin,.benny-idle-limbs .benny-forearm{animation:none!important;transition:none}
+      .benny-idle-limbs svg{animation:none}
     }
     .benny-assistant.benny-idle-roaming .benny-trigger{
       pointer-events:none;transform:none
