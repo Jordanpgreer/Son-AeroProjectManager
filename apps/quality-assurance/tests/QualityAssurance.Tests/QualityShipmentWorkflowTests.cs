@@ -1,6 +1,7 @@
 using ClosedXML.Excel;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using QualityAssurance.Api.Auth;
 using QualityAssurance.Api.Data;
 using QualityAssurance.Api.Dtos;
@@ -18,11 +19,14 @@ public sealed class QualityShipmentWorkflowTests
         await using var fixture = await WorkflowFixture.CreateAsync();
         var created = await fixture.Shipments.CreateAsync(new QualityShipmentCreateDto(
             "WIP", "SO-100", new DateOnly(2026, 8, 1), "PN-100", "PO-10", "Customer A",
-            "Source Inspection", 5, 1250, new DateOnly(2026, 8, 15), null, null, "Review package", "Initial note"),
+            "Source Inspection", 5, 1250, new DateOnly(2026, 8, 15), null, null, "Review package", "Initial note",
+            ShipperNumber: "SHIP-100"),
             fixture.Admin,
             CancellationToken.None);
 
         Assert.Equal(fixture.Admin.UserId, created.AssignedUserId);
+        Assert.Equal("SO-100", created.SalesOrderNumber);
+        Assert.Equal("SHIP-100", created.ShipperNumber);
         Assert.Equal(2, await fixture.Db.ShipmentAuditEntries.CountAsync());
 
         var shipped = await fixture.Shipments.MarkShippedAsync(created.Id, created.Version, fixture.Admin, CancellationToken.None);
@@ -48,7 +52,7 @@ public sealed class QualityShipmentWorkflowTests
             [
                 new QualityShipmentPartInputDto("PART-A", 2, 12.50m),
                 new QualityShipmentPartInputDto("PART-B", 3, 20m)
-            ]), fixture.Admin, default);
+            ], "SHIP-MULTI"), fixture.Admin, default);
 
         Assert.Equal(2, created.Parts.Count);
         Assert.Equal(5m, created.Quantity);
@@ -57,9 +61,15 @@ public sealed class QualityShipmentWorkflowTests
     }
 
     [Fact]
-    public async Task Qa_complete_routes_quality_work_to_shipping_without_marking_it_shipped()
+    public async Task Qa_complete_routes_quality_work_to_shipper_without_marking_it_shipped()
     {
-        await using var fixture = await WorkflowFixture.CreateAsync();
+        var legacyProductionConfiguration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["QualityWorkflow:ShippingGroupName"] = "Shipping"
+            })
+            .Build();
+        await using var fixture = await WorkflowFixture.CreateAsync(legacyProductionConfiguration);
         var shipment = ShipmentForGrid("SHIP-QA", "WIP", "Customer", 100, 99);
         fixture.Db.Shipments.Add(shipment);
         await fixture.Db.SaveChangesAsync();
@@ -73,19 +83,19 @@ public sealed class QualityShipmentWorkflowTests
         Assert.NotNull(updated);
         Assert.Equal("Ready to Ship", updated.Status);
         Assert.Equal(20, updated.AssignedGroupId);
-        Assert.Equal("Shipping", updated.AssignedGroupName);
+        Assert.Equal(ApplicationGroups.Shipper, updated.AssignedGroupName);
         Assert.Null(updated.AssignedUserId);
         Assert.False(updated.IsShipped);
         Assert.Contains(await fixture.Db.ShipmentAuditEntries.ToListAsync(), entry => entry.EventType == "QaCompleted");
     }
 
     [Fact]
-    public async Task Shipping_group_members_see_ready_to_ship_group_work_in_their_default_queue()
+    public async Task Shipper_group_members_see_ready_to_ship_group_work_in_their_default_queue()
     {
         await using var fixture = await WorkflowFixture.CreateAsync();
         var shipment = ShipmentForGrid("SHIP-GROUP-QUEUE", "Ready to Ship", "Customer", 100, null);
         shipment.AssignedGroupId = 20;
-        shipment.AssignedGroupName = "Shipping";
+        shipment.AssignedGroupName = ApplicationGroups.Shipper;
         shipment.ShipDate = new DateOnly(2026, 9, 8);
         fixture.Db.Shipments.Add(shipment);
         await fixture.Db.SaveChangesAsync();
@@ -95,7 +105,7 @@ public sealed class QualityShipmentWorkflowTests
             "Shipping User",
             ApplicationRoles.Editor,
             [.. QualityAssurancePermissions.EditorDefaults],
-            [new QualityAssuranceAccessGroup(20, "Shipping")]);
+            [new QualityAssuranceAccessGroup(20, ApplicationGroups.Shipper)]);
 
         var list = await fixture.Shipments.ListAsync(
             shippingUser, "open", "mine", "ship-date", "asc", null, null, null, null, default);
@@ -117,7 +127,8 @@ public sealed class QualityShipmentWorkflowTests
 
         var created = await fixture.Shipments.CreateAsync(new QualityShipmentCreateDto(
             "WIP", "SO-INELIGIBLE-CREATOR", new DateOnly(2026, 9, 1), "PN-CREATOR", "PO-CREATOR", "Customer",
-            "General", null, null, new DateOnly(2026, 9, 10), null, null, null, null),
+            "General", null, null, new DateOnly(2026, 9, 10), null, null, null, null,
+            ShipperNumber: "SHIP-INELIGIBLE-CREATOR"),
             creator,
             default);
 
@@ -161,7 +172,8 @@ public sealed class QualityShipmentWorkflowTests
 
         var created = await fixture.Shipments.CreateAsync(new QualityShipmentCreateDto(
             "WIP", "SO-200", new DateOnly(2026, 9, 1), "PN-200", "PO-200", "Customer A", "General",
-            null, null, new DateOnly(2026, 9, 10), null, null, null, null), fixture.Admin, CancellationToken.None);
+            null, null, new DateOnly(2026, 9, 10), null, null, null, null,
+            ShipperNumber: "SHIP-200"), fixture.Admin, CancellationToken.None);
 
         Assert.Equal(2, created.AssignedUserId);
         Assert.Equal("Person Two", created.AssignedDisplayName);
@@ -692,7 +704,7 @@ public sealed class QualityShipmentWorkflowTests
         using var workbook = new XLWorkbook(new MemoryStream(file.Content));
         var sheet = workbook.Worksheet("Grid Results");
         var salesOrderColumn = sheet.Row(1).CellsUsed()
-            .Single(cell => cell.GetString() == "Shipper Number")
+            .Single(cell => cell.GetString() == "Sales Order")
             .Address.ColumnNumber;
         Assert.Equal("SO-ACME-UNASSIGNED", sheet.Cell(2, salesOrderColumn).GetString());
         Assert.Contains("quality-shipping-results-", file.FileName);
@@ -777,7 +789,7 @@ public sealed class QualityShipmentWorkflowTests
         using var workbook = new XLWorkbook(new MemoryStream(file.Content));
         var sheet = workbook.Worksheet("Grid Results");
         var salesOrderColumn = sheet.Row(1).CellsUsed()
-            .Single(cell => cell.GetString() == "Shipper Number")
+            .Single(cell => cell.GetString() == "Sales Order")
             .Address.ColumnNumber;
         var exportedSalesOrders = sheet.Column(salesOrderColumn).CellsUsed()
             .Skip(1)
@@ -868,7 +880,10 @@ public sealed class QualityShipmentWorkflowTests
     {
         private readonly SqliteConnection connection;
 
-        private WorkflowFixture(SqliteConnection connection, QualityAssuranceDbContext db)
+        private WorkflowFixture(
+            SqliteConnection connection,
+            QualityAssuranceDbContext db,
+            IConfiguration? configuration = null)
         {
             this.connection = connection;
             Db = db;
@@ -878,7 +893,12 @@ public sealed class QualityShipmentWorkflowTests
                 db,
                 Directory,
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<QualityLegacyAssignmentReconciler>.Instance);
-            Shipments = new QualityShipmentService(db, Directory, Assignments, legacyAssignments);
+            Shipments = new QualityShipmentService(
+                db,
+                Directory,
+                Assignments,
+                legacyAssignments,
+                configuration);
             Admin = new QualityAssuranceAccessProfile(
                 99,
                 "TEST\\admin",
@@ -894,7 +914,7 @@ public sealed class QualityShipmentWorkflowTests
         public QualityShipmentService Shipments { get; }
         public QualityAssuranceAccessProfile Admin { get; }
 
-        public static async Task<WorkflowFixture> CreateAsync()
+        public static async Task<WorkflowFixture> CreateAsync(IConfiguration? configuration = null)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
@@ -902,7 +922,7 @@ public sealed class QualityShipmentWorkflowTests
                 .UseSqlite(connection)
                 .Options);
             await db.Database.EnsureCreatedAsync();
-            return new WorkflowFixture(connection, db);
+            return new WorkflowFixture(connection, db, configuration);
         }
 
         public async ValueTask DisposeAsync()
@@ -917,7 +937,7 @@ public sealed class QualityShipmentWorkflowTests
         private readonly IReadOnlyList<QualityDirectoryGroup> groups =
         [
             new QualityDirectoryGroup(10, "Quality", "Quality group", 3),
-            new QualityDirectoryGroup(20, "Shipping", "Shipping group", 0)
+            new QualityDirectoryGroup(20, ApplicationGroups.Shipper, "Shipper group", 0)
         ];
         private readonly IReadOnlyList<QualityDirectoryUser> users =
         [

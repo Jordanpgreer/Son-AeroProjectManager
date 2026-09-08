@@ -268,6 +268,10 @@ namespace QualityAssurance.Api.Data.Migrations
                         .HasMaxLength(80)
                         .HasColumnType("nvarchar(80)");
 
+                    b.Property<string>("ShipperNumber")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
                     b.Property<DateOnly?>("ShipDate")
                         .HasColumnType("date");
 

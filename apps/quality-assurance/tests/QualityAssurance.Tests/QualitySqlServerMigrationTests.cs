@@ -15,7 +15,8 @@ public sealed class QualitySqlServerMigrationTests
         "20260813190849_AddQualityShippingLayoutPreferences",
         "20260826201500_AddQualityShipmentComments",
         "20260901133114_AddLegacyQualityAssigneeTags",
-        "20260903215032_AddQualityShipmentFulcrumSyncAndParts"
+        "20260903215032_AddQualityShipmentFulcrumSyncAndParts",
+        "20260908193000_AddQualityShipmentShipperNumber"
     ];
 
     [Fact]
@@ -71,6 +72,11 @@ public sealed class QualitySqlServerMigrationTests
         Assert.Contains("[DollarValue] decimal(18,2) NULL", script);
         Assert.Contains("[LegacyAssigneeTag] nvarchar(160) NULL", script);
         Assert.Contains("[ExternalShipmentUrl] nvarchar(1000) NULL", script);
+        Assert.Contains("[ShipperNumber] nvarchar(80) NULL", script);
+        Assert.Contains(
+            "WHERE ShipperNumber IS NULL AND SalesOrderNumber IS NOT NULL",
+            script,
+            StringComparison.OrdinalIgnoreCase);
         Assert.Contains("[UnitPrice] decimal(18,2) NULL", script);
         Assert.Contains("INSERT INTO QualityShipmentParts", script);
         Assert.Contains("[CreatedAt] datetimeoffset NOT NULL", script);

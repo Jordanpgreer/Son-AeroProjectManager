@@ -6,4 +6,5 @@ public static class ApplicationGroups
     public const string Managers = "Managers";
     public const string Engineering = "Engineering";
     public const string Sales = "Sales";
+    public const string Shipper = "Shipper";
 }

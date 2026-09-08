@@ -13,6 +13,7 @@ public sealed record QualityShipmentDto(
     long Version,
     string? Status,
     string? SalesOrderNumber,
+    string? ShipperNumber,
     DateOnly? QaArrivalDate,
     string? PartNumber,
     IReadOnlyList<QualityShipmentPartDto> Parts,
@@ -79,7 +80,8 @@ public sealed record QualityShipmentCreateDto(
     DateOnly? SourceRequestedDate,
     string? NextAction,
     string? Comments,
-    IReadOnlyList<QualityShipmentPartInputDto>? Parts = null);
+    IReadOnlyList<QualityShipmentPartInputDto>? Parts = null,
+    string? ShipperNumber = null);
 
 public sealed record QualityShipmentPatchDto(
     long Version,

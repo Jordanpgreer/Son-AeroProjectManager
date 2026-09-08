@@ -29,15 +29,15 @@ public sealed class QualityShipmentSyncService(
         var shipment = await db.Shipments
             .Include(candidate => candidate.Parts)
             .SingleOrDefaultAsync(candidate => candidate.Id == shipmentId, cancellationToken);
-        if (shipment is null || string.IsNullOrWhiteSpace(shipment.SalesOrderNumber)) return false;
+        if (shipment is null || string.IsNullOrWhiteSpace(shipment.ShipperNumber)) return false;
 
         try
         {
             var provider = await SelectProviderAsync(cancellationToken);
             var results = await provider.FindByShipperNumbersAsync(
-                [shipment.SalesOrderNumber],
+                [shipment.ShipperNumber],
                 cancellationToken);
-            if (!results.TryGetValue(shipment.SalesOrderNumber, out var external))
+            if (!results.TryGetValue(shipment.ShipperNumber, out var external))
             {
                 await SaveSyncMessageAsync(
                     shipment,
@@ -68,18 +68,18 @@ public sealed class QualityShipmentSyncService(
         if (!options.Value.Enabled) return 0;
         var shipments = await db.Shipments
             .Include(shipment => shipment.Parts)
-            .Where(shipment => shipment.SalesOrderNumber != "")
+            .Where(shipment => shipment.ShipperNumber != null && shipment.ShipperNumber != "")
             .ToListAsync(cancellationToken);
         if (shipments.Count == 0) return 0;
 
         var provider = await SelectProviderAsync(cancellationToken);
         var results = await provider.FindByShipperNumbersAsync(
-            shipments.Select(shipment => shipment.SalesOrderNumber).ToArray(),
+            shipments.Select(shipment => shipment.ShipperNumber!).ToArray(),
             cancellationToken);
         var changed = 0;
         foreach (var shipment in shipments)
         {
-            if (!results.TryGetValue(shipment.SalesOrderNumber, out var external))
+            if (!results.TryGetValue(shipment.ShipperNumber!, out var external))
             {
                 shipment.ExternalSyncProvider = provider.ProviderName;
                 shipment.ExternalSyncError = $"No matching shipper was found in {provider.ProviderName}.";

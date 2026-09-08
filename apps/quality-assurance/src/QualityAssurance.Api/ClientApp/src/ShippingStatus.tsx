@@ -68,6 +68,7 @@ const TASK_TYPES = ['General', 'Source Inspection', 'FAI Approval', 'Customer Fe
 interface ShipmentDraft {
   status: string
   salesOrderNumber: string
+  shipperNumber: string
   qaArrivalDate: string
   purchaseOrderNumber: string
   customer: string
@@ -96,7 +97,7 @@ interface ShippingImportResult {
 type ScalarDraftKey = Exclude<keyof ShipmentDraft, 'parts'>
 
 const FIELD_KEYS: ScalarDraftKey[] = [
-  'status', 'salesOrderNumber', 'qaArrivalDate', 'purchaseOrderNumber',
+  'status', 'salesOrderNumber', 'shipperNumber', 'qaArrivalDate', 'purchaseOrderNumber',
   'customer', 'taskType', 'shipDate', 'holdReason',
   'sourceRequestedDate', 'comments',
 ]
@@ -105,6 +106,7 @@ function draftFor(shipment?: Shipment | null): ShipmentDraft {
   return {
     status: shipment?.status ?? 'WIP',
     salesOrderNumber: shipment?.salesOrderNumber ?? '',
+    shipperNumber: shipment?.shipperNumber ?? '',
     qaArrivalDate: shipment?.qaArrivalDate ?? '',
     purchaseOrderNumber: shipment?.purchaseOrderNumber ?? '',
     customer: shipment?.customer ?? '',
@@ -153,6 +155,7 @@ function Highlight({ value, query }: { value: string; query: string }) {
 type WorklistColumnKey =
   | 'status'
   | 'salesOrderNumber'
+  | 'shipperNumber'
   | 'qaArrivalDate'
   | 'partNumber'
   | 'purchaseOrderNumber'
@@ -176,6 +179,7 @@ interface WorklistColumn {
 const SORT_PARAMETERS: Record<WorklistColumnKey, string> = {
   status: 'status',
   salesOrderNumber: 'sales-order',
+  shipperNumber: 'shipper-number',
   qaArrivalDate: 'qa-arrival',
   partNumber: 'part-number',
   purchaseOrderNumber: 'purchase-order',
@@ -376,17 +380,18 @@ function ShipmentForm({
           <div className="form-grid">
             {can('status') && <label><span>Status</span><select value={draft.status} onChange={(event) => update('status', event.target.value)}>{STATUS_OPTIONS.map((status) => <option key={status}>{status}</option>)}</select></label>}
             {can('taskType') && <label><span>Task Type</span><input list="qa-task-types" value={draft.taskType} onChange={(event) => update('taskType', event.target.value)} /><datalist id="qa-task-types">{TASK_TYPES.map((type) => <option key={type}>{type}</option>)}</datalist></label>}
-            {can('salesOrderNumber') && <label><span>Shipper Number</span><input required value={draft.salesOrderNumber} onChange={(event) => update('salesOrderNumber', event.target.value)} /></label>}
-            {can('purchaseOrderNumber') && <label><span>P.O.</span><input required value={draft.purchaseOrderNumber} onChange={(event) => update('purchaseOrderNumber', event.target.value)} /></label>}
-            {can('customer') && <label><span>Customer</span><input required value={draft.customer} onChange={(event) => update('customer', event.target.value)} /></label>}
-            {can('qaArrivalDate') && <label><span>Shipment Arrival Date</span><input required type="date" value={draft.qaArrivalDate} onChange={(event) => update('qaArrivalDate', event.target.value)} /></label>}
-            {can('shipDate') && <label><span>Ship By</span><input required type="date" value={draft.shipDate} onChange={(event) => update('shipDate', event.target.value)} /></label>}
+            {can('salesOrderNumber') && <label><span>Sales Order <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={draft.salesOrderNumber} onChange={(event) => update('salesOrderNumber', event.target.value)} /></label>}
+            {can('shipperNumber') && <label><span>Shipper Number <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={draft.shipperNumber} onChange={(event) => update('shipperNumber', event.target.value)} /></label>}
+            {can('purchaseOrderNumber') && <label><span>PO Number <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={draft.purchaseOrderNumber} onChange={(event) => update('purchaseOrderNumber', event.target.value)} /></label>}
+            {can('customer') && <label><span>Customer <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={draft.customer} onChange={(event) => update('customer', event.target.value)} /></label>}
+            {can('qaArrivalDate') && <label><span>Shipment Arrival Date <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" type="date" value={draft.qaArrivalDate} onChange={(event) => update('qaArrivalDate', event.target.value)} /></label>}
+            {can('shipDate') && <label><span>Ship By Date <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" type="date" value={draft.shipDate} onChange={(event) => update('shipDate', event.target.value)} /></label>}
             {can('partNumber') && <fieldset className="shipment-parts-editor span-2"><legend>Part Lines</legend>{draft.parts.map((part, index) => {
               const lineTotal = part.quantity !== '' && part.unitPrice !== ''
                 ? Number(part.quantity) * Number(part.unitPrice)
                 : null
               return <div className="shipment-part-row" key={index}>
-                <label><span>Part Number</span><input required value={part.partNumber} onChange={(event) => updatePart(index, 'partNumber', event.target.value)} /></label>
+                <label><span>Part Number <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={part.partNumber} onChange={(event) => updatePart(index, 'partNumber', event.target.value)} /></label>
                 <label><span>Quantity</span><input required={creating} disabled={!can('quantity')} type="number" min="0" step="1" value={part.quantity} onChange={(event) => updatePart(index, 'quantity', event.target.value)} /></label>
                 <label className="currency-field"><span>Unit Price</span><div><b>$</b><input disabled={!can('dollarValue')} type="number" min="0" step="0.01" value={part.unitPrice} onChange={(event) => updatePart(index, 'unitPrice', event.target.value)} /></div></label>
                 <span className="part-line-total"><small>Line Total</small><strong>{lineTotal == null || !Number.isFinite(lineTotal) ? 'Not Set' : formatCurrency(lineTotal)}</strong></span>
@@ -484,6 +489,8 @@ function DetailDrawer({
   const [auditError, setAuditError] = useState<string | null>(null)
   const [completingQa, setCompletingQa] = useState(false)
   const [workflowError, setWorkflowError] = useState<string | null>(null)
+  const drawerScrollRef = useRef<HTMLDivElement>(null)
+  const auditSectionRef = useRef<HTMLElement>(null)
   const canEdit = fields.some((field) => field.canEdit)
   const canViewAssignment = user.permissions.includes(PERMISSIONS.assignmentView)
   const canAssign = canViewAssignment
@@ -495,10 +502,22 @@ function DetailDrawer({
   const owner = actionOwner(shipment, canViewAssignment)
 
   async function loadAudit() {
-    if (audit) { setAudit(null); return }
+    if (audit) {
+      auditSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      return
+    }
     setAuditError(null)
     try { setAudit(await qualityApi<AuditEntry[]>(`/api/shipments/${shipment.id}/audit`)) }
     catch (cause) { setAuditError(cause instanceof Error ? cause.message : 'Audit history unavailable.') }
+  }
+
+  useEffect(() => {
+    if (audit) auditSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [audit])
+
+  function closeAudit() {
+    setAudit(null)
+    drawerScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   async function markQaComplete() {
@@ -522,10 +541,10 @@ function DetailDrawer({
         <div className="drawer-actions">
           {canEdit && <button className="button ghost" type="button" onClick={onEdit}><Pencil size={14} /> Edit</button>}
           {canAssign && <button className="button ghost" type="button" onClick={onAssign}><UserRoundCheck size={14} /> Assign</button>}
-          {canAudit && <button className="button ghost" type="button" onClick={() => void loadAudit()}><FileClock size={14} /> {audit ? 'Hide Audit' : 'Audit Trail'}</button>}
-          {canCompleteQa && <button className="button success" disabled={completingQa} type="button" onClick={() => void markQaComplete()}><PackageCheck size={14} /> {completingQa ? 'Saving...' : 'QA Complete'}</button>}
+          {canAudit && <button className="button ghost" type="button" onClick={() => void loadAudit()}><FileClock size={14} /> Audit Trail</button>}
+          {canCompleteQa && <button className="button primary" disabled={completingQa} type="button" onClick={() => void markQaComplete()}><PackageCheck size={14} /> {completingQa ? 'Saving...' : 'QA Complete'}</button>}
         </div>
-        <div className="drawer-scroll">
+        <div className="drawer-scroll" ref={drawerScrollRef}>
           <section className="shipment-hero">
             <span className={`status-badge ${shipment.isShipped ? 'shipped' : ''}`}>{shipment.status ?? 'Status hidden'}</span>
             <span className={`due-pill ${shipment.dueState.toLowerCase().replaceAll(' ', '-')}`}><span />{shipment.dueState}</span>
@@ -536,6 +555,8 @@ function DetailDrawer({
             {visible('qaArrivalDate') && <div><dt>Shipment Arrival</dt><dd>{formatDate(shipment.qaArrivalDate)}</dd></div>}
             {visible('shipDate') && <div><dt>Ship By</dt><dd>{formatDate(shipment.shipDate)}</dd></div>}
             {visible('purchaseOrderNumber') && <div><dt>P.O.</dt><dd>{shipment.purchaseOrderNumber || 'Not set'}</dd></div>}
+            {visible('salesOrderNumber') && <div><dt>Sales Order</dt><dd>{shipment.salesOrderNumber || 'Not set'}</dd></div>}
+            {visible('shipperNumber') && <div><dt>Shipper Number</dt><dd>{shipment.shipperNumber || 'Not set'}</dd></div>}
             {visible('taskType') && <div><dt>Task Type</dt><dd>{shipment.taskType || 'Not set'}</dd></div>}
             {visible('quantity') && <div><dt>Quantity</dt><dd>{shipment.quantity?.toLocaleString() ?? 'Not set'}</dd></div>}
             {visible('dollarValue') && <div><dt>Dollar Value</dt><dd>{formatCurrency(shipment.dollarValue)}</dd></div>}
@@ -548,7 +569,7 @@ function DetailDrawer({
           {visible('comments') && <section className="detail-section narrative"><h3>Comments</h3><p>{shipment.comments || 'No comments yet.'}</p><button className="button ghost" type="button" onClick={onOpenComments}><MessageSquare size={14} /> Open Conversation</button></section>}
           {auditError && <p className="notice error"><AlertTriangle size={15} />{auditError}</p>}
           {workflowError && <p className="notice error"><AlertTriangle size={15} />{workflowError}</p>}
-          {audit && <section className="detail-section audit-section"><h3>Audit Trail</h3>{audit.map((entry) => <article className="audit-entry" key={entry.id}><span className="audit-dot" /><div><strong>{entry.eventType.replace(/([A-Z])/g, ' $1').trim()}</strong><p>{entry.fieldName && <><b>{entry.fieldName}</b>: </>}{entry.oldValue && <del>{entry.oldValue}</del>}{entry.oldValue && entry.newValue && ' → '}{entry.newValue && <ins>{entry.newValue}</ins>}</p><small>{entry.displayName} · {formatDateTime(entry.occurredAt)}</small></div></article>)}</section>}
+          {audit && <section className="detail-section audit-section" ref={auditSectionRef}><div className="audit-section-head"><h3>Audit Trail</h3><button className="button ghost compact" type="button" onClick={closeAudit}><X size={13} /> Close Audit</button></div>{audit.map((entry) => <article className="audit-entry" key={entry.id}><span className="audit-dot" /><div><strong>{entry.eventType.replace(/([A-Z])/g, ' $1').trim()}</strong><p>{entry.fieldName && <><b>{entry.fieldName}</b>: </>}{entry.oldValue && <del>{entry.oldValue}</del>}{entry.oldValue && entry.newValue && ' → '}{entry.newValue && <ins>{entry.newValue}</ins>}</p><small>{entry.displayName} · {formatDateTime(entry.occurredAt)}</small></div></article>)}</section>}
         </div>
       </aside>
     </div>
@@ -590,17 +611,18 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   const [assignmentOrigin, setAssignmentOrigin] = useState<'list' | 'detail'>('detail')
   const [importOpen, setImportOpen] = useState(false)
   const [refresh, setRefresh] = useState(0)
-  const pendingDeepLink = useRef(readShipmentDeepLink(window.location.hash))
+  const pendingDeepLink = useRef<ReturnType<typeof readShipmentDeepLink>>(null)
 
   useEffect(() => {
-    const deepLink = pendingDeepLink.current
+    const deepLink = readShipmentDeepLink(window.location.hash)
     if (!deepLink) return
+    pendingDeepLink.current = deepLink
     window.history.replaceState(
       null,
       '',
       `${window.location.pathname}${window.location.search}${deepLink.cleanedHash}`,
     )
-  }, [])
+  }, [reloadKey])
 
   useEffect(() => {
     const requestedScope = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('scope')
@@ -659,18 +681,17 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
           setData(next)
           const deepLink = pendingDeepLink.current
           if (deepLink) {
+            pendingDeepLink.current = null
             const requestedShipment = next.items.find((shipment) => shipment.id === deepLink.shipmentId) ?? null
             if (requestedShipment) {
               setSelected(requestedShipment)
               if (deepLink.openComments) setCommentsOpen(true)
-              pendingDeepLink.current = null
             } else {
               void qualityApi<Shipment>(`/api/shipments/${deepLink.shipmentId}`)
                 .then((shipment) => {
                   if (!active) return
                   setSelected(shipment)
                   if (deepLink.openComments) setCommentsOpen(true)
-                  pendingDeepLink.current = null
                 })
                 .catch((cause) => {
                   if (active) setError(cause instanceof Error ? cause.message : 'The mentioned shipment is unavailable.')
@@ -696,7 +717,8 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
     && (user.permissions.includes(PERMISSIONS.assignmentGroup) || user.permissions.includes(PERMISSIONS.assignmentUser))
   const worklistColumns = useMemo<WorklistColumn[]>(() => [
     visibleFields.has('status') && { key: 'status', label: 'Status', width: 145 },
-    visibleFields.has('salesOrderNumber') && { key: 'salesOrderNumber', label: 'Shipper Number', width: 125 },
+    visibleFields.has('salesOrderNumber') && { key: 'salesOrderNumber', label: 'Sales Order', width: 125 },
+    visibleFields.has('shipperNumber') && { key: 'shipperNumber', label: 'Shipper Number', width: 125 },
     visibleFields.has('qaArrivalDate') && { key: 'qaArrivalDate', label: 'Shipment Arrival', width: 105 },
     visibleFields.has('partNumber') && { key: 'partNumber', label: 'Part Number', width: 140 },
     visibleFields.has('purchaseOrderNumber') && { key: 'purchaseOrderNumber', label: 'P.O.', width: 105 },
@@ -817,7 +839,8 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   function renderCell(key: WorklistColumnKey, shipment: Shipment) {
     switch (key) {
       case 'status': return <td key={key}><span className={`status-badge ${shipment.isShipped ? 'shipped' : ''}`}>{shipment.status ?? 'Hidden'}</span></td>
-      case 'salesOrderNumber': return <td className="sales-order-cell" key={key}><strong>{shipment.externalShipmentUrl && shipment.salesOrderNumber ? <a className="external-record-link" href={shipment.externalShipmentUrl} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}><Highlight value={shipment.salesOrderNumber} query={deferredSearch} /><ExternalLink size={11} /></a> : <Highlight value={shipment.salesOrderNumber ?? 'Hidden'} query={deferredSearch} />}</strong></td>
+      case 'salesOrderNumber': return <td className="sales-order-cell" key={key}><strong><Highlight value={shipment.salesOrderNumber ?? 'Hidden'} query={deferredSearch} /></strong></td>
+      case 'shipperNumber': return <td className="sales-order-cell" key={key}><strong>{shipment.externalShipmentUrl && shipment.shipperNumber ? <a className="external-record-link" href={shipment.externalShipmentUrl} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}><Highlight value={shipment.shipperNumber} query={deferredSearch} /><ExternalLink size={11} /></a> : <Highlight value={shipment.shipperNumber ?? 'Hidden'} query={deferredSearch} />}</strong></td>
       case 'qaArrivalDate': return <td key={key}>{formatDate(shipment.qaArrivalDate)}</td>
       case 'partNumber': return <td key={key}><Highlight value={shipment.partNumber ?? ''} query={deferredSearch} /></td>
       case 'purchaseOrderNumber': return <td key={key}><Highlight value={shipment.purchaseOrderNumber ?? ''} query={deferredSearch} /></td>

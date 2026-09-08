@@ -266,6 +266,7 @@ public sealed class QualityShipmentService(
     {
         EnsureEditable(access, "status", dto.Status);
         EnsureEditable(access, "salesOrderNumber", dto.SalesOrderNumber);
+        EnsureEditable(access, "shipperNumber", dto.ShipperNumber);
         EnsureEditable(access, "qaArrivalDate", dto.QaArrivalDate);
         EnsureEditable(access, "partNumber", dto.PartNumber);
         EnsureEditable(access, "purchaseOrderNumber", dto.PurchaseOrderNumber);
@@ -285,7 +286,8 @@ public sealed class QualityShipmentService(
         var shipment = new QualityShipment
         {
             Status = Required(dto.Status ?? "WIP", "Status", 80),
-            SalesOrderNumber = Required(dto.SalesOrderNumber, "Shipper number", 80),
+            SalesOrderNumber = Required(dto.SalesOrderNumber, "Sales order", 80),
+            ShipperNumber = Required(dto.ShipperNumber, "Shipper number", 80),
             QaArrivalDate = RequiredDate(dto.QaArrivalDate, "Shipment arrival date"),
             PartNumber = normalizedParts[0].PartNumber,
             PurchaseOrderNumber = Required(dto.PurchaseOrderNumber, "PO number", 160),
@@ -529,13 +531,17 @@ public sealed class QualityShipmentService(
         EnsureRecordAccess(shipment, access);
         PrepareVersion(shipment, version);
         if (shipment.IsShipped)
-            throw new ArgumentException("A shipped record cannot be returned to the Shipping queue.");
+            throw new ArgumentException("A shipped record cannot be returned to the Shipper queue.");
 
         var qualityGroupName = configuration?["QualityWorkflow:QualityGroupName"] ?? "Quality";
         if (!string.Equals(shipment.AssignedGroupName, qualityGroupName, StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException($"QA Complete is available only while the record is assigned to the {qualityGroupName} group.");
 
-        var shippingGroupName = configuration?["QualityWorkflow:ShippingGroupName"] ?? "Shipping";
+        var configuredShippingGroupName = configuration?["QualityWorkflow:ShippingGroupName"]?.Trim();
+        var shippingGroupName = string.IsNullOrWhiteSpace(configuredShippingGroupName)
+            || string.Equals(configuredShippingGroupName, "Shipping", StringComparison.OrdinalIgnoreCase)
+                ? ApplicationGroups.Shipper
+                : configuredShippingGroupName;
         var shippingGroup = (await accessStore.GetGroupsWithPermissionAsync(
                 QualityAssurancePermissions.ResponsibleGroupEligible,
                 cancellationToken))
@@ -634,6 +640,7 @@ public sealed class QualityShipmentService(
         if (string.IsNullOrWhiteSpace(value)) return query;
         var normalized = value.ToLowerInvariant();
         var canSalesOrder = access.HasPermission(QualityAssurancePermissions.SalesOrderView);
+        var canShipperNumber = access.HasPermission(QualityAssurancePermissions.ShipperNumberView);
         var canPart = access.HasPermission(QualityAssurancePermissions.PartNumberView);
         var canPo = access.HasPermission(QualityAssurancePermissions.PurchaseOrderView);
         var canCustomer = access.HasPermission(QualityAssurancePermissions.CustomerView);
@@ -643,6 +650,7 @@ public sealed class QualityShipmentService(
         var canComments = access.HasPermission(QualityAssurancePermissions.CommentsView);
         return query.Where(shipment =>
             (canSalesOrder && shipment.SalesOrderNumber.ToLower().Contains(normalized))
+            || (canShipperNumber && shipment.ShipperNumber != null && shipment.ShipperNumber.ToLower().Contains(normalized))
             || (canPart && (shipment.PartNumber.ToLower().Contains(normalized)
                 || shipment.Parts.Any(part => part.PartNumber.ToLower().Contains(normalized))))
             || (canPo && shipment.PurchaseOrderNumber != null && shipment.PurchaseOrderNumber.ToLower().Contains(normalized))
@@ -726,6 +734,7 @@ public sealed class QualityShipmentService(
         {
             "status" => descending ? query.OrderByDescending(shipment => shipment.Status) : query.OrderBy(shipment => shipment.Status),
             "sales-order" => descending ? query.OrderByDescending(shipment => shipment.SalesOrderNumber) : query.OrderBy(shipment => shipment.SalesOrderNumber),
+            "shipper-number" => descending ? query.OrderByDescending(shipment => shipment.ShipperNumber) : query.OrderBy(shipment => shipment.ShipperNumber),
             "part-number" => descending ? query.OrderByDescending(shipment => shipment.PartNumber) : query.OrderBy(shipment => shipment.PartNumber),
             "purchase-order" => descending ? query.OrderByDescending(shipment => shipment.PurchaseOrderNumber) : query.OrderBy(shipment => shipment.PurchaseOrderNumber),
             "customer" => descending ? query.OrderByDescending(shipment => shipment.Customer) : query.OrderBy(shipment => shipment.Customer),
@@ -1005,7 +1014,8 @@ public sealed class QualityShipmentService(
         switch (key)
         {
             case "status": Change(shipment, key, shipment.Status, Required(ReadString(value), "Status", 80), next => shipment.Status = next, access, now); break;
-            case "salesOrderNumber": Change(shipment, key, shipment.SalesOrderNumber, Required(ReadString(value), "Shipper number", 80), next => shipment.SalesOrderNumber = next, access, now); break;
+            case "salesOrderNumber": Change(shipment, key, shipment.SalesOrderNumber, Required(ReadString(value), "Sales order", 80), next => shipment.SalesOrderNumber = next, access, now); break;
+            case "shipperNumber": Change(shipment, key, shipment.ShipperNumber, Required(ReadString(value), "Shipper number", 80), next => shipment.ShipperNumber = next, access, now); break;
             case "qaArrivalDate": Change(shipment, key, shipment.QaArrivalDate, RequiredDate(ReadDate(value), "Shipment arrival date"), next => shipment.QaArrivalDate = next, access, now); break;
             case "partNumber": Change(shipment, key, shipment.PartNumber, Required(ReadString(value), "Part number", 160), next => shipment.PartNumber = next, access, now); break;
             case "purchaseOrderNumber": Change(shipment, key, shipment.PurchaseOrderNumber, Required(ReadString(value), "PO number", 160), next => shipment.PurchaseOrderNumber = next, access, now); break;
@@ -1097,6 +1107,7 @@ public sealed class QualityShipmentService(
             shipment.Version,
             Visible(access, QualityAssurancePermissions.StatusView, shipment.Status),
             Visible(access, QualityAssurancePermissions.SalesOrderView, shipment.SalesOrderNumber),
+            Visible(access, QualityAssurancePermissions.ShipperNumberView, shipment.ShipperNumber),
             Visible(access, QualityAssurancePermissions.QaArrivalDateView, shipment.QaArrivalDate),
             canPart ? partSummary : null,
             parts,

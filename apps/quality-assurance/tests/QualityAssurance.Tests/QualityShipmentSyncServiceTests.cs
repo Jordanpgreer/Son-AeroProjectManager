@@ -22,6 +22,7 @@ public sealed class QualityShipmentSyncServiceTests
         var shipment = new QualityShipment
         {
             SalesOrderNumber = "SHIP-100",
+            ShipperNumber = "SHIP-100",
             PartNumber = "OLD-PART",
             Customer = "Old Customer",
             TaskType = "General",

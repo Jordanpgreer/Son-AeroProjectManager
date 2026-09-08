@@ -633,7 +633,8 @@ public static class UserEndpoints
     private static List<int> NormalizeGroupIds(IReadOnlyList<int> groupIds) => groupIds.Distinct().OrderBy(id => id).ToList();
 
     private static bool IsProtectedSystemGroup(string groupName) =>
-        string.Equals(groupName, ApplicationGroups.Administrators, StringComparison.OrdinalIgnoreCase);
+        string.Equals(groupName, ApplicationGroups.Administrators, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(groupName, ApplicationGroups.Shipper, StringComparison.OrdinalIgnoreCase);
 
     public static bool CanHoldAdministratorOnlyPermissions(
         string groupName,

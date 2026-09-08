@@ -98,6 +98,8 @@ public sealed class QualitySqliteMigrationTests
         Assert.Equal(4, part.Quantity);
         Assert.Equal(12.50m, part.UnitPrice);
         Assert.Equal(50.00m, part.TotalValue);
+        var shipment = await db.Shipments.SingleAsync();
+        Assert.Equal("SHIP-LEGACY", shipment.ShipperNumber);
     }
 
     [Fact]

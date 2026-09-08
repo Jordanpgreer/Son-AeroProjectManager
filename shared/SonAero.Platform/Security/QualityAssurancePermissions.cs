@@ -22,6 +22,8 @@ public static class QualityAssurancePermissions
     public const string StatusEdit = "quality-assurance.fields.status.edit";
     public const string SalesOrderView = "quality-assurance.fields.sales-order.view";
     public const string SalesOrderEdit = "quality-assurance.fields.sales-order.edit";
+    public const string ShipperNumberView = "quality-assurance.fields.shipper-number.view";
+    public const string ShipperNumberEdit = "quality-assurance.fields.shipper-number.edit";
     public const string QaArrivalDateView = "quality-assurance.fields.qa-arrival-date.view";
     public const string QaArrivalDateEdit = "quality-assurance.fields.qa-arrival-date.edit";
     public const string PartNumberView = "quality-assurance.fields.part-number.view";
@@ -51,7 +53,8 @@ public static class QualityAssurancePermissions
     public static readonly IReadOnlyList<PermissionDefinition> FieldViewDefinitions =
     [
         Field(StatusView, "View status", "View shipment workflow status."),
-        Field(SalesOrderView, "View shipper number", "View Fulcrum shipper numbers."),
+        Field(SalesOrderView, "View sales order", "View sales order numbers."),
+        Field(ShipperNumberView, "View shipper number", "View Fulcrum shipper numbers."),
         Field(QaArrivalDateView, "View shipment arrival date", "View the shipment arrival date."),
         Field(PartNumberView, "View part number", "View shipment part numbers."),
         Field(PurchaseOrderView, "View purchase order", "View customer purchase order numbers."),
@@ -70,7 +73,8 @@ public static class QualityAssurancePermissions
     public static readonly IReadOnlyList<PermissionDefinition> FieldEditDefinitions =
     [
         Field(StatusEdit, "Edit status", "Change shipment workflow status."),
-        Field(SalesOrderEdit, "Edit shipper number", "Change Fulcrum shipper numbers."),
+        Field(SalesOrderEdit, "Edit sales order", "Change sales order numbers."),
+        Field(ShipperNumberEdit, "Edit shipper number", "Change Fulcrum shipper numbers."),
         Field(QaArrivalDateEdit, "Edit shipment arrival date", "Change the shipment arrival date."),
         Field(PartNumberEdit, "Edit part number", "Change shipment part numbers."),
         Field(PurchaseOrderEdit, "Edit purchase order", "Change customer purchase order numbers."),

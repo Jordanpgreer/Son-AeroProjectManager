@@ -77,6 +77,16 @@ public sealed class AccessControlSeederTests
             permission.PermissionKey == ProjectTrackerPermissions.OperationScheduleConfirm);
         Assert.Contains(salesGroup.Permissions, permission =>
             permission.PermissionKey == ProjectTrackerPermissions.ProjectNotificationsManage);
+        var shipperGroup = await fixture.Db.Groups
+            .Include(group => group.Permissions)
+            .SingleAsync(group => group.Name == ApplicationGroups.Shipper);
+        Assert.True(shipperGroup.IsSystemGroup);
+        Assert.Contains(shipperGroup.Permissions, permission =>
+            permission.PermissionKey == QualityAssurancePermissions.ResponsibleGroupEligible);
+        Assert.Contains(shipperGroup.Permissions, permission =>
+            permission.PermissionKey == QualityAssurancePermissions.MarkShipped);
+        Assert.Contains(shipperGroup.Permissions, permission =>
+            permission.PermissionKey == QualityAssurancePermissions.ShipmentsView);
     }
 
     [Fact]
@@ -104,6 +114,45 @@ public sealed class AccessControlSeederTests
         Assert.Contains(QualityAssurancePermissions.ModuleView, administratorPermissions);
         Assert.DoesNotContain(QualityAssurancePermissions.AssignmentEligible, administratorPermissions);
         Assert.DoesNotContain(QualityAssurancePermissions.ResponsibleGroupEligible, administratorPermissions);
+    }
+
+    [Fact]
+    public async Task Seed_RenamesLegacyShippingGroupAndPreservesMemberships()
+    {
+        await using var fixture = await AccessFixture.CreateAsync();
+        var legacyGroup = new AppGroup
+        {
+            Name = "Shipping",
+            Description = "Legacy shipping group",
+            UserMemberships =
+            [
+                new AppUserGroupMembership
+                {
+                    User = new AppUser
+                    {
+                        AccountName = "DOMAIN\\shipper.user",
+                        DisplayName = "Shipper User",
+                        IsActive = true
+                    }
+                }
+            ]
+        };
+        fixture.Db.Groups.Add(legacyGroup);
+        await fixture.Db.SaveChangesAsync();
+        var legacyGroupId = legacyGroup.Id;
+
+        await new AccessControlSeeder().SeedAsync(fixture.Db, Configuration());
+
+        var shipperGroup = await fixture.Db.Groups
+            .AsNoTracking()
+            .Include(group => group.UserMemberships)
+                .ThenInclude(membership => membership.User)
+            .SingleAsync(group => group.Name == ApplicationGroups.Shipper);
+        Assert.Equal(legacyGroupId, shipperGroup.Id);
+        Assert.True(shipperGroup.IsSystemGroup);
+        Assert.Contains(shipperGroup.UserMemberships, membership =>
+            membership.User.AccountName == "DOMAIN\\shipper.user");
+        Assert.False(await fixture.Db.Groups.AnyAsync(group => group.Name == "Shipping"));
     }
 
     [Fact]

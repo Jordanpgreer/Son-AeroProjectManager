@@ -22,6 +22,7 @@ public sealed class QualityAssuranceDbContext(
             entity.HasKey(shipment => shipment.Id);
             entity.Property(shipment => shipment.Status).HasMaxLength(80);
             entity.Property(shipment => shipment.SalesOrderNumber).HasMaxLength(80);
+            entity.Property(shipment => shipment.ShipperNumber).HasMaxLength(80);
             entity.Property(shipment => shipment.PartNumber).HasMaxLength(160);
             entity.Property(shipment => shipment.PurchaseOrderNumber).HasMaxLength(160);
             entity.Property(shipment => shipment.Customer).HasMaxLength(240);

@@ -5,6 +5,7 @@ public sealed class QualityShipment
     public int Id { get; set; }
     public string Status { get; set; } = "WIP";
     public string SalesOrderNumber { get; set; } = string.Empty;
+    public string? ShipperNumber { get; set; }
     public DateOnly? QaArrivalDate { get; set; }
     public string PartNumber { get; set; } = string.Empty;
     public string? PurchaseOrderNumber { get; set; }

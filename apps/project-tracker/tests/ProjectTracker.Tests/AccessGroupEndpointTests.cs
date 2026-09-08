@@ -293,11 +293,13 @@ public sealed class AccessGroupEndpointTests
             && permission.PermissionKey == ApplicationPermissions.ProjectCreate));
     }
 
-    [Fact]
-    public async Task DeleteGroup_RejectsProtectedSystemGroup()
+    [Theory]
+    [InlineData(ApplicationGroups.Administrators)]
+    [InlineData(ApplicationGroups.Shipper)]
+    public async Task DeleteGroup_RejectsProtectedSystemGroup(string groupName)
     {
         await using var fixture = await DatabaseFixture.CreateAsync();
-        var group = new AppGroup { Name = ApplicationGroups.Administrators, IsSystemGroup = true };
+        var group = new AppGroup { Name = groupName, IsSystemGroup = true };
         fixture.Db.Groups.Add(group);
         await fixture.Db.SaveChangesAsync();
 

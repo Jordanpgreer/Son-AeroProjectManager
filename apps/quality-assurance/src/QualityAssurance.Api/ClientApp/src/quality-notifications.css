@@ -19,10 +19,10 @@
 .quality-notification-trigger b { display: grid; min-width: 18px; height: 18px; place-items: center; padding: 0 4px; color: var(--steel-700); background: #fff; border-radius: 999px; font-size: 9px; }
 
 .quality-notification-popover {
-  position: absolute;
-  z-index: 40;
-  top: calc(100% + 8px);
-  right: 0;
+  position: fixed;
+  z-index: 10020;
+  right: 18px;
+  bottom: 18px;
   width: min(390px, calc(100vw - 28px));
   overflow: hidden;
   color: var(--ink);
@@ -56,10 +56,10 @@
   line-height: 1.4;
 }
 .quality-notification-operation-error.is-toast {
-  position: absolute;
-  z-index: 45;
-  top: calc(100% + 8px);
-  right: 0;
+  position: fixed;
+  z-index: 10030;
+  right: 18px;
+  bottom: 18px;
   display: flex;
   width: min(390px, calc(100vw - 28px));
   gap: 10px;
@@ -84,10 +84,20 @@
 }
 .quality-notification-operation-error button:hover { background: color-mix(in srgb, var(--risk) 12%, transparent); }
 
+.quality-notification-toast-stack { position: fixed; z-index: 10025; right: 18px; bottom: 18px; display: grid; width: min(390px, calc(100vw - 28px)); gap: 9px; pointer-events: none; }
+.quality-notification-toast { display: grid; grid-template-columns: minmax(0, 1fr) 34px; overflow: hidden; pointer-events: auto; background: var(--surface); border: 1px solid var(--line-2); border-left: 4px solid var(--steel); border-radius: var(--r-md); box-shadow: 0 22px 58px rgba(6, 10, 14, .3); }
+.quality-notification-toast > button:first-child { display: grid; min-width: 0; grid-template-columns: 32px minmax(0, 1fr); gap: 10px; align-items: center; padding: 12px; color: var(--ink); background: transparent; border: 0; text-align: left; cursor: pointer; }
+.quality-notification-toast > button:first-child > span:last-child { display: grid; min-width: 0; gap: 4px; }
+.quality-notification-toast strong { font-size: 11.5px; }
+.quality-notification-toast small { overflow: hidden; color: var(--muted); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+.quality-notification-toast-dismiss { display: grid; width: 28px; height: 28px; place-items: center; align-self: start; margin-top: 7px; padding: 0; color: var(--muted); background: transparent; border: 0; border-radius: var(--r-xs); cursor: pointer; }
+.quality-notification-toast-dismiss:hover { color: var(--ink); background: var(--surface-2); }
+
 @media (max-width: 680px) {
   .quality-notification-trigger > span { display: none; }
   .quality-notification-trigger { width: 38px; padding: 0; }
   .quality-notification-trigger b { position: absolute; top: -6px; right: -6px; }
-  .quality-notification-popover { position: fixed; top: 72px; right: 14px; left: 14px; width: auto; }
-  .quality-notification-operation-error.is-toast { position: fixed; top: 72px; right: 14px; left: 14px; width: auto; }
+  .quality-notification-popover { right: 14px; bottom: 14px; left: 14px; width: auto; }
+  .quality-notification-operation-error.is-toast { right: 14px; bottom: 14px; left: 14px; width: auto; }
+  .quality-notification-toast-stack { right: 14px; bottom: 14px; left: 14px; width: auto; }
 }

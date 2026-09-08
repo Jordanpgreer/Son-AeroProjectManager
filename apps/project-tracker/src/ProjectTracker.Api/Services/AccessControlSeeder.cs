@@ -11,6 +11,7 @@ public sealed class AccessControlSeeder
 {
     private const string SharedModuleGroupsVersion = "shared-module-groups-v1";
     private const string QualityShippingPermissionsVersion = "quality-shipping-permissions-v1";
+    private const string QualityShipperGroupVersion = "quality-shipper-group-v1";
     private const string ProjectExternalLinksPermissionVersion = "project-external-links-permission-v1";
     private const string ArchivedDeletePermissionVersion = "project-archived-delete-permission-v1";
     private const string OperationScheduleConfirmationPermissionVersion = "operation-schedule-confirmation-permission-v1";
@@ -34,6 +35,11 @@ public sealed class AccessControlSeeder
             db,
             migrateSharedModuleAccess,
             cancellationToken);
+        if (!await HasVersionAsync(db, QualityShipperGroupVersion, cancellationToken))
+        {
+            await EnsureQualityShipperGroupAsync(db, cancellationToken);
+            await RecordVersionAsync(db, QualityShipperGroupVersion, cancellationToken);
+        }
         var addQualityShippingPermissions = !await HasVersionAsync(
             db,
             QualityShippingPermissionsVersion,
@@ -370,6 +376,64 @@ public sealed class AccessControlSeeder
 
         await db.SaveChangesAsync(cancellationToken);
         return groups.ToDictionary(pair => pair.Key, pair => pair.Value.Id, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static async Task EnsureQualityShipperGroupAsync(
+        ProjectTrackerDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var candidateGroups = await db.Groups
+            .Include(candidate => candidate.Permissions)
+            .Include(candidate => candidate.UserMemberships)
+            .Where(candidate => candidate.Name == ApplicationGroups.Shipper || candidate.Name == "Shipping")
+            .ToListAsync(cancellationToken);
+        var group = candidateGroups.SingleOrDefault(candidate =>
+            string.Equals(candidate.Name, ApplicationGroups.Shipper, StringComparison.OrdinalIgnoreCase));
+        var legacyGroup = candidateGroups.SingleOrDefault(candidate =>
+            string.Equals(candidate.Name, "Shipping", StringComparison.OrdinalIgnoreCase));
+        var requiredPermissions = QualityAssurancePermissions.ViewerDefaults
+            .Append(QualityAssurancePermissions.ResponsibleGroupEligible)
+            .Append(QualityAssurancePermissions.MarkShipped)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (group is null && legacyGroup is not null)
+        {
+            group = legacyGroup;
+            group.Name = ApplicationGroups.Shipper;
+        }
+        else if (group is not null && legacyGroup is not null)
+        {
+            foreach (var membership in legacyGroup.UserMemberships.Where(membership =>
+                         group.UserMemberships.All(existing => existing.AppUserId != membership.AppUserId)))
+                group.UserMemberships.Add(new AppUserGroupMembership { AppUserId = membership.AppUserId });
+        }
+
+        if (group is null)
+        {
+            group = new AppGroup
+            {
+                Name = ApplicationGroups.Shipper,
+                Description = "Receives Quality records after QA completion and owns final shipment processing.",
+                IsSystemGroup = true,
+                Permissions = requiredPermissions
+                    .Select(permission => new AppGroupPermission { PermissionKey = permission })
+                    .ToList()
+            };
+            db.Groups.Add(group);
+        }
+        else
+        {
+            group.IsSystemGroup = true;
+            group.Description = "Receives Quality records after QA completion and owns final shipment processing.";
+            foreach (var permission in requiredPermissions.Where(permission => group.Permissions.All(existing =>
+                         !string.Equals(existing.PermissionKey, permission, StringComparison.OrdinalIgnoreCase))))
+                group.Permissions.Add(new AppGroupPermission { PermissionKey = permission });
+        }
+
+        group.UpdatedAt = DateTimeOffset.UtcNow;
+
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     private static async Task MigrateLegacyModuleAssignmentsAsync(

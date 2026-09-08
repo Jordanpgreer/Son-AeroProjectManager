@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Bell, CheckCheck, MessageSquare, X } from 'lucide-react'
 import { qualityApi } from './api'
 import type { QualityMentionNotification } from './types'
@@ -26,11 +27,38 @@ export default function QualityNotificationCenter({
   const [open, setOpen] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [operationError, setOperationError] = useState<string | null>(null)
+  const [toasts, setToasts] = useState<QualityMentionNotification[]>([])
   const root = useRef<HTMLDivElement>(null)
+  const panel = useRef<HTMLElement>(null)
+  const loadedOnce = useRef(false)
+  const seenIds = useRef(new Set<number>())
 
   async function load() {
     try {
-      setNotifications(await qualityApi<QualityMentionNotification[]>('/api/notifications'))
+      const next = await qualityApi<QualityMentionNotification[]>('/api/notifications')
+      if (loadedOnce.current) {
+        const arrivals = next.filter((notification) => !notification.readAt && !seenIds.current.has(notification.id))
+        if (arrivals.length > 0) {
+          if (document.visibilityState === 'visible') {
+            setToasts((current) => [...arrivals, ...current].slice(0, 4))
+          } else if ('Notification' in window && Notification.permission === 'granted') {
+            for (const notification of arrivals) {
+              const desktop = new Notification(`${notification.actorDisplayName} mentioned you`, {
+                body: notification.bodyPreview,
+                tag: `quality-mention-${notification.id}`,
+              })
+              desktop.onclick = () => {
+                window.focus()
+                void openNotification(notification)
+                desktop.close()
+              }
+            }
+          }
+        }
+      }
+      next.forEach((notification) => seenIds.current.add(notification.id))
+      loadedOnce.current = true
+      setNotifications(next)
       setLoadError(null)
     } catch (cause) {
       setLoadError(cause instanceof Error ? cause.message : 'Notifications unavailable.')
@@ -47,7 +75,8 @@ export default function QualityNotificationCenter({
     if (!open) return
     const close = (event: MouseEvent | KeyboardEvent) => {
       if (event instanceof KeyboardEvent && event.key !== 'Escape') return
-      if (event instanceof MouseEvent && root.current?.contains(event.target as Node)) return
+      if (event instanceof MouseEvent
+        && (root.current?.contains(event.target as Node) || panel.current?.contains(event.target as Node))) return
       setOpen(false)
     }
     document.addEventListener('mousedown', close)
@@ -75,6 +104,7 @@ export default function QualityNotificationCenter({
         : 'The shipment will open, but the notification could not be marked read.')
     } finally {
       setOpen(false)
+      setToasts((current) => current.filter((candidate) => candidate.id !== notification.id))
       onOpenShipment(notification.shipmentId, notification.isShipped)
     }
   }
@@ -95,7 +125,10 @@ export default function QualityNotificationCenter({
       <button
         className="quality-notification-trigger"
         type="button"
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => {
+          setOpen((current) => !current)
+          if ('Notification' in window && Notification.permission === 'default') void Notification.requestPermission()
+        }}
         aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -104,8 +137,8 @@ export default function QualityNotificationCenter({
         <span>Notifications</span>
         {unread > 0 && <b>{unread > 99 ? '99+' : unread}</b>}
       </button>
-      {open && (
-        <section className="quality-notification-popover" role="dialog" aria-label="Quality notifications">
+      {open && createPortal(
+        <section className="quality-notification-popover" ref={panel} role="dialog" aria-label="Quality notifications">
           <header>
             <div><span className="eyebrow">Quality Mentions</span><h2>Notifications</h2></div>
             {unread > 0 && <button type="button" onClick={() => void markAllRead()}><CheckCheck size={14} /> Mark all read</button>}
@@ -130,13 +163,24 @@ export default function QualityNotificationCenter({
                   </button>
                 ))}
           </div>
-        </section>
+        </section>,
+        document.body,
       )}
-      {!open && operationError && (
+      {toasts.length > 0 && createPortal(
+        <aside className="quality-notification-toast-stack" aria-live="polite" aria-label="New Quality notifications">
+          {toasts.map((notification) => <article className="quality-notification-toast" key={notification.id}>
+            <button type="button" onClick={() => void openNotification(notification)}><span className="quality-notification-icon"><MessageSquare size={15} /></span><span><strong>{notification.actorDisplayName} mentioned you</strong><small>{notification.bodyPreview}</small></span></button>
+            <button className="quality-notification-toast-dismiss" type="button" onClick={() => setToasts((current) => current.filter((candidate) => candidate.id !== notification.id))} aria-label="Dismiss notification"><X size={14} /></button>
+          </article>)}
+        </aside>,
+        document.body,
+      )}
+      {!open && operationError && createPortal(
         <div className="quality-notification-operation-error is-toast" role="alert">
           <span>{operationError}</span>
           <button type="button" onClick={() => setOperationError(null)} aria-label="Dismiss notification error"><X size={14} /></button>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )

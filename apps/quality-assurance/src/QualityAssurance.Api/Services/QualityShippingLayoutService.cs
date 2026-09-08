@@ -16,6 +16,7 @@ public sealed class QualityShippingLayoutService(QualityAssuranceDbContext db)
     [
         Column("status", 150, NarrowestColumnWidth, 480, required: true),
         Column("salesOrderNumber", 140, NarrowestColumnWidth, 480),
+        Column("shipperNumber", 140, NarrowestColumnWidth, 480),
         Column("qaArrivalDate", 115, NarrowestColumnWidth, 480),
         Column("partNumber", 145, NarrowestColumnWidth, 480, required: true),
         Column("purchaseOrderNumber", 120, NarrowestColumnWidth, 480),
