@@ -17,11 +17,24 @@ public static class QualityAssurancePolicies
         var claims = principal.Claims
             .Where(claim => claim.Type is not ClaimTypes.Role
                 && claim.Type != PermissionClaim
-                && claim.Type != GroupClaim)
+                && claim.Type != GroupClaim
+                && !claim.Type.StartsWith("sonaero.access-preview.", StringComparison.Ordinal))
             .ToList();
         claims.Add(new Claim(ClaimTypes.Role, access.Role));
         claims.AddRange(access.Permissions.Select(permission => new Claim(PermissionClaim, permission)));
         claims.AddRange(access.Groups.Select(group => new Claim(GroupClaim, group.Name)));
+        if (access.IsPreview)
+        {
+            claims.Add(new Claim(AccessPreviewClaimTypes.Active, bool.TrueString));
+            claims.Add(new Claim(AccessPreviewClaimTypes.ApplicationId, AccessPreviewApplications.QualityAssurance));
+            if (!string.IsNullOrWhiteSpace(access.PreviewActorAccountName))
+                claims.Add(new Claim(AccessPreviewClaimTypes.ActorAccountName, access.PreviewActorAccountName));
+            if (!string.IsNullOrWhiteSpace(access.PreviewTargetKey))
+                claims.Add(new Claim(AccessPreviewClaimTypes.TargetKey, access.PreviewTargetKey));
+            claims.Add(new Claim(AccessPreviewClaimTypes.TargetTitle, access.DisplayName));
+            if (access.UserId > 0)
+                claims.Add(new Claim(AccessPreviewClaimTypes.TargetAccountName, access.AccountName));
+        }
         var identity = new ClaimsIdentity(
             claims,
             principal.Identity?.AuthenticationType,
@@ -37,7 +50,10 @@ public sealed record QualityAssuranceAccessProfile(
     string DisplayName,
     string Role,
     IReadOnlyList<string> Permissions,
-    IReadOnlyList<QualityAssuranceAccessGroup> Groups)
+    IReadOnlyList<QualityAssuranceAccessGroup> Groups,
+    bool IsPreview = false,
+    string? PreviewActorAccountName = null,
+    string? PreviewTargetKey = null)
 {
     public bool HasPermission(string permission) => Permissions.Contains(permission, StringComparer.OrdinalIgnoreCase);
 }

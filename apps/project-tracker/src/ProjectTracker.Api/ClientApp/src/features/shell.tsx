@@ -231,10 +231,15 @@ function NotificationsMenu({
   const knownNotificationIdsRef = useRef<Set<number>>(new Set())
   const notificationsInitializedRef = useRef(false)
   const notificationRequestGenerationRef = useRef(0)
+  const centrallyManagedPushRef = useRef(false)
   const push = usePushNotifications({
     registered: Boolean(user?.isRegistered),
     previewReadOnly: Boolean(user?.preview?.readOnly),
   })
+
+  useEffect(() => {
+    centrallyManagedPushRef.current = push.status === 'managed'
+  }, [push.status])
 
   const dismissToast = (notificationId: number) => {
     setToasts((current) => current.filter((notification) => notification.id !== notificationId))
@@ -251,10 +256,12 @@ function NotificationsMenu({
         const arrivals = next.filter((notification) =>
           !notification.readAt && !knownNotificationIdsRef.current.has(notification.id))
         if (arrivals.length) {
-          setToasts((current) => [
-            ...arrivals,
-            ...current.filter((notification) => !arrivals.some((arrival) => arrival.id === notification.id)),
-          ].slice(0, 3))
+          if (!centrallyManagedPushRef.current) {
+            setToasts((current) => [
+              ...arrivals,
+              ...current.filter((notification) => !arrivals.some((arrival) => arrival.id === notification.id)),
+            ].slice(0, 3))
+          }
         }
       }
       knownNotificationIdsRef.current = new Set(next.map((notification) => notification.id))
@@ -469,7 +476,6 @@ function NotificationsMenu({
             status={push.status}
             message={push.message}
             onEnable={() => void push.enable()}
-            onDisable={() => void push.disable()}
             onRetry={() => void push.refresh()}
           />
           <div className="notification-list" aria-live="polite">
@@ -639,13 +645,11 @@ function DesktopNotificationControl({
   status,
   message,
   onEnable,
-  onDisable,
   onRetry,
 }: {
   status: ReturnType<typeof usePushNotifications>['status']
   message: string | null
   onEnable: () => void
-  onDisable: () => void
   onRetry: () => void
 }) {
   const copy = {
@@ -655,7 +659,8 @@ function DesktopNotificationControl({
     preview: ['Unavailable during access preview', 'Return to your own account before changing desktop notification settings.'],
     denied: ['Notifications blocked by the browser', 'Allow notifications for this site in browser settings, then retry.'],
     disabled: ['Desktop notifications are off', 'Enable them to receive mentions while Project Tracker is in the background.'],
-    enabled: ['Desktop notifications are on', 'Mentions can appear through Windows even when this tab is in the background.'],
+    enabled: ['Desktop notifications are on', 'Managed notifications are active for mentions and schedule checks.'],
+    managed: ['Notifications are managed by Arda', 'Alerts appear in the active Arda module or through Windows when Arda is closed.'],
     working: ['Updating desktop notifications', 'Please keep this window open for a moment.'],
     error: ['Desktop notifications need attention', message ?? 'The setting could not be updated.'],
   } satisfies Record<typeof status, [string, string]>
@@ -664,7 +669,7 @@ function DesktopNotificationControl({
   return (
     <div className={`desktop-notification-control ${status}`} aria-live="polite">
       <span className="desktop-notification-icon" aria-hidden="true">
-        {status === 'enabled' ? <BellRing size={16} /> : <BellOff size={16} />}
+        {status === 'enabled' || status === 'managed' ? <BellRing size={16} /> : <BellOff size={16} />}
       </span>
       <span className="desktop-notification-copy">
         <strong>{title}</strong>
@@ -672,9 +677,6 @@ function DesktopNotificationControl({
       </span>
       {status === 'disabled' && (
         <button className="button ghost" type="button" onClick={onEnable}>Enable</button>
-      )}
-      {status === 'enabled' && (
-        <button className="button ghost" type="button" onClick={onDisable}>Turn off</button>
       )}
       {(status === 'denied' || status === 'error') && (
         <button className="button ghost" type="button" onClick={onRetry}>Retry</button>

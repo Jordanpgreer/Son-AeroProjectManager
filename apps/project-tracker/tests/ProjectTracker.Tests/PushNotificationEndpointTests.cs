@@ -64,6 +64,7 @@ public sealed class PushNotificationEndpointTests
             Subject = "mailto:push@example.test"
         })));
         Assert.False(invalid.Value!.Enabled);
+        Assert.False(invalid.Value.Managed);
         Assert.Empty(invalid.Value.PublicKey);
 
         var valid = PushNotificationEndpoints.GetPublicKey(Options.Create(new WebPushOptions
@@ -75,7 +76,21 @@ public sealed class PushNotificationEndpointTests
         }));
         var result = Assert.IsType<Ok<ProjectTracker.Api.Dtos.PushPublicKeyDto>>(valid);
         Assert.True(result.Value!.Enabled);
+        Assert.False(result.Value.Managed);
         Assert.NotEmpty(result.Value.PublicKey);
+    }
+
+    [Fact]
+    public void PublicKey_ReportsCentralBrokerAsManagedWithoutExposingLegacyVapid()
+    {
+        var response = PushNotificationEndpoints.GetPublicKey(
+            Options.Create(new WebPushOptions()),
+            Options.Create(new PortalPushOptions { Enabled = true }));
+
+        var result = Assert.IsType<Ok<ProjectTracker.Api.Dtos.PushPublicKeyDto>>(response);
+        Assert.True(result.Value!.Managed);
+        Assert.False(result.Value.Enabled);
+        Assert.Empty(result.Value.PublicKey);
     }
 
     [Fact]

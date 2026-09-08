@@ -13,7 +13,8 @@ public static class AdminAccessPreviewEndpoints
     [
         AccessPreviewApplications.ProjectTracker,
         AccessPreviewApplications.Engineering,
-        AccessPreviewApplications.Estimating
+        AccessPreviewApplications.Estimating,
+        AccessPreviewApplications.QualityAssurance
     ];
 
     public static void MapAdminAccessPreviewEndpoints(this RouteGroupBuilder api)
@@ -116,7 +117,7 @@ public static class AdminAccessPreviewEndpoints
         var application = target.Applications.SingleOrDefault(candidate =>
             string.Equals(candidate.Id, applicationId, StringComparison.OrdinalIgnoreCase)
             && candidate.Status == ApplicationStatus.Active);
-        if (application is null || !PreviewableApplications.Contains(application.Id))
+        if (application is null || !CanLaunchApplication(application.Id))
         {
             return Results.Problem(
                 statusCode: StatusCodes.Status403Forbidden,
@@ -171,6 +172,9 @@ public static class AdminAccessPreviewEndpoints
             Fragment = string.Empty
         }.Uri;
     }
+
+    internal static bool CanLaunchApplication(string applicationId) =>
+        PreviewableApplications.Contains(applicationId);
 
     private static async Task<AdminAccessPreviewTargetDto?> ResolveTargetAsync(
         string targetKey,
@@ -414,5 +418,5 @@ public static class AdminAccessPreviewEndpoints
         entry.Url,
         entry.Order,
         entry.Status,
-        !string.IsNullOrWhiteSpace(entry.PreviewPath));
+        CanLaunchApplication(entry.Id));
 }

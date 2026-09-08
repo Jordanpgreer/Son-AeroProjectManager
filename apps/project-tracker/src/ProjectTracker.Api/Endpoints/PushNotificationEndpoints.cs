@@ -20,10 +20,15 @@ public static class PushNotificationEndpoints
         return api;
     }
 
-    public static IResult GetPublicKey(IOptions<WebPushOptions> options)
+    public static IResult GetPublicKey(
+        IOptions<WebPushOptions> options,
+        IOptions<PortalPushOptions>? portalPushOptions = null)
     {
         var configured = options.Value.IsConfigured;
-        return Results.Ok(new PushPublicKeyDto(configured ? options.Value.PublicKey : string.Empty, configured));
+        return Results.Ok(new PushPublicKeyDto(
+            configured ? options.Value.PublicKey : string.Empty,
+            configured,
+            portalPushOptions?.Value.Enabled == true));
     }
 
     public static async Task<IResult> UpsertAsync(

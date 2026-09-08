@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using SonAero.Platform.Security;
 
 namespace QualityAssurance.Api.Data;
 
@@ -11,6 +12,7 @@ public sealed class QualityAssuranceAccessDbContext(
     public DbSet<QualityAssuranceAccessGroupRecord> Groups => Set<QualityAssuranceAccessGroupRecord>();
     public DbSet<QualityAssuranceUserGroupMembershipRecord> UserGroupMemberships => Set<QualityAssuranceUserGroupMembershipRecord>();
     public DbSet<QualityAssuranceGroupPermissionRecord> GroupPermissions => Set<QualityAssuranceGroupPermissionRecord>();
+    public DbSet<AccessPreviewSessionRecord> AccessPreviewSessions => Set<AccessPreviewSessionRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -63,6 +65,17 @@ public sealed class QualityAssuranceAccessDbContext(
             entity.HasOne(access => access.User)
                 .WithMany(user => user.ModuleAccesses)
                 .HasForeignKey(access => access.AppUserId);
+        });
+
+        modelBuilder.Entity<AccessPreviewSessionRecord>(entity =>
+        {
+            entity.ToTable("AccessPreviewSessions");
+            entity.HasKey(session => session.Id);
+            entity.HasIndex(session => session.TokenHash).IsUnique();
+            entity.Property(session => session.TokenHash).HasMaxLength(64);
+            entity.Property(session => session.AdministratorAccountName).HasMaxLength(160);
+            entity.Property(session => session.TargetKey).HasMaxLength(96);
+            entity.Property(session => session.ApplicationId).HasMaxLength(64);
         });
     }
 }

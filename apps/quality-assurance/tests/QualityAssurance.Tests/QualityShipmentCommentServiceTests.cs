@@ -7,6 +7,7 @@ using QualityAssurance.Api.Data;
 using QualityAssurance.Api.Dtos;
 using QualityAssurance.Api.Models;
 using QualityAssurance.Api.Services;
+using SonAero.Platform.Notifications;
 using SonAero.Platform.Security;
 
 namespace QualityAssurance.Tests;
@@ -101,6 +102,47 @@ public sealed class QualityShipmentCommentServiceTests
     }
 
     [Fact]
+    public async Task Mention_is_forwarded_to_the_Portal_push_broker_after_it_is_persisted()
+    {
+        var push = new RecordingPushPublisher();
+        await using var fixture = await CommentFixture.CreateAsync(push);
+        var shipment = await fixture.AddShipmentAsync();
+
+        await fixture.Service.PostAsync(
+            shipment.Id,
+            new QualityShipmentCommentCreateDto("@two please review this shipment."),
+            fixture.Admin,
+            default);
+
+        var notification = Assert.Single(push.Notifications);
+        Assert.Matches("^quality-mention-[1-9][0-9]*$", notification.SourceNotificationKey);
+        Assert.Equal("TEST\\two", notification.RecipientAccountName);
+        Assert.Equal("Quality Admin mentioned you in Quality", notification.Title);
+        Assert.Equal("@two please review this shipment.", notification.Body);
+        Assert.Equal(
+            $"/#/shipping-status?shipment={shipment.Id}&comments=1&notification={await fixture.Db.MentionNotifications.Select(value => value.Id).SingleAsync()}&status=open",
+            notification.TargetPath);
+        Assert.NotNull((await fixture.Db.MentionNotifications.SingleAsync()).PortalPushPublishedAt);
+    }
+
+    [Fact]
+    public async Task Mention_remains_pending_when_the_Portal_push_broker_is_unavailable()
+    {
+        var push = new RecordingPushPublisher(accepted: false);
+        await using var fixture = await CommentFixture.CreateAsync(push);
+        var shipment = await fixture.AddShipmentAsync();
+
+        await fixture.Service.PostAsync(
+            shipment.Id,
+            new QualityShipmentCommentCreateDto("@two please review this shipment."),
+            fixture.Admin,
+            default);
+
+        Assert.Single(push.Notifications);
+        Assert.Null((await fixture.Db.MentionNotifications.SingleAsync()).PortalPushPublishedAt);
+    }
+
+    [Fact]
     public async Task Comment_thread_requires_field_permission_and_record_access()
     {
         await using var fixture = await CommentFixture.CreateAsync();
@@ -150,12 +192,15 @@ public sealed class QualityShipmentCommentServiceTests
         private readonly SqliteConnection connection;
         private readonly TestAccessStore directory;
 
-        private CommentFixture(SqliteConnection connection, QualityAssuranceDbContext db)
+        private CommentFixture(
+            SqliteConnection connection,
+            QualityAssuranceDbContext db,
+            IArdaPushNotificationPublisher? pushPublisher)
         {
             this.connection = connection;
             Db = db;
             directory = new TestAccessStore();
-            Service = new QualityShipmentCommentService(db, directory);
+            Service = new QualityShipmentCommentService(db, directory, pushPublisher);
             Admin = Access(99, "TEST\\admin", "Quality Admin", canEdit: true, viewAll: true);
         }
 
@@ -163,7 +208,8 @@ public sealed class QualityShipmentCommentServiceTests
         public QualityShipmentCommentService Service { get; }
         public QualityAssuranceAccessProfile Admin { get; }
 
-        public static async Task<CommentFixture> CreateAsync()
+        public static async Task<CommentFixture> CreateAsync(
+            IArdaPushNotificationPublisher? pushPublisher = null)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
@@ -171,7 +217,7 @@ public sealed class QualityShipmentCommentServiceTests
                 .UseSqlite(connection)
                 .Options);
             await db.Database.EnsureCreatedAsync();
-            return new CommentFixture(connection, db);
+            return new CommentFixture(connection, db, pushPublisher);
         }
 
         public async Task<QualityShipment> AddShipmentAsync(string? comments = null, int? assignedUserId = 99)
@@ -238,6 +284,26 @@ public sealed class QualityShipmentCommentServiceTests
         {
             await Db.DisposeAsync();
             await connection.DisposeAsync();
+        }
+    }
+
+    private sealed class RecordingPushPublisher : IArdaPushNotificationPublisher
+    {
+        private readonly bool accepted;
+
+        public RecordingPushPublisher(bool accepted = true)
+        {
+            this.accepted = accepted;
+        }
+
+        public List<ArdaPushNotificationRequest> Notifications { get; } = [];
+
+        public Task<bool> PublishAsync(
+            ArdaPushNotificationRequest notification,
+            CancellationToken cancellationToken = default)
+        {
+            Notifications.Add(notification);
+            return Task.FromResult(accepted);
         }
     }
 

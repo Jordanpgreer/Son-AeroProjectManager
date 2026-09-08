@@ -38,7 +38,7 @@ function defaultHubUrl() {
   return 'https://hub.son4l.local'
 }
 
-const hubUrl = defaultHubUrl()
+export const hubUrl = defaultHubUrl()
 const qualityAdminUrl = new URL('/#/admin/quality-assurance/assignment-rules', hubUrl).toString()
 
 function initials(name: string) {
@@ -172,6 +172,13 @@ export default function App() {
       </aside>
 
       <main className="main-area" id="main-content">
+        {user.isPreview && <section className="access-preview-banner" role="status">
+          <div>
+            <strong>Read-only preview: {user.previewTargetTitle ?? user.displayName}</strong>
+            <span>Quality permissions and queue visibility are being shown without allowing changes.</span>
+          </div>
+          <a href="/access-preview/end" target="_top">Return to Admin</a>
+        </section>}
         <header className="topbar">
           <div className="topbar-title-area">
             <div className="page-title-block"><span className="eyebrow">{page.eyebrow}</span><h1>{page.title}</h1><p>{page.description}</p></div>

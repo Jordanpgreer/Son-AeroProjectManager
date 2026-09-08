@@ -173,7 +173,7 @@ test('publishing appends immutable whole-quote revisions and keeps part revision
   assert.equal(secondPublish?.revisions[1]?.selectedQuantity, 250)
 })
 
-test('revision drafts can be discarded without removing published history', () => {
+test('revision drafts can be discarded or the entire published quote can be deleted', () => {
   localStorage.clear()
   const draft = saveQuoteDraft({
     ownerAccountName: 'SON4L\\estimator',
@@ -192,7 +192,30 @@ test('revision drafts can be discarded without removing published history', () =
   assert.equal(discarded?.draft, null)
   assert.equal(discarded?.revisions.length, 1)
   assert.equal(discarded?.revisions[0]?.estimate.metadata.customer, 'Keep me')
-  assert.equal(deleteQuote(published.id, published.ownerAccountName), false)
+  assert.equal(deleteQuote(published.id, published.ownerAccountName), true)
+  assert.deepEqual(listQuotes(published.ownerAccountName), [])
+})
+
+test('deleting a published quote also removes its current revision draft', () => {
+  localStorage.clear()
+  const owner = 'SON4L\\estimator'
+  const draft = saveQuoteDraft({
+    ownerAccountName: owner,
+    estimate: createEstimate('Delete every revision'),
+    selectedQuantity: 100,
+  })!
+  const published = publishQuoteRevision({
+    id: draft.id,
+    ownerAccountName: owner,
+    estimate: draft.draft!.estimate,
+    selectedQuantity: 100,
+  })!
+  assert.ok(startQuoteRevision(published.id, owner)?.draft)
+
+  assert.equal(deleteQuote(published.id, 'SON4L\\someone-else'), false)
+  assert.equal(listQuotes(owner).length, 1)
+  assert.equal(deleteQuote(published.id, owner), true)
+  assert.deepEqual(listQuotes(owner), [])
 })
 
 test('status and owner checks do not mutate published quote content', () => {

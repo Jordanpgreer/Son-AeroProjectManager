@@ -34,6 +34,7 @@ import {
   canOpenAdminConsole,
 } from './navigation'
 import type { AdminAccessPreviewLaunch, AdminAccessPreviewTarget } from './admin/types'
+import { ensureArdaPushSubscription } from './arda-push'
 
 type AppStatus = 'active' | 'comingSoon' | 'maintenance'
 
@@ -176,6 +177,12 @@ export default function App() {
   }, [me?.accountStatus])
 
   useEffect(() => {
+    if (me?.accountStatus === 'configured' && !accessPreview) {
+      void ensureArdaPushSubscription()
+    }
+  }, [accessPreview, me?.accountStatus])
+
+  useEffect(() => {
     persistTheme(theme)
   }, [theme])
 
@@ -273,7 +280,8 @@ export default function App() {
   function startAccessPreview(target: AdminAccessPreviewTarget) {
     setAccessPreview(target)
     setPreviewLaunchError(null)
-    window.location.hash = '#/'
+    window.history.replaceState(null, '', '#/')
+    setLocationHash('#/')
   }
 
   async function startWalkthroughPreview(target: AdminAccessPreviewTarget) {
@@ -303,7 +311,8 @@ export default function App() {
   function returnToAdmin() {
     setAccessPreview(null)
     setPreviewLaunchError(null)
-    window.location.hash = '#/admin/access'
+    window.history.replaceState(null, '', '#/admin/access')
+    setLocationHash('#/admin/access')
   }
 
   return (
@@ -512,7 +521,7 @@ function ApplicationCard({
 }) {
   const Icon = iconFor(application.icon)
   const available = application.status === 'active' && application.url.length > 0
-  const previewAvailable = !previewMode || canLaunchAccessPreview(application.id)
+  const previewAvailable = !previewMode || canLaunchAccessPreview(application)
   const openable = available && previewAvailable
   const content = (
     <>

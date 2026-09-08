@@ -137,6 +137,9 @@ namespace QualityAssurance.Api.Data.Migrations
                     b.Property<DateTimeOffset?>("ReadAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<DateTimeOffset?>("PortalPushPublishedAt")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<string>("RecipientAccountName")
                         .IsRequired()
                         .HasMaxLength(160)
@@ -153,6 +156,8 @@ namespace QualityAssurance.Api.Data.Migrations
                     b.HasIndex("CommentId");
 
                     b.HasIndex("ShipmentId", "CommentId");
+
+                    b.HasIndex("PortalPushPublishedAt", "Id");
 
                     b.HasIndex("RecipientUserId", "ReadAt", "CreatedAt");
 

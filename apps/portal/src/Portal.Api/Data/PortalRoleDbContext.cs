@@ -11,6 +11,8 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
     public DbSet<PortalNotificationProjectRecord> NotificationProjects => Set<PortalNotificationProjectRecord>();
     public DbSet<PortalNotificationTaskRecord> NotificationTasks => Set<PortalNotificationTaskRecord>();
     public DbSet<PortalNotificationMessageRecord> NotificationMessages => Set<PortalNotificationMessageRecord>();
+    public DbSet<ArdaPushSubscriptionRecord> ArdaPushSubscriptions => Set<ArdaPushSubscriptionRecord>();
+    public DbSet<ArdaPushNotificationRecord> ArdaPushNotifications => Set<ArdaPushNotificationRecord>();
     public DbSet<PortalEngineeringGroupRecord> EngineeringGroups => Set<PortalEngineeringGroupRecord>();
     public DbSet<PortalProjectTrackerGroupRecord> ProjectTrackerGroups => Set<PortalProjectTrackerGroupRecord>();
     public DbSet<PortalEngineeringMembershipRecord> EngineeringUserGroupMemberships => Set<PortalEngineeringMembershipRecord>();
@@ -221,6 +223,39 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
             entity.Property(audit => audit.PreviousProvider).HasMaxLength(40);
             entity.Property(audit => audit.NewProvider).HasMaxLength(40);
             entity.Property(audit => audit.ChangedBy).HasMaxLength(160);
+        });
+
+        modelBuilder.Entity<ArdaPushSubscriptionRecord>(entity =>
+        {
+            entity.ToTable("ArdaPushSubscriptions");
+            entity.HasKey(subscription => subscription.Id);
+            entity.HasIndex(subscription => subscription.Endpoint).IsUnique();
+            entity.HasIndex(subscription => subscription.AppUserId);
+            entity.Property(subscription => subscription.Endpoint).HasMaxLength(2048);
+            entity.Property(subscription => subscription.P256dh).HasMaxLength(256);
+            entity.Property(subscription => subscription.Auth).HasMaxLength(128);
+            entity.HasOne(subscription => subscription.User)
+                .WithMany()
+                .HasForeignKey(subscription => subscription.AppUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ArdaPushNotificationRecord>(entity =>
+        {
+            entity.ToTable("ArdaPushNotifications");
+            entity.HasKey(notification => notification.Id);
+            entity.HasIndex(notification => new { notification.SourceModule, notification.SourceNotificationKey })
+                .IsUnique();
+            entity.HasIndex(notification => new { notification.DeliveredAt, notification.NextAttemptAt });
+            entity.Property(notification => notification.RecipientAccountName).HasMaxLength(160);
+            entity.Property(notification => notification.SourceModule).HasMaxLength(64);
+            entity.Property(notification => notification.SourceNotificationKey).HasMaxLength(160);
+            entity.Property(notification => notification.Title).HasMaxLength(160);
+            entity.Property(notification => notification.Body).HasMaxLength(500);
+            entity.Property(notification => notification.TargetUrl).HasMaxLength(2048);
+            entity.Property(notification => notification.DeliveryMethod).HasMaxLength(24);
+            entity.Property(notification => notification.LastError).HasMaxLength(1000);
+            entity.Property(notification => notification.ForegroundClaimedBy).HasMaxLength(256);
         });
 
         modelBuilder.Entity<RaidLogGroupRecord>(entity =>
@@ -459,6 +494,38 @@ public sealed class PortalEnterpriseIntegrationSettingAuditRecord
     public string NewProvider { get; set; } = string.Empty;
     public DateTimeOffset ChangedAt { get; set; }
     public string ChangedBy { get; set; } = string.Empty;
+}
+
+public sealed class ArdaPushSubscriptionRecord
+{
+    public long Id { get; set; }
+    public int AppUserId { get; set; }
+    public string Endpoint { get; set; } = string.Empty;
+    public string P256dh { get; set; } = string.Empty;
+    public string Auth { get; set; } = string.Empty;
+    public DateTimeOffset? ExpirationTime { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public PortalRoleRecord User { get; set; } = null!;
+}
+
+public sealed class ArdaPushNotificationRecord
+{
+    public long Id { get; set; }
+    public string RecipientAccountName { get; set; } = string.Empty;
+    public string SourceModule { get; set; } = string.Empty;
+    public string SourceNotificationKey { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Body { get; set; } = string.Empty;
+    public string TargetUrl { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset NextAttemptAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? DeliveredAt { get; set; }
+    public string? DeliveryMethod { get; set; }
+    public int AttemptCount { get; set; }
+    public string? LastError { get; set; }
+    public string? ForegroundClaimedBy { get; set; }
+    public DateTimeOffset? ForegroundClaimExpiresAt { get; set; }
 }
 
 public sealed class RaidLogGroupRecord

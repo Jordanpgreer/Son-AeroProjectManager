@@ -90,6 +90,51 @@ public sealed class QualityShipmentWorkflowTests
     }
 
     [Fact]
+    public async Task Qa_complete_routes_an_individually_owned_record_even_when_its_source_group_is_not_named_quality()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var shipment = ShipmentForGrid("SHIP-QA-OTHER-GROUP", "WIP", "Customer", 100, 99);
+        shipment.AssignedGroupId = 30;
+        shipment.AssignedGroupName = "Inspection Team";
+        shipment.AssignedUserId = fixture.Admin.UserId;
+        shipment.AssignedAccountName = fixture.Admin.AccountName;
+        shipment.AssignedDisplayName = fixture.Admin.DisplayName;
+        fixture.Db.Shipments.Add(shipment);
+        await fixture.Db.SaveChangesAsync();
+
+        var updated = await fixture.Shipments.MarkQaCompleteAsync(
+            shipment.Id,
+            shipment.Version,
+            fixture.Admin,
+            default);
+
+        Assert.NotNull(updated);
+        Assert.Equal("Ready to Ship", updated.Status);
+        Assert.Equal(ApplicationGroups.Shipper, updated.AssignedGroupName);
+        Assert.Null(updated.AssignedUserId);
+        Assert.False(updated.IsShipped);
+    }
+
+    [Fact]
+    public async Task Qa_complete_rejects_a_record_already_in_the_shipper_queue()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var shipment = ShipmentForGrid("SHIP-QA-ALREADY-ROUTED", "Ready to Ship", "Customer", 100, null);
+        shipment.AssignedGroupId = 20;
+        shipment.AssignedGroupName = ApplicationGroups.Shipper;
+        fixture.Db.Shipments.Add(shipment);
+        await fixture.Db.SaveChangesAsync();
+
+        var error = await Assert.ThrowsAsync<ArgumentException>(() => fixture.Shipments.MarkQaCompleteAsync(
+            shipment.Id,
+            shipment.Version,
+            fixture.Admin,
+            default));
+
+        Assert.Contains("already", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Shipper_group_members_see_ready_to_ship_group_work_in_their_default_queue()
     {
         await using var fixture = await WorkflowFixture.CreateAsync();

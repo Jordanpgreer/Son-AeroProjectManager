@@ -15,10 +15,22 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddScoped<QualityAssuranceUserService>();
 builder.Services.AddScoped<IQualityAssuranceAccessStore, QualityAssuranceAccessStore>();
+builder.Services.AddScoped<QualityAssuranceAccessPreviewService>();
 builder.Services.AddScoped<QualityAssignmentService>();
 builder.Services.AddScoped<QualityLegacyAssignmentReconciler>();
 builder.Services.AddScoped<QualityShipmentService>();
 builder.Services.AddScoped<QualityShipmentCommentService>();
+builder.Services.AddOptions<PortalPushOptions>()
+    .Bind(builder.Configuration.GetSection(PortalPushOptions.SectionName))
+    .Validate(options => !options.Enabled
+        || (Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var portal)
+            && (portal.Scheme == Uri.UriSchemeHttps
+                || (builder.Environment.IsDevelopment() && portal.Scheme == Uri.UriSchemeHttp))
+            && !string.IsNullOrWhiteSpace(options.ProducerKey)),
+        "PortalPush requires an HTTPS BaseUrl and producer key when enabled (HTTP is allowed only in Development).")
+    .ValidateOnStart();
+builder.Services.AddHttpClient<IArdaPushNotificationPublisher, PortalPushNotificationPublisher>();
+builder.Services.AddHostedService<QualityPortalPushBridgeWorker>();
 builder.Services.AddScoped<QualityShipmentImportService>();
 builder.Services.AddScoped<QualityShipmentGridExportService>();
 builder.Services.AddScoped<QualityShippingLayoutService>();
@@ -139,6 +151,47 @@ app.Use(async (context, next) =>
         return;
     }
 
+    var previews = context.RequestServices.GetRequiredService<QualityAssuranceAccessPreviewService>();
+    var previewEndpoint = context.Request.Path.StartsWithSegments("/access-preview/start")
+        || context.Request.Path.StartsWithSegments("/access-preview/end");
+    if (previewEndpoint)
+    {
+        await next();
+        return;
+    }
+
+    var normalLaunch = context.Request.Query.ContainsKey("launch");
+    if (normalLaunch)
+        await previews.RevokeAndClearAsync(context, context.RequestAborted);
+
+    if (!normalLaunch && context.Request.Cookies.ContainsKey(QualityAssuranceAccessPreviewService.CookieName))
+    {
+        var previewAccess = await previews.ResolveActiveAsync(context, context.RequestAborted);
+        if (previewAccess is null)
+        {
+            previews.DeleteCookie(context);
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new ErrorDto(
+                "InvalidAccessPreview",
+                "This access preview is invalid, expired, or no longer authorized. Return to the Hub and start a new preview."));
+            return;
+        }
+
+        context.Items[QualityAssurancePolicies.AccessItem] = previewAccess;
+        context.User = QualityAssurancePolicies.Attach(context.User, previewAccess);
+        if (!AccessPreviewRequests.IsReadOnlyMethod(context.Request.Method))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new ErrorDto(
+                "PreviewReadOnly",
+                "Access preview is read-only. Return to Admin to make changes."));
+            return;
+        }
+
+        await next();
+        return;
+    }
+
     var users = context.RequestServices.GetRequiredService<QualityAssuranceUserService>();
     var access = await users.ResolveAccessAsync(context.User, context.RequestAborted);
     if (access is null)
@@ -184,6 +237,29 @@ app.Use(async (context, next) =>
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
+
+app.MapPost("/access-preview/start", async (
+    HttpContext context,
+    QualityAssuranceAccessPreviewService previews,
+    CancellationToken cancellationToken) =>
+{
+    if (!context.Request.HasFormContentType)
+        return Results.BadRequest(new ErrorDto("InvalidAccessPreview", "A preview token is required."));
+    var form = await context.Request.ReadFormAsync(cancellationToken);
+    var result = await previews.StartAsync(context, form["token"].ToString(), cancellationToken);
+    return result.Succeeded
+        ? Results.Redirect("/")
+        : Results.Json(new ErrorDto(result.ErrorCode!, result.ErrorMessage!), statusCode: StatusCodes.Status403Forbidden);
+}).DisableAntiforgery().RequireAuthorization();
+
+app.MapGet("/access-preview/end", async (
+    HttpContext context,
+    QualityAssuranceAccessPreviewService previews,
+    CancellationToken cancellationToken) =>
+{
+    await previews.RevokeAndClearAsync(context, cancellationToken);
+    return Results.Redirect(previews.GetReturnToAdminUrl(context));
+}).RequireAuthorization();
 
 var api = app.MapGroup("/api");
 api.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();

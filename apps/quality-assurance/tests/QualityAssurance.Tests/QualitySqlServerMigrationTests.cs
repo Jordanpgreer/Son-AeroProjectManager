@@ -16,7 +16,8 @@ public sealed class QualitySqlServerMigrationTests
         "20260826201500_AddQualityShipmentComments",
         "20260901133114_AddLegacyQualityAssigneeTags",
         "20260903215032_AddQualityShipmentFulcrumSyncAndParts",
-        "20260908193000_AddQualityShipmentShipperNumber"
+        "20260908193000_AddQualityShipmentShipperNumber",
+        "20260908210000_AddQualityMentionPortalPushDelivery"
     ];
 
     [Fact]

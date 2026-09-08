@@ -643,7 +643,6 @@ export function deleteQuote(id: string, ownerAccountName: string) {
   if (
     !existing
     || existing.ownerAccountName !== ownerAccountName
-    || existing.revisions.length > 0
   ) {
     return false
   }

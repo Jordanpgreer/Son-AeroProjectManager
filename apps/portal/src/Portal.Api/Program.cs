@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Negotiate;
 using Microsoft.EntityFrameworkCore;
 using Portal.Api.Auth;
+using Portal.Api.Configuration;
 using Portal.Api.Data;
 using Portal.Api.Dtos;
 using Portal.Api.Endpoints;
@@ -18,6 +19,13 @@ builder.Services.AddSingleton<ApplicationRegistry>();
 builder.Services.AddScoped<PortalUserService>();
 builder.Services.AddScoped<IPortalRoleStore, PortalRoleStore>();
 builder.Services.AddScoped<ApplicationNotificationService>();
+builder.Services.AddScoped<ArdaPushSchemaInitializer>();
+builder.Services.AddScoped<ArdaPushSubscriptionService>();
+builder.Services.AddScoped<ArdaPushProducerService>();
+builder.Services.AddScoped<ArdaPushForegroundService>();
+builder.Services.AddSingleton<ArdaPresenceTracker>();
+builder.Services.AddSingleton<IArdaWebPushSender, ArdaWebPushSender>();
+builder.Services.AddHostedService<ArdaPushDeliveryWorker>();
 builder.Services.AddScoped<PortalEngineeringStorageSchemaInitializer>();
 builder.Services.AddScoped<PortalEstimatingSettingsSchemaInitializer>();
 builder.Services.AddScoped<PortalIntegrationCredentialSchemaInitializer>();
@@ -26,6 +34,23 @@ builder.Services.AddSingleton<SonAero.Platform.Security.IIntegrationSecretProtec
     SonAero.Platform.Security.MachineIntegrationSecretProtector>();
 builder.Services.Configure<IntegrationCredentialTestOptions>(
     builder.Configuration.GetSection(IntegrationCredentialTestOptions.SectionName));
+builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<WebPushOptions>, WebPushOptionsValidator>();
+builder.Services.AddOptions<WebPushOptions>()
+    .Bind(builder.Configuration.GetSection(WebPushOptions.SectionName))
+    .ValidateOnStart();
+var ardaModuleOrigins = builder.Configuration.GetSection("Portal:Applications")
+    .Get<List<ApplicationEntry>>()?
+    .Select(application => Uri.TryCreate(application.Url, UriKind.Absolute, out var uri)
+        ? uri.GetLeftPart(UriPartial.Authority)
+        : null)
+    .OfType<string>()
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray() ?? [];
+builder.Services.AddCors(cors => cors.AddPolicy("ArdaModules", policy =>
+{
+    if (ardaModuleOrigins.Length > 0)
+        policy.WithOrigins(ardaModuleOrigins).AllowCredentials().AllowAnyHeader().AllowAnyMethod();
+}));
 builder.Services.AddHttpClient<FulcrumCredentialTester>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
@@ -81,6 +106,8 @@ using (var scope = app.Services.CreateScope())
         .InitializeAsync(CancellationToken.None);
     await scope.ServiceProvider.GetRequiredService<PortalRaidLogSchemaInitializer>()
         .InitializeAsync(CancellationToken.None);
+    await scope.ServiceProvider.GetRequiredService<ArdaPushSchemaInitializer>()
+        .InitializeAsync(CancellationToken.None);
 }
 
 app.Use(async (context, next) =>
@@ -100,6 +127,8 @@ app.Use(async (context, next) =>
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
+app.UseRouting();
+app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -135,6 +164,7 @@ api.MapEstimatingAdminEndpoints();
 api.MapIntegrationCredentialAdminEndpoints();
 api.MapAdminAccessPreviewEndpoints();
 api.MapRaidLogAdminEndpoints();
+app.MapArdaPushEndpoints();
 
 // Live "minimized dashboard" data for the Project Tracker card. Best-effort and read-only.
 api.MapGet("/preview/project-tracker", async (TrackerPreviewService preview, CancellationToken cancellationToken) =>

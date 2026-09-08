@@ -1,17 +1,11 @@
 export type ApplicationNavigationMode = 'same-document' | 'full-page'
 
-const accessPreviewApplications = new Set([
-  'project-tracker',
-  'engineering-hub',
-  'estimating-dashboard',
-])
-
 export function canOpenAdminConsole(role: string | null | undefined) {
   return role?.trim().toLowerCase() === 'admin'
 }
 
-export function canLaunchAccessPreview(applicationId: string) {
-  return accessPreviewApplications.has(applicationId.trim().toLowerCase())
+export function canLaunchAccessPreview(application: { hasPreview: boolean }) {
+  return application.hasPreview
 }
 
 export function applicationNavigationMode(

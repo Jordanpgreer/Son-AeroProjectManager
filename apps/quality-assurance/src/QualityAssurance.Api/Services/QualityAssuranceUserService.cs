@@ -32,5 +32,9 @@ public sealed class QualityAssuranceUserService(
         ApplicationModules.QualityAssurance,
         access.Role,
         access.Permissions,
-        access.Groups.Select(group => group.Name).ToList());
+        access.Groups.Select(group => group.Name).ToList(),
+        access.IsPreview,
+        access.PreviewActorAccountName,
+        access.PreviewTargetKey,
+        access.DisplayName);
 }

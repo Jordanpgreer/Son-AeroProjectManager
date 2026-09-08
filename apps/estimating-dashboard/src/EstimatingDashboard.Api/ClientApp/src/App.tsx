@@ -54,7 +54,7 @@ function defaultHubUrl() {
   return 'https://hub.son4l.local'
 }
 
-const hubUrl = defaultHubUrl()
+export const hubUrl = defaultHubUrl()
 
 const PAGE_META: Record<EstimatingPage, {
   eyebrow: string
@@ -260,6 +260,10 @@ export default function App() {
   const canManageQuotes = hasEstimatingPermission(
     me,
     estimatingPermissions.manageQuotes,
+  ) && !me?.isPreview
+  const canDeleteQuotes = hasEstimatingPermission(
+    me,
+    estimatingPermissions.deleteQuotes,
   ) && !me?.isPreview
   const canManageInputs = hasEstimatingPermission(
     me,
@@ -471,6 +475,7 @@ export default function App() {
               <QuotesDashboardPage
                 ownerAccountName={me.accountName}
                 canManageQuotes={canManageQuotes}
+                canDeleteQuotes={canDeleteQuotes}
                 canGenerateQuotes={canManageQuotes && canManageInputs && canViewHistory}
               />
             )}

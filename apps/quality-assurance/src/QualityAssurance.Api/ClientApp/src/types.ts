@@ -5,6 +5,10 @@ export interface QualityAssuranceUser {
   role: 'Viewer' | 'Editor' | 'Admin'
   permissions: string[]
   groups: string[]
+  isPreview: boolean
+  previewActorAccountName: string | null
+  previewTargetKey: string | null
+  previewTargetTitle: string | null
 }
 
 export interface FieldAccess {

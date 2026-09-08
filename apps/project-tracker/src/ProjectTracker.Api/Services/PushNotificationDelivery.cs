@@ -90,12 +90,14 @@ public sealed class PushNotificationWorker(
     IServiceScopeFactory scopeFactory,
     IWebPushSender sender,
     IOptions<WebPushOptions> options,
-    ILogger<PushNotificationWorker> logger) : BackgroundService
+    ILogger<PushNotificationWorker> logger,
+    IOptions<PortalPushOptions>? portalPushOptions = null) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await foreach (var notificationId in queue.ReadAllAsync(stoppingToken))
         {
+            if (portalPushOptions?.Value.Enabled == true) continue;
             if (!options.Value.IsConfigured) continue;
             try
             {
@@ -158,10 +160,7 @@ public sealed class PushNotificationWorker(
 
     public static string CreatePayload(UserNotification notification)
     {
-        var targetUrl = $"/?notificationProjectId={notification.ProjectId}"
-            + $"&notificationKind={Uri.EscapeDataString(notification.Kind.ToString())}"
-            + $"&notificationId={notification.Id}";
-        if (notification.ProjectTaskId is { } taskId) targetUrl += $"&notificationTaskId={taskId}";
+        var targetUrl = TargetUrl(notification);
 
         return JsonSerializer.Serialize(new
         {
@@ -187,5 +186,14 @@ public sealed class PushNotificationWorker(
                 projectTaskId = notification.ProjectTaskId
             }
         });
+    }
+
+    public static string TargetUrl(UserNotification notification)
+    {
+        var targetUrl = $"/?notificationProjectId={notification.ProjectId}"
+            + $"&notificationKind={Uri.EscapeDataString(notification.Kind.ToString())}"
+            + $"&notificationId={notification.Id}";
+        if (notification.ProjectTaskId is { } taskId) targetUrl += $"&notificationTaskId={taskId}";
+        return targetUrl;
     }
 }

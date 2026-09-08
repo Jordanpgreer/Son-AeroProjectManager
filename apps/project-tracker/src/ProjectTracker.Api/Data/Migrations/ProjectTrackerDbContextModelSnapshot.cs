@@ -771,6 +771,9 @@ namespace ProjectTracker.Api.Data.Migrations
                     b.Property<int?>("ProjectTaskId")
                         .HasColumnType("int");
 
+                    b.Property<DateTimeOffset?>("PortalPushPublishedAt")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<DateTimeOffset?>("ReadAt")
                         .HasColumnType("datetimeoffset");
 
@@ -798,6 +801,8 @@ namespace ProjectTracker.Api.Data.Migrations
                     b.HasIndex("ProjectMessageId");
 
                     b.HasIndex("ProjectTaskId");
+
+                    b.HasIndex("PortalPushPublishedAt", "Id");
 
                     b.HasIndex("RecipientUserId", "ReadAt", "CreatedAt");
 

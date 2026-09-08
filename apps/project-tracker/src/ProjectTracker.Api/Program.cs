@@ -35,6 +35,23 @@ builder.Services.AddSingleton<IValidateOptions<WebPushOptions>, WebPushOptionsVa
 builder.Services.AddSingleton<IPushNotificationQueue, PushNotificationQueue>();
 builder.Services.AddSingleton<IWebPushSender, WebPushSender>();
 builder.Services.AddHostedService<PushNotificationWorker>();
+builder.Services.AddOptions<PortalPushOptions>()
+    .Bind(builder.Configuration.GetSection(PortalPushOptions.SectionName))
+    .Validate(options => !options.Enabled
+        || (Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var portal)
+            && (portal.Scheme == Uri.UriSchemeHttps
+                || (builder.Environment.IsDevelopment() && portal.Scheme == Uri.UriSchemeHttp))
+            && !string.IsNullOrWhiteSpace(options.ProducerKey)),
+        "PortalPush requires an HTTPS BaseUrl and producer key when enabled (HTTP is allowed only in Development).")
+    .Validate(options => !options.Enabled || !builder.Configuration.GetValue<bool>("WebPush:Enabled"),
+        "PortalPush and the legacy Project Tracker WebPush channel cannot both be enabled.")
+    .ValidateOnStart();
+builder.Services.AddHttpClient<IProjectTrackerPortalPushPublisher, ProjectTrackerPortalPushPublisher>();
+builder.Services.AddSingleton<ProjectTrackerPortalPushBridgeWorker>();
+builder.Services.AddSingleton<IProjectTrackerPortalPushBridge>(serviceProvider =>
+    serviceProvider.GetRequiredService<ProjectTrackerPortalPushBridgeWorker>());
+builder.Services.AddHostedService(serviceProvider =>
+    serviceProvider.GetRequiredService<ProjectTrackerPortalPushBridgeWorker>());
 builder.Services.AddHostedService<OperationScheduleReminderWorker>();
 builder.Services.AddScoped<AccessControlSeeder>();
 builder.Services.AddScoped<ModuleAccessService>();
@@ -1307,6 +1324,7 @@ static async Task InitializeDatabaseAsync(WebApplication app)
             await SqliteCompatibility.EnsureTextColumnAsync(db, "UserNotifications", "ScheduledDate", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "UserNotifications", "SnoozedUntil", cancellationToken: default);
             await SqliteCompatibility.EnsureTextColumnAsync(db, "UserNotifications", "RespondedAt", cancellationToken: default);
+            await SqliteCompatibility.EnsurePortalPushDeliveryColumnAsync(db, cancellationToken: default);
             await SqliteCompatibility.EnsureOperationScheduleReminderIndexAsync(db, cancellationToken: default);
             await SqliteCompatibility.EnsureAccessControlTablesAsync(db, cancellationToken: default);
             await SqliteCompatibility.EnsureLocalPermissionSeedAsync(db, cancellationToken: default);

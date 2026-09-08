@@ -202,6 +202,65 @@ public sealed class SqliteCompatibilityTests
     }
 
     [Fact]
+    public async Task PortalPushCompatibility_UpgradesAnExistingPreBrokerNotificationTableInStartupOrder()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                CREATE TABLE "UserNotifications" (
+                    "Id" INTEGER NOT NULL CONSTRAINT "PK_UserNotifications" PRIMARY KEY AUTOINCREMENT,
+                    "RecipientUserId" INTEGER NOT NULL,
+                    "ProjectId" INTEGER NOT NULL,
+                    "ProjectTaskId" INTEGER NULL,
+                    "ProjectMessageId" INTEGER NULL,
+                    "Kind" TEXT NOT NULL,
+                    "ActorAccountName" TEXT NOT NULL,
+                    "ActorDisplayName" TEXT NOT NULL,
+                    "Title" TEXT NOT NULL,
+                    "BodyPreview" TEXT NOT NULL,
+                    "ScheduledDate" TEXT NULL,
+                    "SnoozedUntil" TEXT NULL,
+                    "CreatedAt" TEXT NOT NULL,
+                    "ReadAt" TEXT NULL,
+                    "RespondedAt" TEXT NULL
+                );
+                INSERT INTO "UserNotifications"
+                    ("RecipientUserId", "ProjectId", "Kind", "ActorAccountName", "ActorDisplayName",
+                     "Title", "BodyPreview", "CreatedAt")
+                VALUES
+                    (1, 2, 'Mention', 'TEST\\sender', 'Sender', 'Existing notification', 'Existing body',
+                     '2026-09-08T12:00:00+00:00');
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new ProjectTrackerDbContext(options);
+
+        // This is the exact order used by Program.InitializeDatabaseAsync for
+        // an existing SQLite database.
+        await SqliteCompatibility.EnsureLegacyTablesAsync(db, CancellationToken.None);
+        await SqliteCompatibility.EnsurePortalPushDeliveryColumnAsync(db, CancellationToken.None);
+
+        await using var check = connection.CreateCommand();
+        check.CommandText = """
+            SELECT
+                (SELECT COUNT(*) FROM pragma_table_info('UserNotifications') WHERE name = 'PortalPushPublishedAt'),
+                (SELECT COUNT(*) FROM sqlite_schema WHERE type = 'index' AND name = 'IX_UserNotifications_PortalPushPublishedAt_Id'),
+                (SELECT COUNT(*) FROM "UserNotifications" WHERE "PortalPushPublishedAt" = "CreatedAt");
+            """;
+        await using var reader = await check.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(1L, reader.GetInt64(0));
+        Assert.Equal(1L, reader.GetInt64(1));
+        Assert.Equal(1L, reader.GetInt64(2));
+    }
+
+    [Fact]
     public async Task EnsureFeatureSettingsColumns_UpgradesExistingWalkthroughSettings()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

@@ -6,6 +6,10 @@ public sealed record MeDto(
     string ModuleKey,
     string Role,
     IReadOnlyList<string> Permissions,
-    IReadOnlyList<string> Groups);
+    IReadOnlyList<string> Groups,
+    bool IsPreview = false,
+    string? PreviewActorAccountName = null,
+    string? PreviewTargetKey = null,
+    string? PreviewTargetTitle = null);
 
 public sealed record ErrorDto(string Code, string Message);

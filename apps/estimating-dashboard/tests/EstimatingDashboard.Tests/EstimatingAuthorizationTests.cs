@@ -1,4 +1,5 @@
 using EstimatingDashboard.Api.Auth;
+using SonAero.Platform.Security;
 using System.Security.Claims;
 
 namespace EstimatingDashboard.Tests;
@@ -8,7 +9,7 @@ public sealed class EstimatingAuthorizationTests
     [Theory]
     [InlineData(EstimatingRoles.Viewer, 3)]
     [InlineData(EstimatingRoles.Editor, 5)]
-    [InlineData(EstimatingRoles.Admin, 9)]
+    [InlineData(EstimatingRoles.Admin, 10)]
     public void PermissionsAreCumulativeByRole(string role, int expectedCount)
     {
         var permissions = EstimatingPermissions.ForRole(role);
@@ -37,6 +38,7 @@ public sealed class EstimatingAuthorizationTests
         var permissions = EstimatingPermissions.ForRole(EstimatingRoles.Admin);
 
         Assert.Contains(EstimatingPermissions.ManageQuotes, permissions);
+        Assert.Contains(EstimatingPermissions.DeleteQuotes, permissions);
         Assert.Contains(EstimatingPermissions.ManageInputs, permissions);
         Assert.Contains(EstimatingPermissions.AdministerRates, permissions);
         Assert.Contains(EstimatingPermissions.AdministerSettings, permissions);
@@ -51,6 +53,28 @@ public sealed class EstimatingAuthorizationTests
 
         Assert.DoesNotContain(EstimatingPermissions.ManageHistory, permissions);
         Assert.DoesNotContain(EstimatingPermissions.ImportHistory, permissions);
+        Assert.DoesNotContain(EstimatingPermissions.DeleteQuotes, permissions);
+    }
+
+    [Fact]
+    public void DeleteQuotesIsASeparateAdminDefaultAccessToggle()
+    {
+        var editor = ApplicationModuleCatalog
+            .PermissionsFor(ApplicationModules.Estimating, ApplicationRoles.Editor)
+            .Select(permission => permission.Key)
+            .ToList();
+        var administrator = ApplicationModuleCatalog
+            .PermissionsFor(ApplicationModules.Estimating, ApplicationRoles.Admin)
+            .Select(permission => permission.Key)
+            .ToList();
+        var permission = ApplicationModuleCatalog
+            .PermissionsForModule(ApplicationModules.Estimating)
+            .Single(candidate => candidate.Key == EstimatingPermissions.DeleteQuotes);
+
+        Assert.DoesNotContain(EstimatingPermissions.DeleteQuotes, editor);
+        Assert.Contains(EstimatingPermissions.DeleteQuotes, administrator);
+        Assert.Equal("Delete quotes", permission.Label);
+        Assert.Contains("published revisions", permission.Description);
     }
 
     [Fact]

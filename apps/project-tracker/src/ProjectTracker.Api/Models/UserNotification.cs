@@ -21,4 +21,5 @@ public sealed class UserNotification
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? ReadAt { get; set; }
     public DateTimeOffset? RespondedAt { get; set; }
+    public DateTimeOffset? PortalPushPublishedAt { get; set; }
 }

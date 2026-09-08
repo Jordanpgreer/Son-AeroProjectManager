@@ -9,12 +9,14 @@ export type PushNotificationStatus =
   | 'denied'
   | 'disabled'
   | 'enabled'
+  | 'managed'
   | 'working'
   | 'error'
 
 type PushPublicKeyResponse = {
   publicKey: string
   enabled?: boolean
+  managed?: boolean
 }
 
 type PushSubscriptionRequest = {
@@ -29,7 +31,6 @@ type PushSubscriptionRequest = {
 const serviceWorkerUrl = `${import.meta.env.BASE_URL}project-tracker-sw.js`
 const serviceWorkerScope = import.meta.env.BASE_URL
 const notificationInvitationDecisionKey = 'project-tracker-push-permission-prompt-attempted-v1'
-const notificationOptOutKey = 'project-tracker-push-explicitly-disabled-v1'
 
 function canUsePush() {
   return 'serviceWorker' in navigator
@@ -121,28 +122,6 @@ function hasInvitationDecision() {
   }
 }
 
-function isExplicitlyDisabled() {
-  try {
-    return window.localStorage.getItem(notificationOptOutKey) === 'true'
-  } catch {
-    // Fail closed so an unreadable preference never causes an automatic re-subscription.
-    return true
-  }
-}
-
-function setExplicitlyDisabled(disabled: boolean) {
-  try {
-    if (disabled) {
-      window.localStorage.setItem(notificationOptOutKey, 'true')
-    } else {
-      window.localStorage.removeItem(notificationOptOutKey)
-    }
-    return true
-  } catch {
-    return false
-  }
-}
-
 export function usePushNotifications({
   registered,
   previewReadOnly,
@@ -186,27 +165,19 @@ export function usePushNotifications({
     }
 
     try {
+      const configuration = await api<PushPublicKeyResponse>('/api/push/public-key')
+      if (configuration.managed) {
+        setStatus('managed')
+        return
+      }
       const registration = await registerServiceWorker()
       const subscription = await registration.pushManager.getSubscription()
-      const explicitlyDisabled = isExplicitlyDisabled()
       if (subscription) {
-        if (explicitlyDisabled) {
-          try {
-            await api<void>('/api/push/subscriptions', {
-              method: 'DELETE',
-              body: JSON.stringify({ endpoint: subscription.endpoint }),
-            })
-          } finally {
-            await subscription.unsubscribe()
-          }
-          setStatus('disabled')
-          return
-        }
         setStatus('enabled')
         return
       }
 
-      if (Notification.permission === 'granted' && !explicitlyDisabled) {
+      if (Notification.permission === 'granted') {
         const prepared = await preparePushSubscription()
         await savePushSubscription(prepared.publicKey, prepared.registration)
         setStatus('enabled')
@@ -233,7 +204,7 @@ export function usePushNotifications({
       || !window.isSecureContext
       || !canUsePush()
       || Notification.permission !== 'default'
-      || isExplicitlyDisabled()
+      || status === 'managed'
       || hasInvitationDecision()) return
 
     let active = true
@@ -254,7 +225,7 @@ export function usePushNotifications({
 
     void checkEligibility()
     return () => { active = false }
-  }, [documentVisible, previewReadOnly, registered])
+  }, [documentVisible, previewReadOnly, registered, status])
 
   const enable = useCallback(async () => {
     if (previewReadOnly || !registered || !window.isSecureContext || !canUsePush()) {
@@ -266,10 +237,6 @@ export function usePushNotifications({
     setMessage(null)
     setInvitationOpen(false)
     try {
-      if (!setExplicitlyDisabled(false)) {
-        throw new Error('Your desktop notification preference could not be saved in this browser.')
-      }
-
       let permission = Notification.permission
       if (permission === 'default') {
         if (!recordInvitationDecision()) {
@@ -296,41 +263,5 @@ export function usePushNotifications({
     setInvitationOpen(false)
   }, [])
 
-  const disable = useCallback(async () => {
-    if (previewReadOnly || !registered || !window.isSecureContext || !canUsePush()) {
-      await refresh()
-      return
-    }
-
-    setStatus('working')
-    setMessage(null)
-    try {
-      if (!setExplicitlyDisabled(true)) {
-        throw new Error('Your desktop notification preference could not be saved in this browser.')
-      }
-      const registration = await navigator.serviceWorker.getRegistration(serviceWorkerScope)
-      const subscription = await registration?.pushManager.getSubscription()
-      if (subscription) {
-        const endpoint = subscription.endpoint
-        let serverError: unknown = null
-        try {
-          await api<void>('/api/push/subscriptions', {
-            method: 'DELETE',
-            body: JSON.stringify({ endpoint }),
-          })
-        } catch (error) {
-          serverError = error
-        }
-
-        await subscription.unsubscribe()
-        if (serverError) throw serverError
-      }
-      setStatus('disabled')
-    } catch (error) {
-      setStatus('error')
-      setMessage(error instanceof Error ? error.message : 'Desktop notifications could not be disabled.')
-    }
-  }, [previewReadOnly, refresh, registered])
-
-  return { status, message, invitationOpen, enable, disable, dismissInvitation, refresh }
+  return { status, message, invitationOpen, enable, dismissInvitation, refresh }
 }

@@ -27,37 +27,12 @@ export default function QualityNotificationCenter({
   const [open, setOpen] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [operationError, setOperationError] = useState<string | null>(null)
-  const [toasts, setToasts] = useState<QualityMentionNotification[]>([])
   const root = useRef<HTMLDivElement>(null)
   const panel = useRef<HTMLElement>(null)
-  const loadedOnce = useRef(false)
-  const seenIds = useRef(new Set<number>())
 
   async function load() {
     try {
       const next = await qualityApi<QualityMentionNotification[]>('/api/notifications')
-      if (loadedOnce.current) {
-        const arrivals = next.filter((notification) => !notification.readAt && !seenIds.current.has(notification.id))
-        if (arrivals.length > 0) {
-          if (document.visibilityState === 'visible') {
-            setToasts((current) => [...arrivals, ...current].slice(0, 4))
-          } else if ('Notification' in window && Notification.permission === 'granted') {
-            for (const notification of arrivals) {
-              const desktop = new Notification(`${notification.actorDisplayName} mentioned you`, {
-                body: notification.bodyPreview,
-                tag: `quality-mention-${notification.id}`,
-              })
-              desktop.onclick = () => {
-                window.focus()
-                void openNotification(notification)
-                desktop.close()
-              }
-            }
-          }
-        }
-      }
-      next.forEach((notification) => seenIds.current.add(notification.id))
-      loadedOnce.current = true
       setNotifications(next)
       setLoadError(null)
     } catch (cause) {
@@ -104,7 +79,6 @@ export default function QualityNotificationCenter({
         : 'The shipment will open, but the notification could not be marked read.')
     } finally {
       setOpen(false)
-      setToasts((current) => current.filter((candidate) => candidate.id !== notification.id))
       onOpenShipment(notification.shipmentId, notification.isShipped)
     }
   }
@@ -127,7 +101,6 @@ export default function QualityNotificationCenter({
         type="button"
         onClick={() => {
           setOpen((current) => !current)
-          if ('Notification' in window && Notification.permission === 'default') void Notification.requestPermission()
         }}
         aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}
         aria-haspopup="dialog"
@@ -164,15 +137,6 @@ export default function QualityNotificationCenter({
                 ))}
           </div>
         </section>,
-        document.body,
-      )}
-      {toasts.length > 0 && createPortal(
-        <aside className="quality-notification-toast-stack" aria-live="polite" aria-label="New Quality notifications">
-          {toasts.map((notification) => <article className="quality-notification-toast" key={notification.id}>
-            <button type="button" onClick={() => void openNotification(notification)}><span className="quality-notification-icon"><MessageSquare size={15} /></span><span><strong>{notification.actorDisplayName} mentioned you</strong><small>{notification.bodyPreview}</small></span></button>
-            <button className="quality-notification-toast-dismiss" type="button" onClick={() => setToasts((current) => current.filter((candidate) => candidate.id !== notification.id))} aria-label="Dismiss notification"><X size={14} /></button>
-          </article>)}
-        </aside>,
         document.body,
       )}
       {!open && operationError && createPortal(

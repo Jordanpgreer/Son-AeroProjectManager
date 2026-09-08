@@ -140,7 +140,12 @@ public static class ApplicationModuleCatalog
         var manageQuotes = new PermissionDefinition(
             "estimating.quotes.manage",
             "Manage quotes",
-            "Create, update, duplicate, and delete quote records.",
+            "Create, update, and duplicate quote records.",
+            category);
+        var deleteQuotes = new PermissionDefinition(
+            "estimating.quotes.delete",
+            "Delete quotes",
+            "Permanently delete any local quote, including published revisions and their drafts.",
             category);
         var manageInputs = new PermissionDefinition(
             "estimating.inputs.manage",
@@ -185,7 +190,7 @@ public static class ApplicationModuleCatalog
                     [view, calculate, manageQuotes, manageInputs, viewHistory]),
                 new ApplicationModuleRoleDefinition(
                     ApplicationRoles.Admin,
-                    [view, calculate, manageQuotes, manageInputs, viewHistory, importHistory, manageHistory, administerRates, administerSettings])
+                    [view, calculate, manageQuotes, deleteQuotes, manageInputs, viewHistory, importHistory, manageHistory, administerRates, administerSettings])
             ]);
     }
 

@@ -2,7 +2,9 @@ using System.Globalization;
 using Microsoft.Data.SqlClient;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ProjectTracker.Api.Auth;
+using ProjectTracker.Api.Configuration;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Models;
 using SonAero.Platform.Security;
@@ -35,7 +37,9 @@ public sealed class OperationScheduleReminderService(
     ScheduleCalculator scheduleCalculator,
     ProjectMetricsService metrics,
     IPushNotificationQueue pushQueue,
-    ProjectNotificationAudienceService notificationAudience)
+    ProjectNotificationAudienceService notificationAudience,
+    IProjectTrackerPortalPushBridge? portalPushBridge = null,
+    IOptions<PortalPushOptions>? portalPushOptions = null)
 {
     private const string SystemAccountName = "PROJECT-TRACKER";
     private const string SystemDisplayName = "Project Tracker";
@@ -139,7 +143,7 @@ public sealed class OperationScheduleReminderService(
 
         foreach (var notification in created)
         {
-            pushQueue.TryEnqueue(notification.Id);
+            Dispatch(notification.Id);
         }
 
         return awakened + created.Count;
@@ -322,7 +326,7 @@ public sealed class OperationScheduleReminderService(
         await transaction.CommitAsync(cancellationToken);
         foreach (var responseNotification in responseNotifications)
         {
-            pushQueue.TryEnqueue(responseNotification.Id);
+            Dispatch(responseNotification.Id);
         }
 
         return new(OperationScheduleConfirmationStatus.Confirmed, task.ProjectId, task.Id);
@@ -493,7 +497,8 @@ public sealed class OperationScheduleReminderService(
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(notification => notification.SnoozedUntil, (DateOnly?)null)
                     .SetProperty(notification => notification.ReadAt, (DateTimeOffset?)null)
-                    .SetProperty(notification => notification.CreatedAt, awakenedAt),
+                    .SetProperty(notification => notification.CreatedAt, awakenedAt)
+                    .SetProperty(notification => notification.PortalPushPublishedAt, (DateTimeOffset?)null),
                     cancellationToken);
             if (claimed == 1)
             {
@@ -503,10 +508,18 @@ public sealed class OperationScheduleReminderService(
 
         foreach (var notificationId in awakenedIds)
         {
-            pushQueue.TryEnqueue(notificationId);
+            Dispatch(notificationId);
         }
 
         return awakenedIds.Count;
+    }
+
+    private void Dispatch(int notificationId)
+    {
+        if (portalPushOptions?.Value.Enabled == true)
+            portalPushBridge?.TryEnqueue(notificationId);
+        else
+            pushQueue.TryEnqueue(notificationId);
     }
 
     private static bool IsCurrentPrompt(

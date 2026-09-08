@@ -129,6 +129,7 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
                 .HasFilter("[ScheduledDate] IS NOT NULL");
             entity.HasIndex(notification => notification.ProjectMessageId);
             entity.HasIndex(notification => notification.ProjectTaskId);
+            entity.HasIndex(notification => new { notification.PortalPushPublishedAt, notification.Id });
             entity.Property(notification => notification.Kind).HasConversion<string>().HasMaxLength(40);
             entity.Property(notification => notification.ActorAccountName).HasMaxLength(160);
             entity.Property(notification => notification.ActorDisplayName).HasMaxLength(160);

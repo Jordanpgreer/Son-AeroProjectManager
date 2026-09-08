@@ -31,6 +31,10 @@ test('viewer can calculate but cannot persist quote changes', () => {
     hasEstimatingPermission(viewer, estimatingPermissions.manageInputs),
     false,
   )
+  assert.equal(
+    hasEstimatingPermission(viewer, estimatingPermissions.deleteQuotes),
+    false,
+  )
 })
 
 test('missing user has no Estimating permissions', () => {

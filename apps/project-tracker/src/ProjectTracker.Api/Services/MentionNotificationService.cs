@@ -1,12 +1,17 @@
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using ProjectTracker.Api.Configuration;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Models;
 using SonAero.Platform.Security;
 
 namespace ProjectTracker.Api.Services;
 
-public sealed partial class MentionNotificationService(IPushNotificationQueue? pushQueue = null)
+public sealed partial class MentionNotificationService(
+    IPushNotificationQueue? pushQueue = null,
+    IProjectTrackerPortalPushBridge? portalPushBridge = null,
+    IOptions<PortalPushOptions>? portalPushOptions = null)
 {
     public async Task<IReadOnlyList<UserNotification>> AddForProjectMessageAsync(
         ProjectTrackerDbContext db,
@@ -71,10 +76,12 @@ public sealed partial class MentionNotificationService(IPushNotificationQueue? p
 
     public void DispatchAfterPersistence(IEnumerable<UserNotification> notifications)
     {
-        if (pushQueue is null) return;
         foreach (var notification in notifications.Where(notification => notification.Id > 0))
         {
-            pushQueue.TryEnqueue(notification.Id);
+            if (portalPushOptions?.Value.Enabled == true)
+                portalPushBridge?.TryEnqueue(notification.Id);
+            else
+                pushQueue?.TryEnqueue(notification.Id);
         }
     }
 

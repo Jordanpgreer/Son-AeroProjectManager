@@ -10,7 +10,8 @@ namespace QualityAssurance.Api.Services;
 
 public sealed partial class QualityShipmentCommentService(
     QualityAssuranceDbContext db,
-    IQualityAssuranceAccessStore accessStore)
+    IQualityAssuranceAccessStore accessStore,
+    IArdaPushNotificationPublisher? pushPublisher = null)
 {
     public async Task<IReadOnlyList<QualityShipmentCommentDto>?> ListAsync(
         int shipmentId,
@@ -80,6 +81,7 @@ public sealed partial class QualityShipmentCommentService(
         shipment.Version++;
         await db.SaveChangesAsync(cancellationToken);
 
+        var createdNotifications = new List<QualityMentionNotification>();
         var mentionHandles = ExtractHandles(body);
         if (mentionHandles.Count > 0)
         {
@@ -97,7 +99,7 @@ public sealed partial class QualityShipmentCommentService(
                 if (recipientAccess is null
                     || !recipientAccess.HasPermission(QualityAssurancePermissions.CommentsView)
                     || !HasRecordAccess(shipment, recipientAccess)) continue;
-                db.MentionNotifications.Add(new QualityMentionNotification
+                var notification = new QualityMentionNotification
                 {
                     RecipientUserId = recipient.Id,
                     RecipientAccountName = recipient.AccountName,
@@ -107,12 +109,28 @@ public sealed partial class QualityShipmentCommentService(
                     ActorDisplayName = access.DisplayName,
                     BodyPreview = Preview(body),
                     CreatedAt = now
-                });
+                };
+                db.MentionNotifications.Add(notification);
+                createdNotifications.Add(notification);
             }
             await db.SaveChangesAsync(cancellationToken);
         }
 
         await transaction.CommitAsync(cancellationToken);
+        if (pushPublisher is not null)
+        {
+            foreach (var notification in createdNotifications)
+            {
+                if (await pushPublisher.PublishAsync(
+                    QualityPortalPushBridgeWorker.Request(notification, shipment.IsShipped),
+                    cancellationToken))
+                {
+                    notification.PortalPushPublishedAt = DateTimeOffset.UtcNow;
+                }
+            }
+            if (createdNotifications.Any(notification => notification.PortalPushPublishedAt is not null))
+                await db.SaveChangesAsync(cancellationToken);
+        }
         return ToDto(comment);
     }
 

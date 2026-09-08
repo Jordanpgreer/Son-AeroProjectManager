@@ -498,7 +498,7 @@ function DetailDrawer({
   const canAudit = user.permissions.includes(PERMISSIONS.audit)
   const canCompleteQa = user.permissions.includes(PERMISSIONS.ship)
     && !shipment.isShipped
-    && shipment.assignedGroupName?.trim().toLowerCase() === 'quality'
+    && shipment.assignedGroupName?.trim().toLowerCase() !== 'shipper'
   const owner = actionOwner(shipment, canViewAssignment)
 
   async function loadAudit() {
@@ -617,6 +617,13 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
     const deepLink = readShipmentDeepLink(window.location.hash)
     if (!deepLink) return
     pendingDeepLink.current = deepLink
+    if (deepLink.notificationId) {
+      void qualityApi<void>(`/api/notifications/${deepLink.notificationId}/read`, { method: 'POST' })
+        .catch(() => {
+          // The shipment remains directly accessible even if the inbox marker
+          // could not be updated. The consumed URL prevents reopen loops.
+        })
+    }
     window.history.replaceState(
       null,
       '',

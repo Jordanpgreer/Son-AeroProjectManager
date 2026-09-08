@@ -136,6 +136,19 @@ public sealed class AdminAccessPreviewEndpointTests
     }
 
     [Fact]
+    public void Quality_assurance_is_a_full_access_preview_destination()
+    {
+        var applications = AdminAccessPreviewEndpoints.ApplicationsForAccess(
+            BuildRegistry(),
+            new HashSet<string>([QualityAssurancePermissions.ModuleView], StringComparer.OrdinalIgnoreCase));
+
+        var quality = Assert.Single(applications);
+        Assert.Equal(AccessPreviewApplications.QualityAssurance, quality.Id);
+        Assert.True(quality.HasPreview);
+        Assert.True(AdminAccessPreviewEndpoints.CanLaunchApplication(quality.Id));
+    }
+
+    [Fact]
     public void Admin_console_preview_card_is_visible_only_for_admin_targets()
     {
         var permissions = new HashSet<string>(

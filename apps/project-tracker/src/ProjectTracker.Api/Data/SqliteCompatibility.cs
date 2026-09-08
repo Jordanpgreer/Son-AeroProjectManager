@@ -99,6 +99,40 @@ public static partial class SqliteCompatibility
             cancellationToken);
     }
 
+    public static async Task EnsurePortalPushDeliveryColumnAsync(
+        ProjectTrackerDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var connection = db.Database.GetDbConnection();
+        var closeConnection = connection.State != ConnectionState.Open;
+        if (closeConnection) await connection.OpenAsync(cancellationToken);
+        try
+        {
+            await using var exists = connection.CreateCommand();
+            exists.CommandText = "SELECT COUNT(*) FROM pragma_table_info('UserNotifications') WHERE name = 'PortalPushPublishedAt';";
+            var columnExists = Convert.ToInt32(await exists.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!columnExists)
+            {
+                await using var alter = connection.CreateCommand();
+                alter.CommandText = "ALTER TABLE \"UserNotifications\" ADD COLUMN \"PortalPushPublishedAt\" TEXT NULL;";
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+
+                await using var backfill = connection.CreateCommand();
+                backfill.CommandText = "UPDATE \"UserNotifications\" SET \"PortalPushPublishedAt\" = \"CreatedAt\";";
+                await backfill.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await using var index = connection.CreateCommand();
+            index.CommandText = "CREATE INDEX IF NOT EXISTS \"IX_UserNotifications_PortalPushPublishedAt_Id\" ON \"UserNotifications\" (\"PortalPushPublishedAt\", \"Id\");";
+            await index.ExecuteNonQueryAsync(cancellationToken);
+        }
+        finally
+        {
+            if (closeConnection && connection.State != ConnectionState.Closed)
+                await connection.CloseAsync();
+        }
+    }
+
     public static async Task EnsureLegacyTablesAsync(ProjectTrackerDbContext db, CancellationToken cancellationToken)
     {
         const string commandText = """
@@ -171,6 +205,7 @@ public static partial class SqliteCompatibility
                 "CreatedAt" TEXT NOT NULL,
                 "ReadAt" TEXT NULL,
                 "RespondedAt" TEXT NULL,
+                "PortalPushPublishedAt" TEXT NULL,
                 CONSTRAINT "FK_UserNotifications_Users_RecipientUserId" FOREIGN KEY ("RecipientUserId") REFERENCES "Users" ("Id") ON DELETE CASCADE,
                 CONSTRAINT "FK_UserNotifications_Projects_ProjectId" FOREIGN KEY ("ProjectId") REFERENCES "Projects" ("Id") ON DELETE CASCADE,
                 CONSTRAINT "FK_UserNotifications_Tasks_ProjectTaskId" FOREIGN KEY ("ProjectTaskId") REFERENCES "Tasks" ("Id") ON DELETE SET NULL,

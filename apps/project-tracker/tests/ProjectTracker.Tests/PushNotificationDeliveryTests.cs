@@ -137,6 +137,47 @@ public sealed class PushNotificationDeliveryTests
         await Task.CompletedTask;
     }
 
+    [Fact]
+    public void Managed_portal_delivery_replaces_the_legacy_push_queue_without_duplicate_dispatch()
+    {
+        var legacy = new RecordingQueue();
+        var portal = new RecordingPortalBridge();
+        var service = new MentionNotificationService(
+            legacy,
+            portal,
+            Options.Create(new PortalPushOptions { Enabled = true }));
+
+        service.DispatchAfterPersistence([new UserNotification { Id = 42 }]);
+
+        Assert.Empty(legacy.NotificationIds);
+        Assert.Equal([42], portal.NotificationIds);
+    }
+
+    [Fact]
+    public void Portal_request_preserves_the_existing_click_destination_and_snooze_generation()
+    {
+        var createdAt = new DateTimeOffset(2026, 9, 8, 15, 30, 0, TimeSpan.Zero);
+        var notification = new UserNotification
+        {
+            Id = 42,
+            ProjectId = 7,
+            ProjectTaskId = 9,
+            Kind = NotificationKind.OperationNoteMention,
+            CreatedAt = createdAt,
+            RecipientUser = new AppUser { AccountName = "TEST\\recipient" },
+            Title = "Mentioned in a note",
+            BodyPreview = "Review operation 20"
+        };
+
+        var request = ProjectTrackerPortalPushBridgeWorker.Request(notification);
+
+        Assert.Equal($"project-tracker-notification-42-{createdAt.UtcTicks}", request.SourceNotificationKey);
+        Assert.Equal("TEST\\recipient", request.RecipientAccountName);
+        Assert.Equal(PushNotificationWorker.TargetUrl(notification), request.TargetPath);
+        Assert.Contains("notificationId=42", request.TargetPath);
+        Assert.Contains("notificationTaskId=9", request.TargetPath);
+    }
+
     private sealed class RecordingSender(PushSendStatus status) : IWebPushSender
     {
         public List<string> Payloads { get; } = [];
@@ -165,6 +206,17 @@ public sealed class PushNotificationDeliveryTests
         {
             await Task.CompletedTask;
             yield break;
+        }
+    }
+
+    private sealed class RecordingPortalBridge : IProjectTrackerPortalPushBridge
+    {
+        public List<int> NotificationIds { get; } = [];
+
+        public bool TryEnqueue(int notificationId)
+        {
+            NotificationIds.Add(notificationId);
+            return true;
         }
     }
 }

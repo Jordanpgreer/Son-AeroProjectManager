@@ -94,10 +94,12 @@ interface WorkflowDraft {
 export default function QuotesDashboardPage({
   ownerAccountName,
   canManageQuotes,
+  canDeleteQuotes,
   canGenerateQuotes,
 }: {
   ownerAccountName: string
   canManageQuotes: boolean
+  canDeleteQuotes: boolean
   canGenerateQuotes: boolean
 }) {
   const [revision, setRevision] = useState(0)
@@ -639,19 +641,23 @@ export default function QuotesDashboardPage({
                           >
                             {quote.draft ? 'Continue draft' : 'View'}
                           </button>
-                          {canManageQuotes && quote.draft && quote.revisions.length === 0 && (
+                          {canDeleteQuotes && (
                             <button
                               type="button"
                               className="danger-link"
                               onClick={() => {
-                                if (!window.confirm(`Delete ${quoteTitle(displayVersion)}?`)) return
+                                const revisionWarning = quote.revisions.length > 0
+                                  ? ` This will permanently remove ${quote.revisions.length} published ${quote.revisions.length === 1 ? 'revision' : 'revisions'}${quote.draft ? ' and the current draft' : ''}.`
+                                  : ''
+                                if (!window.confirm(`Delete ${quoteTitle(displayVersion)}?${revisionWarning}`)) return
                                 setActionError(null)
                                 if (deleteQuote(quote.id, ownerAccountName)) {
                                   setRevision((current) => current + 1)
                                 } else {
-                                  setActionError(getQuoteStoreError() ?? 'The draft could not be deleted.')
+                                  setActionError(getQuoteStoreError() ?? 'The quote could not be deleted.')
                                 }
                               }}
+                              aria-label={`Delete ${quoteTitle(displayVersion)}`}
                             >
                               Delete
                             </button>

@@ -54,7 +54,7 @@ function defaultHubUrl() {
   return 'https://hub.son4l.local'
 }
 
-const hubUrl = defaultHubUrl()
+export const hubUrl = defaultHubUrl()
 const engineeringAdminUrl = new URL('/#/admin/engineering/file-storage', hubUrl).toString()
 
 interface Me {

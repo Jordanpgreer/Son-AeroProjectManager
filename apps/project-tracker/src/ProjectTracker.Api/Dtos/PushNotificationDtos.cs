@@ -1,6 +1,6 @@
 namespace ProjectTracker.Api.Dtos;
 
-public sealed record PushPublicKeyDto(string PublicKey, bool Enabled);
+public sealed record PushPublicKeyDto(string PublicKey, bool Enabled, bool Managed);
 
 public sealed record PushSubscriptionKeysDto(string? P256dh, string? Auth);
 

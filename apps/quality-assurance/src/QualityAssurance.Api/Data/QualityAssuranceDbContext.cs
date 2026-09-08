@@ -102,6 +102,7 @@ public sealed class QualityAssuranceDbContext(
             entity.HasIndex(notification => notification.CommentId);
             entity.HasIndex(notification => new { notification.RecipientUserId, notification.ReadAt, notification.CreatedAt });
             entity.HasIndex(notification => new { notification.ShipmentId, notification.CommentId });
+            entity.HasIndex(notification => new { notification.PortalPushPublishedAt, notification.Id });
             entity.HasOne(notification => notification.Comment)
                 .WithMany(comment => comment.MentionNotifications)
                 .HasForeignKey(notification => notification.CommentId)

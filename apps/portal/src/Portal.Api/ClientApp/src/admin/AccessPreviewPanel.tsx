@@ -12,12 +12,15 @@ import type {
   AdminAccessPreviewTarget,
 } from './types'
 
+type PreviewTargetKind = AdminAccessPreviewTarget['kind']
+
 export default function AccessPreviewPanel({
   onPreview,
 }: {
   onPreview: (target: AdminAccessPreviewTarget) => void
 }) {
   const [overview, setOverview] = useState<AdminAccessPreviewOverview | null>(null)
+  const [targetKind, setTargetKind] = useState<PreviewTargetKind>('user')
   const [query, setQuery] = useState('')
   const [selectedKey, setSelectedKey] = useState('')
   const [loading, setLoading] = useState(true)
@@ -40,10 +43,9 @@ export default function AccessPreviewPanel({
     }
   }, [])
 
-  const targets = useMemo(
-    () => [...(overview?.users ?? []), ...(overview?.groups ?? [])],
-    [overview],
-  )
+  const users = overview?.users ?? []
+  const groups = overview?.groups ?? []
+  const targets = targetKind === 'user' ? users : groups
   const filtered = useMemo(
     () => filterAccessPreviewTargets(targets, query),
     [query, targets],
@@ -67,11 +69,41 @@ export default function AccessPreviewPanel({
         <p className="admin-notice error" role="alert">{error}</p>
       ) : (
         <>
-          <label className="admin-search admin-preview-search">
-            <Search size={16} aria-hidden="true" />
-            <span className="sr-only">Search preview users and groups</span>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search users or groups" />
-          </label>
+          <div className="admin-preview-controls">
+            <div className="admin-preview-kind" role="group" aria-label="Preview by person or group">
+              <button
+                type="button"
+                aria-pressed={targetKind === 'user'}
+                className={targetKind === 'user' ? 'selected' : ''}
+                onClick={() => {
+                  setTargetKind('user')
+                  setSelectedKey('')
+                }}
+              >
+                <UserRoundSearch size={15} aria-hidden="true" /> People <span>{users.length}</span>
+              </button>
+              <button
+                type="button"
+                aria-pressed={targetKind === 'group'}
+                className={targetKind === 'group' ? 'selected' : ''}
+                onClick={() => {
+                  setTargetKind('group')
+                  setSelectedKey('')
+                }}
+              >
+                <UsersRound size={15} aria-hidden="true" /> Groups <span>{groups.length}</span>
+              </button>
+            </div>
+            <label className="admin-search admin-preview-search">
+              <Search size={16} aria-hidden="true" />
+              <span className="sr-only">Search preview {targetKind === 'user' ? 'people' : 'groups'}</span>
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={targetKind === 'user' ? 'Search people' : 'Search groups'}
+              />
+            </label>
+          </div>
           <div className="admin-preview-targets" role="group" aria-label="Preview target">
             {filtered.map((target) => (
               <button
@@ -86,7 +118,7 @@ export default function AccessPreviewPanel({
                 <em>{accessPreviewTargetBadge(target)}</em>
               </button>
             ))}
-            {filtered.length === 0 && <p>No users or groups match that search.</p>}
+            {filtered.length === 0 && <p>No {targetKind === 'user' ? 'people' : 'groups'} match that search.</p>}
           </div>
           <footer>
             <p>{selected ? accessPreviewTargetSummary(selected) : 'Select a user or group to preview.'}</p>

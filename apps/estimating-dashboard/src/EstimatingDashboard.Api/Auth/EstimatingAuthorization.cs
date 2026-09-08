@@ -27,6 +27,7 @@ public static class EstimatingPermissions
     public const string View = "estimating.view";
     public const string Calculate = "estimating.calculate";
     public const string ManageQuotes = "estimating.quotes.manage";
+    public const string DeleteQuotes = "estimating.quotes.delete";
     public const string ManageInputs = "estimating.inputs.manage";
     public const string AdministerRates = "estimating.rates.admin";
     public const string AdministerSettings = "estimating.settings.admin";
@@ -51,6 +52,7 @@ public static class EstimatingPermissions
     private static readonly IReadOnlyList<string> AdminPermissions =
     [
         .. EditorPermissions,
+        DeleteQuotes,
         ImportHistory,
         ManageHistory,
         AdministerRates,

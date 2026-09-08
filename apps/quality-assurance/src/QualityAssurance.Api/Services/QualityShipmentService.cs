@@ -533,15 +533,13 @@ public sealed class QualityShipmentService(
         if (shipment.IsShipped)
             throw new ArgumentException("A shipped record cannot be returned to the Shipper queue.");
 
-        var qualityGroupName = configuration?["QualityWorkflow:QualityGroupName"] ?? "Quality";
-        if (!string.Equals(shipment.AssignedGroupName, qualityGroupName, StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException($"QA Complete is available only while the record is assigned to the {qualityGroupName} group.");
-
         var configuredShippingGroupName = configuration?["QualityWorkflow:ShippingGroupName"]?.Trim();
         var shippingGroupName = string.IsNullOrWhiteSpace(configuredShippingGroupName)
             || string.Equals(configuredShippingGroupName, "Shipping", StringComparison.OrdinalIgnoreCase)
                 ? ApplicationGroups.Shipper
                 : configuredShippingGroupName;
+        if (string.Equals(shipment.AssignedGroupName, shippingGroupName, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException($"This record is already in the {shippingGroupName} queue.");
         var shippingGroup = (await accessStore.GetGroupsWithPermissionAsync(
                 QualityAssurancePermissions.ResponsibleGroupEligible,
                 cancellationToken))

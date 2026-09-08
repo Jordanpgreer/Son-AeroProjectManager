@@ -27,4 +27,5 @@ public sealed class QualityMentionNotification
     public string BodyPreview { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? ReadAt { get; set; }
+    public DateTimeOffset? PortalPushPublishedAt { get; set; }
 }

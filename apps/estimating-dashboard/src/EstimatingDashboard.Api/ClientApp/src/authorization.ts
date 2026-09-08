@@ -16,6 +16,7 @@ export const estimatingPermissions = {
   view: 'estimating.view',
   calculate: 'estimating.calculate',
   manageQuotes: 'estimating.quotes.manage',
+  deleteQuotes: 'estimating.quotes.delete',
   manageInputs: 'estimating.inputs.manage',
   administerRates: 'estimating.rates.admin',
   administerSettings: 'estimating.settings.admin',

@@ -35,10 +35,7 @@ describe('applicationNavigationMode', () => {
   })
 
   it('distinguishes visible cards from modules with full read-only preview support', () => {
-    expect(canLaunchAccessPreview('project-tracker')).toBe(true)
-    expect(canLaunchAccessPreview('engineering-hub')).toBe(true)
-    expect(canLaunchAccessPreview('estimating-dashboard')).toBe(true)
-    expect(canLaunchAccessPreview('quality-assurance')).toBe(false)
-    expect(canLaunchAccessPreview('admin-console')).toBe(false)
+    expect(canLaunchAccessPreview({ hasPreview: true })).toBe(true)
+    expect(canLaunchAccessPreview({ hasPreview: false })).toBe(false)
   })
 })
