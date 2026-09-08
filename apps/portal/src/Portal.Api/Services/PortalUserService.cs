@@ -25,9 +25,18 @@ public sealed class PortalUserService(
         accountName = WindowsAccountNames.Normalize(accountName)
             ?? throw new UnauthorizedAccessException("A valid Windows account name is required.");
 
-        var account = await roleStore.FindAccountAsync(accountName, cancellationToken);
         var isDevelopment = IsDevelopmentMode();
         var bootstrapRole = ResolveBootstrapRole(accountName);
+        var account = await roleStore.FindAccountAsync(accountName, cancellationToken);
+        if (!isDevelopment
+            && bootstrapRole is null
+            && account.Status == PortalAccountLookupStatus.Missing)
+        {
+            account = await roleStore.RegisterPendingAccountAsync(
+                accountName,
+                ToDisplayName(accountName),
+                cancellationToken);
+        }
         var status = ResolveStatus(account, isDevelopment, bootstrapRole);
         var role = ResolveRole(account, status, isDevelopment, bootstrapRole);
         var moduleRoles = status == PortalAccountStatus.Configured

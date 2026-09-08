@@ -10,6 +10,33 @@ namespace Portal.Tests;
 public sealed class PortalRoleStoreTests
 {
     [Fact]
+    public async Task RegisterPendingAccountAsync_PersistsFirstSignInWithoutGrantingAccess()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<PortalRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new PortalRoleDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        var store = new PortalRoleStore(db, NullLogger<PortalRoleStore>.Instance);
+
+        var first = await store.RegisterPendingAccountAsync(@"son4l/new.employee", "New Employee");
+        var second = await store.RegisterPendingAccountAsync(@"SON4L\new.employee", "Replacement Name");
+
+        Assert.Equal(PortalAccountLookupStatus.Found, first.Status);
+        Assert.True(first.IsActive);
+        Assert.False(first.HasProjectTrackerAccess);
+        Assert.Empty(first.ModuleRoles);
+        Assert.Equal(PortalAccountLookupStatus.Found, second.Status);
+        var persisted = Assert.Single(await db.Users.AsNoTracking().ToListAsync());
+        Assert.Equal(@"son4l\new.employee", persisted.AccountName, ignoreCase: true);
+        Assert.Equal("New Employee", persisted.DisplayName);
+        Assert.Equal(ApplicationRoles.Viewer, persisted.Role);
+        Assert.True(persisted.LastSeenAt > DateTimeOffset.UnixEpoch);
+        Assert.Empty(await db.UserModuleAccess.ToListAsync());
+        Assert.Empty(await db.ProjectTrackerUserGroupMemberships.ToListAsync());
+    }
+
+    [Fact]
     public async Task FindAccountAsync_ReadsTrackerUserCaseInsensitively()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

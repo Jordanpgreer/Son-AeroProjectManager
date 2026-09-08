@@ -11,6 +11,7 @@ import {
   UserRound,
 } from 'lucide-react'
 import { toErrorMessage, trackerApi } from './api'
+import { orderPeopleForSetup } from './accessPeople'
 import { GroupCreationWizard, GroupEditor } from './AccessGroupManagement'
 import type { AccessGroupTemplate, NewAccessGroup } from './AccessGroupManagement'
 import type {
@@ -130,12 +131,13 @@ export default function AccessPanel({
   }).map((group) => group.id), [groupDrafts, overview])
 
   const pendingCount = dirtyUserIds.length + dirtyGroupIds.length
-  const filteredUsers = (overview?.users ?? []).filter((user) => {
+  const filteredUsers = orderPeopleForSetup((overview?.users ?? []).filter((user) => {
     const query = search.trim().toLowerCase()
     return !query
       || user.displayName.toLowerCase().includes(query)
       || user.accountName.toLowerCase().includes(query)
-  })
+  }))
+  const pendingSetupCount = (overview?.users ?? []).filter((user) => user.isPendingSetup).length
   const filteredGroups = (overview?.groups ?? []).filter((group) => {
     const query = groupSearch.trim().toLowerCase()
     return !query
@@ -280,7 +282,7 @@ export default function AccessPanel({
       ) : (
         <>
           <div className="access-overview-stats" aria-label="Access overview">
-            <span><strong>{overview.users.length}</strong><small>Registered people</small></span>
+            <span><strong>{pendingSetupCount}</strong><small>Awaiting setup</small></span>
             <span><strong>{overview.groups.length}</strong><small>Permission groups</small></span>
             <span><strong>{overview.permissions.length}</strong><small>Available permissions</small></span>
             <p><ShieldCheck size={15} aria-hidden="true" /><span><strong>Access is additive</strong><small>A person receives the combined permissions from every assigned group.</small></span></p>
@@ -291,8 +293,8 @@ export default function AccessPanel({
             <summary>
               <span className="admin-directory-icon"><UserRound size={18} aria-hidden="true" /></span>
               <div>
-                <h3 id="registered-users-heading">Registered people</h3>
-                <p>Find a Windows account and manage its group assignments.</p>
+                <h3 id="registered-users-heading">People</h3>
+                <p>New visitors appear automatically; assign a group to finish their setup.</p>
               </div>
               <span className="admin-directory-count">{overview.users.length} {overview.users.length === 1 ? 'user' : 'users'}</span>
               <ChevronDown size={18} aria-hidden="true" />
@@ -308,17 +310,26 @@ export default function AccessPanel({
                   placeholder="Search by name or Windows account"
                 />
               </label>
-              <p className="admin-directory-results">{filteredUsers.length} of {overview.users.length} people shown · assignments apply across modules</p>
+              <p className="admin-directory-results">{filteredUsers.length} of {overview.users.length} people shown · {pendingSetupCount} awaiting setup</p>
+              {pendingSetupCount > 0 && (
+                <div className="admin-pending-setup-note" role="status">
+                  <UserRound size={17} aria-hidden="true" />
+                  <span><strong>{pendingSetupCount} {pendingSetupCount === 1 ? 'person is' : 'people are'} awaiting setup</strong><small>They signed in with their Windows account and currently have no application access. Open a person and assign the appropriate group.</small></span>
+                </div>
+              )}
             {canManageUsers ? (
-              <form className="admin-create-form" onSubmit={createUser}>
-                <label>
-                  <span>Windows account</span>
-                  <input required value={newUser.accountName} onChange={(event) => setNewUser({ ...newUser, accountName: event.target.value })} placeholder="SON4L\\firstname.lastname" aria-describedby="windows-account-help" />
-                  <small id="windows-account-help">Paste the user&apos;s <code>whoami</code> result. Forward slash is also accepted.</small>
-                </label>
-                <label><span>Display name</span><input value={newUser.displayName} maxLength={160} onChange={(event) => setNewUser({ ...newUser, displayName: event.target.value })} placeholder="Optional" /></label>
-                <button className="solid-button" type="submit"><Plus size={15} /> Register</button>
-              </form>
+              <details className="admin-manual-user">
+                <summary>Add an account manually</summary>
+                <form className="admin-create-form" onSubmit={createUser}>
+                  <label>
+                    <span>Windows account</span>
+                    <input required value={newUser.accountName} onChange={(event) => setNewUser({ ...newUser, accountName: event.target.value })} placeholder="SON4L\\firstname.lastname" aria-describedby="windows-account-help" />
+                    <small id="windows-account-help">Fallback for pre-registering someone before their first Arda visit.</small>
+                  </label>
+                  <label><span>Display name</span><input value={newUser.displayName} maxLength={160} onChange={(event) => setNewUser({ ...newUser, displayName: event.target.value })} placeholder="Optional" /></label>
+                  <button className="solid-button" type="submit"><Plus size={15} /> Add account</button>
+                </form>
+              </details>
             ) : (
               <p className="admin-readonly-note">User management requires the Manage Registered Users permission.</p>
             )}
@@ -336,9 +347,9 @@ export default function AccessPanel({
                     <summary>
                       <span className="admin-user-avatar" aria-hidden="true">{initials(displayName)}</span>
                       <div className="admin-user-identity">
-                        <strong>{displayName} {isCurrent && <small>You</small>}</strong>
+                        <strong>{displayName} {isCurrent && <small>You</small>} {user.isPendingSetup && <small className="pending">Awaiting setup</small>}</strong>
                         <span>{user.accountName}</span>
-                        <time dateTime={user.lastSeenAt}>{draft.groupIds.length} {draft.groupIds.length === 1 ? 'group' : 'groups'} · {draft.isActive ? formatLastSeen(user.lastSeenAt) : 'Inactive account'}</time>
+                        <time dateTime={user.lastSeenAt}>{user.isPendingSetup ? `First signed in ${formatLastSeen(user.lastSeenAt)} · No access assigned` : `${draft.groupIds.length} ${draft.groupIds.length === 1 ? 'group' : 'groups'} · ${draft.isActive ? formatLastSeen(user.lastSeenAt) : 'Inactive account'}`}</time>
                       </div>
                       <ChevronDown size={17} aria-hidden="true" />
                     </summary>

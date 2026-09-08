@@ -30,7 +30,8 @@ public sealed record RegisteredUserDto(
     string DisplayName,
     bool IsActive,
     DateTimeOffset LastSeenAt,
-    IReadOnlyList<int> GroupIds);
+    IReadOnlyList<int> GroupIds,
+    bool IsPendingSetup);
 
 public sealed record AccessGroupDto(
     int Id,

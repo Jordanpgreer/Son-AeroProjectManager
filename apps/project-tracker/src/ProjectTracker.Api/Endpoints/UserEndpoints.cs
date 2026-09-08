@@ -109,10 +109,14 @@ public static class UserEndpoints
             var users = await db.Users
                 .AsNoTracking()
                 .Include(user => user.GroupMemberships)
+                    .ThenInclude(membership => membership.Group)
+                        .ThenInclude(group => group.Permissions)
+                .Include(user => user.ModuleAccessAssignments)
                 .OrderByDescending(user => user.IsActive)
                 .ThenBy(user => user.DisplayName)
                 .ThenBy(user => user.AccountName)
-                .Select(user => new RegisteredUserDto(
+                .ToListAsync(cancellationToken);
+            var userDtos = users.Select(user => new RegisteredUserDto(
                     user.Id,
                     user.AccountName,
                     user.DisplayName,
@@ -121,8 +125,9 @@ public static class UserEndpoints
                     user.GroupMemberships
                         .Select(membership => membership.AppGroupId)
                         .OrderBy(id => id)
-                        .ToList()))
-                .ToListAsync(cancellationToken);
+                        .ToList(),
+                    IsPendingSetup(user)))
+                .ToList();
 
             var groups = await db.Groups
                 .AsNoTracking()
@@ -142,7 +147,7 @@ public static class UserEndpoints
                     group.UserMemberships.Count))
                 .ToListAsync(cancellationToken);
 
-            return Results.Ok(new AccessOverviewDto(users, groups, permissions));
+            return Results.Ok(new AccessOverviewDto(userDtos, groups, permissions));
         }).RequireAuthorization(AccessOverviewAuthorization.PolicyName);
 
         api.MapPost("/admin/users", RegisterUserAsync).RequireAuthorization("ManageUsers");
@@ -562,6 +567,29 @@ public static class UserEndpoints
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public static bool IsPendingSetup(AppUser user)
+    {
+        if (!user.IsActive) return false;
+        if (user.ModuleAccessAssignments.Any(access =>
+            ApplicationModuleCatalog.Find(access.ModuleKey)?.Roles.Any(role =>
+                role.Role == ApplicationModuleRoles.Normalize(access.Role)) == true))
+            return false;
+
+        var permissions = user.GroupMemberships
+            .SelectMany(membership => membership.Group.Permissions)
+            .Select(permission => permission.PermissionKey)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (permissions.Contains(ApplicationPermissions.ModuleView)
+            || EngineeringPermissions.RoleFor(permissions) is not null
+            || ApplicationModuleCatalog.RoleForPermissions(ApplicationModules.Estimating, permissions) is not null
+            || permissions.Contains(EstimatingViewPermission)
+            || ApplicationModuleCatalog.RoleForPermissions(ApplicationModules.QualityAssurance, permissions) is not null
+            || permissions.Contains(QualityAssurancePermissions.ModuleView))
+            return false;
+
+        return true;
+    }
+
     private static void ReplaceMemberships(AppUser user, IReadOnlyCollection<int> groupIds)
     {
         var existing = user.GroupMemberships.Select(membership => membership.AppGroupId).ToHashSet();
@@ -592,18 +620,22 @@ public static class UserEndpoints
 
     private static async Task<RegisteredUserDto> ToRegisteredUserDtoAsync(ProjectTrackerDbContext db, int userId, CancellationToken cancellationToken)
     {
-        return await db.Users
+        var user = await db.Users
             .AsNoTracking()
             .Include(user => user.GroupMemberships)
+                .ThenInclude(membership => membership.Group)
+                    .ThenInclude(group => group.Permissions)
+            .Include(user => user.ModuleAccessAssignments)
             .Where(user => user.Id == userId)
-            .Select(user => new RegisteredUserDto(
-                user.Id,
-                user.AccountName,
-                user.DisplayName,
-                user.IsActive,
-                user.LastSeenAt,
-                user.GroupMemberships.Select(membership => membership.AppGroupId).OrderBy(id => id).ToList()))
             .SingleAsync(cancellationToken);
+        return new RegisteredUserDto(
+            user.Id,
+            user.AccountName,
+            user.DisplayName,
+            user.IsActive,
+            user.LastSeenAt,
+            user.GroupMemberships.Select(membership => membership.AppGroupId).OrderBy(id => id).ToList(),
+            IsPendingSetup(user));
     }
 
     private static async Task<AccessGroupDto> ToAccessGroupDtoAsync(ProjectTrackerDbContext db, int groupId, CancellationToken cancellationToken)

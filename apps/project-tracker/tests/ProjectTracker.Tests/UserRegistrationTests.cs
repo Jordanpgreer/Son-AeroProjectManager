@@ -12,6 +12,46 @@ namespace ProjectTracker.Tests;
 public sealed class UserRegistrationTests
 {
     [Fact]
+    public void IsPendingSetup_DistinguishesZeroAccessFromDirectAndGroupAccess()
+    {
+        var pending = new AppUser { IsActive = true };
+        Assert.True(UserEndpoints.IsPendingSetup(pending));
+
+        var moduleUser = new AppUser
+        {
+            IsActive = true,
+            ModuleAccessAssignments =
+            [
+                new AppUserModuleAccess
+                {
+                    ModuleKey = ApplicationModules.Engineering,
+                    Role = ApplicationRoles.Viewer
+                }
+            ]
+        };
+        Assert.False(UserEndpoints.IsPendingSetup(moduleUser));
+
+        var trackerUser = new AppUser
+        {
+            IsActive = true,
+            GroupMemberships =
+            [
+                new AppUserGroupMembership
+                {
+                    Group = new AppGroup
+                    {
+                        Permissions =
+                        [
+                            new AppGroupPermission { PermissionKey = ApplicationPermissions.ModuleView }
+                        ]
+                    }
+                }
+            ]
+        };
+        Assert.False(UserEndpoints.IsPendingSetup(trackerUser));
+    }
+
+    [Fact]
     public async Task RegisterUserAsync_DoesNotCreateModuleAssignments()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

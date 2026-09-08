@@ -10,6 +10,11 @@ public interface IPortalRoleStore
     Task<PortalAccountLookup> FindAccountAsync(
         string accountName,
         CancellationToken cancellationToken = default);
+
+    Task<PortalAccountLookup> RegisterPendingAccountAsync(
+        string accountName,
+        string displayName,
+        CancellationToken cancellationToken = default);
 }
 
 public enum PortalAccountLookupStatus
@@ -113,6 +118,50 @@ public sealed class PortalRoleStore(PortalRoleDbContext db, ILogger<PortalRoleSt
                 "The shared application access store is unavailable; Portal access is denied unless a bootstrap role is configured.");
             return PortalAccountLookup.Unavailable();
         }
+    }
+
+    public async Task<PortalAccountLookup> RegisterPendingAccountAsync(
+        string accountName,
+        string displayName,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedAccount = WindowsAccountNames.Normalize(accountName);
+        if (normalizedAccount is null)
+            return PortalAccountLookup.Unavailable();
+
+        var existing = await FindAccountAsync(normalizedAccount, cancellationToken);
+        if (existing.Status != PortalAccountLookupStatus.Missing)
+            return existing;
+
+        var pending = new PortalRoleRecord
+        {
+            AccountName = normalizedAccount,
+            DisplayName = displayName.Trim(),
+            Role = ApplicationRoles.Viewer,
+            IsActive = true,
+            LastSeenAt = DateTimeOffset.UtcNow
+        };
+        db.Users.Add(pending);
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception)
+        {
+            db.Entry(pending).State = EntityState.Detached;
+            var concurrentlyCreated = await FindAccountAsync(normalizedAccount, cancellationToken);
+            if (concurrentlyCreated.Status == PortalAccountLookupStatus.Found)
+                return concurrentlyCreated;
+
+            logger.LogError(exception,
+                "Could not register pending Arda account {AccountName}; access remains denied.",
+                normalizedAccount);
+            return PortalAccountLookup.Unavailable();
+        }
+
+        logger.LogInformation("Registered pending Arda account {AccountName} on first sign-in.", normalizedAccount);
+        return await FindAccountAsync(normalizedAccount, cancellationToken);
     }
 
     private static string? RoleForGrantedModulePermissions(

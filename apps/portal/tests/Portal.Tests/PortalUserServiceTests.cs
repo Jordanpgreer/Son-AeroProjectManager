@@ -10,9 +10,26 @@ public sealed class PortalUserServiceTests
 {
     private sealed class StubRoleStore(PortalAccountLookup account) : IPortalRoleStore
     {
+        public int RegistrationCount { get; private set; }
+        public string? RegisteredAccountName { get; private set; }
+        public string? RegisteredDisplayName { get; private set; }
+
         public Task<PortalAccountLookup> FindAccountAsync(
             string accountName,
             CancellationToken cancellationToken = default) => Task.FromResult(account);
+
+        public Task<PortalAccountLookup> RegisterPendingAccountAsync(
+            string accountName,
+            string displayName,
+            CancellationToken cancellationToken = default)
+        {
+            RegistrationCount++;
+            RegisteredAccountName = accountName;
+            RegisteredDisplayName = displayName;
+            return Task.FromResult(account.Status == PortalAccountLookupStatus.Missing
+                ? Found(displayName: displayName)
+                : account);
+        }
     }
 
     private static PortalAccountLookup Found(
@@ -43,10 +60,11 @@ public sealed class PortalUserServiceTests
           "Portal": { "DevelopmentRole": "Editor" }
         }
         """);
+        var store = new StubRoleStore(PortalAccountLookup.Missing());
         var service = new PortalUserService(
             new HttpContextAccessor { HttpContext = null },
             configuration,
-            new StubRoleStore(PortalAccountLookup.Missing()));
+            store);
 
         var me = await service.CurrentAsync();
 
@@ -58,6 +76,7 @@ public sealed class PortalUserServiceTests
         Assert.Contains(me.Modules, module =>
             module.ModuleKey == "quality-assurance"
             && module.Permissions.Contains("quality-assurance.shipments.create"));
+        Assert.Equal(0, store.RegistrationCount);
     }
 
     [Fact]
@@ -143,16 +162,18 @@ public sealed class PortalUserServiceTests
             User = new ClaimsPrincipal(new ClaimsIdentity(
                 new[] { new Claim(ClaimTypes.Name, "SONAERO\\lead.planner") }, "TestAuth")),
         };
+        var store = new StubRoleStore(PortalAccountLookup.Missing());
         var service = new PortalUserService(
             new HttpContextAccessor { HttpContext = httpContext },
             configuration,
-            new StubRoleStore(PortalAccountLookup.Missing()));
+            store);
 
         var me = await service.CurrentAsync();
 
         Assert.Equal("SONAERO\\lead.planner", me.AccountName);
         Assert.Equal(Portal.Api.Dtos.PortalAccountStatus.Configured, me.AccountStatus);
         Assert.Equal("Admin", me.Role);
+        Assert.Equal(0, store.RegistrationCount);
     }
 
     [Fact]
@@ -166,15 +187,19 @@ public sealed class PortalUserServiceTests
             User = new ClaimsPrincipal(new ClaimsIdentity(
                 new[] { new Claim(ClaimTypes.Name, "SONAERO\\random.user") }, "TestAuth")),
         };
+        var store = new StubRoleStore(PortalAccountLookup.Missing());
         var service = new PortalUserService(
             new HttpContextAccessor { HttpContext = httpContext },
             configuration,
-            new StubRoleStore(PortalAccountLookup.Missing()));
+            store);
 
         var me = await service.CurrentAsync();
         Assert.Equal(Portal.Api.Dtos.PortalAccountStatus.PendingSetup, me.AccountStatus);
         Assert.Null(me.Role);
         Assert.Empty(me.Modules);
+        Assert.Equal(1, store.RegistrationCount);
+        Assert.Equal(@"SONAERO\random.user", store.RegisteredAccountName);
+        Assert.Equal("Random User", store.RegisteredDisplayName);
     }
 
     [Fact]

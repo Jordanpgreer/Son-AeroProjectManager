@@ -45,6 +45,7 @@ export interface RegisteredUser {
   isActive: boolean
   lastSeenAt: string
   groupIds: number[]
+  isPendingSetup: boolean
 }
 
 export interface AccessGroup {

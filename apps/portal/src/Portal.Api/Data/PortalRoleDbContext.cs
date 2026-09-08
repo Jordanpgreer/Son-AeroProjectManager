@@ -41,6 +41,7 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
             entity.Property(user => user.AccountName).HasMaxLength(160);
             entity.Property(user => user.DisplayName).HasMaxLength(160);
             entity.Property(user => user.Role).HasMaxLength(32);
+            entity.HasIndex(user => user.AccountName).IsUnique();
             entity.HasMany(user => user.EngineeringGroupMemberships)
                 .WithOne(membership => membership.User)
                 .HasForeignKey(membership => membership.AppUserId)
