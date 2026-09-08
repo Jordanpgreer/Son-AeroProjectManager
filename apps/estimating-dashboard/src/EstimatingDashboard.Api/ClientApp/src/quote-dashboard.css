@@ -3,7 +3,6 @@
   gap: 18px;
 }
 
-.quote-dashboard-intro,
 .quote-list-card {
   background: var(--surface);
   border: 1px solid var(--line-2);
@@ -11,16 +10,12 @@
   box-shadow: var(--shadow-1);
 }
 
-.quote-dashboard-intro {
+.quote-dashboard-page-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 20px 22px;
-  border-top: 3px solid var(--steel);
+  justify-content: flex-end;
 }
 
-.quote-dashboard-intro h2,
 .quote-list-toolbar h2 {
   margin: 0;
   color: var(--ink);
@@ -32,11 +27,6 @@
   margin: 5px 0 0;
   color: var(--muted);
   font-size: 11px;
-}
-
-.quote-dashboard-intro p {
-  margin: 5px 0 0;
-  color: var(--muted);
 }
 
 .primary-action-button,
@@ -92,8 +82,7 @@
   border-top: 3px solid var(--steel);
 }
 
-.quote-refresh-button,
-.quote-edit-workflow-button {
+.quote-refresh-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -109,8 +98,7 @@
   font-weight: 750;
 }
 
-.quote-refresh-button:disabled,
-.quote-edit-workflow-button:disabled {
+.quote-refresh-button:disabled {
   cursor: wait;
   opacity: .6;
 }
@@ -254,7 +242,39 @@
 }
 
 .personal-quote-table {
-  min-width: 1120px;
+  min-width: 920px;
+}
+
+.personal-quote-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.personal-quote-chevron {
+  flex: 0 0 auto;
+  color: var(--steel);
+  transition: transform 160ms ease;
+}
+
+.personal-quote-row.is-actionable {
+  cursor: pointer;
+}
+
+.personal-quote-row.is-actionable:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 3px solid color-mix(in srgb, var(--steel) 45%, transparent);
+  outline-offset: -3px;
+}
+
+.personal-quote-row.is-open {
+  background: color-mix(in srgb, var(--steel-tint) 60%, var(--surface));
+}
+
+.personal-quote-row.is-open .personal-quote-chevron {
+  transform: rotate(180deg);
 }
 
 .personal-quote-number {
@@ -383,17 +403,40 @@
 }
 
 .quote-workflow-editor-row > td {
-  padding: 14px 16px 16px;
+  padding: 0 14px 14px;
 }
 
 .quote-workflow-editor {
   display: grid;
   grid-template-columns: minmax(180px, 230px) minmax(160px, 190px) minmax(280px, 1fr) auto;
   align-items: end;
-  gap: 12px;
+  gap: 14px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--steel) 24%, var(--line));
+  border-top: 3px solid var(--steel);
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  box-shadow: var(--shadow-1);
 }
 
-.quote-workflow-editor label {
+.quote-workflow-editor-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  grid-column: 1 / -1;
+}
+
+.quote-workflow-editor-heading strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.quote-workflow-editor-heading span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.quote-workflow-field {
   display: grid;
   gap: 6px;
   color: var(--muted);
@@ -401,6 +444,39 @@
   font-weight: 750;
   text-transform: uppercase;
   letter-spacing: .05em;
+}
+
+.quote-workflow-field > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.quote-workflow-field > span svg {
+  color: var(--steel);
+}
+
+.quote-workflow-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 44px;
+  color: var(--steel);
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+.quote-workflow-control:focus-within {
+  background: var(--surface);
+  border-color: var(--steel);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--steel) 15%, transparent);
+}
+
+.quote-workflow-control > svg {
+  margin-right: 12px;
+  pointer-events: none;
 }
 
 .quote-workflow-due-control {
@@ -435,7 +511,7 @@
   min-height: 38px;
   padding: 7px 9px;
   color: var(--ink);
-  background: var(--surface);
+  background: var(--surface-2);
   border: 1px solid var(--line-2);
   border-radius: var(--r-xs);
   outline: none;
@@ -445,13 +521,29 @@
   letter-spacing: normal;
 }
 
+.quote-workflow-control select,
+.quote-workflow-control input {
+  min-height: 42px;
+  background: transparent;
+  border: 0;
+  border-radius: inherit;
+}
+
+.quote-workflow-control select {
+  padding-right: 4px;
+  appearance: none;
+}
+
+.quote-workflow-control input:focus,
+.quote-workflow-control select:focus {
+  box-shadow: none;
+}
+
 .quote-workflow-editor textarea {
   min-height: 66px;
   resize: vertical;
 }
 
-.quote-workflow-editor select:focus,
-.quote-workflow-editor input:focus,
 .quote-workflow-editor textarea:focus {
   border-color: var(--steel);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--steel) 15%, transparent);
@@ -555,9 +647,8 @@
 }
 
 @media (max-width: 560px) {
-  .quote-dashboard-intro {
-    align-items: stretch;
-    flex-direction: column;
+  .quote-dashboard-page-actions .primary-action-button {
+    width: 100%;
   }
 
   .quote-kpi-grid {
@@ -575,5 +666,10 @@
   .quote-workflow-notes,
   .quote-workflow-actions {
     grid-column: auto;
+  }
+
+  .quote-workflow-editor-heading {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

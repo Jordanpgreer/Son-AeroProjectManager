@@ -1,11 +1,12 @@
 import {
   Archive,
+  Activity,
   CalendarDays,
+  ChevronDown,
   CircleDollarSign,
   Clock3,
   FileClock,
   FileText,
-  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -32,6 +33,7 @@ import { formatQuoteRevision } from './quoteRevision'
 import {
   ARDA_STATUS_OPTIONS,
   loadPersonalQuotes,
+  refreshPersonalQuoteAssignments,
   statusAgeLabel,
   updatePersonalQuoteWorkflow,
   type ArdaStatus,
@@ -75,7 +77,7 @@ function formatOptionalDate(value: string | null) {
 
 interface WorkflowDraft {
   quoteId: number
-  ardaStatus: ArdaStatus | ''
+  ardaStatus: ArdaStatus
   notes: string
   dueDate: string
   dueDateIsOverride: boolean
@@ -129,11 +131,13 @@ export default function QuotesDashboardPage({
     .filter((quote) => quote.status === 'current')
     .reduce((total, quote) => total + quoteValue(getLatestPublishedRevision(quote)), 0)
 
-  const refreshPersonalQuotes = useCallback(async () => {
+  const refreshPersonalQuotes = useCallback(async (pullFromFulcrum = false) => {
     setPersonalLoading(true)
     setPersonalError(null)
     try {
-      setPersonalQuotes(await loadPersonalQuotes())
+      setPersonalQuotes(await (pullFromFulcrum
+        ? refreshPersonalQuoteAssignments()
+        : loadPersonalQuotes()))
     } catch (error) {
       setPersonalError(error instanceof Error ? error.message : 'Your assigned quotes could not be loaded.')
     } finally {
@@ -142,19 +146,27 @@ export default function QuotesDashboardPage({
   }, [])
 
   useEffect(() => {
-    void refreshPersonalQuotes()
+    void refreshPersonalQuotes(false)
   }, [ownerAccountName, refreshPersonalQuotes])
 
   const editWorkflow = (quote: PersonalQuote) => {
     setPersonalError(null)
     setWorkflowDraft({
       quoteId: quote.id,
-      ardaStatus: quote.ardaStatus ?? '',
+      ardaStatus: quote.ardaStatus ?? 'Untouched',
       notes: quote.ardaStatusNotes ?? '',
       dueDate: quote.estimatingDueDate?.slice(0, 10) ?? '',
       dueDateIsOverride: quote.estimatingDueDateIsOverride,
       expectedVersion: quote.version,
     })
+  }
+
+  const toggleWorkflow = (quote: PersonalQuote) => {
+    if (workflowDraft?.quoteId === quote.id) {
+      setWorkflowDraft(null)
+      return
+    }
+    editWorkflow(quote)
   }
 
   const saveWorkflow = async () => {
@@ -163,7 +175,7 @@ export default function QuotesDashboardPage({
     setPersonalError(null)
     try {
       const updated = await updatePersonalQuoteWorkflow(workflowDraft.quoteId, {
-        ardaStatus: workflowDraft.ardaStatus || null,
+        ardaStatus: workflowDraft.ardaStatus,
         notes: workflowDraft.notes.trim() || null,
         estimatingDueDateOverride: workflowDraft.dueDateIsOverride
           ? workflowDraft.dueDate || null
@@ -199,12 +211,7 @@ export default function QuotesDashboardPage({
 
   return (
     <div className="quote-dashboard-page">
-      <section className="quote-dashboard-intro">
-        <div>
-          <span className="section-kicker">Quote workspace</span>
-          <h2>Estimating Pipeline</h2>
-          <p>Continue drafts, track current quotes, and retain completed quote history.</p>
-        </div>
+      <div className="quote-dashboard-page-actions">
         <button
           type="button"
           className="primary-action-button"
@@ -215,11 +222,34 @@ export default function QuotesDashboardPage({
           <Plus size={17} aria-hidden="true" />
           New quote
         </button>
-      </section>
+      </div>
 
       {(storageError || actionError) && (
         <p className="quote-storage-error" role="alert">{storageError ?? actionError}</p>
       )}
+
+      <section className="quote-kpi-grid" aria-label="Quote portfolio summary">
+        <button type="button" onClick={() => setFilter('draft')}>
+          <span><FileClock size={18} aria-hidden="true" /> Draft quotes</span>
+          <strong>{counts.draft}</strong>
+          <small>Waiting for completion</small>
+        </button>
+        <button type="button" onClick={() => setFilter('current')}>
+          <span><FileText size={18} aria-hidden="true" /> Current quotes</span>
+          <strong>{counts.current}</strong>
+          <small>Actively quoted</small>
+        </button>
+        <button type="button" onClick={() => setFilter('past')}>
+          <span><Archive size={18} aria-hidden="true" /> Past quotes</span>
+          <strong>{counts.past}</strong>
+          <small>Completed history</small>
+        </button>
+        <div>
+          <span><CircleDollarSign size={18} aria-hidden="true" /> Current value</span>
+          <strong>{currency(currentValue)}</strong>
+          <small>Extended quote value</small>
+        </div>
+      </section>
 
       <section className="quote-list-card personal-quote-card" aria-labelledby="personal-quotes-heading">
         <div className="quote-list-toolbar">
@@ -233,8 +263,9 @@ export default function QuotesDashboardPage({
           <button
             type="button"
             className="quote-refresh-button"
-            disabled={personalLoading}
-            onClick={() => void refreshPersonalQuotes()}
+            disabled={personalLoading || !canManageQuotes}
+            title={canManageQuotes ? 'Pull new and updated Fulcrum assignments' : 'Editor access is required'}
+            onClick={() => void refreshPersonalQuotes(true)}
           >
             <RefreshCw size={14} aria-hidden="true" />
             Refresh
@@ -265,17 +296,37 @@ export default function QuotesDashboardPage({
                   <th scope="col">Arda status</th>
                   <th scope="col">Due dates</th>
                   <th scope="col">Status age</th>
-                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {personalQuotes.map((quote) => {
                   const editing = workflowDraft?.quoteId === quote.id
                   return [
-                    <tr key={`quote-${quote.id}`}>
+                    <tr
+                      key={`quote-${quote.id}`}
+                      className={`${canManageQuotes ? 'personal-quote-row is-actionable' : 'personal-quote-row'}${editing ? ' is-open' : ''}`}
+                      tabIndex={canManageQuotes ? 0 : undefined}
+                      aria-expanded={canManageQuotes ? editing : undefined}
+                      aria-controls={canManageQuotes ? `quote-workflow-editor-${quote.id}` : undefined}
+                      aria-label={canManageQuotes ? `Edit Arda details for quote ${quote.quoteNumber}` : undefined}
+                      onClick={() => {
+                        if (!canManageQuotes) return
+                        toggleWorkflow(quote)
+                      }}
+                      onKeyDown={(event) => {
+                        if (!canManageQuotes || (event.key !== 'Enter' && event.key !== ' ')) return
+                        event.preventDefault()
+                        toggleWorkflow(quote)
+                      }}
+                    >
                       <th scope="row">
-                        <span className="personal-quote-number">#{quote.quoteNumber}</span>
-                        <small>{currency(quote.totalValue)}</small>
+                        <span className="personal-quote-heading">
+                          <span>
+                            <span className="personal-quote-number">#{quote.quoteNumber}</span>
+                            <small>{currency(quote.totalValue)}</small>
+                          </span>
+                          {canManageQuotes && <ChevronDown className="personal-quote-chevron" size={16} aria-hidden="true" />}
+                        </span>
                       </th>
                       <td>{quote.customer}</td>
                       <td>
@@ -283,7 +334,7 @@ export default function QuotesDashboardPage({
                       </td>
                       <td>
                         <span className={`quote-status arda-status${quote.ardaStatus ? '' : ' unset'}`}>
-                          {quote.ardaStatus ?? 'Not set'}
+                          {quote.ardaStatus ?? 'Untouched'}
                         </span>
                         {quote.ardaStatusNotes && (
                           <small className="quote-cell-detail quote-note-preview" title={quote.ardaStatusNotes}>
@@ -309,56 +360,53 @@ export default function QuotesDashboardPage({
                           <small className="quote-cell-detail">by {quote.ardaStatusChangedBy}</small>
                         )}
                       </td>
-                      <td>
-                        {canManageQuotes ? (
-                          <button
-                            type="button"
-                            className="quote-edit-workflow-button"
-                            aria-expanded={editing}
-                            onClick={() => editing ? setWorkflowDraft(null) : editWorkflow(quote)}
-                          >
-                            <Pencil size={13} aria-hidden="true" />
-                            {editing ? 'Close' : 'Update'}
-                          </button>
-                        ) : (
-                          <span className="quote-read-only-label">Read only</span>
-                        )}
-                      </td>
                     </tr>,
                     editing && workflowDraft ? (
-                      <tr className="quote-workflow-editor-row" key={`editor-${quote.id}`}>
-                        <td colSpan={7}>
+                      <tr
+                        className="quote-workflow-editor-row"
+                        id={`quote-workflow-editor-${quote.id}`}
+                        key={`editor-${quote.id}`}
+                      >
+                        <td colSpan={6}>
                           <div className="quote-workflow-editor">
-                            <label>
-                              <span>Arda status</span>
-                              <select
-                                value={workflowDraft.ardaStatus}
-                                onChange={(event) => setWorkflowDraft({
-                                  ...workflowDraft,
-                                  ardaStatus: event.currentTarget.value as ArdaStatus | '',
-                                })}
-                              >
-                                <option value="">Not set</option>
-                                {ARDA_STATUS_OPTIONS.map((status) => (
-                                  <option key={status} value={status}>{status}</option>
-                                ))}
-                              </select>
+                            <div className="quote-workflow-editor-heading">
+                              <strong>Update Arda workflow</strong>
+                              <span>Quote #{quote.quoteNumber} · changes stay internal to Arda</span>
+                            </div>
+                            <label className="quote-workflow-field">
+                              <span><Activity size={14} aria-hidden="true" /> Arda status</span>
+                              <div className="quote-workflow-control">
+                                <select
+                                  value={workflowDraft.ardaStatus}
+                                  onChange={(event) => setWorkflowDraft({
+                                    ...workflowDraft,
+                                    ardaStatus: event.currentTarget.value as ArdaStatus,
+                                  })}
+                                >
+                                  {ARDA_STATUS_OPTIONS.map((status) => (
+                                    <option key={status} value={status}>{status}</option>
+                                  ))}
+                                </select>
+                                <ChevronDown size={15} aria-hidden="true" />
+                              </div>
                             </label>
                             <div className="quote-workflow-due-control">
-                              <label>
-                                <span>Estimating due date</span>
-                                <input
-                                  type="date"
-                                  value={workflowDraft.dueDate}
-                                  onChange={(event) => {
-                                    const value = event.currentTarget.value
-                                    setWorkflowDraft({
-                                      ...workflowDraft,
-                                      dueDate: value || quote.automaticEstimatingDueDate?.slice(0, 10) || '',
-                                      dueDateIsOverride: Boolean(value),
-                                    })
-                                  }}
-                                />
+                              <label className="quote-workflow-field">
+                                <span><CalendarDays size={14} aria-hidden="true" /> Estimating due date</span>
+                                <div className="quote-workflow-control date-control">
+                                  <input
+                                    type="date"
+                                    value={workflowDraft.dueDate}
+                                    onChange={(event) => {
+                                      const value = event.currentTarget.value
+                                      setWorkflowDraft({
+                                        ...workflowDraft,
+                                        dueDate: value || quote.automaticEstimatingDueDate?.slice(0, 10) || '',
+                                        dueDateIsOverride: Boolean(value),
+                                      })
+                                    }}
+                                  />
+                                </div>
                               </label>
                               <div className="quote-workflow-due-helper">
                                 <span>
@@ -380,7 +428,7 @@ export default function QuotesDashboardPage({
                                 )}
                               </div>
                             </div>
-                            <label className="quote-workflow-notes">
+                            <label className="quote-workflow-notes quote-workflow-field">
                               <span>Status notes</span>
                               <textarea
                                 rows={3}
@@ -420,29 +468,6 @@ export default function QuotesDashboardPage({
             </table>
           </div>
         )}
-      </section>
-
-      <section className="quote-kpi-grid" aria-label="Quote portfolio summary">
-        <button type="button" onClick={() => setFilter('draft')}>
-          <span><FileClock size={18} aria-hidden="true" /> Draft quotes</span>
-          <strong>{counts.draft}</strong>
-          <small>Waiting for completion</small>
-        </button>
-        <button type="button" onClick={() => setFilter('current')}>
-          <span><FileText size={18} aria-hidden="true" /> Current quotes</span>
-          <strong>{counts.current}</strong>
-          <small>Actively quoted</small>
-        </button>
-        <button type="button" onClick={() => setFilter('past')}>
-          <span><Archive size={18} aria-hidden="true" /> Past quotes</span>
-          <strong>{counts.past}</strong>
-          <small>Completed history</small>
-        </button>
-        <div>
-          <span><CircleDollarSign size={18} aria-hidden="true" /> Current value</span>
-          <strong>{currency(currentValue)}</strong>
-          <small>Extended quote value</small>
-        </div>
       </section>
 
       <section className="quote-list-card" aria-labelledby="quote-list-heading">

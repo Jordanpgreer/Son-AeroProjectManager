@@ -200,6 +200,8 @@ public sealed class EstimatingHistoryImportService(
                 record = new EstimatingQuoteHistoryRecord
                 {
                     FirstImportedAt = now,
+                    ArdaStatus = EstimatingArdaStatuses.Untouched,
+                    ArdaStatusChangedAt = now,
                     Version = 0
                 };
                 Apply(record, row, batchId, actor, now);
@@ -302,6 +304,8 @@ public sealed class EstimatingHistoryImportService(
                 record = new EstimatingQuoteHistoryRecord
                 {
                     FirstImportedAt = now,
+                    ArdaStatus = EstimatingArdaStatuses.Untouched,
+                    ArdaStatusChangedAt = now,
                     Version = 0
                 };
                 Apply(record, row, batchId, actor, now);

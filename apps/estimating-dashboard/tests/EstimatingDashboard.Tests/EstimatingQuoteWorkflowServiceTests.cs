@@ -10,6 +10,18 @@ namespace EstimatingDashboard.Tests;
 
 public sealed class EstimatingQuoteWorkflowServiceTests
 {
+    [Theory]
+    [InlineData("untouched", EstimatingArdaStatuses.Untouched)]
+    [InlineData("In progress", EstimatingArdaStatuses.InProgress)]
+    [InlineData("rfq sent", EstimatingArdaStatuses.RfqSent)]
+    [InlineData("Ready for Review", EstimatingArdaStatuses.ReadyForReview)]
+    [InlineData("COMPLETE", EstimatingArdaStatuses.Complete)]
+    [InlineData("On Hold", EstimatingArdaStatuses.OnHold)]
+    public void Arda_statuses_normalize_to_the_six_dashboard_choices(string input, string expected)
+    {
+        Assert.Equal(expected, EstimatingArdaStatuses.Normalize(input));
+    }
+
     [Fact]
     public async Task Mine_returns_only_active_quotes_assigned_to_the_current_estimator()
     {
@@ -25,6 +37,8 @@ public sealed class EstimatingQuoteWorkflowServiceTests
         var quote = Assert.Single(result);
         Assert.Equal(1001, quote.QuoteNumber);
         Assert.Equal("Needs Approval", quote.FulcrumQuoteStatus);
+        Assert.Equal(EstimatingArdaStatuses.Untouched, quote.ArdaStatus);
+        Assert.Equal(fixture.Db.QuoteHistory.Single(record => record.QuoteNumber == 1001).FirstImportedAt, quote.ArdaStatusChangedAt);
     }
 
     [Theory]
@@ -106,7 +120,8 @@ public sealed class EstimatingQuoteWorkflowServiceTests
         Assert.Equal(new DateTime(2026, 9, 8), updated.EstimatingDueDate);
         Assert.True(updated.EstimatingDueDateIsOverride);
         Assert.Equal(now, updated.ArdaStatusChangedAt);
-        Assert.Equal("SONAERO\\casey", updated.ArdaStatusChangedBy);
+        Assert.Equal("Casey Lee", updated.ArdaStatusChangedBy);
+        Assert.Equal("SONAERO\\casey", record.ArdaStatusChangedBy);
         Assert.Equal(5, updated.Version);
         Assert.Equal("Needs Approval", updated.FulcrumQuoteStatus);
         Assert.Equal("Casey Lee", updated.EstimatingRep);
@@ -126,6 +141,12 @@ public sealed class EstimatingQuoteWorkflowServiceTests
         record.ArdaStatus = EstimatingArdaStatuses.InProgress;
         record.ArdaStatusChangedAt = originallyChanged;
         record.ArdaStatusChangedBy = "SONAERO\\casey";
+        fixture.Db.Users.Add(new EstimatingUserRecord
+        {
+            AccountName = "SONAERO\\casey",
+            DisplayName = "Casey Lee",
+            IsActive = true
+        });
         fixture.Db.QuoteHistory.Add(record);
         await fixture.Db.SaveChangesAsync();
 
@@ -140,8 +161,24 @@ public sealed class EstimatingQuoteWorkflowServiceTests
             default);
 
         Assert.Equal(originallyChanged, updated.ArdaStatusChangedAt);
-        Assert.Equal("SONAERO\\casey", updated.ArdaStatusChangedBy);
+        Assert.Equal("Casey Lee", updated.ArdaStatusChangedBy);
+        Assert.Equal("SONAERO\\casey", record.ArdaStatusChangedBy);
         Assert.Equal(1, updated.Version);
+    }
+
+    [Fact]
+    public async Task Unknown_historical_status_actor_keeps_a_readable_account_fallback()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var record = Quote(2003, "Casey Lee");
+        record.ArdaStatus = EstimatingArdaStatuses.InProgress;
+        record.ArdaStatusChangedBy = "SONAERO\\former.user";
+        fixture.Db.QuoteHistory.Add(record);
+        await fixture.Db.SaveChangesAsync();
+
+        var quote = Assert.Single(await fixture.Service.GetMineAsync(Editor("Casey Lee"), default));
+
+        Assert.Equal("former.user", quote.ArdaStatusChangedBy);
     }
 
     [Fact]

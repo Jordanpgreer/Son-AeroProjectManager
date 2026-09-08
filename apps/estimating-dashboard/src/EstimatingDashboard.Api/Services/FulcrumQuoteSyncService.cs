@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using EstimatingDashboard.Api.Auth;
 using EstimatingDashboard.Api.Data;
 using EstimatingDashboard.Api.Models;
 using Microsoft.EntityFrameworkCore;
@@ -36,6 +37,7 @@ internal sealed class EnterpriseQuoteSyncService(
                 scheduledForUtc,
                 $"{provider.ProviderName.ToUpperInvariant()}_API_SCHEDULE",
                 $"{provider.ProviderName} API sync {scheduledForUtc:yyyy-MM-dd HHmm} UTC",
+                null,
                 cancellationToken);
         }
         finally
@@ -60,9 +62,37 @@ internal sealed class EnterpriseQuoteSyncService(
                 requestedAt,
                 string.IsNullOrWhiteSpace(actor) ? "UNKNOWN_ADMIN" : actor.Trim(),
                 $"{provider.ProviderName} API manual sync {requestedAt:yyyy-MM-dd HHmmss} UTC",
+                null,
                 cancellationToken);
             return result ?? throw new InvalidOperationException(
                 "The manual sync could not be claimed because an identical sync run already exists.");
+        }
+        finally
+        {
+            SynchronizationGate.Release();
+        }
+    }
+
+    public async Task<EnterpriseQuoteSyncResult> RunPersonalAsync(
+        EstimatingAccessProfile access,
+        CancellationToken cancellationToken)
+    {
+        if (!await SynchronizationGate.WaitAsync(0, cancellationToken))
+            throw new EnterpriseQuoteSyncAlreadyRunningException();
+
+        try
+        {
+            var requestedAt = DateTimeOffset.UtcNow;
+            var provider = await ResolveProviderAsync(cancellationToken);
+            var result = await RunAsync(
+                provider,
+                requestedAt,
+                access.AccountName,
+                $"{provider.ProviderName} API personal refresh {requestedAt:yyyy-MM-dd HHmmss} UTC",
+                access,
+                cancellationToken);
+            return result ?? throw new InvalidOperationException(
+                "The personal refresh could not be claimed because an identical sync run already exists.");
         }
         finally
         {
@@ -85,6 +115,7 @@ internal sealed class EnterpriseQuoteSyncService(
         DateTimeOffset scheduledForUtc,
         string actor,
         string batchName,
+        EstimatingAccessProfile? accessScope,
         CancellationToken cancellationToken)
     {
         scheduledForUtc = scheduledForUtc.ToUniversalTime();
@@ -127,14 +158,21 @@ internal sealed class EnterpriseQuoteSyncService(
                     provider.ProviderName,
                     pull.Warnings.Count - 25);
 
+            var rows = accessScope is null
+                ? pull.Rows
+                : pull.Rows.Where(row => EstimatingEstimatorIdentity.MatchesUnambiguously(
+                    row.EstimatingRep,
+                    pull.Rows.Select(candidate => candidate.EstimatingRep),
+                    accessScope)).ToList();
+            var recordsReceived = accessScope is null ? pull.RecordsReceived : rows.Count;
             var result = await importer.ApplyAutomatedAsync(
-                pull.Rows,
+                rows,
                 batchName,
                 actor,
                 cancellationToken);
             run.Status = FulcrumQuoteSyncStatuses.Completed;
             run.CompletedAt = DateTimeOffset.UtcNow;
-            run.QuotesReceived = pull.RecordsReceived;
+            run.QuotesReceived = recordsReceived;
             run.NewRecords = result.NewRecords;
             run.UpdatedRecords = result.UpdatedRecords;
             run.UnchangedRecords = result.UnchangedRecords;
@@ -142,7 +180,7 @@ internal sealed class EnterpriseQuoteSyncService(
             logger.LogInformation(
                 "{Provider} quote sync completed with {QuoteCount} quotes: {NewCount} new, {UpdatedCount} updated, and {UnchangedCount} unchanged.",
                 provider.ProviderName,
-                pull.RecordsReceived,
+                recordsReceived,
                 result.NewRecords,
                 result.UpdatedRecords,
                 result.UnchangedRecords);
@@ -151,7 +189,7 @@ internal sealed class EnterpriseQuoteSyncService(
                 provider.ProviderName,
                 run.StartedAt,
                 run.CompletedAt.Value,
-                pull.RecordsReceived,
+                recordsReceived,
                 result.NewRecords,
                 result.UpdatedRecords,
                 result.UnchangedRecords);

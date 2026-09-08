@@ -112,18 +112,18 @@ public static class EstimatingQuoteAuditActions
 
 public static class EstimatingArdaStatuses
 {
-    public const string NotStarted = "Not started";
+    public const string Untouched = "Untouched";
     public const string InProgress = "In progress";
-    public const string WaitingOnInformation = "Waiting on information";
-    public const string ReadyForReview = "Ready for review";
+    public const string RfqSent = "RFQ Sent";
+    public const string ReadyForReview = "Ready for Review";
     public const string Complete = "Complete";
-    public const string OnHold = "On hold";
+    public const string OnHold = "On Hold";
 
     public static readonly IReadOnlyList<string> All =
     [
-        NotStarted,
+        Untouched,
         InProgress,
-        WaitingOnInformation,
+        RfqSent,
         ReadyForReview,
         Complete,
         OnHold

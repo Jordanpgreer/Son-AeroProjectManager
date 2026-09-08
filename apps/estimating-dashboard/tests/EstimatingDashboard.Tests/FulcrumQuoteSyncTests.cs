@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using EstimatingDashboard.Api.Auth;
 using EstimatingDashboard.Api.Data;
 using EstimatingDashboard.Api.Models;
 using EstimatingDashboard.Api.Services;
@@ -210,10 +211,10 @@ public sealed class FulcrumQuoteSyncTests
         var record = Assert.Single(await db.QuoteHistory.ToListAsync());
         Assert.Equal("quote-id", record.SourceId);
         Assert.Equal("Bethany", record.EstimatingRep);
-        Assert.Null(record.ArdaStatus);
+        Assert.Equal(EstimatingArdaStatuses.Untouched, record.ArdaStatus);
         Assert.Null(record.ArdaStatusNotes);
         Assert.Null(record.ArdaStatusChangedBy);
-        Assert.Null(record.ArdaStatusChangedAt);
+        Assert.NotNull(record.ArdaStatusChangedAt);
         Assert.Null(record.EstimatingDueDateOverride);
         Assert.Equal(2, await db.QuoteHistoryImportBatches.CountAsync());
         Assert.Single(await db.QuoteHistoryAudits.ToListAsync());
@@ -302,6 +303,43 @@ public sealed class FulcrumQuoteSyncTests
         var batch = Assert.Single(await db.QuoteHistoryImportBatches.ToListAsync());
         Assert.Equal("SON4L\\administrator", batch.ImportedBy);
         Assert.Contains("manual sync", batch.FileName, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Personal_refresh_imports_only_quotes_unambiguously_assigned_to_the_estimator()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var dbOptions = new DbContextOptionsBuilder<EstimatingAccessDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new EstimatingAccessDbContext(dbOptions);
+        await db.Database.EnsureCreatedAsync();
+        var importer = new EstimatingHistoryImportService(db, new EstimatingHistoryReviewStore());
+        var assigned = EstimatingHistoryImportService.CreateRow(
+            2, "assigned-id", 5601, "Assigned Customer", null, "Sales", "Open", null,
+            "Casey Lee", 100m, null, null, null, null, null, 1, null, null);
+        var other = EstimatingHistoryImportService.CreateRow(
+            3, "other-id", 5602, "Other Customer", null, "Sales", "Open", null,
+            "Jordan Greer", 200m, null, null, null, null, null, 1, null, null);
+        var service = new EnterpriseQuoteSyncService(
+            db,
+            importer,
+            [new StubQuoteProvider(new EnterpriseQuotePullResult([assigned, other], 2, []))],
+            new StubProviderSource(),
+            NullLogger<EnterpriseQuoteSyncService>.Instance);
+        var access = new EstimatingAccessProfile(
+            1, "SON4L\\casey", "Casey Lee", EstimatingRoles.Editor, true);
+
+        var result = await service.RunPersonalAsync(access, default);
+
+        Assert.Equal(1, result.RecordsReceived);
+        Assert.Equal(1, result.NewRecords);
+        var imported = Assert.Single(await db.QuoteHistory.ToListAsync());
+        Assert.Equal(5601, imported.QuoteNumber);
+        var batch = Assert.Single(await db.QuoteHistoryImportBatches.ToListAsync());
+        Assert.Equal("SON4L\\casey", batch.ImportedBy);
+        Assert.Contains("personal refresh", batch.FileName, StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class FulcrumHandler : HttpMessageHandler

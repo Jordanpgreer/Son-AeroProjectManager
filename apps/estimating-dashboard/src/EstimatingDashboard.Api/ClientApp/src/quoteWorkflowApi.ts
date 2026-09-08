@@ -1,10 +1,10 @@
 export const ARDA_STATUS_OPTIONS = [
-  'Not started',
+  'Untouched',
   'In progress',
-  'Waiting on information',
-  'Ready for review',
+  'RFQ Sent',
+  'Ready for Review',
   'Complete',
-  'On hold',
+  'On Hold',
 ] as const
 
 export type ArdaStatus = typeof ARDA_STATUS_OPTIONS[number]
@@ -57,6 +57,10 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 
 export function loadPersonalQuotes(signal?: AbortSignal) {
   return api<PersonalQuote[]>('/api/quote-workflow/mine', { signal })
+}
+
+export function refreshPersonalQuoteAssignments() {
+  return api<PersonalQuote[]>('/api/quote-workflow/refresh', { method: 'POST' })
 }
 
 export function updatePersonalQuoteWorkflow(id: number, request: QuoteWorkflowUpdate) {

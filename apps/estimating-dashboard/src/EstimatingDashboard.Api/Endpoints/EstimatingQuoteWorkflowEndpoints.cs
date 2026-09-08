@@ -18,6 +18,34 @@ public static class EstimatingQuoteWorkflowEndpoints
                 Access(context),
                 cancellationToken)));
 
+        workflow.MapPost("/refresh", async (
+            HttpContext context,
+            EnterpriseQuoteSyncService sync,
+            EstimatingQuoteWorkflowService workflowService,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var access = Access(context);
+                await sync.RunPersonalAsync(access, cancellationToken);
+                return Results.Ok(await workflowService.GetMineAsync(access, cancellationToken));
+            }
+            catch (EnterpriseQuoteSyncAlreadyRunningException exception)
+            {
+                return Results.Conflict(new ErrorDto("QuoteSyncAlreadyRunning", exception.Message));
+            }
+            catch (Exception exception) when (
+                exception is HttpRequestException
+                or InvalidOperationException
+                or System.Text.Json.JsonException)
+            {
+                return Results.Problem(
+                    statusCode: StatusCodes.Status502BadGateway,
+                    title: "Fulcrum quote refresh failed",
+                    detail: exception.Message);
+            }
+        }).RequireAuthorization(EstimatingPolicies.Editor);
+
         workflow.MapPut("/{quoteHistoryId:int}", async (
             int quoteHistoryId,
             UpdateEstimatingQuoteWorkflowDto request,

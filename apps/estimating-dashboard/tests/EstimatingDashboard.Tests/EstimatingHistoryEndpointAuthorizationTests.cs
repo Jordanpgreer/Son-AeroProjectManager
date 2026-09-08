@@ -105,6 +105,7 @@ public sealed class EstimatingHistoryEndpointAuthorizationTests
         var builder = WebApplication.CreateBuilder();
         builder.Services.AddAuthorization();
         builder.Services.AddScoped<EstimatingQuoteWorkflowService>();
+        builder.Services.AddScoped<EnterpriseQuoteSyncService>();
         var app = builder.Build();
         app.MapGroup("/api").MapEstimatingQuoteWorkflowEndpoints();
 
@@ -114,7 +115,7 @@ public sealed class EstimatingHistoryEndpointAuthorizationTests
             .Where(endpoint => endpoint.RoutePattern.RawText?.StartsWith("/api/quote-workflow") == true)
             .ToList();
 
-        Assert.Equal(2, endpoints.Count);
+        Assert.Equal(3, endpoints.Count);
         Assert.All(endpoints, endpoint => Assert.Contains(
             endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
             authorization => authorization.Policy == EstimatingPolicies.ViewHistory));
@@ -127,5 +128,14 @@ public sealed class EstimatingHistoryEndpointAuthorizationTests
         Assert.Contains(
             update.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods,
             method => method == "PUT");
+
+        var refresh = Assert.Single(endpoints, endpoint =>
+            endpoint.RoutePattern.RawText == "/api/quote-workflow/refresh");
+        Assert.Contains(
+            refresh.Metadata.GetOrderedMetadata<IAuthorizeData>(),
+            authorization => authorization.Policy == EstimatingPolicies.Editor);
+        Assert.Contains(
+            refresh.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods,
+            method => method == "POST");
     }
 }
