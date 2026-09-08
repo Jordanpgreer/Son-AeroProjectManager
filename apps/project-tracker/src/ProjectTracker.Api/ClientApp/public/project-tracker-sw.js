@@ -69,6 +69,9 @@ self.addEventListener('push', (event) => {
   }
 
   event.waitUntil((async () => {
+    const openWindows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    if (openWindows.some((client) => client.visibilityState === 'visible')) return
+
     await self.registration.showNotification(payload.title ?? 'Project Tracker', options)
 
     // Ask desktop browsers to keep the banner available, then close it after the

@@ -101,6 +101,16 @@ test('push rejects cross-origin navigation supplied by a payload', async () => {
   assert.equal(notification.options.badge, '/brand/arda-mark.png')
 })
 
+test('push stays in-app when a Project Tracker window is visible', async () => {
+  const worker = createWorker({ windows: [{ visibilityState: 'visible' }] })
+  await worker.dispatch('push', {
+    data: { json: () => ({ notificationId: 81, title: 'New notification' }) },
+  })
+
+  assert.deepEqual(worker.shown, [])
+  assert.deepEqual(worker.delays, [])
+})
+
 test('click navigates and focuses an existing Project Tracker window', async () => {
   let navigatedTo
   const sequence = []

@@ -646,9 +646,9 @@ nav { display: grid; gap: 3px; }
 .notification-state.error > svg, .notification-state.error strong { color: var(--risk-700); }
 .notification-toast-stack {
   position: fixed;
-  top: 18px;
   right: 18px;
-  z-index: 70;
+  bottom: 18px;
+  z-index: 10020;
   display: grid;
   gap: 10px;
   width: min(390px, calc(100vw - 32px));
@@ -691,7 +691,7 @@ nav { display: grid; gap: 3px; }
 .notification-toast.schedule-confirmation .notification-toast-open { padding-bottom: 9px; }
 .notification-toast-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 7px; padding: 0 12px 12px 57px; }
 .notification-toast-actions .button { min-height: 30px; padding: 6px 9px; font-size: 10.5px; }
-@keyframes notification-toast-in { from { opacity: 0; transform: translateY(-8px); } }
+@keyframes notification-toast-in { from { opacity: 0; transform: translateY(8px); } }
 @keyframes notification-toast-timer { to { transform: scaleX(0); } }
 @media (prefers-reduced-motion: reduce) {
   .notification-toast { animation: none; }

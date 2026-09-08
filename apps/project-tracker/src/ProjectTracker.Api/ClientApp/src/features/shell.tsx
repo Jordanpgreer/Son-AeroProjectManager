@@ -1,6 +1,7 @@
 import '../App.css'
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Archive,
   Bell,
@@ -581,7 +582,7 @@ function NotificationsMenu({
           </div>
         </section>
       )}
-      {toasts.length > 0 && (
+      {toasts.length > 0 && createPortal(
         <aside className="notification-toast-stack" aria-live="polite" aria-label="New notifications">
           {toasts.map((notification) => (
             <NotificationToast
@@ -598,7 +599,8 @@ function NotificationsMenu({
               acting={scheduleActionNotificationId === notification.id}
             />
           ))}
-        </aside>
+        </aside>,
+        document.body,
       )}
       {push.invitationOpen && (
         <DesktopNotificationInvitation
