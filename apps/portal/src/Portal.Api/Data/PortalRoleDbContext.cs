@@ -25,6 +25,10 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
     public DbSet<PortalIntegrationCredentialTestRecord> IntegrationCredentialTests => Set<PortalIntegrationCredentialTestRecord>();
     public DbSet<PortalEnterpriseIntegrationSettingRecord> EnterpriseIntegrationSettings => Set<PortalEnterpriseIntegrationSettingRecord>();
     public DbSet<PortalEnterpriseIntegrationSettingAuditRecord> EnterpriseIntegrationSettingAudits => Set<PortalEnterpriseIntegrationSettingAuditRecord>();
+    public DbSet<RaidLogGroupRecord> RaidLogGroups => Set<RaidLogGroupRecord>();
+    public DbSet<RaidLogItemRecord> RaidLogItems => Set<RaidLogItemRecord>();
+    public DbSet<RaidLogNoteRecord> RaidLogNotes => Set<RaidLogNoteRecord>();
+    public DbSet<RaidLogActivityRecord> RaidLogActivity => Set<RaidLogActivityRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -218,6 +222,69 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
             entity.Property(audit => audit.NewProvider).HasMaxLength(40);
             entity.Property(audit => audit.ChangedBy).HasMaxLength(160);
         });
+
+        modelBuilder.Entity<RaidLogGroupRecord>(entity =>
+        {
+            entity.ToTable("RaidLogGroups");
+            entity.HasKey(group => group.Id);
+            entity.Property(group => group.Name).HasMaxLength(120);
+            entity.Property(group => group.NormalizedName).HasMaxLength(120);
+            entity.HasIndex(group => group.NormalizedName).IsUnique();
+            entity.Property(group => group.Description).HasMaxLength(500);
+            entity.Property(group => group.CreatedBy).HasMaxLength(160);
+            entity.Property(group => group.UpdatedBy).HasMaxLength(160);
+            entity.Property(group => group.Version).IsConcurrencyToken();
+            entity.HasMany(group => group.Items)
+                .WithOne(item => item.Group)
+                .HasForeignKey(item => item.GroupId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<RaidLogItemRecord>(entity =>
+        {
+            entity.ToTable("RaidLogItems");
+            entity.HasKey(item => item.Id);
+            entity.HasIndex(item => new { item.GroupId, item.CompletedAt, item.Priority });
+            entity.Property(item => item.Title).HasMaxLength(240);
+            entity.Property(item => item.Description).HasMaxLength(4000);
+            entity.Property(item => item.Kind).HasMaxLength(24);
+            entity.Property(item => item.Priority).HasMaxLength(24);
+            entity.Property(item => item.CreatedBy).HasMaxLength(160);
+            entity.Property(item => item.UpdatedBy).HasMaxLength(160);
+            entity.Property(item => item.CompletedBy).HasMaxLength(160);
+            entity.Property(item => item.Version).IsConcurrencyToken();
+            entity.HasOne(item => item.AssignedToUser)
+                .WithMany()
+                .HasForeignKey(item => item.AssignedToUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.HasMany(item => item.Notes)
+                .WithOne(note => note.Item)
+                .HasForeignKey(note => note.ItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(item => item.Activity)
+                .WithOne(activity => activity.Item)
+                .HasForeignKey(activity => activity.ItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<RaidLogNoteRecord>(entity =>
+        {
+            entity.ToTable("RaidLogNotes");
+            entity.HasKey(note => note.Id);
+            entity.HasIndex(note => new { note.ItemId, note.CreatedAt });
+            entity.Property(note => note.Body).HasMaxLength(4000);
+            entity.Property(note => note.CreatedBy).HasMaxLength(160);
+        });
+
+        modelBuilder.Entity<RaidLogActivityRecord>(entity =>
+        {
+            entity.ToTable("RaidLogActivity");
+            entity.HasKey(activity => activity.Id);
+            entity.HasIndex(activity => new { activity.ItemId, activity.OccurredAt });
+            entity.Property(activity => activity.Action).HasMaxLength(32);
+            entity.Property(activity => activity.Summary).HasMaxLength(500);
+            entity.Property(activity => activity.Actor).HasMaxLength(160);
+        });
     }
 }
 
@@ -392,4 +459,62 @@ public sealed class PortalEnterpriseIntegrationSettingAuditRecord
     public string NewProvider { get; set; } = string.Empty;
     public DateTimeOffset ChangedAt { get; set; }
     public string ChangedBy { get; set; } = string.Empty;
+}
+
+public sealed class RaidLogGroupRecord
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string NormalizedName { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public int SortOrder { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public string CreatedBy { get; set; } = string.Empty;
+    public DateTimeOffset UpdatedAt { get; set; }
+    public string UpdatedBy { get; set; } = string.Empty;
+    public long Version { get; set; }
+    public ICollection<RaidLogItemRecord> Items { get; set; } = [];
+}
+
+public sealed class RaidLogItemRecord
+{
+    public int Id { get; set; }
+    public int GroupId { get; set; }
+    public RaidLogGroupRecord Group { get; set; } = null!;
+    public string Title { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public string Kind { get; set; } = "Action";
+    public string Priority { get; set; } = "Normal";
+    public int? AssignedToUserId { get; set; }
+    public PortalRoleRecord? AssignedToUser { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public string CreatedBy { get; set; } = string.Empty;
+    public DateTimeOffset UpdatedAt { get; set; }
+    public string UpdatedBy { get; set; } = string.Empty;
+    public DateTimeOffset? CompletedAt { get; set; }
+    public string? CompletedBy { get; set; }
+    public long Version { get; set; }
+    public ICollection<RaidLogNoteRecord> Notes { get; set; } = [];
+    public ICollection<RaidLogActivityRecord> Activity { get; set; } = [];
+}
+
+public sealed class RaidLogNoteRecord
+{
+    public long Id { get; set; }
+    public int ItemId { get; set; }
+    public RaidLogItemRecord Item { get; set; } = null!;
+    public string Body { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; }
+    public string CreatedBy { get; set; } = string.Empty;
+}
+
+public sealed class RaidLogActivityRecord
+{
+    public long Id { get; set; }
+    public int ItemId { get; set; }
+    public RaidLogItemRecord Item { get; set; } = null!;
+    public string Action { get; set; } = string.Empty;
+    public string Summary { get; set; } = string.Empty;
+    public DateTimeOffset OccurredAt { get; set; }
+    public string Actor { get; set; } = string.Empty;
 }

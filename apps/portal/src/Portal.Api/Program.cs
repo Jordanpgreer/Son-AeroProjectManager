@@ -21,6 +21,7 @@ builder.Services.AddScoped<ApplicationNotificationService>();
 builder.Services.AddScoped<PortalEngineeringStorageSchemaInitializer>();
 builder.Services.AddScoped<PortalEstimatingSettingsSchemaInitializer>();
 builder.Services.AddScoped<PortalIntegrationCredentialSchemaInitializer>();
+builder.Services.AddScoped<PortalRaidLogSchemaInitializer>();
 builder.Services.AddSingleton<SonAero.Platform.Security.IIntegrationSecretProtector,
     SonAero.Platform.Security.MachineIntegrationSecretProtector>();
 builder.Services.Configure<IntegrationCredentialTestOptions>(
@@ -78,6 +79,8 @@ using (var scope = app.Services.CreateScope())
         .InitializeAsync(CancellationToken.None);
     await scope.ServiceProvider.GetRequiredService<PortalIntegrationCredentialSchemaInitializer>()
         .InitializeAsync(CancellationToken.None);
+    await scope.ServiceProvider.GetRequiredService<PortalRaidLogSchemaInitializer>()
+        .InitializeAsync(CancellationToken.None);
 }
 
 app.Use(async (context, next) =>
@@ -131,6 +134,7 @@ api.MapEngineeringAdminEndpoints();
 api.MapEstimatingAdminEndpoints();
 api.MapIntegrationCredentialAdminEndpoints();
 api.MapAdminAccessPreviewEndpoints();
+api.MapRaidLogAdminEndpoints();
 
 // Live "minimized dashboard" data for the Project Tracker card. Best-effort and read-only.
 api.MapGet("/preview/project-tracker", async (TrackerPreviewService preview, CancellationToken cancellationToken) =>

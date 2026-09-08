@@ -6,6 +6,7 @@ export type AdminModuleKey =
   | 'integrations'
   | 'quality-assurance'
   | 'benny'
+  | 'raid-log'
 
 export type ArdaAccessSection =
   | 'groups'
@@ -281,4 +282,64 @@ export interface QualityAssignmentRule {
   version: number
   updatedAt: string
   updatedBy: string
+}
+
+export type RaidLogKind = 'Risk' | 'Action' | 'Issue' | 'Decision'
+export type RaidLogPriority = 'Critical' | 'High' | 'Normal' | 'Low'
+
+export interface RaidLogAdmin {
+  id: number
+  accountName: string
+  displayName: string
+}
+
+export interface RaidLogNote {
+  id: number
+  body: string
+  createdAt: string
+  createdBy: string
+  createdByDisplayName: string
+}
+
+export interface RaidLogActivity {
+  id: number
+  action: string
+  summary: string
+  occurredAt: string
+  actor: string
+  actorDisplayName: string
+}
+
+export interface RaidLogItem {
+  id: number
+  groupId: number
+  title: string
+  description: string | null
+  kind: RaidLogKind
+  priority: RaidLogPriority
+  assignedToUserId: number | null
+  assignedToDisplayName: string | null
+  createdAt: string
+  createdBy: string
+  updatedAt: string
+  updatedBy: string
+  completedAt: string | null
+  completedBy: string | null
+  version: number
+  notes: RaidLogNote[]
+  activity: RaidLogActivity[]
+}
+
+export interface RaidLogGroup {
+  id: number
+  name: string
+  description: string | null
+  sortOrder: number
+  version: number
+  items: RaidLogItem[]
+}
+
+export interface RaidLogOverview {
+  admins: RaidLogAdmin[]
+  groups: RaidLogGroup[]
 }

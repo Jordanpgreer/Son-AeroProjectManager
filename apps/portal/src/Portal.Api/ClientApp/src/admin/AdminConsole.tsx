@@ -23,6 +23,7 @@ import EstimatorSettingsPanel from './EstimatorSettingsPanel'
 import EstimatingImportAccessPanel from './EstimatingImportAccessPanel'
 import IntegrationCredentialsPanel from './IntegrationCredentialsPanel'
 import QualityAssignmentRulesPanel from './QualityAssignmentRulesPanel'
+import RaidLogPanel from './RaidLogPanel'
 import WalkthroughSettingsPanel from './WalkthroughSettingsPanel'
 import { toErrorMessage, trackerApi } from './api'
 import { ImportsPanel } from './ProjectTrackerDataPanels'
@@ -126,6 +127,8 @@ function parseRoute(hash = window.location.hash): AdminRoute {
               ? 'file-storage'
               : module === 'quality-assurance'
                 ? 'assignment-rules'
+              : module === 'raid-log'
+                ? 'board'
               : module === 'integrations'
                 ? 'api-keys'
               : module === 'benny'
@@ -192,7 +195,13 @@ export default function AdminConsole({
   const [permissionsError, setPermissionsError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (route.module === 'raid-log' || route.module === 'integrations' || route.module === 'engineering') {
+      setPermissionsLoading(false)
+      setPermissionsError(null)
+      return
+    }
     let active = true
+    setPermissionsLoading(true)
     void trackerApi<ProjectTrackerUser>('/api/me')
       .then((user) => {
         if (active) setTrackerUser(user)
@@ -206,7 +215,7 @@ export default function AdminConsole({
     return () => {
       active = false
     }
-  }, [])
+  }, [route.module])
 
   useEffect(() => {
     const canonical = route.module === 'access'
@@ -326,7 +335,8 @@ export default function AdminConsole({
 
       <AdminModuleTabs
         selected={route.module}
-        canSeeAdminOnly={!permissionsLoading && !permissionsError && canAdministerBenny}
+        canSeeAdminOnly={currentPortalRole === 'Admin'}
+        canSeeBenny={!permissionsLoading && !permissionsError && canAdministerBenny}
         onKeyDown={(event) => handleTabKeys(event, activeModule.href)}
       />
 
@@ -470,6 +480,8 @@ export default function AdminConsole({
           {route.module === 'quality-assurance' && !permissionsLoading && permissionsError && <NoAccess detail={permissionsError} />}
           {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && !canManageQualityRules && <NoAccess detail="Your groups do not grant permission to manage Quality assignment rules." />}
           {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && canManageQualityRules && <QualityAssignmentRulesPanel />}
+          {route.module === 'raid-log' && currentPortalRole !== 'Admin' && <NoAccess detail="The RAID Log is available only to Arda administrators." />}
+          {route.module === 'raid-log' && currentPortalRole === 'Admin' && <RaidLogPanel currentAccountName={trackerUser?.accountName ?? currentAccountName} />}
           {route.module === 'estimating' && permissionsLoading && <div className="admin-loading" role="status">Checking Estimating permissions...</div>}
           {route.module === 'estimating' && !permissionsLoading && permissionsError && <NoAccess detail={permissionsError} />}
           {route.module === 'estimating' && !permissionsLoading && !permissionsError && !canManageEstimatingSettings && !canManageEstimatingImportAccess && <NoAccess detail="Your groups do not grant permission to administer Estimating settings or group import access." />}

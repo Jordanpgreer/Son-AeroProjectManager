@@ -1,6 +1,7 @@
 import {
   Calculator,
   ClipboardCheck,
+  ListChecks,
   Database,
   Eye,
   GanttChart,
@@ -29,6 +30,14 @@ export const ADMIN_MODULES: {
     description: 'People, permission groups, and access preview',
     icon: Users,
     href: '#/admin/access',
+  },
+  {
+    key: 'raid-log',
+    label: 'RAID Log',
+    description: 'Prioritized work, ownership, notes, and completion history',
+    icon: ListChecks,
+    href: '#/admin/raid-log/board',
+    adminOnly: true,
   },
   {
     key: 'project-tracker',
