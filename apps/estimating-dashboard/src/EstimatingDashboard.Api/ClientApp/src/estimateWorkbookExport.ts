@@ -1,4 +1,6 @@
 import ExcelJS from 'exceljs'
+import { addWorkbookFormulas } from './estimateWorkbookFormulas.ts'
+import { subassemblyBuildQuantity } from './calculations.ts'
 
 import { getAnnualRateAssumptions } from './estimatingRates.ts'
 import type {
@@ -123,7 +125,7 @@ function writeSharedMetadata(
   setCell(sheet, 'E3', estimate.metadata.nsn)
   setCell(sheet, 'E4', estimate.metadata.solicitationNumber)
   setCell(sheet, 'E5', estimate.metadata.rfqNumber)
-  setCell(sheet, child ? 'F3' : 'F6', estimate.metadata.comments)
+  setCell(sheet, child ? 'F3' : 'F6', child?.comments ?? estimate.metadata.comments)
 }
 
 function writeQuantityHeaders(
@@ -149,7 +151,7 @@ function populateChildSheet(
   writeQuantityHeaders(
     sheet,
     estimate.quantities,
-    (quantity) => child.quantitiesByParentQuantity?.[quantity] ?? quantity,
+    (quantity) => subassemblyBuildQuantity(child, quantity),
   )
   writeOperations(sheet, child.operations, audit.operations, estimate.quantities)
   writeMaterials(sheet, child.materials, audit.materials, estimate.quantities)
@@ -314,7 +316,7 @@ export async function buildSubassemblyWorkbook(
     }
   }
   stripAllFormulas(workbook)
-  workbook.calcProperties.fullCalcOnLoad = false
+  addWorkbookFormulas(workbook, estimate, result)
   return workbook.xlsx.writeBuffer()
 }
 

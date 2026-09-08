@@ -23,6 +23,15 @@ public static class FulcrumApiEndpoint
         if (string.Equals(baseUri.Host, StandardApiHost, StringComparison.OrdinalIgnoreCase))
             baseUri = new UriBuilder(baseUri) { Host = ItarApiHost }.Uri;
 
+        if (!string.Equals(baseUri.Host, ItarApiHost, StringComparison.OrdinalIgnoreCase)
+            || !baseUri.IsDefaultPort
+            || !string.IsNullOrEmpty(baseUri.UserInfo)
+            || !string.IsNullOrEmpty(baseUri.Query)
+            || !string.IsNullOrEmpty(baseUri.Fragment)
+            || baseUri.AbsolutePath != "/")
+            throw new InvalidOperationException(
+                $"{settingName} must use the exact Fulcrum ITAR API origin '{ItarBaseUrl}'.");
+
         return baseUri;
     }
 }

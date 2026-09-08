@@ -18,6 +18,12 @@ import {
   type SubassemblyQuantityCalculationAudit,
 } from './types.ts'
 
+export function subassemblyBuildQuantity(child: SubassemblyInput | undefined, quantity: number): number {
+  return Math.max(1, child?.deriveQuantitiesFromParent && child.quantityPerParent !== undefined
+    ? quantity * child.quantityPerParent
+    : child?.quantitiesByParentQuantity?.[quantity] ?? quantity)
+}
+
 export function safeDivide(numerator: number, denominator: number): number | null {
   if (
     denominator === 0
@@ -86,7 +92,7 @@ function calculateOperation(
         isProduction
           ? (
               operation.setupMinutes
-              / Math.max(1, subassembly?.quantitiesByParentQuantity?.[quantity] ?? quantity)
+              / subassemblyBuildQuantity(subassembly, quantity)
               * laborRate
             ) + (operation.runMinutes * laborRate)
           : 0
@@ -108,10 +114,7 @@ function calculateMaterial(
     materialId: material.id,
     extendedCost,
     unitCostByQuantity: createQuantityValues((quantity) => {
-      const buildQuantity = Math.max(
-        1,
-        subassembly?.quantitiesByParentQuantity?.[quantity] ?? quantity,
-      )
+      const buildQuantity = subassemblyBuildQuantity(subassembly, quantity)
       return material.amortizeMinBuy
         ? extendedCost / buildQuantity
         : extendedCost * (1 + 1 / buildQuantity)
@@ -127,10 +130,7 @@ function calculateProcess(
   return {
     processId: process.id,
     unitCostByQuantity: createQuantityValues(
-      (quantity) => process.setupCost / Math.max(
-        1,
-        subassembly?.quantitiesByParentQuantity?.[quantity] ?? quantity,
-      ) + process.runCostEach,
+      (quantity) => process.setupCost / subassemblyBuildQuantity(subassembly, quantity) + process.runCostEach,
       input.quantities,
     ),
   }
@@ -144,6 +144,7 @@ interface SubassemblyCalculation {
 function calculateSubassembly(
   input: SubassemblyEstimateInput,
   subassembly: SubassemblyInput,
+  descendants: readonly SubassemblyCalculationAudit[] = [],
 ): SubassemblyCalculation {
   const operationResults = subassembly.operations.map(
     (operation) => calculateOperation(input, operation, subassembly),
@@ -155,9 +156,11 @@ function calculateSubassembly(
   const materials = subassembly.materials.map(
     (material) => calculateMaterial(input, material, subassembly),
   )
-  const processes = subassembly.processes.map(
-    (process) => calculateProcess(input, process, subassembly),
-  )
+  const processResults = subassembly.processes.map((process) => process.subassemblyId
+    ? calculateSubassemblyParentProcess(input, process, descendants)
+    : { audit: calculateProcess(input, process, subassembly) })
+  const processes = processResults.map((result) => result.audit)
+  errors.push(...processResults.flatMap((result) => result.error ? [result.error] : []))
   const baseAudit = {
     subassemblyId: subassembly.id,
     partNumber: subassembly.partNumber,
@@ -193,10 +196,7 @@ function calculateSubassembly(
       const burdenedLabor = basicLabor + laborBurden
       const rawMaterial = sumQuantityValues(materials, quantity)
       const rawProcess = sumQuantityValues(processes, quantity)
-      const buildQuantity = Math.max(
-        1,
-        subassembly.quantitiesByParentQuantity?.[quantity] ?? quantity,
-      )
+      const buildQuantity = subassemblyBuildQuantity(subassembly, quantity)
       const amortizedNre = rawOneTimeNre / buildQuantity
       const unitCostBeforePerQuantityMargin =
         burdenedLabor
@@ -401,11 +401,25 @@ function calculateQuantity(
 }
 
 export function calculateEstimate(input: EstimateInput): EstimateCalculationResult {
-  const subassemblyResults = input.kind === 'subassembly'
-    ? input.subassemblies.map(
-        (subassembly) => calculateSubassembly(input, subassembly),
-      )
-    : []
+  const resolved = new Map<string, SubassemblyCalculation>()
+  const resolving = new Set<string>()
+  const resolveChild = (child: SubassemblyInput): SubassemblyCalculation => {
+    const existing = resolved.get(child.id)
+    if (existing) return existing
+    resolving.add(child.id)
+    const descendants: SubassemblyCalculationAudit[] = []
+    if (input.kind !== 'subassembly') throw new Error('Expected a subassembly estimate.')
+    for (const process of child.processes) {
+      const linked = input.subassemblies.find((candidate) => candidate.id === process.subassemblyId)
+      // A cycle remains unresolved and produces an explicit link error below.
+      if (linked && !resolving.has(linked.id)) descendants.push(resolveChild(linked).audit)
+    }
+    const result = calculateSubassembly(input, child, descendants)
+    resolved.set(child.id, result)
+    resolving.delete(child.id)
+    return result
+  }
+  const subassemblyResults = input.kind === 'subassembly' ? input.subassemblies.map(resolveChild) : []
   const subassemblies = subassemblyResults.map((result) => result.audit)
   const operationResults = input.operations.map(
     (operation) => calculateOperation(input, operation),

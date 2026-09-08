@@ -8,6 +8,7 @@ import {
 } from './CalculatorCostSections'
 import { OperationsSection, SafeNumberInput } from './CalculatorInputSections'
 import { CONTROLLED_OPERATION_OPTIONS } from './estimatingRates'
+import { validSubassemblyLinkTargets } from './subassemblyGraph'
 import type {
   EstimateOperationInput,
   MaterialInput,
@@ -227,6 +228,22 @@ export default function SubassembliesSection({
                       </button>
                     </div>
 
+                    <div className="metadata-grid">
+                      <label className="field-wide">
+                        <span>Stock and production notes</span>
+                        <textarea
+                          rows={3}
+                          value={subassembly.comments ?? ''}
+                          data-testid={`subassembly-comments-${index}`}
+                          placeholder="Available stock, production context, or purchasing notes"
+                          onChange={(event) => {
+                            const comments = event.currentTarget.value
+                            onChange(subassembly.id, (current) => ({ ...current, comments }))
+                          }}
+                        />
+                      </label>
+                    </div>
+
                     <div className="subassembly-rollup-note">
                       Child labor, material, process, amortized NRE, and per-quantity margin roll into the parent as one process cost. Parent process G&amp;A and profit are applied once.
                     </div>
@@ -302,6 +319,10 @@ export default function SubassembliesSection({
                     />
                     <ProcessesSection
                       processes={subassembly.processes}
+                      subassemblies={validSubassemblyLinkTargets(subassemblies, subassembly.id).map((child) => ({
+                        ...child,
+                        quantityPerParent: (child.quantityPerParent ?? 1) / quantityPerParent,
+                      }))}
                       idPrefix={idPrefix}
                       title="Subassembly processes"
                       kicker="Child outside services"

@@ -59,7 +59,9 @@ Saving confirms only that Arda stored the token. To verify that Fulcrum accepts 
 request and records the result, HTTP status, time, and administrator; it does not import quotes
 or change Fulcrum data.
 
-The token requires Fulcrum's **View Quote** permission. The sync combines the quote-reporting endpoint with the quote
+Dashboard synchronization requires Fulcrum's **View Quote** permission. API-generated estimates additionally require
+the credential to read quote history, inputs, and quote details (Fulcrum's **View History**, **Manage Inputs**, and
+**Manage Quotes** permissions). The sync combines the quote-reporting endpoint with the quote
 detail endpoint so customer/salesperson names, totals, statuses, and the quote custom fields used
 by the Estimating Log are refreshed together. Existing Excel-imported values are retained when a
 corresponding Fulcrum custom field is absent. Custom-field names can be overridden under

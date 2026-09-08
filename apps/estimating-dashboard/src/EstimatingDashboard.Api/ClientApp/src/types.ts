@@ -131,6 +131,9 @@ export interface SubassemblyInput {
   id: string
   partNumber: string
   revision: string
+  comments?: string
+  /** API-generated BOM batches track the top-level quantity; manual batches remain independent. */
+  deriveQuantitiesFromParent?: boolean
   /** Number of this child required for each top-level assembly. */
   quantityPerParent?: number
   /** Child build quantity used for each parent quote tier. */
@@ -251,7 +254,9 @@ export function replaceEstimateQuantities(
     ...shared,
     subassemblies: shared.subassemblies.map((child) => ({
       ...child,
-      quantitiesByParentQuantity: remapSparseQuantityValues(
+      quantitiesByParentQuantity: child.deriveQuantitiesFromParent && child.quantityPerParent !== undefined
+        ? createQuantityValues((quantity) => quantity * child.quantityPerParent!, quantities)
+        : remapSparseQuantityValues(
         child.quantitiesByParentQuantity,
         input.quantities,
         quantities,

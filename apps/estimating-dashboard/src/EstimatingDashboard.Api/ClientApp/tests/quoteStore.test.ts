@@ -12,6 +12,7 @@ import {
   publishNewQuoteRevision,
   publishQuoteRevision,
   saveQuoteDraft,
+  saveGeneratedQuoteDrafts,
   startQuoteRevision,
   updateQuoteStatus,
 } from '../src/quoteStore.ts'
@@ -68,6 +69,53 @@ function legacyQuote(id = 'legacy-current') {
     selectedQuantity: 100,
   }
 }
+
+test('generated parts save together without overwriting existing drafts', () => {
+  localStorage.clear()
+  const owner = 'SON4L\\estimator'
+  const existing = saveQuoteDraft({ ownerAccountName: owner, estimate: createEstimate('Existing'), selectedQuantity: 10 })
+  const records = saveGeneratedQuoteDrafts(owner, [createEstimate('Part one'), createEstimate('Part two')])
+  assert.equal(records?.length, 2)
+  assert.equal(listQuotes(owner).length, 3)
+  assert.ok(listQuotes(owner).some((quote) => quote.id === existing?.id))
+  assert.equal(records?.[0].draft?.estimate.metadata.customer, 'Part one')
+  assert.notEqual(records?.[0].id, records?.[1].id)
+})
+
+test('failed generated batch writes leave all existing data intact', () => {
+  localStorage.clear()
+  const owner = 'SON4L\\estimator'
+  saveQuoteDraft({ ownerAccountName: owner, estimate: createEstimate('Existing'), selectedQuantity: 10 })
+  const before = localStorage.getItem(V2_KEY)
+  localStorage.setWriteFailure(true)
+  assert.equal(saveGeneratedQuoteDrafts(owner, [createEstimate('One'), createEstimate('Two')]), null)
+  assert.equal(localStorage.getItem(V2_KEY), before)
+  localStorage.setWriteFailure(false)
+})
+
+test('invalid generated part prevents the entire batch from saving', () => {
+  localStorage.clear()
+  const invalid = createEstimate('Invalid')
+  invalid.quantities = []
+  assert.equal(saveGeneratedQuoteDrafts('owner', [createEstimate('Valid'), invalid]), null)
+  assert.equal(localStorage.getItem(V2_KEY), null)
+})
+
+test('Fulcrum source survives saving, publishing, and starting the next revision; ad hoc stays unlinked', () => {
+  localStorage.clear()
+  const owner = 'linked-estimator'
+  const source = { provider: 'fulcrum' as const, quoteHistoryId: 42, quoteNumber: 4460 }
+  const records = saveGeneratedQuoteDrafts(owner, [createEstimate('Linked part')], source)
+  assert.ok(records?.[0].draft)
+  const record = records[0]
+  const input = { id: record.id, ownerAccountName: owner, estimate: record.draft!.estimate, selectedQuantity: 10 }
+  assert.deepEqual(saveQuoteDraft(input)?.sourceQuote, source)
+  assert.deepEqual(publishQuoteRevision(input)?.sourceQuote, source)
+  assert.deepEqual(startQuoteRevision(record.id, owner)?.sourceQuote, source)
+  assert.deepEqual(listQuotes(owner)[0].sourceQuote, source)
+  const adhoc = saveQuoteDraft({ ownerAccountName: owner, estimate: createEstimate('Ad hoc'), selectedQuantity: 10 })
+  assert.equal(adhoc?.sourceQuote, undefined)
+})
 
 test('publishing appends immutable whole-quote revisions and keeps part revision separate', () => {
   localStorage.clear()

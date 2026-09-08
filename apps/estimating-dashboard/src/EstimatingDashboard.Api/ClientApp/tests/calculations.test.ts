@@ -201,6 +201,43 @@ test('reports dangling subassembly process links explicitly', () => {
   assert.equal(result.processes[0].unitCostByQuantity[10], 0)
 })
 
+test('recursive Make quantities amortize setup at cumulative build sizes and update with top tiers', () => {
+  const estimate = createSubassemblyEstimateDefaults()
+  estimate.quantities = [32]
+  const child = createSubassemblyDefaults(0)
+  child.quantityPerParent = 4
+  child.deriveQuantitiesFromParent = true
+  child.operations = []
+  child.materials = []
+  const grandchild = createSubassemblyDefaults(1)
+  grandchild.quantityPerParent = 8
+  grandchild.deriveQuantitiesFromParent = true
+  grandchild.operations = []
+  grandchild.materials = []
+  grandchild.processes = [{ id: 'finish', description: 'Finish', setupCost: 256, runCostEach: 2 }]
+  child.processes = [{ id: 'nested', description: 'Nested', setupCost: 0, runCostEach: 0, subassemblyId: grandchild.id, quantityPerParent: 2 }]
+  estimate.processes = [{ id: 'insert', description: 'Insert', setupCost: 0, runCostEach: 0, subassemblyId: child.id, quantityPerParent: 4 }]
+  estimate.subassemblies = [child, grandchild]
+  const result = mustSucceed(calculateEstimate(estimate))
+  assertNear(result.subassemblies[1].quantities?.[32].unitCost ?? null, 3)
+  assertNear(result.subassemblies[0].quantities?.[32].unitCost ?? null, 6)
+  assertNear(result.quantities[32].rawProcess, 24)
+  const changed = replaceEstimateQuantities(estimate, [64])
+  const changedResult = mustSucceed(calculateEstimate(changed))
+  assertNear(changedResult.subassemblies[1].quantities?.[64].unitCost ?? null, 2.5)
+  assertNear(changedResult.quantities[64].rawProcess, 20)
+})
+
+test('cyclic nested Make links fail safely rather than recursing forever', () => {
+  const estimate = createSubassemblyEstimateDefaults()
+  const child = createSubassemblyDefaults()
+  child.processes[0].subassemblyId = child.id
+  estimate.subassemblies = [child]
+  const result = calculateEstimate(estimate)
+  assert.equal(result.ok, false)
+  assert.ok(result.errors.some((error) => error.code === 'missing-subassembly-link'))
+})
+
 test('reports missing child labor rates with subassembly context', () => {
   const estimate = createSubassemblyEstimateDefaults()
   estimate.quantities = [10]

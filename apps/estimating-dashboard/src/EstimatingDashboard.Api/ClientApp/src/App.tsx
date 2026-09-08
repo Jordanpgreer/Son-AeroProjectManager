@@ -471,6 +471,7 @@ export default function App() {
               <QuotesDashboardPage
                 ownerAccountName={me.accountName}
                 canManageQuotes={canManageQuotes}
+                canGenerateQuotes={canManageQuotes && canManageInputs && canViewHistory}
               />
             )}
             {page === 'calculator' && (

@@ -56,15 +56,36 @@ function rawValue(value: ExcelJS.CellValue): unknown {
   return value
 }
 
+function resolvedCellValue(sheet: ExcelJS.Worksheet, row: number, column: number, seen = new Set<string>()): ExcelJS.CellValue {
+  const cell = sheet.getCell(row, column)
+  const key = `${sheet.name}!${cell.address}`
+  if (seen.has(key)) throw new Error(`Circular workbook reference at ${key}.`)
+  seen.add(key)
+  const value = cell.value
+  if (value && typeof value === 'object' && 'formula' in value) {
+    // ExcelJS omits cached numeric zero on serialization. Resolve simple links
+    // to editable cells, without evaluating arbitrary Excel expressions.
+    const match = /^'((?:[^']|'')+)'!\$?([A-Z]+)\$?(\d+)$/i.exec(value.formula ?? '')
+    if (match) {
+      const target = sheet.workbook.getWorksheet(match[1].replaceAll("''", "'"))
+      if (target) {
+        const linked = target.getCell(`${match[2]}${match[3]}`)
+        return resolvedCellValue(target, Number(linked.row), Number(linked.col), seen)
+      }
+    }
+  }
+  return value
+}
+
 function cellText(sheet: ExcelJS.Worksheet, row: number, column: number) {
-  const value = rawValue(sheet.getCell(row, column).value)
+  const value = rawValue(resolvedCellValue(sheet, row, column))
   if (value == null) return ''
   if (value instanceof Date) return value.toISOString().slice(0, 10)
   return String(value).trim()
 }
 
 function cellNumber(sheet: ExcelJS.Worksheet, row: number, column: number) {
-  const value = rawValue(sheet.getCell(row, column).value)
+  const value = rawValue(resolvedCellValue(sheet, row, column))
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string') {
     const isPercentage = value.includes('%')
@@ -102,7 +123,7 @@ function constrainedCellNumber(
 ) {
   const cell = sheet.getCell(row, column)
   const original = cell.value
-  const value = rawValue(original)
+  const value = rawValue(resolvedCellValue(sheet, row, column))
   const isBlank = value == null || (typeof value === 'string' && value.trim() === '')
   if (isBlank) {
     if (original && typeof original === 'object' && 'formula' in original) {
@@ -116,7 +137,7 @@ function constrainedCellNumber(
 }
 
 function cellBoolean(sheet: ExcelJS.Worksheet, row: number, column: number) {
-  const value = rawValue(sheet.getCell(row, column).value)
+  const value = rawValue(resolvedCellValue(sheet, row, column))
   if (typeof value === 'boolean') return value
   if (typeof value === 'number') return value !== 0
   return /^(?:true|yes|y|1)$/i.test(String(value ?? '').trim())
@@ -539,7 +560,9 @@ function readChildSheet(
     child.materials,
     `${child.id}-import-material`,
   )
-  child.processes = readProcesses(
+  child.comments = cellText(sheet, 3, 6)
+  child.processes = sheet.workbook.getWorksheet(`${sheet.name} Detail`)
+    ? [] : readProcesses(
     sheet,
     processDataStart(sheet, sections.processHeader),
     sections.processEnd - 1,
@@ -595,6 +618,50 @@ async function importSubassemblyWorkbook(workbook: ExcelJS.Workbook) {
     'subassembly-parent-import-process',
     children,
   )
+  for (const [sheetName, input] of [
+    ['Top Assy', base],
+    ...children.map((child) => [`Subassy ${Number(child.id.match(/\d+$/)?.[0] ?? 1)}`, child]),
+  ] as Array<[string, SubassemblyEstimateInput | SubassemblyInput]>) {
+    const detail = workbook.getWorksheet(`${sheetName} Detail`)
+    if (!detail || cellText(detail, 1, 16) !== 'Arda cost details v1') continue
+    const counts = [2, 3, 4].map((row) => constrainedCellNumber(detail, row, 16, 'Detail row count', { min: 0, max: 10000, integer: true }) ?? 0)
+    const operationsStart = 15
+    const materialsStart = operationsStart + counts[0] + 3
+    const processesStart = materialsStart + counts[1] + 3
+    input.operations = readOperations(detail, operationsStart, operationsStart + counts[0] - 1, [], `${sheetName}-operation`)
+    input.operations.forEach((operation, index) => {
+      const treatment = cellText(detail, operationsStart + index, 4)
+      if (treatment === 'nre' || treatment === 'production') operation.costTreatment = treatment
+    })
+    input.materials = readMaterials(detail, materialsStart, materialsStart + counts[1] - 1, [], `${sheetName}-material`)
+    input.processes = readProcesses(detail, processesStart, processesStart + counts[2] - 1, [], `${sheetName}-process`, children)
+  }
+  // Restore cumulative usage after direct process links have been read.
+  for (const child of children) {
+    const detail = workbook.getWorksheet(`Subassy ${Number(child.id.match(/\d+$/)?.[0] ?? 1)} Detail`)
+    if (!detail || cellText(detail, 1, 16) !== 'Arda cost details v1') continue
+    child.deriveQuantitiesFromParent = cellBoolean(detail, 5, 16)
+    child.quantityPerParent = constrainedCellNumber(detail, 6, 16, 'Cumulative component quantity', { min: 0.000001 }) ?? 1
+    child.comments = cellText(detail, 3, 1)
+  }
+  const derivedUsage = new Map<string, number>()
+  const accumulateUsage = (processes: readonly ProcessInput[], multiplier: number, ancestors: Set<string>) => {
+    for (const process of processes) {
+      const child = children.find((candidate) => candidate.id === process.subassemblyId)
+      if (!child) continue
+      if (ancestors.has(child.id)) throw new Error(`Circular subassembly link for ${child.partNumber}.`)
+      const usage = multiplier * (process.quantityPerParent ?? 1)
+      derivedUsage.set(child.id, (derivedUsage.get(child.id) ?? 0) + usage)
+      accumulateUsage(child.processes, usage, new Set([...ancestors, child.id]))
+    }
+  }
+  accumulateUsage(base.processes, 1, new Set())
+  for (const child of children) {
+    if (child.deriveQuantitiesFromParent && derivedUsage.has(child.id)) {
+      child.quantityPerParent = derivedUsage.get(child.id)!
+      child.quantitiesByParentQuantity = Object.fromEntries(base.quantities.map((quantity) => [quantity, quantity * child.quantityPerParent!]))
+    }
+  }
   return { estimate: normalizePerQuantityMargins(base), sourceSheet: top.name, warnings }
 }
 

@@ -36,6 +36,7 @@ import {
   type QuoteStatus,
 } from './quoteStore'
 import SubassembliesSection from './SubassembliesSection'
+import { reconcileSubassemblyQuantities, removeSubassemblyGraph, updateSubassemblyGraph } from './subassemblyGraph'
 import QuantityEditor from './QuantityEditor'
 import { formatQuoteRevision } from './quoteRevision'
 import {
@@ -395,7 +396,7 @@ export default function EstimateCalculatorPage({
   }
 
   const updateProcess = (id: string, patch: Partial<ProcessInput>) => {
-    updateEstimate((current) => ({
+    updateEstimate((current) => reconcileSubassemblyQuantities({
       ...current,
       processes: current.processes.map(
         (process) => process.id === id ? { ...process, ...patch } : process,
@@ -478,39 +479,7 @@ export default function EstimateCalculatorPage({
     id: string,
     update: (current: SubassemblyInput) => SubassemblyInput,
   ) => {
-    updateEstimate((current) => {
-      if (current.kind !== 'subassembly') return current
-      const previous = current.subassemblies.find((item) => item.id === id)
-      if (!previous) return current
-      const updated = update(previous)
-      const quantityPerParent = Math.max(0.000001, updated.quantityPerParent ?? 1)
-      const quantityChanged = quantityPerParent !== (previous.quantityPerParent ?? 1)
-      const next = quantityChanged
-        ? {
-            ...updated,
-            quantityPerParent,
-            quantitiesByParentQuantity: Object.fromEntries(
-              current.quantities.map((quantity) => [quantity, quantity * quantityPerParent]),
-            ),
-          }
-        : { ...updated, quantityPerParent }
-      const partNumberChanged = next.partNumber !== previous.partNumber
-      return {
-        ...current,
-        subassemblies: current.subassemblies.map((item) => item.id === id ? next : item),
-        processes: partNumberChanged || quantityChanged
-          ? current.processes.map((process) => (
-              process.subassemblyId === id
-                ? {
-                    ...process,
-                    description: next.partNumber.trim() || process.description,
-                    quantityPerParent,
-                  }
-                : process
-            ))
-          : current.processes,
-      }
-    })
+    updateEstimate((current) => current.kind === 'subassembly' ? updateSubassemblyGraph(current, id, update) : current)
   }
 
   const addSubassembly = () => {
@@ -551,15 +520,8 @@ export default function EstimateCalculatorPage({
     const child = estimate.kind === 'subassembly'
       ? estimate.subassemblies.find((item) => item.id === id)
       : undefined
-    if (!child || !window.confirm(`Remove ${child.partNumber.trim() || 'this subassembly'} and its inputs?`)) return
-    updateEstimate((current) => {
-      if (current.kind !== 'subassembly') return current
-      return {
-        ...current,
-        subassemblies: current.subassemblies.filter((item) => item.id !== id),
-        processes: current.processes.filter((process) => process.subassemblyId !== id),
-      }
-    })
+    if (!child || !window.confirm(`Remove ${child.partNumber.trim() || 'this subassembly'}, its inputs, and any subassemblies used only by it?`)) return
+    updateEstimate((current) => current.kind === 'subassembly' ? removeSubassemblyGraph(current, id) : current)
   }
 
   const importWorkbook = async (file: File) => {
@@ -643,6 +605,18 @@ export default function EstimateCalculatorPage({
 
   return (
     <div className="calculator-page">
+      {quoteRecord?.sourceQuote && <section className="quote-revision-bar" aria-label="Source Fulcrum quote">
+        <div className="quote-revision-summary">
+          <span className="toolbar-label">Linked quote</span>
+          <strong>Fulcrum quote #{quoteRecord.sourceQuote.quoteNumber}</strong>
+          <small>This estimate and its revisions belong to the source quote. Changes here stay in Arda.</small>
+        </div>
+        <a className="secondary-button" href={`#/quotes?source=${quoteRecord.sourceQuote.quoteHistoryId}`} onClick={(event) => {
+          if (dirty && !window.confirm('Leave this estimate without saving your latest changes?')) event.preventDefault()
+        }}>
+          View quote and linked estimates
+        </a>
+      </section>}
       <div className="calculator-top-actions" aria-label="Estimate utilities">
         <button
           type="button"
@@ -989,7 +963,7 @@ export default function EstimateCalculatorPage({
           audits={calculation.operations}
           onChange={updateOperation}
           onAdd={addOperation}
-          onRemove={(id) => updateEstimate((current) => ({
+          onRemove={(id) => updateEstimate((current) => reconcileSubassemblyQuantities({
             ...current,
             operations: current.operations.filter((operation) => operation.id !== id),
           }))}
@@ -1009,7 +983,7 @@ export default function EstimateCalculatorPage({
           subassemblies={estimate.kind === 'subassembly' ? estimate.subassemblies : undefined}
           onChange={updateProcess}
           onAdd={addProcess}
-          onRemove={(id) => updateEstimate((current) => ({
+          onRemove={(id) => updateEstimate((current) => reconcileSubassemblyQuantities({
             ...current,
             processes: current.processes.filter((process) => process.id !== id),
           }))}

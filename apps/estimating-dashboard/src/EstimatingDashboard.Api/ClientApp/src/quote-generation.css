@@ -1,0 +1,65 @@
+.quote-create-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 12px;
+  border: 1px solid var(--steel);
+  border-radius: var(--r-sm);
+  background: var(--steel);
+  color: white;
+  font: inherit;
+  font-weight: 750;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.quote-create-button:disabled { opacity: .5; cursor: not-allowed; }
+.quote-source-filter { display: flex; align-items: center; gap: 8px; padding: 12px 18px; background: var(--steel-tint); border-block: 1px solid var(--line); color: var(--ink-2); font-size: 12px; }
+.quote-source-filter > button { margin-left: auto; background: var(--surface); border: 1px solid var(--line); color: var(--steel); border-radius: var(--r-sm); padding: 7px 10px; cursor: pointer; }
+.quote-source-link { display: flex; align-items: center; gap: 4px; margin-top: 5px; padding: 0; background: none; border: 0; color: var(--steel); font-size: 10px; cursor: pointer; }
+.quote-generation-dialog {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--steel);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 24px 80px #0005;
+}
+.quote-generation-dialog::backdrop { background: #07182c99; backdrop-filter: blur(4px); }
+.quote-generation-dialog header, .quote-generation-dialog footer {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px;
+}
+.quote-generation-dialog header { border-bottom: 1px solid var(--line); }
+.quote-generation-dialog h2 { margin: 6px 0 0; font-size: 22px; }
+.quote-generation-dialog button { cursor: pointer; }
+.quote-generation-close { display: grid; place-items: center; padding: 8px; border: 0; background: transparent; color: var(--muted); }
+.quote-generation-progress { display: grid; justify-items: center; gap: 18px; padding: 44px 28px; text-align: center; }
+.quote-generation-spinner { color: var(--steel); animation: quote-generation-spin 1.2s linear infinite; }
+.quote-generation-progress strong { font-size: 18px; }
+.quote-generation-progress p { margin: 0; max-width: 440px; color: var(--ink-2); line-height: 1.6; }
+.quote-generation-progress > span, .quote-generation-dialog footer > span { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.quote-generation-dialog footer { border-top: 1px solid var(--line); background: var(--surface-2); }
+.quote-generation-dialog footer > span { flex: 1; }
+.quote-generation-dialog footer > button:not(.primary-action-button) { background: var(--surface); color: var(--ink); padding: 10px 16px; border: 1px solid var(--line); border-radius: var(--r-sm); font-weight: 700; }
+.quote-generation-error { padding: 12px 22px; color: var(--danger-700, #b94343); }
+.quote-generation-success { display: flex; align-items: center; gap: 8px; padding: 0 22px; color: var(--steel); }
+.quote-generation-warnings { margin: 18px 22px; padding: 16px; border: 1px solid var(--line); border-left: 3px solid var(--steel); border-radius: var(--r-sm); background: var(--surface-2); }
+.quote-generation-warnings ul { margin-bottom: 0; padding-left: 18px; color: var(--ink-2); font-size: 13px; line-height: 1.5; }
+.quote-generation-warnings li + li { margin-top: 6px; }
+.quote-generated-parts { display: grid; gap: 12px; padding: 0 22px 22px; }
+.quote-generated-parts article { display: flex; align-items: center; gap: 14px; padding: 16px; border: 1px solid var(--line); border-radius: var(--r-md); }
+.quote-generated-parts article > svg { color: var(--steel); flex-shrink: 0; }
+.quote-generated-parts article > div { display: grid; gap: 5px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.quote-generated-parts article span, .quote-generated-parts article small { color: var(--muted); font-size: 12px; }
+@keyframes quote-generation-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .quote-generation-spinner { animation: none; } }
+@media (max-width: 560px) {
+  .quote-generation-dialog h2 { font-size: 19px; }
+  .quote-generated-parts article { flex-wrap: wrap; }
+  .quote-generated-parts article button { width: 100%; }
+  .quote-generation-dialog footer { flex-wrap: wrap; }
+  .quote-generation-dialog footer > span { flex-basis: 100%; }
+}

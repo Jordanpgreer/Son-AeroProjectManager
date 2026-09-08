@@ -7,11 +7,12 @@ import {
   Clock3,
   FileClock,
   FileText,
+  Link2,
   Plus,
   RefreshCw,
   Search,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { calculateEstimate } from './calculations'
 import { createEstimateDefaults } from './estimateDefaults'
@@ -40,6 +41,7 @@ import {
   type PersonalQuote,
 } from './quoteWorkflowApi'
 import './quote-dashboard.css'
+import GenerateQuoteDialog from './GenerateQuoteDialog'
 
 function currency(value: number) {
   return value.toLocaleString('en-US', {
@@ -68,11 +70,16 @@ function formatDate(value: string) {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
-  }).format(new Date(value))
+  }).format(new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value))
 }
 
 function formatOptionalDate(value: string | null) {
   return value ? formatDate(value) : '—'
+}
+
+function linkedSourceFromHash() {
+  const id = Number(new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('source'))
+  return Number.isSafeInteger(id) && id > 0 ? id : null
 }
 
 interface WorkflowDraft {
@@ -87,9 +94,11 @@ interface WorkflowDraft {
 export default function QuotesDashboardPage({
   ownerAccountName,
   canManageQuotes,
+  canGenerateQuotes,
 }: {
   ownerAccountName: string
   canManageQuotes: boolean
+  canGenerateQuotes: boolean
 }) {
   const [revision, setRevision] = useState(0)
   const [search, setSearch] = useState('')
@@ -100,15 +109,21 @@ export default function QuotesDashboardPage({
   const [personalError, setPersonalError] = useState<string | null>(null)
   const [workflowDraft, setWorkflowDraft] = useState<WorkflowDraft | null>(null)
   const [workflowSaving, setWorkflowSaving] = useState(false)
+  const [generatingQuote, setGeneratingQuote] = useState<PersonalQuote | null>(null)
+  const [sourceFilter, setSourceFilter] = useState<number | null>(linkedSourceFromHash)
+  const localDraftsHeading = useRef<HTMLHeadingElement>(null)
   const quotes = useMemo(
     () => listQuotes(ownerAccountName),
     [ownerAccountName, revision],
   )
   const storageError = getQuoteStoreError()
+  const showPersonalActions = canGenerateQuotes || quotes.some((quote) => quote.sourceQuote
+    && personalQuotes.some((personal) => personal.id === quote.sourceQuote!.quoteHistoryId))
   const filteredQuotes = useMemo(() => {
     const query = search.trim().toLocaleLowerCase()
     return quotes.filter((quote) => {
       const version = quoteDashboardVersion(quote, filter)
+      if (sourceFilter !== null && quote.sourceQuote?.quoteHistoryId !== sourceFilter) return false
       if (!version) return false
       if (filter === 'draft' && !quote.draft) return false
       if (filter !== 'all' && filter !== 'draft' && quote.status !== filter) return false
@@ -121,7 +136,32 @@ export default function QuotesDashboardPage({
         version.estimate.metadata.estimator,
       ].some((value) => value.toLocaleLowerCase().includes(query))
     })
-  }, [filter, quotes, search])
+  }, [filter, quotes, search, sourceFilter])
+
+  const showLinkedEstimates = (quoteId: number) => {
+    setSourceFilter(quoteId)
+    setSearch('')
+    setFilter('all')
+    window.history.replaceState(null, '', `#/quotes?source=${quoteId}`)
+    requestAnimationFrame(() => {
+      localDraftsHeading.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      localDraftsHeading.current?.focus({ preventScroll: true })
+    })
+  }
+
+  useEffect(() => {
+    const syncSource = () => {
+      setSourceFilter(linkedSourceFromHash())
+      setFilter('all')
+      setSearch('')
+    }
+    window.addEventListener('hashchange', syncSource)
+    return () => window.removeEventListener('hashchange', syncSource)
+  }, [])
+
+  useEffect(() => {
+    if (sourceFilter !== null) localDraftsHeading.current?.scrollIntoView({ block: 'start' })
+  }, [sourceFilter])
   const counts = {
     draft: quotes.filter((quote) => Boolean(quote.draft)).length,
     current: quotes.filter((quote) => quote.status === 'current').length,
@@ -296,14 +336,17 @@ export default function QuotesDashboardPage({
                   <th scope="col">Arda status</th>
                   <th scope="col">Due dates</th>
                   <th scope="col">Status age</th>
+                  {showPersonalActions && <th scope="col"><span className="sr-only">Linked estimates</span></th>}
                 </tr>
               </thead>
               <tbody>
                 {personalQuotes.map((quote) => {
                   const editing = workflowDraft?.quoteId === quote.id
+                  const linkedQuotes = quotes.filter((local) => local.sourceQuote?.quoteHistoryId === quote.id)
                   return [
                     <tr
                       key={`quote-${quote.id}`}
+                      id={`active-quote-${quote.id}`}
                       className={`${canManageQuotes ? 'personal-quote-row is-actionable' : 'personal-quote-row'}${editing ? ' is-open' : ''}`}
                       tabIndex={canManageQuotes ? 0 : undefined}
                       aria-expanded={canManageQuotes ? editing : undefined}
@@ -314,6 +357,7 @@ export default function QuotesDashboardPage({
                         toggleWorkflow(quote)
                       }}
                       onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return
                         if (!canManageQuotes || (event.key !== 'Enter' && event.key !== ' ')) return
                         event.preventDefault()
                         toggleWorkflow(quote)
@@ -347,9 +391,6 @@ export default function QuotesDashboardPage({
                           <CalendarDays size={13} aria-hidden="true" />
                           Estimating {formatOptionalDate(quote.estimatingDueDate)}
                         </span>
-                        <small className="quote-cell-detail">
-                          {quote.estimatingDueDateIsOverride ? 'User override' : 'Automatic'} · RFQ {formatOptionalDate(quote.rfqDueDate)}
-                        </small>
                       </td>
                       <td>
                         <span className="quote-status-age" title={quote.ardaStatusChangedAt ? formatDate(quote.ardaStatusChangedAt) : undefined}>
@@ -360,6 +401,23 @@ export default function QuotesDashboardPage({
                           <small className="quote-cell-detail">by {quote.ardaStatusChangedBy}</small>
                         )}
                       </td>
+                      {showPersonalActions && <td>
+                        {(canGenerateQuotes || linkedQuotes.length > 0) &&
+                        <button
+                          type="button"
+                          className="quote-create-button"
+                          disabled={Boolean(storageError) && linkedQuotes.length === 0}
+                          aria-label={linkedQuotes.length ? `Open ${linkedQuotes.length} estimates for quote ${quote.quoteNumber}` : `Create quote ${quote.quoteNumber}`}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            if (linkedQuotes.length) showLinkedEstimates(quote.id)
+                            else setGeneratingQuote(quote)
+                          }}
+                        >
+                          {linkedQuotes.length ? <><Link2 size={14} aria-hidden="true" /> Open estimates ({linkedQuotes.length})</> : <><Plus size={14} aria-hidden="true" /> Create quote</>}
+                        </button>
+                        }
+                      </td>}
                     </tr>,
                     editing && workflowDraft ? (
                       <tr
@@ -367,12 +425,8 @@ export default function QuotesDashboardPage({
                         id={`quote-workflow-editor-${quote.id}`}
                         key={`editor-${quote.id}`}
                       >
-                        <td colSpan={6}>
+                        <td colSpan={showPersonalActions ? 7 : 6}>
                           <div className="quote-workflow-editor">
-                            <div className="quote-workflow-editor-heading">
-                              <strong>Update Arda workflow</strong>
-                              <span>Quote #{quote.quoteNumber} · changes stay internal to Arda</span>
-                            </div>
                             <label className="quote-workflow-field">
                               <span><Activity size={14} aria-hidden="true" /> Arda status</span>
                               <div className="quote-workflow-control">
@@ -409,11 +463,6 @@ export default function QuotesDashboardPage({
                                 </div>
                               </label>
                               <div className="quote-workflow-due-helper">
-                                <span>
-                                  {workflowDraft.dueDateIsOverride
-                                    ? 'User override'
-                                    : 'Automatic: 1 M–Th business day before RFQ'}
-                                </span>
                                 {workflowDraft.dueDateIsOverride && (
                                   <button
                                     type="button"
@@ -474,7 +523,7 @@ export default function QuotesDashboardPage({
         <div className="quote-list-toolbar">
           <div>
             <span className="section-kicker">Calculator workspace</span>
-            <h2 id="quote-list-heading">Local drafts and revisions</h2>
+            <h2 id="quote-list-heading" ref={localDraftsHeading} tabIndex={-1}>Local drafts and revisions</h2>
           </div>
           <label className="quote-search">
             <Search size={15} aria-hidden="true" />
@@ -487,6 +536,16 @@ export default function QuotesDashboardPage({
             />
           </label>
         </div>
+
+        {sourceFilter !== null && <div className="quote-source-filter">
+          <Link2 size={16} aria-hidden="true" />
+          <span>Estimates linked to Fulcrum quote #{personalQuotes.find((quote) => quote.id === sourceFilter)?.quoteNumber
+            ?? quotes.find((quote) => quote.sourceQuote?.quoteHistoryId === sourceFilter)?.sourceQuote?.quoteNumber ?? sourceFilter}</span>
+          <button type="button" onClick={() => {
+            setSourceFilter(null)
+            window.history.replaceState(null, '', '#/quotes')
+          }}>Show all quotes</button>
+        </div>}
 
         <div className="quote-filter-tabs" role="group" aria-label="Filter quotes by status">
           {(['all', 'draft', 'current', 'past'] as const).map((status) => (
@@ -532,7 +591,22 @@ export default function QuotesDashboardPage({
                   const isDraftVersion = quote.draft?.id === displayVersion.id
                   return (
                     <tr key={quote.id}>
-                      <th scope="row">{quoteTitle(displayVersion)}</th>
+                      <th scope="row">
+                        {quoteTitle(displayVersion)}
+                        {quote.sourceQuote ? <button type="button" className="quote-source-link" onClick={() => {
+                          const sourceId = quote.sourceQuote!.quoteHistoryId
+                          const activeQuote = personalQuotes.find((candidate) => candidate.id === sourceId)
+                          if (activeQuote) {
+                            if (canManageQuotes) editWorkflow(activeQuote)
+                            requestAnimationFrame(() => {
+                              const row = document.getElementById(`active-quote-${sourceId}`)
+                              row?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                              row?.focus({ preventScroll: true })
+                            })
+                          } else showLinkedEstimates(sourceId)
+                        }}><Link2 size={12} aria-hidden="true" /> Fulcrum #{quote.sourceQuote.quoteNumber}</button>
+                          : <small className="quote-cell-detail">Ad hoc</small>}
+                      </th>
                       <td>{displayVersion.estimate.metadata.customer || '—'}</td>
                       <td>
                         {displayVersion.estimate.metadata.partNumber || '—'}
@@ -609,6 +683,14 @@ export default function QuotesDashboardPage({
           </div>
         )}
       </section>
+      {generatingQuote && <GenerateQuoteDialog
+        quote={generatingQuote}
+        ownerAccountName={ownerAccountName}
+        onClose={() => {
+          setGeneratingQuote(null)
+          setRevision((current) => current + 1)
+        }}
+      />}
     </div>
   )
 }

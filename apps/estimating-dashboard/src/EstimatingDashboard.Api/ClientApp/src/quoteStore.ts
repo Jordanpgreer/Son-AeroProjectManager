@@ -28,6 +28,20 @@ export interface QuoteRecord {
   updatedAt: string
   draft: QuoteRevision | null
   revisions: QuoteRevision[]
+  sourceQuote?: FulcrumQuoteSource
+}
+
+export interface FulcrumQuoteSource {
+  provider: 'fulcrum'
+  quoteHistoryId: number
+  quoteNumber: number
+}
+
+function isFulcrumQuoteSource(value: unknown): value is FulcrumQuoteSource {
+  if (!isRecord(value)) return false
+  return value.provider === 'fulcrum'
+    && Number.isSafeInteger(value.quoteHistoryId) && Number(value.quoteHistoryId) > 0
+    && Number.isSafeInteger(value.quoteNumber) && Number(value.quoteNumber) > 0
 }
 
 interface LegacyQuoteRecord {
@@ -161,6 +175,8 @@ function isSubassembly(value: unknown) {
   return typeof value.id === 'string'
     && typeof value.partNumber === 'string'
     && typeof value.revision === 'string'
+    && (value.comments === undefined || typeof value.comments === 'string')
+    && (value.deriveQuantitiesFromParent === undefined || typeof value.deriveQuantitiesFromParent === 'boolean')
     && (
       value.quantityPerParent === undefined
       || isFiniteNumber(value.quantityPerParent, 0.000001)
@@ -239,6 +255,7 @@ function isQuoteRecord(value: unknown): value is QuoteRecord {
     && (candidate.draft === null || isQuoteRevision(candidate.draft))
     && Array.isArray(candidate.revisions)
     && candidate.revisions.every(isQuoteRevision)
+    && (candidate.sourceQuote === undefined || isFulcrumQuoteSource(candidate.sourceQuote))
   )
 }
 
@@ -450,11 +467,35 @@ export function saveQuoteDraft({
     updatedAt: now,
     draft,
     revisions: existing?.revisions ?? [],
+    sourceQuote: existing?.sourceQuote,
   }
   const nextQuotes = existing
     ? quotes.map((quote) => quote.id === record.id ? record : quote)
     : [record, ...quotes]
   return writeAllQuotes(nextQuotes) ? record : null
+}
+
+/** Save every part from one Fulcrum quote in one storage write; never leave a partial import. */
+export function saveGeneratedQuoteDrafts(ownerAccountName: string, estimates: readonly EstimateInput[], sourceQuote?: FulcrumQuoteSource): QuoteRecord[] | null {
+  const quotes = readAllQuotes()
+  if (quoteStoreError) return null
+  if (!ownerAccountName.trim() || estimates.length === 0 || !estimates.every(isEstimate)
+    || (sourceQuote !== undefined && !isFulcrumQuoteSource(sourceQuote))) {
+    quoteStoreError = 'Generated quote data is incomplete. No drafts were saved.'
+    return null
+  }
+  const now = new Date().toISOString()
+  const records: QuoteRecord[] = estimates.map((estimate) => ({
+    id: createId(), ownerAccountName, status: 'draft', createdAt: now, updatedAt: now,
+    revisions: [],
+    sourceQuote: sourceQuote ? { ...sourceQuote } : undefined,
+    draft: {
+      id: createId(), revisionNumber: 1, basedOnRevisionId: null,
+      createdAt: now, updatedAt: now, publishedAt: null,
+      estimate: cloneEstimate(estimate), selectedQuantity: estimate.quantities[0],
+    },
+  }))
+  return writeAllQuotes([...records, ...quotes]) ? records : null
 }
 
 export function startQuoteRevision(id: string, ownerAccountName: string) {
