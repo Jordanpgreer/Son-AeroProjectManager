@@ -22,6 +22,7 @@ import EngineeringStoragePanel from './EngineeringStoragePanel'
 import EstimatorSettingsPanel from './EstimatorSettingsPanel'
 import EstimatingImportAccessPanel from './EstimatingImportAccessPanel'
 import IntegrationCredentialsPanel from './IntegrationCredentialsPanel'
+import ApiCustomizerPanel from './ApiCustomizerPanel'
 import QualityAssignmentRulesPanel from './QualityAssignmentRulesPanel'
 import RaidLogPanel from './RaidLogPanel'
 import WalkthroughSettingsPanel from './WalkthroughSettingsPanel'
@@ -195,7 +196,7 @@ export default function AdminConsole({
   const [permissionsError, setPermissionsError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (route.module === 'raid-log' || route.module === 'integrations' || route.module === 'engineering') {
+    if (route.module === 'raid-log' || route.module === 'integrations' || route.module === 'engineering' || route.module === 'api-customizer') {
       setPermissionsLoading(false)
       setPermissionsError(null)
       return
@@ -499,6 +500,8 @@ export default function AdminConsole({
           {route.module === 'benny' && !permissionsLoading && !permissionsError && canAdministerBenny && <BennySettingsPanel />}
           {route.module === 'integrations' && currentPortalRole !== 'Admin' && <NoAccess detail="API key management requires the Arda Administrator role." />}
           {route.module === 'integrations' && currentPortalRole === 'Admin' && <IntegrationCredentialsPanel />}
+          {route.module === 'api-customizer' && currentPortalRole !== 'Admin' && <NoAccess detail="API Customizer is available only to Arda administrators." />}
+          {route.module === 'api-customizer' && currentPortalRole === 'Admin' && <ApiCustomizerPanel />}
         </div>
       </section>
     </main>

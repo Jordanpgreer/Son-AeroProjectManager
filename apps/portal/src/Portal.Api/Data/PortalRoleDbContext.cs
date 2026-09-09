@@ -34,6 +34,22 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<Portal.Api.Services.ApiCustomizer.CustomizerReportRecord>(entity =>
+        {
+            entity.ToTable("ApiCustomizerReports");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).HasMaxLength(120);
+            entity.Property(x => x.UpdatedBy).HasMaxLength(160);
+            entity.Property(x => x.Version).IsConcurrencyToken();
+        });
+        modelBuilder.Entity<Portal.Api.Services.ApiCustomizer.CustomizerAuditRecord>(entity =>
+        {
+            entity.ToTable("ApiCustomizerAudits");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Actor).HasMaxLength(160);
+            entity.Property(x => x.Action).HasMaxLength(32);
+            entity.Property(x => x.ReportName).HasMaxLength(120);
+        });
         modelBuilder.Entity<PortalRoleRecord>(entity =>
         {
             entity.ToTable("Users");

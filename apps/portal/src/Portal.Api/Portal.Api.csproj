@@ -15,9 +15,15 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.Negotiate" Version="8.*" />
+    <PackageReference Include="ClosedXML" Version="0.105.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.*" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.*" />
     <PackageReference Include="WebPush" Version="1.0.13" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Remove="Services\ApiCustomizer\FulcrumSchema.json" />
+    <EmbeddedResource Include="Services\ApiCustomizer\FulcrumSchema.json" LogicalName="Portal.FulcrumSchema.json" />
   </ItemGroup>
 
   <ItemGroup>

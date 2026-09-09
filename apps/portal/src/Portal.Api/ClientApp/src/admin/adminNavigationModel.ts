@@ -9,6 +9,7 @@ import {
   MessageCircleQuestion,
   Settings2,
   ShieldCheck,
+  TableProperties,
   Users,
 } from 'lucide-react'
 import { resolveModuleApplicationUrl } from './moduleUrls'
@@ -69,6 +70,14 @@ export const ADMIN_MODULES: {
     description: 'Protected credentials for connected systems',
     icon: KeyRound,
     href: '#/admin/integrations/api-keys',
+  },
+  {
+    key: 'api-customizer',
+    label: 'API Customizer',
+    description: 'Fulcrum data catalogue and custom Excel reports',
+    icon: TableProperties,
+    href: '#/admin/api-customizer/overview',
+    adminOnly: true,
   },
   {
     key: 'quality-assurance',

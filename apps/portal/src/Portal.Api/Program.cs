@@ -10,11 +10,16 @@ using Portal.Api.Dtos;
 using Portal.Api.Endpoints;
 using Portal.Api.Models;
 using Portal.Api.Services;
+using Portal.Api.Services.ApiCustomizer;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<FulcrumReportCatalog>();
+builder.Services.AddScoped<CustomizerSchemaInitializer>();
+builder.Services.AddHttpClient<FulcrumReportRunner>(client => client.Timeout = TimeSpan.FromSeconds(45))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton<ApplicationRegistry>();
 builder.Services.AddScoped<PortalUserService>();
 builder.Services.AddScoped<IPortalRoleStore, PortalRoleStore>();
@@ -106,6 +111,8 @@ using (var scope = app.Services.CreateScope())
         .InitializeAsync(CancellationToken.None);
     await scope.ServiceProvider.GetRequiredService<PortalRaidLogSchemaInitializer>()
         .InitializeAsync(CancellationToken.None);
+    await scope.ServiceProvider.GetRequiredService<CustomizerSchemaInitializer>()
+        .InitializeAsync(CancellationToken.None);
     await scope.ServiceProvider.GetRequiredService<ArdaPushSchemaInitializer>()
         .InitializeAsync(CancellationToken.None);
 }
@@ -162,6 +169,7 @@ api.MapGet("/application-notifications", async (
 api.MapEngineeringAdminEndpoints();
 api.MapEstimatingAdminEndpoints();
 api.MapIntegrationCredentialAdminEndpoints();
+api.MapApiCustomizerEndpoints();
 api.MapAdminAccessPreviewEndpoints();
 api.MapRaidLogAdminEndpoints();
 app.MapArdaPushEndpoints();

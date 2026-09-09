@@ -4,6 +4,7 @@ export type AdminModuleKey =
   | 'engineering'
   | 'estimating'
   | 'integrations'
+  | 'api-customizer'
   | 'quality-assurance'
   | 'benny'
   | 'raid-log'
