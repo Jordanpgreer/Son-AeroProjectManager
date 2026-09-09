@@ -15,7 +15,8 @@ public sealed class QualityShippingLayoutServiceTests
     {
         await using var fixture = await LayoutFixture.CreateAsync();
         var defaults = await fixture.Service.GetAsync(fixture.UserOne, CancellationToken.None);
-        Assert.Contains(defaults.Columns, column => column.Key == "shipperNumber");
+        Assert.Contains(defaults.Columns, column => column.Key == "salesOrderNumber");
+        Assert.DoesNotContain(defaults.Columns, column => column.Key == "shipperNumber");
         var columns = defaults.Columns.Select(column => column with { }).ToList();
         var action = columns.Single(column => column.Key == "nextAction");
         columns.Remove(action);

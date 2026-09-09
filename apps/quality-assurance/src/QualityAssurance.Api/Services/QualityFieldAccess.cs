@@ -15,8 +15,7 @@ public static class QualityFieldAccess
     public static readonly IReadOnlyList<QualityFieldDefinition> All =
     [
         new("status", "Status", QualityAssurancePermissions.StatusView, QualityAssurancePermissions.StatusEdit),
-        new("salesOrderNumber", "Sales Order", QualityAssurancePermissions.SalesOrderView, QualityAssurancePermissions.SalesOrderEdit),
-        new("shipperNumber", "Shipper Number", QualityAssurancePermissions.ShipperNumberView, QualityAssurancePermissions.ShipperNumberEdit),
+        new("salesOrderNumber", "Shipper Number", QualityAssurancePermissions.SalesOrderView, QualityAssurancePermissions.SalesOrderEdit),
         new("qaArrivalDate", "Shipment Arrival Date", QualityAssurancePermissions.QaArrivalDateView, QualityAssurancePermissions.QaArrivalDateEdit),
         new("partNumber", "Part Number", QualityAssurancePermissions.PartNumberView, QualityAssurancePermissions.PartNumberEdit),
         new("purchaseOrderNumber", "P.O.", QualityAssurancePermissions.PurchaseOrderView, QualityAssurancePermissions.PurchaseOrderEdit),

@@ -16,10 +16,11 @@ public sealed class QualityShipmentImportService(
 {
     private const string WorksheetName = "Complete List";
     private const int MaximumRows = 5000;
+    private const string ShipperNumberHeader = "Shipper Number";
+    private const string LegacySalesOrderHeader = "Sales Order#";
     private static readonly string[] Headers =
     [
         "Status",
-        "Sales Order#",
         "QA Arrival Date",
         "Part Number",
         "P.O.",
@@ -214,6 +215,8 @@ public sealed class QualityShipmentImportService(
                 ?? throw new ArgumentException($"The workbook must contain a '{WorksheetName}' worksheet.");
             var columns = Columns(sheet);
             var missing = Headers.Where(header => !columns.ContainsKey(NormalizeHeader(header))).ToList();
+            if (!HasColumn(columns, ShipperNumberHeader) && !HasColumn(columns, LegacySalesOrderHeader))
+                missing.Insert(0, $"{ShipperNumberHeader} (or legacy {LegacySalesOrderHeader})");
             if (missing.Count > 0)
                 throw new ArgumentException($"The '{WorksheetName}' worksheet is missing required columns: {string.Join(", ", missing)}.");
 
@@ -227,15 +230,23 @@ public sealed class QualityShipmentImportService(
             {
                 if (IsBlank(sheet, rowNumber, columns)) continue;
                 var rowIssues = new List<ImportIssue>();
-                foreach (var header in Headers)
+                foreach (var header in Headers.Concat([ShipperNumberHeader, LegacySalesOrderHeader]))
                 {
+                    if (!HasColumn(columns, header)) continue;
                     var cell = Cell(sheet, rowNumber, columns, header);
                     if (cell.HasFormula)
                         rowIssues.Add(new ImportIssue(rowNumber, header, "formulas are not accepted in import columns"));
                 }
 
                 var status = Text(sheet, rowNumber, columns, "Status", 80, rowIssues) ?? "WIP";
-                var salesOrder = RequiredText(sheet, rowNumber, columns, "Sales Order#", 80, rowIssues);
+                var shipperNumber = TextIfPresent(sheet, rowNumber, columns, ShipperNumberHeader, 80, rowIssues);
+                var legacySalesOrder = TextIfPresent(sheet, rowNumber, columns, LegacySalesOrderHeader, 80, rowIssues);
+                if (shipperNumber is not null && legacySalesOrder is not null
+                    && !shipperNumber.Equals(legacySalesOrder, StringComparison.OrdinalIgnoreCase))
+                    rowIssues.Add(new ImportIssue(rowNumber, ShipperNumberHeader, $"value must match {LegacySalesOrderHeader} when both columns are populated"));
+                var resolvedShipperNumber = shipperNumber ?? legacySalesOrder;
+                if (resolvedShipperNumber is null)
+                    rowIssues.Add(new ImportIssue(rowNumber, ShipperNumberHeader, "value is required"));
                 var qaArrival = Date(sheet, rowNumber, columns, "QA Arrival Date", rowIssues);
                 var partNumber = RequiredText(sheet, rowNumber, columns, "Part Number", 160, rowIssues);
                 var purchaseOrder = Text(sheet, rowNumber, columns, "P.O.", 160, rowIssues);
@@ -258,7 +269,7 @@ public sealed class QualityShipmentImportService(
                 rows.Add(new ImportRow(
                     rowNumber,
                     status,
-                    salesOrder ?? string.Empty,
+                    resolvedShipperNumber ?? string.Empty,
                     qaArrival,
                     partNumber ?? string.Empty,
                     purchaseOrder,
@@ -296,6 +307,7 @@ public sealed class QualityShipmentImportService(
         {
             Status = row.Status,
             SalesOrderNumber = row.SalesOrderNumber,
+            ShipperNumber = row.SalesOrderNumber,
             QaArrivalDate = row.QaArrivalDate,
             PartNumber = row.PartNumber,
             PurchaseOrderNumber = row.PurchaseOrderNumber,
@@ -359,7 +371,22 @@ public sealed class QualityShipmentImportService(
         IXLWorksheet sheet,
         int row,
         IReadOnlyDictionary<string, int> columns) => Headers.All(header =>
-            Cell(sheet, row, columns, header).IsEmpty());
+            Cell(sheet, row, columns, header).IsEmpty())
+            && (!HasColumn(columns, ShipperNumberHeader) || Cell(sheet, row, columns, ShipperNumberHeader).IsEmpty())
+            && (!HasColumn(columns, LegacySalesOrderHeader) || Cell(sheet, row, columns, LegacySalesOrderHeader).IsEmpty());
+
+    private static bool HasColumn(IReadOnlyDictionary<string, int> columns, string header) =>
+        columns.ContainsKey(NormalizeHeader(header));
+
+    private static string? TextIfPresent(
+        IXLWorksheet sheet,
+        int row,
+        IReadOnlyDictionary<string, int> columns,
+        string header,
+        int maximumLength,
+        List<ImportIssue> issues) => HasColumn(columns, header)
+            ? Text(sheet, row, columns, header, maximumLength, issues)
+            : null;
 
     private static string? RequiredText(
         IXLWorksheet sheet,

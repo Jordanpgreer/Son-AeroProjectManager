@@ -83,8 +83,7 @@ public sealed class QualityShipmentGridExportService(QualityShipmentService ship
     {
         var columns = new List<ExportColumn>();
         Add("status", "Status");
-        Add("salesOrderNumber", "Sales Order");
-        Add("shipperNumber", "Shipper Number");
+        Add("salesOrderNumber", "Shipper Number");
         Add("qaArrivalDate", "Shipment Arrival");
         Add("partNumber", "Part Number");
         Add("purchaseOrderNumber", "P.O.");
@@ -114,7 +113,6 @@ public sealed class QualityShipmentGridExportService(QualityShipmentService ship
         {
             case "status": cell.Value = row.Status ?? string.Empty; break;
             case "salesOrderNumber": cell.Value = row.SalesOrderNumber ?? string.Empty; break;
-            case "shipperNumber": cell.Value = row.ShipperNumber ?? string.Empty; break;
             case "qaArrivalDate" when row.QaArrivalDate.HasValue: cell.Value = row.QaArrivalDate.Value.ToDateTime(TimeOnly.MinValue); break;
             case "partNumber": cell.Value = row.PartNumber ?? string.Empty; break;
             case "purchaseOrderNumber": cell.Value = row.PurchaseOrderNumber ?? string.Empty; break;

@@ -36,6 +36,7 @@ public sealed class QualityShipmentImportServiceTests
         var saved = await fixture.Db.Shipments.Include(shipment => shipment.AuditEntries).OrderBy(shipment => shipment.QaArrivalDate).ToListAsync();
         Assert.Equal(2, saved.Count);
         Assert.All(saved, shipment => Assert.Equal("2195-3", shipment.SalesOrderNumber));
+        Assert.All(saved, shipment => Assert.Equal("2195-3", shipment.ShipperNumber));
         Assert.Equal(["SN 0000241", "SN 0000244"], saved.Select(shipment => shipment.Comments));
         Assert.Equal(new DateOnly(2026, 7, 15), saved[0].QaArrivalDate);
         Assert.Equal(new DateOnly(2026, 8, 20), saved[0].ShipDate);
@@ -92,6 +93,45 @@ public sealed class QualityShipmentImportServiceTests
         var saved = await fixture.Db.Shipments.SingleAsync();
         Assert.Equal(7m, saved.Quantity);
         Assert.Equal(4410.63m, saved.DollarValue);
+    }
+
+    [Fact]
+    public async Task Import_accepts_the_canonical_shipper_number_header()
+    {
+        await using var fixture = await ImportFixture.CreateAsync();
+        var workbook = Workbook([
+            ["WIP", "SHIP-CANONICAL", new DateTime(2026, 9, 1), "PN-CANONICAL", "PO-CANONICAL", "Customer", 1m, null, new DateTime(2026, 9, 30), null, null, null, null, null]
+        ], "Shipper Number");
+
+        await using var stream = new MemoryStream(workbook);
+        var result = await fixture.Importer.ImportAsync(stream, "shipping.xlsx", fixture.Admin, default);
+
+        Assert.Equal(1, result.CreatedRecords);
+        var saved = await fixture.Db.Shipments.SingleAsync();
+        Assert.Equal("SHIP-CANONICAL", saved.SalesOrderNumber);
+        Assert.Equal("SHIP-CANONICAL", saved.ShipperNumber);
+    }
+
+    [Fact]
+    public async Task Import_rejects_conflicting_shipper_alias_values_atomically()
+    {
+        await using var fixture = await ImportFixture.CreateAsync();
+        var workbookBytes = Workbook([
+            ["WIP", "SHIP-LEGACY", new DateTime(2026, 9, 1), "PN-CONFLICT", "PO-CONFLICT", "Customer", 1m, null, new DateTime(2026, 9, 30), null, null, null, null, null]
+        ]);
+        using var workbook = new XLWorkbook(new MemoryStream(workbookBytes));
+        var sheet = workbook.Worksheet("Complete List");
+        sheet.Cell(1, 15).Value = "Shipper Number";
+        sheet.Cell(2, 15).Value = "SHIP-CANONICAL";
+        await using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        stream.Position = 0;
+
+        var error = await Assert.ThrowsAsync<ArgumentException>(() =>
+            fixture.Importer.ImportAsync(stream, "shipping.xlsx", fixture.Admin, default));
+
+        Assert.Contains("must match Sales Order#", error.Message);
+        Assert.Empty(fixture.Db.Shipments);
     }
 
     [Fact]
@@ -255,13 +295,13 @@ public sealed class QualityShipmentImportServiceTests
         return shipment;
     }
 
-    private static byte[] Workbook(IReadOnlyList<object?[]> rows)
+    private static byte[] Workbook(IReadOnlyList<object?[]> rows, string shipperHeader = "Sales Order#")
     {
         using var workbook = new XLWorkbook();
         var sheet = workbook.Worksheets.Add("Complete List");
         var headers = new[]
         {
-            "Status:", "Sales Order#", "QA Arrival Date", "Part Number:", "P.O.", "Customer:",
+            "Status:", shipperHeader, "QA Arrival Date", "Part Number:", "P.O.", "Customer:",
             "Quantity:", "Dollar Value:", "Ship Date:", "Hold Reason:", "When Was Source Requested:",
             "Action:", "Date Last Worked On:", "COMMENTS:"
         };

@@ -17,7 +17,8 @@ public sealed class QualitySqlServerMigrationTests
         "20260901133114_AddLegacyQualityAssigneeTags",
         "20260903215032_AddQualityShipmentFulcrumSyncAndParts",
         "20260908193000_AddQualityShipmentShipperNumber",
-        "20260908210000_AddQualityMentionPortalPushDelivery"
+        "20260908210000_AddQualityMentionPortalPushDelivery",
+        "20260909200000_AddQualityShipmentCreationRequestId"
     ];
 
     [Fact]
@@ -74,6 +75,8 @@ public sealed class QualitySqlServerMigrationTests
         Assert.Contains("[LegacyAssigneeTag] nvarchar(160) NULL", script);
         Assert.Contains("[ExternalShipmentUrl] nvarchar(1000) NULL", script);
         Assert.Contains("[ShipperNumber] nvarchar(80) NULL", script);
+        Assert.Contains("[CreationRequestId] uniqueidentifier NULL", script);
+        Assert.Contains("IX_QualityShipments_CreationRequestId", script);
         Assert.Contains(
             "WHERE ShipperNumber IS NULL AND SalesOrderNumber IS NOT NULL",
             script,

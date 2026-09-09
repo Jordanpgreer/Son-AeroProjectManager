@@ -196,6 +196,9 @@ namespace QualityAssurance.Api.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<Guid?>("CreationRequestId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("CreatedByAccountName")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -320,6 +323,10 @@ namespace QualityAssurance.Api.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Customer");
+
+                    b.HasIndex("CreationRequestId")
+                        .IsUnique()
+                        .HasFilter("[CreationRequestId] IS NOT NULL");
 
                     b.HasIndex("ExternalShipmentId");
 

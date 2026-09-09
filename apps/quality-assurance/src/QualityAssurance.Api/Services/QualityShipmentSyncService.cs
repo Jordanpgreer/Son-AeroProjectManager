@@ -29,15 +29,17 @@ public sealed class QualityShipmentSyncService(
         var shipment = await db.Shipments
             .Include(candidate => candidate.Parts)
             .SingleOrDefaultAsync(candidate => candidate.Id == shipmentId, cancellationToken);
-        if (shipment is null || string.IsNullOrWhiteSpace(shipment.ShipperNumber)) return false;
+        if (shipment is null) return false;
+        var shipperNumber = ShipperNumber(shipment);
+        if (shipperNumber is null) return false;
 
         try
         {
             var provider = await SelectProviderAsync(cancellationToken);
             var results = await provider.FindByShipperNumbersAsync(
-                [shipment.ShipperNumber],
+                [shipperNumber],
                 cancellationToken);
-            if (!results.TryGetValue(shipment.ShipperNumber, out var external))
+            if (!results.TryGetValue(shipperNumber, out var external))
             {
                 await SaveSyncMessageAsync(
                     shipment,
@@ -68,18 +70,26 @@ public sealed class QualityShipmentSyncService(
         if (!options.Value.Enabled) return 0;
         var shipments = await db.Shipments
             .Include(shipment => shipment.Parts)
-            .Where(shipment => shipment.ShipperNumber != null && shipment.ShipperNumber != "")
+            .Where(shipment => shipment.SalesOrderNumber != ""
+                || (shipment.ShipperNumber != null && shipment.ShipperNumber != ""))
             .ToListAsync(cancellationToken);
         if (shipments.Count == 0) return 0;
 
         var provider = await SelectProviderAsync(cancellationToken);
+        var shipperNumbers = shipments
+            .Select(ShipperNumber)
+            .Where(number => number is not null)
+            .Cast<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         var results = await provider.FindByShipperNumbersAsync(
-            shipments.Select(shipment => shipment.ShipperNumber!).ToArray(),
+            shipperNumbers,
             cancellationToken);
         var changed = 0;
         foreach (var shipment in shipments)
         {
-            if (!results.TryGetValue(shipment.ShipperNumber!, out var external))
+            var shipperNumber = ShipperNumber(shipment);
+            if (shipperNumber is null || !results.TryGetValue(shipperNumber, out var external))
             {
                 shipment.ExternalSyncProvider = provider.ProviderName;
                 shipment.ExternalSyncError = $"No matching shipper was found in {provider.ProviderName}.";
@@ -92,6 +102,11 @@ public sealed class QualityShipmentSyncService(
         await db.SaveChangesAsync(cancellationToken);
         return changed;
     }
+
+    private static string? ShipperNumber(QualityShipment shipment) =>
+        string.IsNullOrWhiteSpace(shipment.SalesOrderNumber)
+            ? string.IsNullOrWhiteSpace(shipment.ShipperNumber) ? null : shipment.ShipperNumber.Trim()
+            : shipment.SalesOrderNumber.Trim();
 
     private async Task<IQualityShipmentProvider> SelectProviderAsync(CancellationToken cancellationToken)
     {

@@ -21,7 +21,6 @@ export interface FieldAccess {
 export type ShipmentFieldKey =
   | 'status'
   | 'salesOrderNumber'
-  | 'shipperNumber'
   | 'qaArrivalDate'
   | 'partNumber'
   | 'purchaseOrderNumber'

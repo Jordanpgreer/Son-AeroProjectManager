@@ -68,7 +68,6 @@ const TASK_TYPES = ['General', 'Source Inspection', 'FAI Approval', 'Customer Fe
 interface ShipmentDraft {
   status: string
   salesOrderNumber: string
-  shipperNumber: string
   qaArrivalDate: string
   purchaseOrderNumber: string
   customer: string
@@ -97,16 +96,25 @@ interface ShippingImportResult {
 type ScalarDraftKey = Exclude<keyof ShipmentDraft, 'parts'>
 
 const FIELD_KEYS: ScalarDraftKey[] = [
-  'status', 'salesOrderNumber', 'shipperNumber', 'qaArrivalDate', 'purchaseOrderNumber',
+  'status', 'salesOrderNumber', 'qaArrivalDate', 'purchaseOrderNumber',
   'customer', 'taskType', 'shipDate', 'holdReason',
   'sourceRequestedDate', 'comments',
 ]
+
+const REQUIRED_CREATE_FIELDS = new Set<ShipmentFieldKey>([
+  'salesOrderNumber',
+  'qaArrivalDate',
+  'partNumber',
+  'purchaseOrderNumber',
+  'customer',
+  'quantity',
+  'shipDate',
+])
 
 function draftFor(shipment?: Shipment | null): ShipmentDraft {
   return {
     status: shipment?.status ?? 'WIP',
     salesOrderNumber: shipment?.salesOrderNumber ?? '',
-    shipperNumber: shipment?.shipperNumber ?? '',
     qaArrivalDate: shipment?.qaArrivalDate ?? '',
     purchaseOrderNumber: shipment?.purchaseOrderNumber ?? '',
     customer: shipment?.customer ?? '',
@@ -155,7 +163,6 @@ function Highlight({ value, query }: { value: string; query: string }) {
 type WorklistColumnKey =
   | 'status'
   | 'salesOrderNumber'
-  | 'shipperNumber'
   | 'qaArrivalDate'
   | 'partNumber'
   | 'purchaseOrderNumber'
@@ -179,7 +186,6 @@ interface WorklistColumn {
 const SORT_PARAMETERS: Record<WorklistColumnKey, string> = {
   status: 'status',
   salesOrderNumber: 'sales-order',
-  shipperNumber: 'shipper-number',
   qaArrivalDate: 'qa-arrival',
   partNumber: 'part-number',
   purchaseOrderNumber: 'purchase-order',
@@ -296,10 +302,21 @@ function ShipmentForm({
   onSaved: (shipment: Shipment) => void
 }) {
   const [draft, setDraft] = useState(() => draftFor(shipment))
+  const creationRequestId = useRef(crypto.randomUUID())
+  const formRef = useRef<HTMLFormElement>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const editable = useMemo(() => new Map(fields.map((field) => [field.key, field.canEdit])), [fields])
   const creating = !shipment
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const firstRequired = formRef.current?.querySelector<HTMLElement>('input[required]:not([disabled])')
+    const firstControl = formRef.current?.querySelector<HTMLElement>('select:not([disabled]), input:not([disabled]), textarea:not([disabled]), button:not([disabled])')
+    if (firstRequired) firstRequired.focus()
+    else firstControl?.focus()
+    return () => previousFocus?.focus()
+  }, [])
 
   function update(key: ScalarDraftKey, value: string) {
     setDraft((current) => ({ ...current, [key]: value }))
@@ -337,7 +354,7 @@ function ShipmentForm({
       const parts = partValues(draft)
       if (creating) {
         const body: Record<string, unknown> = Object.fromEntries(FIELD_KEYS
-          .filter((key) => editable.get(key as ShipmentFieldKey))
+          .filter((key) => editable.get(key as ShipmentFieldKey) || REQUIRED_CREATE_FIELDS.has(key as ShipmentFieldKey))
           .map((key) => [key, fieldValue(draft, key)]))
         const firstPart = parts[0]
         Object.assign(body, {
@@ -347,6 +364,7 @@ function ShipmentForm({
             ? firstPart.quantity * firstPart.unitPrice
             : null,
           parts,
+          creationRequestId: creationRequestId.current,
         })
         saved = await qualityApi<Shipment>('/api/shipments', { method: 'POST', body: JSON.stringify(body) })
       } else {
@@ -371,28 +389,51 @@ function ShipmentForm({
   }
 
   const can = (key: ShipmentFieldKey) => editable.get(key) === true
+  const canUse = (key: ShipmentFieldKey) => can(key) || (creating && REQUIRED_CREATE_FIELDS.has(key))
+
+  function handleDialogKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      onClose()
+      return
+    }
+    if (event.key !== 'Tab') return
+    const focusable = [...(event.currentTarget.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+    ))].filter((element) => element.getClientRects().length > 0)
+    if (!focusable.length) return
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-      <section className="modal shipment-form-modal" role="dialog" aria-modal="true" aria-labelledby="shipment-form-title">
+      <section className="modal shipment-form-modal" role="dialog" aria-modal="true" aria-labelledby="shipment-form-title" onKeyDown={handleDialogKeyDown}>
         <header><div><span className="eyebrow">{creating ? 'New Queue Item' : `Shipment ${shipment.salesOrderNumber ?? shipment.id}`}</span><h2 id="shipment-form-title">{creating ? 'Add Shipping Status Record' : 'Edit Shipment Details'}</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label="Close"><X size={18} /></button></header>
-        <form onSubmit={submit}>
+        <form ref={formRef} onSubmit={submit}>
           {error && <p className="notice error"><AlertTriangle size={16} />{error}</p>}
           <div className="form-grid">
             {can('status') && <label><span>Status</span><select value={draft.status} onChange={(event) => update('status', event.target.value)}>{STATUS_OPTIONS.map((status) => <option key={status}>{status}</option>)}</select></label>}
             {can('taskType') && <label><span>Task Type</span><input list="qa-task-types" value={draft.taskType} onChange={(event) => update('taskType', event.target.value)} /><datalist id="qa-task-types">{TASK_TYPES.map((type) => <option key={type}>{type}</option>)}</datalist></label>}
-            {can('salesOrderNumber') && <label><span>Sales Order <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={draft.salesOrderNumber} onChange={(event) => update('salesOrderNumber', event.target.value)} /></label>}
-            {can('shipperNumber') && <label><span>Shipper Number <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={draft.shipperNumber} onChange={(event) => update('shipperNumber', event.target.value)} /></label>}
-            {can('purchaseOrderNumber') && <label><span>PO Number <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={draft.purchaseOrderNumber} onChange={(event) => update('purchaseOrderNumber', event.target.value)} /></label>}
-            {can('customer') && <label><span>Customer <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={draft.customer} onChange={(event) => update('customer', event.target.value)} /></label>}
-            {can('qaArrivalDate') && <label><span>Shipment Arrival Date <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" type="date" value={draft.qaArrivalDate} onChange={(event) => update('qaArrivalDate', event.target.value)} /></label>}
-            {can('shipDate') && <label><span>Ship By Date <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" type="date" value={draft.shipDate} onChange={(event) => update('shipDate', event.target.value)} /></label>}
-            {can('partNumber') && <fieldset className="shipment-parts-editor span-2"><legend>Part Lines</legend>{draft.parts.map((part, index) => {
+            {canUse('salesOrderNumber') && <label><span>Shipper Number <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={draft.salesOrderNumber} onChange={(event) => update('salesOrderNumber', event.target.value)} /></label>}
+            {canUse('purchaseOrderNumber') && <label><span>PO Number <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={draft.purchaseOrderNumber} onChange={(event) => update('purchaseOrderNumber', event.target.value)} /></label>}
+            {canUse('customer') && <label><span>Customer <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={draft.customer} onChange={(event) => update('customer', event.target.value)} /></label>}
+            {canUse('qaArrivalDate') && <label><span>Shipment Arrival Date <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" type="date" value={draft.qaArrivalDate} onChange={(event) => update('qaArrivalDate', event.target.value)} /></label>}
+            {canUse('shipDate') && <label><span>Ship By Date <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" type="date" value={draft.shipDate} onChange={(event) => update('shipDate', event.target.value)} /></label>}
+            {canUse('partNumber') && <fieldset className="shipment-parts-editor span-2"><legend>Part Lines</legend>{draft.parts.map((part, index) => {
               const lineTotal = part.quantity !== '' && part.unitPrice !== ''
                 ? Number(part.quantity) * Number(part.unitPrice)
                 : null
               return <div className="shipment-part-row" key={index}>
                 <label><span>Part Number <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={part.partNumber} onChange={(event) => updatePart(index, 'partNumber', event.target.value)} /></label>
-                <label><span>Quantity</span><input required={creating} disabled={!can('quantity')} type="number" min="0" step="1" value={part.quantity} onChange={(event) => updatePart(index, 'quantity', event.target.value)} /></label>
+                <label><span>Quantity {creating && <b className="required-marker" aria-hidden="true">*</b>}</span><input required={creating} aria-required={creating} disabled={!canUse('quantity')} type="number" min="0" step="1" value={part.quantity} onChange={(event) => updatePart(index, 'quantity', event.target.value)} /></label>
                 <label className="currency-field"><span>Unit Price</span><div><b>$</b><input disabled={!can('dollarValue')} type="number" min="0" step="0.01" value={part.unitPrice} onChange={(event) => updatePart(index, 'unitPrice', event.target.value)} /></div></label>
                 <span className="part-line-total"><small>Line Total</small><strong>{lineTotal == null || !Number.isFinite(lineTotal) ? 'Not Set' : formatCurrency(lineTotal)}</strong></span>
                 {draft.parts.length > 1 && <button className="icon-button part-remove" type="button" onClick={() => removePart(index)} aria-label={`Remove part line ${index + 1}`}><X size={15} /></button>}
@@ -555,8 +596,7 @@ function DetailDrawer({
             {visible('qaArrivalDate') && <div><dt>Shipment Arrival</dt><dd>{formatDate(shipment.qaArrivalDate)}</dd></div>}
             {visible('shipDate') && <div><dt>Ship By</dt><dd>{formatDate(shipment.shipDate)}</dd></div>}
             {visible('purchaseOrderNumber') && <div><dt>P.O.</dt><dd>{shipment.purchaseOrderNumber || 'Not set'}</dd></div>}
-            {visible('salesOrderNumber') && <div><dt>Sales Order</dt><dd>{shipment.salesOrderNumber || 'Not set'}</dd></div>}
-            {visible('shipperNumber') && <div><dt>Shipper Number</dt><dd>{shipment.shipperNumber || 'Not set'}</dd></div>}
+            {visible('salesOrderNumber') && <div><dt>Shipper Number</dt><dd>{shipment.salesOrderNumber || 'Not set'}</dd></div>}
             {visible('taskType') && <div><dt>Task Type</dt><dd>{shipment.taskType || 'Not set'}</dd></div>}
             {visible('quantity') && <div><dt>Quantity</dt><dd>{shipment.quantity?.toLocaleString() ?? 'Not set'}</dd></div>}
             {visible('dollarValue') && <div><dt>Dollar Value</dt><dd>{formatCurrency(shipment.dollarValue)}</dd></div>}
@@ -724,8 +764,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
     && (user.permissions.includes(PERMISSIONS.assignmentGroup) || user.permissions.includes(PERMISSIONS.assignmentUser))
   const worklistColumns = useMemo<WorklistColumn[]>(() => [
     visibleFields.has('status') && { key: 'status', label: 'Status', width: 145 },
-    visibleFields.has('salesOrderNumber') && { key: 'salesOrderNumber', label: 'Sales Order', width: 125 },
-    visibleFields.has('shipperNumber') && { key: 'shipperNumber', label: 'Shipper Number', width: 125 },
+    visibleFields.has('salesOrderNumber') && { key: 'salesOrderNumber', label: 'Shipper Number', width: 125 },
     visibleFields.has('qaArrivalDate') && { key: 'qaArrivalDate', label: 'Shipment Arrival', width: 105 },
     visibleFields.has('partNumber') && { key: 'partNumber', label: 'Part Number', width: 140 },
     visibleFields.has('purchaseOrderNumber') && { key: 'purchaseOrderNumber', label: 'P.O.', width: 105 },
@@ -846,8 +885,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   function renderCell(key: WorklistColumnKey, shipment: Shipment) {
     switch (key) {
       case 'status': return <td key={key}><span className={`status-badge ${shipment.isShipped ? 'shipped' : ''}`}>{shipment.status ?? 'Hidden'}</span></td>
-      case 'salesOrderNumber': return <td className="sales-order-cell" key={key}><strong><Highlight value={shipment.salesOrderNumber ?? 'Hidden'} query={deferredSearch} /></strong></td>
-      case 'shipperNumber': return <td className="sales-order-cell" key={key}><strong>{shipment.externalShipmentUrl && shipment.shipperNumber ? <a className="external-record-link" href={shipment.externalShipmentUrl} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}><Highlight value={shipment.shipperNumber} query={deferredSearch} /><ExternalLink size={11} /></a> : <Highlight value={shipment.shipperNumber ?? 'Hidden'} query={deferredSearch} />}</strong></td>
+      case 'salesOrderNumber': return <td className="sales-order-cell" key={key}><strong>{shipment.externalShipmentUrl && shipment.salesOrderNumber ? <a className="external-record-link" href={shipment.externalShipmentUrl} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}><Highlight value={shipment.salesOrderNumber} query={deferredSearch} /><ExternalLink size={11} /></a> : <Highlight value={shipment.salesOrderNumber ?? 'Hidden'} query={deferredSearch} />}</strong></td>
       case 'qaArrivalDate': return <td key={key}>{formatDate(shipment.qaArrivalDate)}</td>
       case 'partNumber': return <td key={key}><Highlight value={shipment.partNumber ?? ''} query={deferredSearch} /></td>
       case 'purchaseOrderNumber': return <td key={key}><Highlight value={shipment.purchaseOrderNumber ?? ''} query={deferredSearch} /></td>

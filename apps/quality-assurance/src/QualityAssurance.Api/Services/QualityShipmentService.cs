@@ -264,30 +264,52 @@ public sealed class QualityShipmentService(
         QualityAssuranceAccessProfile access,
         CancellationToken cancellationToken)
     {
+        if (!access.HasPermission(QualityAssurancePermissions.ShipmentCreate))
+            throw new UnauthorizedAccessException("You do not have permission to create shipping records.");
+        if (dto.CreationRequestId == Guid.Empty)
+            throw new ArgumentException("Creation request ID cannot be empty.");
+
+        var shipperNumber = ResolveShipperNumber(dto.SalesOrderNumber, dto.ShipperNumber);
+        if (dto.CreationRequestId.HasValue)
+        {
+            var replay = await db.Shipments
+                .Include(candidate => candidate.Parts)
+                .AsNoTracking()
+                .SingleOrDefaultAsync(
+                    candidate => candidate.CreationRequestId == dto.CreationRequestId,
+                    cancellationToken);
+            if (replay is not null)
+            {
+                if (!string.Equals(replay.CreatedByAccountName, access.AccountName, StringComparison.OrdinalIgnoreCase))
+                    throw new UnauthorizedAccessException("This creation request belongs to another user.");
+                if (!string.Equals(replay.SalesOrderNumber, shipperNumber, StringComparison.OrdinalIgnoreCase))
+                    throw new ArgumentException("This creation request was already used for a different shipping record.");
+                return ToDto(replay, access);
+            }
+        }
+
         EnsureEditable(access, "status", dto.Status);
-        EnsureEditable(access, "salesOrderNumber", dto.SalesOrderNumber);
-        EnsureEditable(access, "shipperNumber", dto.ShipperNumber);
-        EnsureEditable(access, "qaArrivalDate", dto.QaArrivalDate);
-        EnsureEditable(access, "partNumber", dto.PartNumber);
-        EnsureEditable(access, "purchaseOrderNumber", dto.PurchaseOrderNumber);
-        EnsureEditable(access, "customer", dto.Customer);
         EnsureEditable(access, "taskType", dto.TaskType);
-        EnsureEditable(access, "quantity", dto.Quantity);
         EnsureEditable(access, "dollarValue", dto.DollarValue);
-        EnsureEditable(access, "shipDate", dto.ShipDate);
         EnsureEditable(access, "holdReason", dto.HoldReason);
         EnsureEditable(access, "sourceRequestedDate", dto.SourceRequestedDate);
         EnsureEditable(access, "nextAction", dto.NextAction);
         EnsureEditable(access, "comments", dto.Comments);
-        if (dto.Parts is { Count: > 0 }) EnsurePartsEditable(access, dto.Parts);
+        if (dto.Parts?.Any(part => part.UnitPrice.HasValue) == true
+            && !access.HasPermission(QualityAssurancePermissions.DollarValueEdit))
+            throw new UnauthorizedAccessException("You do not have permission to set unit prices.");
 
         var normalizedParts = NormalizeParts(dto.Parts, dto.PartNumber, dto.Quantity, dto.DollarValue);
+        var missingQuantity = normalizedParts.FirstOrDefault(part => !part.Quantity.HasValue);
+        if (missingQuantity is not null)
+            throw new ArgumentException($"Quantity on line {missingQuantity.DisplayOrder + 1} is required.");
         var now = DateTimeOffset.UtcNow;
         var shipment = new QualityShipment
         {
             Status = Required(dto.Status ?? "WIP", "Status", 80),
-            SalesOrderNumber = Required(dto.SalesOrderNumber, "Sales order", 80),
-            ShipperNumber = Required(dto.ShipperNumber, "Shipper number", 80),
+            SalesOrderNumber = shipperNumber,
+            ShipperNumber = shipperNumber,
+            CreationRequestId = dto.CreationRequestId,
             QaArrivalDate = RequiredDate(dto.QaArrivalDate, "Shipment arrival date"),
             PartNumber = normalizedParts[0].PartNumber,
             PurchaseOrderNumber = Required(dto.PurchaseOrderNumber, "PO number", 160),
@@ -340,7 +362,7 @@ public sealed class QualityShipmentService(
             }
         }
         db.Shipments.Add(shipment);
-        AddAudit(shipment, access, "Created", null, null, shipment.SalesOrderNumber, now);
+        AddAudit(shipment, access, "Created", "salesOrderNumber", null, shipment.SalesOrderNumber, now);
         AddAudit(
             shipment,
             access,
@@ -349,9 +371,37 @@ public sealed class QualityShipmentService(
             null,
             AssignmentLabel(shipment),
             now);
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException) when (dto.CreationRequestId.HasValue)
+        {
+            db.ChangeTracker.Clear();
+            var replay = await db.Shipments
+                .Include(candidate => candidate.Parts)
+                .AsNoTracking()
+                .SingleOrDefaultAsync(
+                    candidate => candidate.CreationRequestId == dto.CreationRequestId,
+                    CancellationToken.None);
+            if (replay is null) throw;
+            if (!string.Equals(replay.CreatedByAccountName, access.AccountName, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(replay.SalesOrderNumber, shipperNumber, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("This creation request was already used for a different shipping record.");
+            return ToDto(replay, access);
+        }
         if (integrationSync is not null)
-            await integrationSync.TrySyncShipmentAsync(shipment.Id, cancellationToken);
+        {
+            try
+            {
+                await integrationSync.TrySyncShipmentAsync(shipment.Id, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // The local record is already committed. Let the normal reconciliation path
+                // retry external synchronization without encouraging a duplicate create.
+            }
+        }
         return ToDto(shipment, access);
     }
 
@@ -369,8 +419,28 @@ public sealed class QualityShipmentService(
         PrepareVersion(shipment, dto.Version);
         var now = DateTimeOffset.UtcNow;
         var changedRoutingInput = false;
+        var shipperChanges = dto.Changes
+            .Where(change => change.Key.Equals("salesOrderNumber", StringComparison.OrdinalIgnoreCase)
+                || change.Key.Equals("shipperNumber", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var changedShipperNumber = shipperChanges.Count > 0;
+        if (changedShipperNumber)
+        {
+            EnsureShipperEditable(access, shipperChanges[0].Value);
+            var salesOrderValue = shipperChanges
+                .FirstOrDefault(change => change.Key.Equals("salesOrderNumber", StringComparison.OrdinalIgnoreCase));
+            var aliasValue = shipperChanges
+                .FirstOrDefault(change => change.Key.Equals("shipperNumber", StringComparison.OrdinalIgnoreCase));
+            var resolved = ResolveShipperNumber(
+                salesOrderValue.Key is null ? null : ReadString(salesOrderValue.Value),
+                aliasValue.Key is null ? null : ReadString(aliasValue.Value));
+            Change(shipment, "salesOrderNumber", shipment.SalesOrderNumber, resolved, next => shipment.SalesOrderNumber = next, access, now);
+            shipment.ShipperNumber = resolved;
+        }
         foreach (var change in dto.Changes)
         {
+            if (change.Key.Equals("salesOrderNumber", StringComparison.OrdinalIgnoreCase)
+                || change.Key.Equals("shipperNumber", StringComparison.OrdinalIgnoreCase)) continue;
             if (string.Equals(change.Key, "parts", StringComparison.OrdinalIgnoreCase))
             {
                 EnsurePartsEditable(access);
@@ -392,8 +462,7 @@ public sealed class QualityShipmentService(
         shipment.UpdatedByDisplayName = access.DisplayName;
         shipment.Version++;
         await db.SaveChangesAsync(cancellationToken);
-        if (integrationSync is not null && dto.Changes.Keys.Any(key =>
-                string.Equals(key, "salesOrderNumber", StringComparison.OrdinalIgnoreCase)))
+        if (integrationSync is not null && changedShipperNumber)
             await integrationSync.TrySyncShipmentAsync(shipment.Id, cancellationToken);
         return ToDto(shipment, access);
     }
@@ -587,12 +656,27 @@ public sealed class QualityShipmentService(
                 entry.Id,
                 entry.EventType,
                 entry.FieldName,
-                entry.OldValue,
-                entry.NewValue,
+                CanViewAuditValue(access, entry.FieldName) ? entry.OldValue : null,
+                CanViewAuditValue(access, entry.FieldName) ? entry.NewValue : null,
                 entry.AccountName,
                 entry.DisplayName,
                 entry.OccurredAt))
             .ToList();
+    }
+
+    private static bool CanViewAuditValue(QualityAssuranceAccessProfile access, string? fieldName)
+    {
+        if (string.IsNullOrWhiteSpace(fieldName)) return false;
+        if (fieldName.Equals("assignment", StringComparison.OrdinalIgnoreCase))
+            return access.HasPermission(QualityAssurancePermissions.AssignmentView);
+        if (fieldName.Equals("parts", StringComparison.OrdinalIgnoreCase))
+            return access.HasPermission(QualityAssurancePermissions.PartNumberView)
+                && access.HasPermission(QualityAssurancePermissions.QuantityView)
+                && access.HasPermission(QualityAssurancePermissions.DollarValueView);
+
+        var field = QualityFieldAccess.All.FirstOrDefault(candidate =>
+            candidate.Key.Equals(fieldName, StringComparison.OrdinalIgnoreCase));
+        return field is not null && access.HasPermission(field.ViewPermission);
     }
 
     private IQueryable<QualityShipment> ApplyVisibility(
@@ -638,7 +722,6 @@ public sealed class QualityShipmentService(
         if (string.IsNullOrWhiteSpace(value)) return query;
         var normalized = value.ToLowerInvariant();
         var canSalesOrder = access.HasPermission(QualityAssurancePermissions.SalesOrderView);
-        var canShipperNumber = access.HasPermission(QualityAssurancePermissions.ShipperNumberView);
         var canPart = access.HasPermission(QualityAssurancePermissions.PartNumberView);
         var canPo = access.HasPermission(QualityAssurancePermissions.PurchaseOrderView);
         var canCustomer = access.HasPermission(QualityAssurancePermissions.CustomerView);
@@ -648,7 +731,7 @@ public sealed class QualityShipmentService(
         var canComments = access.HasPermission(QualityAssurancePermissions.CommentsView);
         return query.Where(shipment =>
             (canSalesOrder && shipment.SalesOrderNumber.ToLower().Contains(normalized))
-            || (canShipperNumber && shipment.ShipperNumber != null && shipment.ShipperNumber.ToLower().Contains(normalized))
+            || (canSalesOrder && shipment.ShipperNumber != null && shipment.ShipperNumber.ToLower().Contains(normalized))
             || (canPart && (shipment.PartNumber.ToLower().Contains(normalized)
                 || shipment.Parts.Any(part => part.PartNumber.ToLower().Contains(normalized))))
             || (canPo && shipment.PurchaseOrderNumber != null && shipment.PurchaseOrderNumber.ToLower().Contains(normalized))
@@ -732,7 +815,6 @@ public sealed class QualityShipmentService(
         {
             "status" => descending ? query.OrderByDescending(shipment => shipment.Status) : query.OrderBy(shipment => shipment.Status),
             "sales-order" => descending ? query.OrderByDescending(shipment => shipment.SalesOrderNumber) : query.OrderBy(shipment => shipment.SalesOrderNumber),
-            "shipper-number" => descending ? query.OrderByDescending(shipment => shipment.ShipperNumber) : query.OrderBy(shipment => shipment.ShipperNumber),
             "part-number" => descending ? query.OrderByDescending(shipment => shipment.PartNumber) : query.OrderBy(shipment => shipment.PartNumber),
             "purchase-order" => descending ? query.OrderByDescending(shipment => shipment.PurchaseOrderNumber) : query.OrderBy(shipment => shipment.PurchaseOrderNumber),
             "customer" => descending ? query.OrderByDescending(shipment => shipment.Customer) : query.OrderBy(shipment => shipment.Customer),
@@ -1012,8 +1094,7 @@ public sealed class QualityShipmentService(
         switch (key)
         {
             case "status": Change(shipment, key, shipment.Status, Required(ReadString(value), "Status", 80), next => shipment.Status = next, access, now); break;
-            case "salesOrderNumber": Change(shipment, key, shipment.SalesOrderNumber, Required(ReadString(value), "Sales order", 80), next => shipment.SalesOrderNumber = next, access, now); break;
-            case "shipperNumber": Change(shipment, key, shipment.ShipperNumber, Required(ReadString(value), "Shipper number", 80), next => shipment.ShipperNumber = next, access, now); break;
+            case "salesOrderNumber": throw new InvalidOperationException("Shipper number changes must be normalized before field updates are applied.");
             case "qaArrivalDate": Change(shipment, key, shipment.QaArrivalDate, RequiredDate(ReadDate(value), "Shipment arrival date"), next => shipment.QaArrivalDate = next, access, now); break;
             case "partNumber": Change(shipment, key, shipment.PartNumber, Required(ReadString(value), "Part number", 160), next => shipment.PartNumber = next, access, now); break;
             case "purchaseOrderNumber": Change(shipment, key, shipment.PurchaseOrderNumber, Required(ReadString(value), "PO number", 160), next => shipment.PurchaseOrderNumber = next, access, now); break;
@@ -1199,6 +1280,24 @@ public sealed class QualityShipmentService(
 
     private static string Required(string? value, string label, int maxLength) =>
         Text(value, null, maxLength) ?? throw new ArgumentException($"{label} is required.");
+
+    private static string ResolveShipperNumber(string? salesOrderNumber, string? shipperNumber)
+    {
+        var canonical = Text(salesOrderNumber, null, 80);
+        var alias = Text(shipperNumber, null, 80);
+        if (canonical is not null && alias is not null
+            && !canonical.Equals(alias, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Sales order number and shipper number must match when both are provided.");
+        return canonical ?? alias ?? throw new ArgumentException("Shipper number is required.");
+    }
+
+    private static void EnsureShipperEditable(QualityAssuranceAccessProfile access, object? value)
+    {
+        if (value is null || value is string text && string.IsNullOrWhiteSpace(text)) return;
+        if (!access.HasPermission(QualityAssurancePermissions.SalesOrderEdit)
+            && !access.HasPermission(QualityAssurancePermissions.ShipperNumberEdit))
+            throw new UnauthorizedAccessException("You do not have permission to set Shipper Number.");
+    }
 
     private static string? Text(string? value, string? fallback, int maxLength)
     {

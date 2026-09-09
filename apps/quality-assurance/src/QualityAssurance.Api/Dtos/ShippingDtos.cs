@@ -81,7 +81,8 @@ public sealed record QualityShipmentCreateDto(
     string? NextAction,
     string? Comments,
     IReadOnlyList<QualityShipmentPartInputDto>? Parts = null,
-    string? ShipperNumber = null);
+    string? ShipperNumber = null,
+    Guid? CreationRequestId = null);
 
 public sealed record QualityShipmentPatchDto(
     long Version,

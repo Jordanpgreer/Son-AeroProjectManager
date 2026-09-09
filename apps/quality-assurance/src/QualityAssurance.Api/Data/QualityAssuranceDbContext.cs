@@ -39,6 +39,9 @@ public sealed class QualityAssuranceDbContext(
             entity.Property(shipment => shipment.ExternalSyncProvider).HasMaxLength(40);
             entity.Property(shipment => shipment.ExternalSyncError).HasMaxLength(1000);
             entity.Property(shipment => shipment.Version).IsConcurrencyToken();
+            entity.HasIndex(shipment => shipment.CreationRequestId)
+                .IsUnique()
+                .HasFilter("[CreationRequestId] IS NOT NULL");
             entity.HasIndex(shipment => new { shipment.IsShipped, shipment.AssignedUserId, shipment.CreatedAt });
             entity.HasIndex(shipment => new { shipment.IsShipped, shipment.AssignedGroupId, shipment.ShipDate });
             entity.HasIndex(shipment => shipment.Customer);

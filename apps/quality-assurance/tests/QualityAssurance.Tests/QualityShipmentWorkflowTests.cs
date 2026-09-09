@@ -2,6 +2,7 @@ using ClosedXML.Excel;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using System.Text.Json;
 using QualityAssurance.Api.Auth;
 using QualityAssurance.Api.Data;
 using QualityAssurance.Api.Dtos;
@@ -18,15 +19,13 @@ public sealed class QualityShipmentWorkflowTests
     {
         await using var fixture = await WorkflowFixture.CreateAsync();
         var created = await fixture.Shipments.CreateAsync(new QualityShipmentCreateDto(
-            "WIP", "SO-100", new DateOnly(2026, 8, 1), "PN-100", "PO-10", "Customer A",
-            "Source Inspection", 5, 1250, new DateOnly(2026, 8, 15), null, null, "Review package", "Initial note",
-            ShipperNumber: "SHIP-100"),
+            "WIP", "SHIP-100", new DateOnly(2026, 8, 1), "PN-100", "PO-10", "Customer A",
+            "Source Inspection", 5, 1250, new DateOnly(2026, 8, 15), null, null, "Review package", "Initial note"),
             fixture.Admin,
             CancellationToken.None);
 
         Assert.Equal(fixture.Admin.UserId, created.AssignedUserId);
-        Assert.Equal("SO-100", created.SalesOrderNumber);
-        Assert.Equal("SHIP-100", created.ShipperNumber);
+        Assert.Equal("SHIP-100", created.SalesOrderNumber);
         Assert.Equal(2, await fixture.Db.ShipmentAuditEntries.CountAsync());
 
         var shipped = await fixture.Shipments.MarkShippedAsync(created.Id, created.Version, fixture.Admin, CancellationToken.None);
@@ -43,6 +42,147 @@ public sealed class QualityShipmentWorkflowTests
     }
 
     [Fact]
+    public async Task Create_requires_one_visible_shipper_number_and_mirrors_the_compatibility_column()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        Assert.DoesNotContain(fixture.Admin.Permissions, permission =>
+            permission == QualityAssurancePermissions.ShipperNumberEdit);
+        Assert.Equal("Shipper Number", QualityFieldAccess.Find("salesOrderNumber").Label);
+        Assert.DoesNotContain(QualityFieldAccess.All, field => field.Key == "shipperNumber");
+
+        var created = await fixture.Shipments.CreateAsync(new QualityShipmentCreateDto(
+            "WIP", "SHIP-ONLY", new DateOnly(2026, 9, 9), "PN-ONLY", "PO-ONLY", "Customer A",
+            "General", 1, 100, new DateOnly(2026, 9, 30), null, null, null, null),
+            fixture.Admin,
+            CancellationToken.None);
+
+        Assert.Equal("SHIP-ONLY", created.SalesOrderNumber);
+        Assert.Equal("SHIP-ONLY", await fixture.Db.Shipments
+            .Where(shipment => shipment.Id == created.Id)
+            .Select(shipment => shipment.ShipperNumber)
+            .SingleAsync());
+    }
+
+    [Fact]
+    public async Task Create_reports_shipper_number_required_when_the_visible_identifier_is_blank()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+
+        var error = await Assert.ThrowsAsync<ArgumentException>(() => fixture.Shipments.CreateAsync(
+            new QualityShipmentCreateDto(
+                "WIP", " ", new DateOnly(2026, 9, 9), "PN-ONLY", "PO-ONLY", "Customer A",
+                "General", 1, 100, new DateOnly(2026, 9, 30), null, null, null, null),
+            fixture.Admin,
+            CancellationToken.None));
+
+        Assert.Equal("Shipper number is required.", error.Message);
+    }
+
+    [Fact]
+    public async Task Create_permission_allows_required_entry_fields_without_granting_later_edit_access()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var creator = new QualityAssuranceAccessProfile(
+            45,
+            "TEST\\creator",
+            "Create Only",
+            ApplicationRoles.Editor,
+            [QualityAssurancePermissions.ShipmentCreate],
+            [new QualityAssuranceAccessGroup(10, "Quality")]);
+
+        var created = await fixture.Shipments.CreateAsync(new QualityShipmentCreateDto(
+            null, "SHIP-CREATE-ONLY", new DateOnly(2026, 9, 9), "PN-CREATE", "PO-CREATE", "Customer",
+            null, 2, null, new DateOnly(2026, 9, 30), null, null, null, null), creator, default);
+
+        Assert.True(created.Id > 0);
+        var changes = new Dictionary<string, JsonElement>
+        {
+            ["salesOrderNumber"] = JsonSerializer.SerializeToElement("SHIP-EDITED")
+        };
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Shipments.PatchAsync(
+            created.Id,
+            new QualityShipmentPatchDto(created.Version, changes),
+            creator,
+            default));
+    }
+
+    [Fact]
+    public async Task Create_rejects_callers_without_create_permission()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var viewer = fixture.Admin with
+        {
+            Permissions = fixture.Admin.Permissions
+                .Where(permission => permission != QualityAssurancePermissions.ShipmentCreate)
+                .ToList()
+        };
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Shipments.CreateAsync(
+            new QualityShipmentCreateDto(
+                null, "SHIP-DENIED", new DateOnly(2026, 9, 9), "PN-DENIED", "PO-DENIED", "Customer",
+                null, 1, null, new DateOnly(2026, 9, 30), null, null, null, null),
+            viewer,
+            default));
+    }
+
+    [Fact]
+    public async Task Create_requires_quantity_on_every_part_line_but_allows_zero()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var error = await Assert.ThrowsAsync<ArgumentException>(() => fixture.Shipments.CreateAsync(
+            new QualityShipmentCreateDto(
+                "WIP", "SHIP-NO-QTY", new DateOnly(2026, 9, 9), "PN-NO-QTY", "PO-NO-QTY", "Customer",
+                "General", null, null, new DateOnly(2026, 9, 30), null, null, null, null),
+            fixture.Admin,
+            default));
+        Assert.Equal("Quantity on line 1 is required.", error.Message);
+
+        var created = await fixture.Shipments.CreateAsync(new QualityShipmentCreateDto(
+            "WIP", "SHIP-ZERO-QTY", new DateOnly(2026, 9, 9), "PN-ZERO-QTY", "PO-ZERO-QTY", "Customer",
+            "General", 0, null, new DateOnly(2026, 9, 30), null, null, null, null), fixture.Admin, default);
+        Assert.Equal(0m, created.Quantity);
+    }
+
+    [Fact]
+    public async Task Retrying_the_same_creation_request_returns_the_original_record()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var requestId = Guid.NewGuid();
+        var request = new QualityShipmentCreateDto(
+            "WIP", "SHIP-IDEMPOTENT", new DateOnly(2026, 9, 9), "PN-IDEMPOTENT", "PO-IDEMPOTENT", "Customer",
+            "General", 1, null, new DateOnly(2026, 9, 30), null, null, null, null,
+            CreationRequestId: requestId);
+
+        var first = await fixture.Shipments.CreateAsync(request, fixture.Admin, default);
+        var replay = await fixture.Shipments.CreateAsync(request, fixture.Admin, default);
+
+        Assert.Equal(first.Id, replay.Id);
+        Assert.Equal(1, await fixture.Db.Shipments.CountAsync());
+        Assert.Equal(requestId, await fixture.Db.Shipments.Select(shipment => shipment.CreationRequestId).SingleAsync());
+    }
+
+    [Fact]
+    public async Task Audit_values_are_redacted_when_the_corresponding_field_is_hidden()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var created = await fixture.Shipments.CreateAsync(new QualityShipmentCreateDto(
+            "WIP", "SHIP-SECRET", new DateOnly(2026, 9, 9), "PN-AUDIT", "PO-AUDIT", "Customer",
+            "General", 1, null, new DateOnly(2026, 9, 30), null, null, null, null), fixture.Admin, default);
+        var restricted = fixture.Admin with
+        {
+            Permissions = fixture.Admin.Permissions
+                .Where(permission => permission != QualityAssurancePermissions.SalesOrderView)
+                .ToList()
+        };
+
+        var audit = await fixture.Shipments.AuditAsync(created.Id, restricted, default);
+
+        var creation = Assert.Single(audit!, entry => entry.EventType == "Created");
+        Assert.Equal("salesOrderNumber", creation.FieldName);
+        Assert.Null(creation.NewValue);
+    }
+
+    [Fact]
     public async Task Create_supports_multiple_parts_and_calculates_record_totals()
     {
         await using var fixture = await WorkflowFixture.CreateAsync();
@@ -52,7 +192,7 @@ public sealed class QualityShipmentWorkflowTests
             [
                 new QualityShipmentPartInputDto("PART-A", 2, 12.50m),
                 new QualityShipmentPartInputDto("PART-B", 3, 20m)
-            ], "SHIP-MULTI"), fixture.Admin, default);
+            ]), fixture.Admin, default);
 
         Assert.Equal(2, created.Parts.Count);
         Assert.Equal(5m, created.Quantity);
@@ -171,9 +311,8 @@ public sealed class QualityShipmentWorkflowTests
         var creator = fixture.Admin with { Permissions = permissions };
 
         var created = await fixture.Shipments.CreateAsync(new QualityShipmentCreateDto(
-            "WIP", "SO-INELIGIBLE-CREATOR", new DateOnly(2026, 9, 1), "PN-CREATOR", "PO-CREATOR", "Customer",
-            "General", null, null, new DateOnly(2026, 9, 10), null, null, null, null,
-            ShipperNumber: "SHIP-INELIGIBLE-CREATOR"),
+            "WIP", "SHIP-INELIGIBLE-CREATOR", new DateOnly(2026, 9, 1), "PN-CREATOR", "PO-CREATOR", "Customer",
+            "General", 1, null, new DateOnly(2026, 9, 10), null, null, null, null),
             creator,
             default);
 
@@ -216,9 +355,8 @@ public sealed class QualityShipmentWorkflowTests
         await fixture.Db.SaveChangesAsync();
 
         var created = await fixture.Shipments.CreateAsync(new QualityShipmentCreateDto(
-            "WIP", "SO-200", new DateOnly(2026, 9, 1), "PN-200", "PO-200", "Customer A", "General",
-            null, null, new DateOnly(2026, 9, 10), null, null, null, null,
-            ShipperNumber: "SHIP-200"), fixture.Admin, CancellationToken.None);
+            "WIP", "SHIP-200", new DateOnly(2026, 9, 1), "PN-200", "PO-200", "Customer A", "General",
+            1, null, new DateOnly(2026, 9, 10), null, null, null, null), fixture.Admin, CancellationToken.None);
 
         Assert.Equal(2, created.AssignedUserId);
         Assert.Equal("Person Two", created.AssignedDisplayName);
@@ -749,7 +887,7 @@ public sealed class QualityShipmentWorkflowTests
         using var workbook = new XLWorkbook(new MemoryStream(file.Content));
         var sheet = workbook.Worksheet("Grid Results");
         var salesOrderColumn = sheet.Row(1).CellsUsed()
-            .Single(cell => cell.GetString() == "Sales Order")
+            .Single(cell => cell.GetString() == "Shipper Number")
             .Address.ColumnNumber;
         Assert.Equal("SO-ACME-UNASSIGNED", sheet.Cell(2, salesOrderColumn).GetString());
         Assert.Contains("quality-shipping-results-", file.FileName);
@@ -834,7 +972,7 @@ public sealed class QualityShipmentWorkflowTests
         using var workbook = new XLWorkbook(new MemoryStream(file.Content));
         var sheet = workbook.Worksheet("Grid Results");
         var salesOrderColumn = sheet.Row(1).CellsUsed()
-            .Single(cell => cell.GetString() == "Sales Order")
+            .Single(cell => cell.GetString() == "Shipper Number")
             .Address.ColumnNumber;
         var exportedSalesOrders = sheet.Column(salesOrderColumn).CellsUsed()
             .Skip(1)
