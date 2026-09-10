@@ -1,0 +1,9 @@
+{
+  "baseUrl": "https://estimating.hub.son4l.local",
+  "mailbox": "",
+  "pollIntervalSeconds": 120,
+  "initialLookbackDays": 30,
+  "maxMessagesPerPoll": 100,
+  "maxRetriesPerPoll": 25,
+  "requestTimeoutSeconds": 60
+}

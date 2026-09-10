@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import {
   AlertTriangle,
   BookOpen,
@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   History,
   ListChecks,
+  MessagesSquare,
   LockKeyhole,
   PanelLeftClose,
   PanelLeftOpen,
@@ -25,12 +26,9 @@ import type { EstimatingMe } from './authorization'
 import { persistTheme, readThemePreference } from './theme'
 import type { AppTheme } from './theme'
 
-type EstimatingPage =
-  | 'quotes'
-  | 'calculator'
-  | 'history'
-  | 'rates'
-  | 'operation-rules'
+import { PAGE_META, pageFromHash, type EstimatingPage } from './estimatingNavigation'
+
+const QuoteStatusPage = lazy(() => import('./vendor-quotes/QuoteStatusPage'))
 
 function defaultHubUrl() {
   const hostname = window.location.hostname.toLowerCase()
@@ -55,54 +53,6 @@ function defaultHubUrl() {
 }
 
 export const hubUrl = defaultHubUrl()
-
-const PAGE_META: Record<EstimatingPage, {
-  eyebrow: string
-  title: string
-  subtitle: string
-}> = {
-  quotes: {
-    eyebrow: 'Estimating portfolio',
-    title: 'Quotes Dashboard',
-    subtitle: 'Manage draft, current, and completed quotes from one workspace.',
-  },
-  calculator: {
-    eyebrow: 'Quote preparation',
-    title: 'Estimate Calculator',
-    subtitle: 'Build standard, rubber, and subassembly estimates across controlled quantity tiers.',
-  },
-  history: {
-    eyebrow: 'Controlled quote intelligence',
-    title: 'Estimating Logs',
-    subtitle: 'Search imported Fulcrum history and monitor estimator throughput and queue health.',
-  },
-  rates: {
-    eyebrow: 'Controlled reference',
-    title: 'Rates Reference',
-    subtitle: 'Review annual labor, burden, G&A, profit, and source history.',
-  },
-  'operation-rules': {
-    eyebrow: 'Controlled operation translation',
-    title: 'Operation Rules',
-    subtitle: 'Manage controlled operation-step mappings linked to Rates Reference.',
-  },
-}
-
-function pageFromHash(): EstimatingPage | null {
-  const route = window.location.hash
-    .replace(/^#\/?/, '')
-    .split('?')[0]
-    .toLowerCase()
-  if (route === 'fulcrum-builder') return 'calculator'
-  if (
-    route === 'quotes'
-    || route === 'calculator'
-    || route === 'history'
-    || route === 'rates'
-    || route === 'operation-rules'
-  ) return route
-  return null
-}
 
 function ThemeSwitch({
   theme,
@@ -279,7 +229,7 @@ export default function App() {
     estimatingPermissions.importHistory,
   ) && !me?.isPreview
   useEffect(() => {
-    if (accessLoading || !me || page !== 'history' || canViewHistory) return
+    if (accessLoading || !me || (page !== 'history' && page !== 'quote-status') || canViewHistory) return
     window.history.replaceState(
       null,
       '',
@@ -362,6 +312,15 @@ export default function App() {
               <span className="nav-icon"><LayoutDashboard size={17} aria-hidden="true" /></span>
               <span className="nav-link-label">Quotes Dashboard</span>
             </a>
+            {canViewHistory && <a
+              className={`nav-link ${page === 'quote-status' ? 'active' : ''}`}
+              href="#/quote-status"
+              aria-current={page === 'quote-status' ? 'page' : undefined}
+              title="Quote Status"
+            >
+              <span className="nav-icon"><MessagesSquare size={17} aria-hidden="true" /></span>
+              <span className="nav-link-label">Quote Status</span>
+            </a>}
             <a
               className={`nav-link ${page === 'calculator' ? 'active' : ''}`}
               href="#/calculator"
@@ -451,6 +410,10 @@ export default function App() {
             <LayoutDashboard size={16} aria-hidden="true" />
             Quotes
           </a>
+          {canViewHistory && <a href="#/quote-status" aria-current={page === 'quote-status' ? 'page' : undefined}>
+            <MessagesSquare size={16} aria-hidden="true" />
+            Quote Status
+          </a>}
           <a href="#/calculator" aria-current={page === 'calculator' ? 'page' : undefined}>
             <Calculator size={16} aria-hidden="true" />
             Calculator
@@ -478,6 +441,11 @@ export default function App() {
                 canDeleteQuotes={canDeleteQuotes}
                 canGenerateQuotes={canManageQuotes && canManageInputs && canViewHistory}
               />
+            )}
+            {page === 'quote-status' && canViewHistory && (
+              <Suspense fallback={<div role="status" className="quote-empty-state">Loading quote status…</div>}>
+                <QuoteStatusPage key={me.accountName} me={me} />
+              </Suspense>
             )}
             {page === 'calculator' && (
               <EstimateCalculatorPage

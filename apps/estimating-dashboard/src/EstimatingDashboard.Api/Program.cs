@@ -16,6 +16,9 @@ builder.Services.AddScoped<EstimatingUserService>();
 builder.Services.AddScoped<EstimatingAccessPreviewService>();
 builder.Services.AddScoped<IEstimatingAccessStore, EstimatingAccessStore>();
 builder.Services.AddScoped<EstimatingHistorySchemaInitializer>();
+builder.Services.AddScoped<VendorQuoteSchemaInitializer>();
+builder.Services.AddScoped<VendorQuoteService>();
+builder.Services.AddScoped<QuoteStatusService>();
 builder.Services.AddScoped<EstimatingHistoryQueryService>();
 builder.Services.AddScoped<EstimatingQuoteWorkflowService>();
 builder.Services.AddScoped<EstimatingEstimatorSettingsService>();
@@ -158,6 +161,7 @@ await using (var scope = app.Services.CreateAsyncScope())
     await scope.ServiceProvider
         .GetRequiredService<EstimatingHistorySchemaInitializer>()
         .InitializeAsync();
+    await scope.ServiceProvider.GetRequiredService<VendorQuoteSchemaInitializer>().InitializeAsync();
 }
 
 app.Use(async (context, next) =>
@@ -301,6 +305,9 @@ api.MapGet("/benny/idle-settings", async (
     .RequireAuthorization(EstimatingPolicies.Viewer);
 api.MapEstimatingHistoryEndpoints();
 api.MapEstimatingQuoteWorkflowEndpoints();
+api.MapVendorQuoteEndpoints();
+api.MapQuoteStatusEndpoints();
+api.MapOutlookConnectorEndpoints();
 api.MapFulcrumEstimateEndpoints();
 api.MapFulcrumQuoteGenerationEndpoints();
 

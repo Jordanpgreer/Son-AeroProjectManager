@@ -162,6 +162,11 @@ public sealed class EstimatingQuoteWorkflowService(
         return WindowsAccountNames.DisplayName(accountName);
     }
 
+    internal async Task<EstimatingPersonalQuoteDto> DescribeAsync(
+        EstimatingQuoteHistoryRecord record,
+        CancellationToken cancellationToken) => ToDto(record, DisplayNameFor(
+            record.ArdaStatusChangedBy, await DisplayNamesAsync(cancellationToken)));
+
     private static EstimatingPersonalQuoteDto ToDto(
         EstimatingQuoteHistoryRecord record,
         string? changedByDisplayName)
@@ -188,7 +193,7 @@ public sealed class EstimatingQuoteWorkflowService(
             record.Version);
     }
 
-    private static string DisplayStatus(string? status)
+    internal static string DisplayStatus(string? status)
     {
         var normalized = EstimatingArdaStatuses.Normalize(status);
         if (normalized is not null) return normalized;

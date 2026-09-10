@@ -27,6 +27,7 @@ public sealed class EstimatingAccessDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        VendorQuoteModelConfiguration.Configure(modelBuilder);
         modelBuilder.Entity<EstimatingUserRecord>(entity =>
         {
             entity.ToTable("Users");

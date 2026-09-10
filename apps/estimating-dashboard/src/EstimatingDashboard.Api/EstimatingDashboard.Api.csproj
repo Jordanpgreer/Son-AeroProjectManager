@@ -26,6 +26,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="..\..\..\..\scripts\outlook-estimating\**\*"
+             Link="Assets\OutlookConnector\%(RecursiveDir)%(Filename)%(Extension)">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
     <Content Include="Assets\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
