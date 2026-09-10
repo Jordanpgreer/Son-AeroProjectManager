@@ -145,6 +145,48 @@ public sealed class ApiCustomizerTests
     }
 
     [Fact]
+    public async Task Paginated_sources_can_safely_read_more_than_5000_records()
+    {
+        await using var fixture = await Fixture.Create();
+        var definition = Definition();
+        definition.Sheets.RemoveAt(1);
+        definition.MaxRecords = 6000;
+        fixture.Handler.Response = request =>
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(request.RequestUri!.Query, @"(?i)(?:[?&])skip=(\d+)");
+            var skip = int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            var count = skip < 5500 ? 500 : 1;
+            return JsonSerializer.Serialize(Enumerable.Range(skip, count).Select(i => new { number = i.ToString("D6") }));
+        };
+
+        var result = await fixture.Runner.RunAsync(new(definition), "TEST\\admin", default);
+
+        Assert.Equal(5501, result.Sheets[0].Rows.Count);
+        Assert.Equal(12, result.RequestCount);
+        Assert.Contains("Skip=5500", fixture.Handler.Requests[^1].Uri, StringComparison.OrdinalIgnoreCase);
+        Assert.All(fixture.Handler.Requests, request =>
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(request.Uri, @"(?i)(?:[?&])take=(\d+)");
+            Assert.True(match.Success);
+            Assert.InRange(int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture), 1, 500);
+        });
+    }
+
+    [Fact]
+    public async Task Record_limit_accepts_50000_and_rejects_larger_values()
+    {
+        await using var fixture = await Fixture.Create(false);
+        var definition = Definition();
+        definition.MaxRecords = FulcrumReportRunner.MaxRecordsPerSource;
+        fixture.Runner.Validate(definition);
+        definition.MaxRecords++;
+
+        var error = Assert.Throws<ReportValidationException>(() => fixture.Runner.Validate(definition));
+
+        Assert.Contains("50,000", error.Message);
+    }
+
+    [Fact]
     public async Task Oversized_excel_cells_are_rejected_without_truncating_source_text()
     {
         await using var fixture = await Fixture.Create();
@@ -360,6 +402,29 @@ public sealed class ApiCustomizerTests
     }
 
     [Fact]
+    public async Task Bom_can_safely_read_more_than_5000_starting_items()
+    {
+        await using var fixture = await Fixture.Create();
+        fixture.Handler.Response = request =>
+        {
+            if (request.RequestUri!.AbsolutePath != "/api/items/list/v2") return "[]";
+            var match = System.Text.RegularExpressions.Regex.Match(request.RequestUri.Query, @"(?i)(?:[?&])skip=(\d+)");
+            var skip = int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            var count = skip < 5000 ? 500 : 1;
+            return JsonSerializer.Serialize(Enumerable.Range(skip, count)
+                .Select(i => new { id = i.ToString("D24"), number = i.ToString("D6") }));
+        };
+        var definition = BomDefinition();
+        definition.MaxRecords = 6000;
+
+        var result = await fixture.Runner.RunAsync(new(definition), "TEST\\admin", default);
+
+        Assert.Equal(5001, result.Sheets[0].Rows.Count);
+        Assert.Equal(10013, result.RequestCount);
+        Assert.Equal("005000", result.Sheets[0].Rows[^1][3]);
+    }
+
+    [Fact]
     public void Bom_orphans_and_quantity_bases_never_become_incorrect_operation_matches_or_zeroes()
     {
         var item = JsonSerializer.SerializeToElement(new { id = "item", number = "0001" });
@@ -397,7 +462,7 @@ public sealed class ApiCustomizerTests
     }
 
     [Fact]
-    public async Task Bom_supports_reference_sized_reports_above_the_general_20000_row_limit()
+    public async Task Bom_supports_reference_sized_reports_above_20000_rows()
     {
         await using var fixture = await Fixture.Create();
         var items = JsonSerializer.Serialize(Enumerable.Range(0, 50).Select(i => new { id = "item-" + i, number = i.ToString("D6") }));

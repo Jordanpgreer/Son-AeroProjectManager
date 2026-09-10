@@ -8,8 +8,10 @@ public static class InventoryBomReport
     public const string Items = "POST /api/items/list/v2";
     public const string Operations = "POST /api/items/{itemId}/routing/operations/list";
     public const string Components = "POST /api/items/{itemId}/routing/input-items/list";
+    public const int MaxParentItems = 10000;
     public const int MaxRows = 100000;
-    public const int MaxRequests = 10050;
+    public const int MaxRequests = 20100;
+    public const int TimeoutMinutes = 30;
 
     public static readonly ApiField[] TemplateFields =
     [
@@ -83,8 +85,8 @@ public static class InventoryBomReport
                 : JsonSerializer.SerializeToElement(terms.Select(query => new { query, mode = string.IsNullOrEmpty(mode) ? "equal" : mode, casingOption = "caseInsensitive" }));
         }
         var items = sample ? SampleItems() : await fetch(Items, itemInputs);
-        if (items.Count * 2 + 20 > MaxRequests)
-            throw new ReportValidationException("This BOM report needs too many API calls. Filter item numbers or revisions and run smaller reports.");
+        if (items.Count > MaxParentItems)
+            throw new ReportValidationException($"Inventory BOM supports up to {MaxParentItems:N0} starting items per report. Filter item numbers or revisions and run smaller reports; no partial workbook was created.");
         var batches = new List<JsonElement>[items.Count];
         var notices = new List<string>[items.Count];
         var rowCount = 0;

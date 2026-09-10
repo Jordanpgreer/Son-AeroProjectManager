@@ -49,6 +49,7 @@ export default function ApiCustomizerPanel() {
   const rowType = definition.sheets.find(s => s.id === definition.detailSheetId) ?? definition.sheets[0]
   const bomSheet = definition.sheets.length === 1 && definition.sheets[0].sourceId === inventoryBomSourceId ? definition.sheets[0] : null
   const bomSource = catalogue?.sources.find(s => s.id === inventoryBomSourceId)
+  const recordLimit = bomSheet ? 10000 : 50000
   const previewColumns = (currentResult?.columns ?? columns).map((column, index) => ({ column, index }))
     .filter(({ column }) => !bomSheet || showUnmapped || !bomSource?.fields.some(f => f.path === column.path && f.availability === 'unmapped'))
   const openPicker = (next: Picker) => { setPicker(next); setSearch(''); setShowSpecific(false); setCustomKey('') }
@@ -128,13 +129,13 @@ export default function ApiCustomizerPanel() {
       {options && <section className="ac-options" aria-label="Report options">
         <label><span>Report Type</span><select value={definition.outputMode ?? 'separate'} onChange={e => change({ ...definition, outputMode: e.target.value as 'combined' | 'separate' })}>
           <option value="combined">One Combined Table</option><option value="separate">Separate Tables In Excel</option></select></label>
-        <label><span>Maximum Records Per Request</span><input type="number" min={1} max={5000} value={definition.maxRecords} onChange={e => change({ ...definition, maxRecords: Number(e.target.value) })} /></label>
+        <label><span>{bomSheet ? 'Maximum Starting Items' : 'Maximum Records Per Data Source'}</span><input type="number" min={1} max={recordLimit} value={definition.maxRecords} onChange={e => change({ ...definition, maxRecords: Number(e.target.value) })} /></label>
         <label><span>Sort By</span><select value={definition.outputSortColumn ?? ''} onChange={e => change({ ...definition, outputSortColumn: e.target.value === '' ? null : Number(e.target.value) })}>
           <option value="">Source Order</option>{columns.map((c, i) => <option value={i} key={i}>{c.header}</option>)}</select></label>
         <label className="ac-check"><input type="checkbox" checked={definition.outputSortDescending ?? false} onChange={e => change({ ...definition, outputSortDescending: e.target.checked })} /> Descending</label>
         {bomSheet && <button className="ghost-button" onClick={() => openPicker({ type: 'source', sheetId: bomSheet.id })}><Link2 size={14} /> Connect Other Fulcrum Records</button>}
         {savedId && <div className="ac-actions"><button className="ghost-button" onClick={() => void save(true)}>Save A Copy</button><button className="ghost-button" onClick={() => setConfirm('delete')}>Delete Saved Report</button></div>}
-        <p>Column widths and row heights fit the content automatically. Long values wrap; Excel filters and frozen headings are included.</p>
+        <p>{bomSheet ? 'Inventory BOM can read up to 10,000 starting items and their routing details. ' : 'Arda reads multiple Fulcrum pages up to this total. '}Large related reports can still stop at the API-call, row, time, or response-size safety limits. Column widths and row heights fit automatically.</p>
       </section>}
       {bomSheet && bomSource && <InventoryBomControls sheet={bomSheet} source={bomSource} columns={columns} change={updateSheet} sorted={definition.outputSortColumn != null}
         customize={() => openPicker({ type: 'columns', sheetId: bomSheet.id })} addFields={() => openPicker({ type: 'fields', sheetId: bomSheet.id })} filters={() => openPicker({ type: 'filters', sheetId: bomSheet.id })} />}

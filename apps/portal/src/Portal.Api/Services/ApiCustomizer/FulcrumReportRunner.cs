@@ -18,16 +18,21 @@ public sealed class FulcrumReportRunner(FulcrumReportCatalog catalog, HttpClient
     PortalRoleDbContext db, IIntegrationSecretProtector protector, IMemoryCache cache)
 {
     public static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private const int MaxRows = 20000;
-    private const int MaxRequests = 500;
+    public const int MaxRecordsPerSource = 50000;
+    private const int MaxRows = 100000;
+    private const int MaxRequests = 1000;
+    private const int PageSize = 500;
 
     public void Validate(ReportDefinition definition)
     {
         if (definition is null) throw new ReportValidationException("Supply a report layout.");
         if (string.IsNullOrWhiteSpace(definition.Name) || definition.Name.Length > 120)
             throw new ReportValidationException("Enter a report name of 1 to 120 characters.");
-        if (definition.MaxRecords is < 1 or > 5000 || definition.Sheets is null || definition.Sheets.Count is < 1 or > 8)
-            throw new ReportValidationException("Use 1 to 8 worksheets and a record limit between 1 and 5,000.");
+        if (definition.MaxRecords is < 1 or > MaxRecordsPerSource || definition.Sheets is null || definition.Sheets.Count is < 1 or > 8)
+            throw new ReportValidationException($"Use 1 to 8 worksheets and a record limit between 1 and {MaxRecordsPerSource:N0}.");
+        if (definition.Sheets.Any(sheet => sheet?.SourceId == InventoryBomReport.SourceId)
+            && definition.MaxRecords > InventoryBomReport.MaxParentItems)
+            throw new ReportValidationException($"Inventory BOM supports up to {InventoryBomReport.MaxParentItems:N0} starting items per report because each item requires related routing reads.");
         if (!Regex.IsMatch(definition.HeaderColor ?? "", "^[0-9A-Fa-f]{6}$"))
             throw new ReportValidationException("Select a valid header color.");
         if (definition.OutputMode is not ("combined" or "separate") || definition.OutputColumns is null)
@@ -156,7 +161,7 @@ public sealed class FulcrumReportRunner(FulcrumReportCatalog catalog, HttpClient
         var rowLimit = hasBom ? InventoryBomReport.MaxRows : MaxRows;
         var requestLimit = hasBom ? InventoryBomReport.MaxRequests : MaxRequests;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromMinutes(hasBom ? 10 : 3));
+        timeout.CancelAfter(TimeSpan.FromMinutes(hasBom ? InventoryBomReport.TimeoutMinutes : run.Definition.MaxRecords > 5000 ? 10 : 3));
         var token = "";
         if (!run.Sample)
         {
@@ -290,7 +295,9 @@ public sealed class FulcrumReportRunner(FulcrumReportCatalog catalog, HttpClient
                 else body[key[5..]] = JsonNode.Parse(value.GetRawText());
             }
             if (path.Contains('{')) throw new ReportValidationException($"Connect the required parent IDs for {source.Label}.");
-            var take = Math.Min(500, limit + 1 - rows.Count);
+            // Fulcrum's per-request cap is independent of Arda's total report limit.
+            // Keep pages modest and continue with skip/take until the source is complete.
+            var take = Math.Min(PageSize, limit + 1 - rows.Count);
             if (source.Skip is not null) query.Add(Uri.EscapeDataString(source.Skip) + "=" + offset);
             if (source.Take is not null) query.Add(Uri.EscapeDataString(source.Take) + "=" + take);
             var uri = new Uri(new Uri(FulcrumApiEndpoint.ItarBaseUrl), path.TrimStart('/') + (query.Count > 0 ? "?" + string.Join("&", query) : ""));
