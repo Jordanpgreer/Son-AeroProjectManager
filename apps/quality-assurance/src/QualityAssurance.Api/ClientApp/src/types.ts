@@ -4,6 +4,7 @@ export interface QualityAssuranceUser {
   moduleKey: 'quality-assurance'
   role: 'Viewer' | 'Editor' | 'Admin'
   permissions: string[]
+  workflowRestrictedActions?: string[]
   groups: string[]
   isPreview: boolean
   previewActorAccountName: string | null

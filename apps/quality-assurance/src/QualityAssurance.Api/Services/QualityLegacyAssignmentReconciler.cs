@@ -97,7 +97,7 @@ public sealed class QualityLegacyAssignmentReconciler(
     }
 
     private static bool HasManualAssignment(QualityShipment shipment) =>
-        shipment.AuditEntries.Any(entry => entry.EventType == "Assigned");
+        shipment.AuditEntries.Any(entry => entry.EventType is "Assigned" or "WorkflowExecuted");
 
     private static string AssignmentLabel(QualityShipment shipment) =>
         string.Join(" / ", new[] { shipment.AssignedGroupName, shipment.AssignedDisplayName }

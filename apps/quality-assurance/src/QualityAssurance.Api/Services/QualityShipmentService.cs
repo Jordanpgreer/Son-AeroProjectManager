@@ -16,8 +16,10 @@ public sealed class QualityShipmentService(
     QualityAssignmentService assignments,
     QualityLegacyAssignmentReconciler legacyAssignments,
     IConfiguration? configuration = null,
-    IQualityShipmentSyncService? integrationSync = null)
+    IQualityShipmentSyncService? integrationSync = null,
+    QualityWorkflowService? workflows = null)
 {
+    private QualityWorkflowService Workflows => workflows ?? new QualityWorkflowService(db, accessStore, configuration);
     public async Task<QualityShipmentDto?> GetAsync(
         int id,
         QualityAssuranceAccessProfile access,
@@ -76,7 +78,7 @@ public sealed class QualityShipmentService(
             normalizedScope,
             normalizedSort,
             normalizedDirection,
-            QualityFieldAccess.For(access));
+            RestrictEditableFields(access, await Workflows.GetRestrictedActionsAsync(access, cancellationToken)));
     }
 
     public async Task<IReadOnlyList<QualityShipmentDto>> ExportRowsAsync(
@@ -151,11 +153,14 @@ public sealed class QualityShipmentService(
         CancellationToken cancellationToken)
     {
         await legacyAssignments.ReconcileAsync(cancellationToken);
+        var restrictedActions = await Workflows.GetRestrictedActionsAsync(access, cancellationToken);
         var canViewTeam = access.HasPermission(QualityAssurancePermissions.TeamDashboardView)
             || access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll);
         var canReviewUnassigned = CanReviewUnassigned(access);
-        var canAssignGroup = access.HasPermission(QualityAssurancePermissions.AssignmentGroup);
-        var canAssignUser = access.HasPermission(QualityAssurancePermissions.AssignmentUser);
+        var canAssignGroup = access.HasPermission(QualityAssurancePermissions.AssignmentGroup)
+            && !restrictedActions.Contains("assignment-changed");
+        var canAssignUser = access.HasPermission(QualityAssurancePermissions.AssignmentUser)
+            && !restrictedActions.Contains("assignment-changed");
         var canViewAssignment = access.HasPermission(QualityAssurancePermissions.AssignmentView);
         var canAssign = canViewAssignment
             && (canAssignGroup || canAssignUser);
@@ -256,7 +261,7 @@ public sealed class QualityShipmentService(
             canAssignGroup,
             canAssignUser,
             canViewDollarValue,
-            QualityFieldAccess.For(access));
+            RestrictEditableFields(access, restrictedActions));
     }
 
     public async Task<QualityShipmentDto> CreateAsync(
@@ -361,6 +366,7 @@ public sealed class QualityShipmentService(
                 shipment.AssignedDisplayName = access.DisplayName;
             }
         }
+        await Workflows.ApplyAsync("shipment-created", shipment, access, cancellationToken);
         db.Shipments.Add(shipment);
         AddAudit(shipment, access, "Created", "salesOrderNumber", null, shipment.SalesOrderNumber, now);
         AddAudit(
@@ -456,6 +462,7 @@ public sealed class QualityShipmentService(
         if (!db.ChangeTracker.HasChanges()) return ToDto(shipment, access);
         if (changedRoutingInput && shipment.AssignedGroupId is null)
             await assignments.ApplyFirstMatchingRuleAsync(shipment, cancellationToken);
+        await Workflows.ApplyAsync("shipment-updated", shipment, access, cancellationToken);
         shipment.LastWorkedAt = now;
         shipment.UpdatedAt = now;
         shipment.UpdatedByAccountName = access.AccountName;
@@ -500,6 +507,7 @@ public sealed class QualityShipmentService(
             shipment.UpdatedByAccountName = access.AccountName;
             shipment.UpdatedByDisplayName = access.DisplayName;
             shipment.Version++;
+            await Workflows.ApplyAsync("assignment-changed", shipment, access, cancellationToken);
             AddAudit(
                 shipment,
                 access,
@@ -550,6 +558,7 @@ public sealed class QualityShipmentService(
         shipment.UpdatedByAccountName = access.AccountName;
         shipment.UpdatedByDisplayName = access.DisplayName;
         shipment.Version++;
+        await Workflows.ApplyAsync("assignment-changed", shipment, access, cancellationToken);
         AddAudit(shipment, access, "Assigned", "assignment", old, AssignmentLabel(shipment), now);
         if (oldAction != shipment.NextAction)
             AddAudit(shipment, access, "Updated", "nextAction", oldAction, shipment.NextAction, now);
@@ -583,6 +592,7 @@ public sealed class QualityShipmentService(
         shipment.UpdatedByDisplayName = access.DisplayName;
         shipment.Version++;
         AddAudit(shipment, access, "Shipped", "status", oldStatus, "Shipped", now);
+        await Workflows.ApplyAsync("shipment-shipped", shipment, access, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return ToDto(shipment, access);
     }
@@ -602,30 +612,30 @@ public sealed class QualityShipmentService(
         if (shipment.IsShipped)
             throw new ArgumentException("A shipped record cannot be returned to the Shipper queue.");
 
-        var configuredShippingGroupName = configuration?["QualityWorkflow:ShippingGroupName"]?.Trim();
-        var shippingGroupName = string.IsNullOrWhiteSpace(configuredShippingGroupName)
-            || string.Equals(configuredShippingGroupName, "Shipping", StringComparison.OrdinalIgnoreCase)
-                ? ApplicationGroups.Shipper
-                : configuredShippingGroupName;
-        if (string.Equals(shipment.AssignedGroupName, shippingGroupName, StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException($"This record is already in the {shippingGroupName} queue.");
-        var shippingGroup = (await accessStore.GetGroupsWithPermissionAsync(
-                QualityAssurancePermissions.ResponsibleGroupEligible,
-                cancellationToken))
-            .FirstOrDefault(group => string.Equals(group.Name, shippingGroupName, StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException(
-                $"The {shippingGroupName} group must be enabled as a Quality Responsible Group before QA Complete can route work to it.");
-
         var now = DateTimeOffset.UtcNow;
         var oldStatus = shipment.Status;
         var oldAssignment = AssignmentValue(shipment);
         shipment.Status = "Ready to Ship";
-        shipment.AssignedGroupId = shippingGroup.Id;
-        shipment.AssignedGroupName = shippingGroup.Name;
-        shipment.AssignedUserId = null;
-        shipment.AssignedAccountName = null;
-        shipment.AssignedDisplayName = null;
-        shipment.NextAction = shippingGroup.Name;
+        if (!await Workflows.ApplyAsync("qa-completed", shipment, access, cancellationToken))
+        {
+            var configuredShippingGroupName = configuration?["QualityWorkflow:ShippingGroupName"]?.Trim();
+            var shippingGroupName = string.IsNullOrWhiteSpace(configuredShippingGroupName)
+                || string.Equals(configuredShippingGroupName, "Shipping", StringComparison.OrdinalIgnoreCase)
+                    ? ApplicationGroups.Shipper : configuredShippingGroupName;
+            if (string.Equals(shipment.AssignedGroupName, shippingGroupName, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException($"This record is already in the {shippingGroupName} queue.");
+            var shippingGroup = (await accessStore.GetGroupsWithPermissionAsync(
+                    QualityAssurancePermissions.ResponsibleGroupEligible, cancellationToken))
+                .FirstOrDefault(group => string.Equals(group.Name, shippingGroupName, StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidOperationException(
+                    $"The {shippingGroupName} group must be enabled as a Quality Responsible Group before QA Complete can route work to it.");
+            shipment.AssignedGroupId = shippingGroup.Id;
+            shipment.AssignedGroupName = shippingGroup.Name;
+            shipment.AssignedUserId = null;
+            shipment.AssignedAccountName = null;
+            shipment.AssignedDisplayName = null;
+            shipment.NextAction = shippingGroup.Name;
+        }
         shipment.LastWorkedAt = now;
         shipment.UpdatedAt = now;
         shipment.UpdatedByAccountName = access.AccountName;
@@ -1151,6 +1161,11 @@ public sealed class QualityShipmentService(
             OccurredAt = occurredAt
         });
     }
+
+    private static IReadOnlyList<QualityFieldAccessDto> RestrictEditableFields(
+        QualityAssuranceAccessProfile access, IReadOnlyList<string> restrictedActions) =>
+        QualityFieldAccess.For(access).Select(field => field.Key != "comments" && restrictedActions.Contains("shipment-updated")
+            ? field with { CanEdit = false } : field).ToList();
 
     private static QualityShipmentDto ToDto(QualityShipment shipment, QualityAssuranceAccessProfile access)
     {

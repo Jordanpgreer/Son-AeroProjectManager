@@ -15,6 +15,9 @@ public sealed class QualityAssignmentService(
         QualityShipment shipment,
         CancellationToken cancellationToken)
     {
+        if (await qualityDb.Workflows.AsNoTracking().AnyAsync(
+            workflow => workflow.Module == QualityWorkflowGraphEngine.Module && workflow.PublishedJson != null, cancellationToken))
+            return null;
         var rules = await qualityDb.AssignmentRules
             .AsNoTracking()
             .Where(rule => rule.IsEnabled)

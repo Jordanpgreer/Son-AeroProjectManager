@@ -10,12 +10,13 @@ import {
 import { qualityApi } from './api'
 import DashboardShipmentQuickView from './DashboardShipmentQuickView'
 import { ageInDays, formatCurrency, formatDate, formatDuration } from './format'
-import type { DashboardData, PersonQueue, Shipment } from './types'
+import { canRunQualityAction } from './workflowPermissions'
+import type { DashboardData, PersonQueue, QualityAssuranceUser, Shipment } from './types'
 import './Dashboard.css'
 
 type TeamSelection = number | 'group' | 'unassigned' | null
 
-export default function Dashboard({ reloadKey, onOpenShipment }: { reloadKey: number; onOpenShipment: (shipment: Shipment) => void }) {
+export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: QualityAssuranceUser; reloadKey: number; onOpenShipment: (shipment: Shipment) => void }) {
   const [data, setData] = useState<DashboardData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -39,7 +40,7 @@ export default function Dashboard({ reloadKey, onOpenShipment }: { reloadKey: nu
       })
       .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : 'Dashboard unavailable.') })
     return () => { active = false }
-  }, [reloadKey, refreshKey])
+  }, [reloadKey, refreshKey, user.permissions, user.workflowRestrictedActions])
 
   const teamTotals = useMemo(() => {
     if (!data) return { open: 0, overdue: 0, openDollarValue: null as number | null }
@@ -173,7 +174,7 @@ export default function Dashboard({ reloadKey, onOpenShipment }: { reloadKey: nu
           </article>
         )}
       </section>
-      {selectedShipment && <DashboardShipmentQuickView shipment={selectedShipment} fields={data.fields} canViewAssignment={data.canViewAssignment} canAssign={data.canAssign} canAssignGroup={data.canAssignGroup} canAssignUser={data.canAssignUser} onClose={() => setSelectedShipment(null)} onOpen={() => onOpenShipment(selectedShipment)} onSaved={accepted} />}
+      {selectedShipment && <DashboardShipmentQuickView shipment={selectedShipment} fields={data.fields} canViewAssignment={data.canViewAssignment} canAssign={canRunQualityAction(user, 'assignment-changed', data.canAssign)} canAssignGroup={canRunQualityAction(user, 'assignment-changed', data.canAssignGroup)} canAssignUser={canRunQualityAction(user, 'assignment-changed', data.canAssignUser)} onClose={() => setSelectedShipment(null)} onOpen={() => onOpenShipment(selectedShipment)} onSaved={accepted} />}
     </div>
   )
 }

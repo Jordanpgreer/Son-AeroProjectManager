@@ -86,7 +86,7 @@ const QUALITY_SECTIONS: {
   label: string
   icon: typeof Settings2
 }[] = [
-  { key: 'assignment-rules', label: 'Assignment Rules', icon: Waypoints },
+  { key: 'assignment-rules', label: 'Workflow', icon: Waypoints },
 ]
 
 function parseRoute(hash = window.location.hash): AdminRoute {
@@ -479,7 +479,7 @@ export default function AdminConsole({
           {route.module === 'engineering' && <EngineeringStoragePanel/>}
           {route.module === 'quality-assurance' && permissionsLoading && <div className="admin-loading" role="status">Checking Quality Assurance permissions...</div>}
           {route.module === 'quality-assurance' && !permissionsLoading && permissionsError && <NoAccess detail={permissionsError} />}
-          {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && !canManageQualityRules && <NoAccess detail="Your groups do not grant permission to manage Quality assignment rules." />}
+          {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && !canManageQualityRules && <NoAccess detail="Your groups do not grant permission to manage Quality workflows." />}
           {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && canManageQualityRules && <QualityAssignmentRulesPanel />}
           {route.module === 'raid-log' && currentPortalRole !== 'Admin' && <NoAccess detail="The RAID Log is available only to Arda administrators." />}
           {route.module === 'raid-log' && currentPortalRole === 'Admin' && <RaidLogPanel currentAccountName={trackerUser?.accountName ?? currentAccountName} />}

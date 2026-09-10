@@ -29,6 +29,7 @@ import { ageInDays, formatCurrency, formatDate, formatDateTime } from './format'
 import ShipmentCommentsDrawer from './ShipmentCommentsDrawer'
 import { readShipmentDeepLink } from './shippingDeepLink'
 import { normalizeShippingScope } from './shippingScope'
+import { canRunQualityAction } from './workflowPermissions'
 import type { ShippingScope } from './shippingScope'
 import type {
   AssignmentOptions,
@@ -293,11 +294,13 @@ function ShippingImportDialog({
 function ShipmentForm({
   shipment,
   fields,
+  canSave,
   onClose,
   onSaved,
 }: {
   shipment?: Shipment | null
   fields: FieldAccess[]
+  canSave: boolean
   onClose: () => void
   onSaved: (shipment: Shipment) => void
 }) {
@@ -347,6 +350,7 @@ function ShipmentForm({
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
+    if (!canSave) return
     setSaving(true)
     setError(null)
     try {
@@ -442,7 +446,8 @@ function ShipmentForm({
             {can('sourceRequestedDate') && <label><span>Source Scheduled</span><input type="date" value={draft.sourceRequestedDate} onChange={(event) => update('sourceRequestedDate', event.target.value)} /></label>}
             {can('holdReason') && <label className="span-2"><span>Hold Reason</span><textarea rows={3} value={draft.holdReason} onChange={(event) => update('holdReason', event.target.value)} /></label>}
           </div>
-          <footer><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary" disabled={saving} type="submit">{saving ? 'Saving...' : creating ? 'Add to queue' : 'Save changes'}</button></footer>
+          {!canSave && <p className="notice error"><AlertTriangle size={16} />Your current access does not allow {creating ? 'creating shipments' : 'editing this shipment'}.</p>}
+          <footer><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary" disabled={saving || !canSave} type="submit">{saving ? 'Saving...' : creating ? 'Add to queue' : 'Save changes'}</button></footer>
         </form>
       </section>
     </div>
@@ -465,8 +470,8 @@ function AssignmentDialog({
   const [userId, setUserId] = useState(shipment.assignedUserId?.toString() ?? '')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const canMoveGroup = user.permissions.includes(PERMISSIONS.assignmentGroup)
-  const canAssignUser = user.permissions.includes(PERMISSIONS.assignmentUser)
+  const canMoveGroup = canRunQualityAction(user, 'assignment-changed', user.permissions.includes(PERMISSIONS.assignmentGroup))
+  const canAssignUser = canRunQualityAction(user, 'assignment-changed', user.permissions.includes(PERMISSIONS.assignmentUser))
 
   useEffect(() => {
     void qualityApi<AssignmentOptions>('/api/assignment-options').then(setOptions).catch((cause) => setError(cause instanceof Error ? cause.message : 'Assignments unavailable.'))
@@ -477,6 +482,7 @@ function AssignmentDialog({
   const currentUserUnavailable = Boolean(userId && options && !users.some((candidate) => candidate.id === Number(userId)))
   async function submit(event: React.FormEvent) {
     event.preventDefault()
+    if (!canMoveGroup && !canAssignUser) return
     setSaving(true)
     setError(null)
     try {
@@ -500,7 +506,8 @@ function AssignmentDialog({
             <label><span>Responsible Group</span><select disabled={!canMoveGroup} value={groupId} onChange={(event) => { setGroupId(event.target.value); setUserId('') }}><option value="">Unassigned - Manager Review</option>{currentGroupUnavailable && <option value={groupId} disabled>{shipment.assignedGroupName ?? 'Current Group'} (not enabled)</option>}{options.groups.map((group) => <option value={group.id} key={group.id}>{group.name} ({group.activeUserCount})</option>)}</select><small>Only groups enabled as a Quality Responsible Group in Arda Access appear here.</small></label>
             <label><span>Individual Owner</span><select disabled={!canAssignUser || !groupId || currentGroupUnavailable} value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Group Queue / Unassigned</option>{currentUserUnavailable && <option value={userId} disabled>{shipment.assignedDisplayName ?? 'Current Owner'} (not eligible)</option>}{users.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.displayName}</option>)}</select><small>Only active users granted Receive Quality assignments through a permission group appear here.</small></label>
           </div>}
-          <footer><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary" disabled={!options || saving || currentGroupUnavailable || currentUserUnavailable} type="submit">{saving ? 'Assigning...' : 'Save assignment'}</button></footer>
+          {!canMoveGroup && !canAssignUser && <p className="notice error"><AlertTriangle size={16} />Your current access does not allow changing assignments.</p>}
+          <footer><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary" disabled={!options || saving || (!canMoveGroup && !canAssignUser) || currentGroupUnavailable || currentUserUnavailable} type="submit">{saving ? 'Assigning...' : 'Save assignment'}</button></footer>
         </form>
       </section>
     </div>
@@ -532,12 +539,14 @@ function DetailDrawer({
   const [workflowError, setWorkflowError] = useState<string | null>(null)
   const drawerScrollRef = useRef<HTMLDivElement>(null)
   const auditSectionRef = useRef<HTMLElement>(null)
-  const canEdit = fields.some((field) => field.canEdit)
+  const canEdit = canRunQualityAction(user, 'shipment-updated', fields.some((field) => field.canEdit))
   const canViewAssignment = user.permissions.includes(PERMISSIONS.assignmentView)
   const canAssign = canViewAssignment
     && (user.permissions.includes(PERMISSIONS.assignmentGroup) || user.permissions.includes(PERMISSIONS.assignmentUser))
+    && canRunQualityAction(user, 'assignment-changed', true)
   const canAudit = user.permissions.includes(PERMISSIONS.audit)
   const canCompleteQa = user.permissions.includes(PERMISSIONS.ship)
+    && canRunQualityAction(user, 'qa-completed', true)
     && !shipment.isShipped
     && shipment.assignedGroupName?.trim().toLowerCase() !== 'shipper'
   const owner = actionOwner(shipment, canViewAssignment)
@@ -562,6 +571,7 @@ function DetailDrawer({
   }
 
   async function markQaComplete() {
+    if (!canCompleteQa) return
     setCompletingQa(true)
     setWorkflowError(null)
     try {
@@ -652,6 +662,9 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   const [importOpen, setImportOpen] = useState(false)
   const [refresh, setRefresh] = useState(0)
   const pendingDeepLink = useRef<ReturnType<typeof readShipmentDeepLink>>(null)
+  const interactionState = useRef({ selected, editing, assigning })
+
+  useEffect(() => { interactionState.current = { selected, editing, assigning } }, [selected, editing, assigning])
 
   useEffect(() => {
     const deepLink = readShipmentDeepLink(window.location.hash)
@@ -693,10 +706,10 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   }
 
   useEffect(() => {
-    const openImport = () => setImportOpen(true)
+    const openImport = () => { if (canRunQualityAction(user, 'shipment-imported', user.permissions.includes(PERMISSIONS.import))) setImportOpen(true) }
     window.addEventListener('quality:open-shipping-import', openImport)
     return () => window.removeEventListener('quality:open-shipping-import', openImport)
-  }, [])
+  }, [user.permissions, user.workflowRestrictedActions])
 
   useEffect(() => {
     if (!user.permissions.includes(PERMISSIONS.assignmentView)) return
@@ -744,17 +757,21 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
                   if (active) setError(cause instanceof Error ? cause.message : 'The mentioned shipment is unavailable.')
                 })
             }
-          } else if (selected) setSelected(next.items.find((shipment) => shipment.id === selected.id) ?? null)
+          } else {
+            const current = interactionState.current
+            if (current.selected && !current.editing && !current.assigning) setSelected(next.items.find((shipment) => shipment.id === current.selected!.id) ?? null)
+          }
         })
       })
       .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : 'Shipping Status unavailable.') })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [status, scope, sortKey, sortDirection, deferredSearch, shipmentStatusFilter, customerFilters, assigneeFilter, reloadKey, refresh])
+  }, [status, scope, sortKey, sortDirection, deferredSearch, shipmentStatusFilter, customerFilters, assigneeFilter, reloadKey, refresh, user.permissions, user.workflowRestrictedActions])
 
   const fields = data?.fields ?? []
-  const canCreate = user.permissions.includes(PERMISSIONS.create)
-  const canImport = user.permissions.includes(PERMISSIONS.import)
+  const canCreate = canRunQualityAction(user, 'shipment-created', user.permissions.includes(PERMISSIONS.create))
+  const canImport = canRunQualityAction(user, 'shipment-imported', user.permissions.includes(PERMISSIONS.import))
+  const canEdit = canRunQualityAction(user, 'shipment-updated', fields.some((field) => field.canEdit))
   const canReviewUnassigned = user.permissions.includes(PERMISSIONS.managerReview)
   const visibleFields = useMemo(() => new Set(
     fields.filter((field) => field.canView).map((field) => field.key),
@@ -762,6 +779,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   const canViewAssignment = user.permissions.includes(PERMISSIONS.assignmentView)
   const canAssign = canViewAssignment
     && (user.permissions.includes(PERMISSIONS.assignmentGroup) || user.permissions.includes(PERMISSIONS.assignmentUser))
+    && canRunQualityAction(user, 'assignment-changed', true)
   const worklistColumns = useMemo<WorklistColumn[]>(() => [
     visibleFields.has('status') && { key: 'status', label: 'Status', width: 145 },
     visibleFields.has('salesOrderNumber') && { key: 'salesOrderNumber', label: 'Shipper Number', width: 125 },
@@ -979,8 +997,8 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
 
       {selected && !editing && !assigning && !commentsOpen && <DetailDrawer shipment={selected} user={user} fields={fields} onClose={() => setSelected(null)} onEdit={() => setEditing(true)} onAssign={() => { setAssignmentOrigin('detail'); setAssigning(true) }} onOpenComments={() => setCommentsOpen(true)} onUpdated={accepted} />}
       {selected && commentsOpen && <ShipmentCommentsDrawer shipment={selected} currentUser={user} canPost={fields.some((field) => field.key === 'comments' && field.canEdit)} onClose={closeComments} onMessageSent={() => setRefresh((value) => value + 1)} />}
-      {creating && <ShipmentForm fields={fields} onClose={() => setCreating(false)} onSaved={accepted} />}
-      {editing && selected && <ShipmentForm shipment={selected} fields={fields} onClose={() => setEditing(false)} onSaved={accepted} />}
+      {creating && <ShipmentForm fields={fields} canSave={canCreate} onClose={() => setCreating(false)} onSaved={accepted} />}
+      {editing && selected && <ShipmentForm shipment={selected} fields={fields} canSave={canEdit} onClose={() => setEditing(false)} onSaved={accepted} />}
       {assigning && selected && <AssignmentDialog shipment={selected} user={user} onClose={closeAssignment} onSaved={assignmentAccepted} />}
       {importOpen && canImport && <ShippingImportDialog onClose={() => setImportOpen(false)} onImported={() => setRefresh((value) => value + 1)} />}
     </div>

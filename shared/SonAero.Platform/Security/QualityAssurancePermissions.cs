@@ -103,7 +103,7 @@ public static class QualityAssurancePermissions
         Permission(ResponsibleGroupEligible, "Use as Quality Responsible Group", "Include this permission group in Quality Responsible Group dropdowns and automatic routing rules.", "Assignments"),
         Permission(MarkShipped, "Mark shipments shipped", "Complete a shipment and move it to Past Shipments.", "Shipping workflow"),
         Permission(AuditView, "View shipment audit history", "View permanent field, assignment, and completion changes.", "Audit"),
-        Permission(RulesManage, "Manage automatic assignment rules", "Create customer and task-type routing rules, including least-loaded assignment.", "Administration")
+        Permission(RulesManage, "Manage Quality workflows", "Design, test, and publish Quality action paths, conditions, queue routing, and group restrictions.", "Administration")
     ];
 
     public static readonly IReadOnlyList<PermissionDefinition> All =

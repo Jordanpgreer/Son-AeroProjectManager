@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using QualityAssurance.Api.Auth;
 using QualityAssurance.Api.Data;
+using QualityAssurance.Api.Dtos;
 using QualityAssurance.Api.Services;
 using SonAero.Platform.Security;
 
@@ -270,6 +271,59 @@ public sealed class QualityShipmentImportServiceTests
             entry.EventType == "AssignmentPending" && entry.OldValue == "Administrators / Quality Admin");
     }
 
+    [Fact]
+    public async Task Workflow_restricted_import_rejects_matching_rows_before_legacy_reconciliation()
+    {
+        await using var fixture = await ImportFixture.CreateAsync(
+            [new(10, "Quality", null, 1), new(20, "Shipper", null, 0)],
+            [new(7, "SON-AERO\\julia", "Julia Santos", [10])]);
+        var pending = ImportedShipment("SO-JULIA", "QA-JULIA");
+        fixture.Db.Shipments.Add(pending);
+        await fixture.Db.SaveChangesAsync();
+        var graph = new QualityWorkflowGraph("quality-assurance", "Restricted import",
+            [new("import", "trigger", "Import shipments", 0, 0, Trigger: "shipment-imported", AllowedGroupIds: [20]),
+             new("end", "end", "Keep assignment", 300, 0)], [new("next", "import", "end")]);
+        var draft = await fixture.Workflows.SaveAsync(new(0, graph), fixture.Admin, default);
+        await fixture.Workflows.PublishAsync(draft.Version, fixture.Admin, default);
+        var workbook = Workbook([
+            ["WIP", "SO-JULIA", null, "PN-IMPORT", null, "HONEYWELL", null, null, null, null, null, "QA-JULIA", null, null]
+        ]);
+        await using var stream = new MemoryStream(workbook);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Importer.ImportAsync(stream, "shipping.xlsx", fixture.Admin, default));
+        var unchanged = await fixture.Db.Shipments.AsNoTracking().SingleAsync();
+        Assert.Null(unchanged.AssignedGroupId);
+        Assert.Null(unchanged.AssignedUserId);
+        Assert.Equal("QA-JULIA", unchanged.NextAction);
+        Assert.Equal(0, unchanged.Version);
+        Assert.Equal(1, await fixture.Db.ShipmentAuditEntries.CountAsync());
+        Assert.False(fixture.Db.ChangeTracker.HasChanges());
+    }
+
+    [Fact]
+    public async Task Import_audit_records_native_owner_mapping_before_the_final_workflow_route()
+    {
+        await using var fixture = await ImportFixture.CreateAsync(
+            [new(10, "Quality", null, 1), new(20, "Shipper", null, 0)],
+            [new(7, "SON-AERO\\julia", "Julia Santos", [10])]);
+        var graph = new QualityWorkflowGraph("quality-assurance", "Import routing",
+            [new("import", "trigger", "Import shipments", 0, 0, Trigger: "shipment-imported"),
+             new("route", "route", "Shipper queue", 300, 0, TargetGroupId: 20, AssignmentMode: "GroupOnly")],
+            [new("next", "import", "route")]);
+        var draft = await fixture.Workflows.SaveAsync(new(0, graph), fixture.Admin, default);
+        await fixture.Workflows.PublishAsync(draft.Version, fixture.Admin, default);
+        var workbook = Workbook([
+            ["WIP", "SO-JULIA", null, "PN-IMPORT", null, "HONEYWELL", null, null, null, null, null, "QA-JULIA", null, null]
+        ]);
+        await using var stream = new MemoryStream(workbook);
+        await fixture.Importer.ImportAsync(stream, "shipping.xlsx", fixture.Admin, default);
+        var audit = await fixture.Db.ShipmentAuditEntries.OrderBy(entry => entry.Id).ToListAsync();
+        Assert.Equal(["Imported", "AutoAssigned", "WorkflowExecuted"], audit.Select(entry => entry.EventType));
+        Assert.Equal("Quality / Julia Santos", audit[1].NewValue);
+        Assert.Equal("Quality / Julia Santos", audit[2].OldValue);
+        Assert.Contains("Shipper / Group queue", audit[2].NewValue);
+        Assert.Equal(20, (await fixture.Db.Shipments.SingleAsync()).AssignedGroupId);
+    }
+
     private static QualityAssurance.Api.Models.QualityShipment ImportedShipment(string salesOrder, string action)
     {
         var shipment = new QualityAssurance.Api.Models.QualityShipment
@@ -334,6 +388,7 @@ public sealed class QualityShipmentImportServiceTests
             this.connection = connection;
             Db = db;
             Importer = new QualityShipmentImportService(db, accessStore);
+            Workflows = new QualityWorkflowService(db, accessStore);
             Admin = new QualityAssuranceAccessProfile(
                 99,
                 "TEST\\admin",
@@ -345,6 +400,7 @@ public sealed class QualityShipmentImportServiceTests
 
         public QualityAssuranceDbContext Db { get; }
         public QualityShipmentImportService Importer { get; }
+        public QualityWorkflowService Workflows { get; }
         public QualityAssuranceAccessProfile Admin { get; }
 
         public static async Task<ImportFixture> CreateAsync(

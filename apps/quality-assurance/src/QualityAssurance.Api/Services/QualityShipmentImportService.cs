@@ -41,6 +41,9 @@ public sealed class QualityShipmentImportService(
         QualityAssuranceAccessProfile actor,
         CancellationToken cancellationToken)
     {
+        var workflows = new QualityWorkflowService(db, accessStore);
+        if ((await workflows.GetRestrictedActionsAsync(actor, cancellationToken)).Contains("shipment-imported"))
+            throw new UnauthorizedAccessException("Your access groups cannot run this workflow action.");
         var rows = Parse(stream);
         var groups = await accessStore.GetGroupsWithPermissionAsync(
             QualityAssurancePermissions.ResponsibleGroupEligible,
@@ -106,6 +109,7 @@ public sealed class QualityShipmentImportService(
                 DisplayName = actor.DisplayName,
                 OccurredAt = now
             });
+            await workflows.ApplyAsync("shipment-imported", shipment, actor, cancellationToken);
             db.Shipments.Add(shipment);
             created++;
         }
@@ -123,7 +127,7 @@ public sealed class QualityShipmentImportService(
         DateTimeOffset now)
     {
         var isImported = shipment.AuditEntries.Any(entry => entry.EventType == "Imported");
-        var hasManualAssignment = shipment.AuditEntries.Any(entry => entry.EventType == "Assigned");
+        var hasManualAssignment = shipment.AuditEntries.Any(entry => entry.EventType is "Assigned" or "WorkflowExecuted");
         if (!isImported || hasManualAssignment) return false;
 
         var oldAssignment = AssignmentLabel(shipment);

@@ -11,10 +11,11 @@ import {
   ShieldCheck,
   Truck,
 } from 'lucide-react'
-import { qualityApi } from './api'
+import { qualityApi, QualityApiError } from './api'
 import Dashboard from './Dashboard'
 import QualityNotificationCenter from './QualityNotificationCenter'
 import ShippingStatus from './ShippingStatus'
+import { canRunQualityAction } from './workflowPermissions'
 import { persistTheme, readThemePreference } from './theme'
 import type { AppTheme } from './theme'
 import type { QualityAssuranceUser } from './types'
@@ -83,6 +84,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [route, setRoute] = useState(routeFromHash)
   const [reloadKey, setReloadKey] = useState(0)
+  const [accessReloadKey, setAccessReloadKey] = useState(0)
 
   useEffect(() => {
     try {
@@ -98,22 +100,31 @@ export default function App() {
   useEffect(() => {
     let active = true
     void qualityApi<QualityAssuranceUser>('/api/me')
-      .then((current) => { if (active) setUser(current) })
-      .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : 'Unable to verify access.') })
+      .then((current) => {
+        if (!active) return
+        setUser((previous) => JSON.stringify(previous) === JSON.stringify(current) ? previous : current)
+        setError(null)
+      })
+      .catch((cause) => {
+        if (!active) return
+        setError(cause instanceof Error ? cause.message : 'Unable to verify access.')
+        if (cause instanceof QualityApiError && (cause.status === 401 || cause.status === 403)) setUser(null)
+      })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [])
+  }, [accessReloadKey, reloadKey])
 
   useEffect(() => { persistTheme(theme) }, [theme])
   useEffect(() => {
     const syncTheme = () => setTheme(readThemePreference())
+    const onFocus = () => { syncTheme(); setAccessReloadKey((value) => value + 1) }
     const syncRoute = () => setRoute(routeFromHash())
     const onVisibility = () => { if (document.visibilityState === 'visible') syncTheme() }
-    window.addEventListener('focus', syncTheme)
+    window.addEventListener('focus', onFocus)
     window.addEventListener('hashchange', syncRoute)
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
-      window.removeEventListener('focus', syncTheme)
+      window.removeEventListener('focus', onFocus)
       window.removeEventListener('hashchange', syncRoute)
       document.removeEventListener('visibilitychange', onVisibility)
     }
@@ -187,11 +198,11 @@ export default function App() {
             <a className="topbar-brand-link" href={hubUrl} target="_top" aria-label="Return to Arda applications" title="Return to Arda applications"><img className="topbar-brand-mark-standard" src="/brand/arda-mark.png" alt="" /><img className="topbar-brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" /></a>
             <div className="topbar-identity"><ThemeSwitch theme={theme} onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} /><div className="user-chip topbar-user-chip" title={`${user.displayName}\n${user.groups.join(', ')}`}><span className="user-copy"><strong>{user.displayName}</strong></span><span className="avatar">{initials(user.displayName)}</span></div></div>
             {userPermissions.includes('quality-assurance.shipments.view') && userPermissions.includes('quality-assurance.fields.comments.view') && <QualityNotificationCenter onOpenShipment={(shipmentId, isShipped) => openShippingShipment(shipmentId, isShipped, true)} />}
-            {route === 'shipping-status' && userPermissions.includes('quality-assurance.shipments.import') && <button className="button ghost" type="button" onClick={() => window.dispatchEvent(new Event('quality:open-shipping-import'))}><FileUp size={15} /> Import Excel</button>}
+            {route === 'shipping-status' && canRunQualityAction(user, 'shipment-imported', userPermissions.includes('quality-assurance.shipments.import')) && <button className="button ghost" type="button" onClick={() => window.dispatchEvent(new Event('quality:open-shipping-import'))}><FileUp size={15} /> Import Excel</button>}
             <button className="button ghost" type="button" onClick={() => setReloadKey((value) => value + 1)}><RefreshCw size={15} /> Refresh</button>
           </div>
         </header>
-        <div className="main-scroll">{route === 'dashboard' ? <Dashboard reloadKey={reloadKey} onOpenShipment={(shipment) => openShippingShipment(shipment.id, shipment.isShipped)} /> : <ShippingStatus user={user} reloadKey={reloadKey} />}</div>
+        <div className="main-scroll">{route === 'dashboard' ? <Dashboard user={user} reloadKey={reloadKey} onOpenShipment={(shipment) => openShippingShipment(shipment.id, shipment.isShipped)} /> : <ShippingStatus user={user} reloadKey={reloadKey} />}</div>
       </main>
     </div>
   )

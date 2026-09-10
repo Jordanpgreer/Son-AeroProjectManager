@@ -17,6 +17,7 @@ builder.Services.AddScoped<QualityAssuranceUserService>();
 builder.Services.AddScoped<IQualityAssuranceAccessStore, QualityAssuranceAccessStore>();
 builder.Services.AddScoped<QualityAssuranceAccessPreviewService>();
 builder.Services.AddScoped<QualityAssignmentService>();
+builder.Services.AddScoped<QualityWorkflowService>();
 builder.Services.AddScoped<QualityLegacyAssignmentReconciler>();
 builder.Services.AddScoped<QualityShipmentService>();
 builder.Services.AddScoped<QualityShipmentCommentService>();
@@ -263,13 +264,16 @@ app.MapGet("/access-preview/end", async (
 
 var api = app.MapGroup("/api");
 api.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
-api.MapGet("/me", (HttpContext context) =>
+api.MapGet("/me", async (HttpContext context, QualityWorkflowService workflows, CancellationToken cancellationToken) =>
 {
     var access = context.Items[QualityAssurancePolicies.AccessItem]
         as QualityAssuranceAccessProfile;
     return access is null
         ? Results.Forbid()
-        : Results.Ok(QualityAssuranceUserService.Current(access));
+        : Results.Ok(QualityAssuranceUserService.Current(access) with
+        {
+            WorkflowRestrictedActions = await workflows.GetRestrictedActionsAsync(access, cancellationToken)
+        });
 }).RequireAuthorization(QualityAssurancePolicies.ModuleView);
 api.MapGet("/benny/idle-settings", async (
     QualityAssuranceAccessDbContext db,
@@ -280,6 +284,7 @@ api.MapGet("/benny/idle-settings", async (
     .RequireAuthorization(QualityAssurancePolicies.ModuleView);
 api.RequireAuthorization(QualityAssurancePolicies.ModuleView)
     .MapQualityShippingEndpoints()
+    .MapQualityWorkflowEndpoints()
     .MapQualityCommentEndpoints();
 
 app.MapFallback("/api/{**path}", async context =>

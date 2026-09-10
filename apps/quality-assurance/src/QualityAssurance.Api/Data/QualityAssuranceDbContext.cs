@@ -12,10 +12,32 @@ public sealed class QualityAssuranceDbContext(
     public DbSet<QualityShipmentComment> ShipmentComments => Set<QualityShipmentComment>();
     public DbSet<QualityMentionNotification> MentionNotifications => Set<QualityMentionNotification>();
     public DbSet<QualityAssignmentRule> AssignmentRules => Set<QualityAssignmentRule>();
+    public DbSet<QualityWorkflow> Workflows => Set<QualityWorkflow>();
+    public DbSet<QualityWorkflowAuditEntry> WorkflowAuditEntries => Set<QualityWorkflowAuditEntry>();
     public DbSet<QualityShippingLayoutPreference> ShippingLayoutPreferences => Set<QualityShippingLayoutPreference>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<QualityWorkflow>(entity =>
+        {
+            entity.ToTable("QualityWorkflows");
+            entity.HasKey(workflow => workflow.Id);
+            entity.Property(workflow => workflow.Module).HasMaxLength(80);
+            entity.HasIndex(workflow => workflow.Module).IsUnique();
+            entity.Property(workflow => workflow.Version).IsConcurrencyToken();
+            entity.Property(workflow => workflow.PublishedBy).HasMaxLength(160);
+            entity.Property(workflow => workflow.UpdatedBy).HasMaxLength(160);
+        });
+        modelBuilder.Entity<QualityWorkflowAuditEntry>(entity =>
+        {
+            entity.ToTable("QualityWorkflowAuditEntries");
+            entity.HasKey(entry => entry.Id);
+            entity.Property(entry => entry.Module).HasMaxLength(80);
+            entity.Property(entry => entry.Action).HasMaxLength(40);
+            entity.Property(entry => entry.AccountName).HasMaxLength(160);
+            entity.Property(entry => entry.DisplayName).HasMaxLength(160);
+            entity.HasIndex(entry => new { entry.Module, entry.Id });
+        });
         modelBuilder.Entity<QualityShipment>(entity =>
         {
             entity.ToTable("QualityShipments");

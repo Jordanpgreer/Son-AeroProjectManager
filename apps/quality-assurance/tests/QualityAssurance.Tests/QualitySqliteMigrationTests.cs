@@ -53,6 +53,8 @@ public sealed class QualitySqliteMigrationTests
                     "QualityShipmentParts",
                     "QualityShipments",
                     "QualityShippingLayoutPreferences",
+                    "QualityWorkflowAuditEntries",
+                    "QualityWorkflows",
                     "__EFMigrationsHistory"
                 };
                 Assert.Equal(expectedTables, actualTables);

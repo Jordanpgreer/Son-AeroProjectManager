@@ -80,6 +80,7 @@ export default function DashboardShipmentQuickView({
 
   async function saveAssignment(event: React.FormEvent) {
     event.preventDefault()
+    if (!canAssign) return
     setSaving(true)
     setError(null)
     try {

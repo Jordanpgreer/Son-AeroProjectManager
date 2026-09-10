@@ -10,6 +10,7 @@ public sealed record MeDto(
     bool IsPreview = false,
     string? PreviewActorAccountName = null,
     string? PreviewTargetKey = null,
-    string? PreviewTargetTitle = null);
+    string? PreviewTargetTitle = null,
+    IReadOnlyList<string>? WorkflowRestrictedActions = null);
 
 public sealed record ErrorDto(string Code, string Message);

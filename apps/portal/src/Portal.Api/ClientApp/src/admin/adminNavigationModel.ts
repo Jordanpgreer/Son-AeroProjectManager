@@ -82,7 +82,7 @@ export const ADMIN_MODULES: {
   {
     key: 'quality-assurance',
     label: 'Quality Assurance',
-    description: 'Quality module administration',
+    description: 'Actions, conditions, and queue routing',
     icon: ClipboardCheck,
     href: '#/admin/quality-assurance/assignment-rules',
     openUrl: resolveModuleApplicationUrl(window.location, 5170),
