@@ -1,4 +1,10 @@
 import {
+  CalendarDays,
+  Factory,
+  FolderTree,
+  GraduationCap,
+  UploadCloud,
+  Waypoints,
   Calculator,
   ClipboardCheck,
   ListChecks,
@@ -13,7 +19,7 @@ import {
   Users,
 } from 'lucide-react'
 import { resolveModuleApplicationUrl } from './moduleUrls'
-import type { AdminModuleKey, ArdaAccessSection } from './types'
+import type { AdminModuleKey, ArdaAccessSection, ProjectTrackerAdminSection, EngineeringAdminSection, QualityAdminSection } from './types'
 
 export const ADMIN_MODULES: {
   key: AdminModuleKey
@@ -22,6 +28,8 @@ export const ADMIN_MODULES: {
   icon: typeof Settings2
   href: string
   openUrl?: string
+  /** Sidebar grouping separates related administration areas. */
+  sidebarGroup?: string
   /** Hidden from the navigation entirely unless the viewer is a full Arda administrator. */
   adminOnly?: boolean
 }[] = [
@@ -38,6 +46,7 @@ export const ADMIN_MODULES: {
     description: 'Prioritized work, ownership, notes, and completion history',
     icon: ListChecks,
     href: '#/admin/raid-log/board',
+    sidebarGroup: 'Operations',
     adminOnly: true,
   },
   {
@@ -63,6 +72,7 @@ export const ADMIN_MODULES: {
     icon: Calculator,
     href: '#/admin/estimating/overview',
     openUrl: resolveModuleApplicationUrl(window.location, 5160),
+    sidebarGroup: 'Estimating',
   },
   {
     key: 'integrations',
@@ -70,6 +80,7 @@ export const ADMIN_MODULES: {
     description: 'Protected credentials for connected systems',
     icon: KeyRound,
     href: '#/admin/integrations/api-keys',
+    sidebarGroup: 'Integrations',
   },
   {
     key: 'api-customizer',
@@ -77,6 +88,7 @@ export const ADMIN_MODULES: {
     description: 'Fulcrum data catalogue and custom Excel reports',
     icon: TableProperties,
     href: '#/admin/api-customizer/overview',
+    sidebarGroup: 'Data tools',
     adminOnly: true,
   },
   {
@@ -93,6 +105,7 @@ export const ADMIN_MODULES: {
     description: 'Assistant and idle activity across every module',
     icon: MessageCircleQuestion,
     href: '#/admin/benny/settings',
+    sidebarGroup: 'Assistant',
     adminOnly: true,
   },
 ]
@@ -106,4 +119,32 @@ export const ARDA_ACCESS_SECTIONS: {
   { key: 'groups', label: 'Permission groups', icon: ShieldCheck, href: '#/admin/access' },
   { key: 'people', label: 'People', icon: Users, href: '#/admin/access/people' },
   { key: 'preview', label: 'Access preview', icon: Eye, href: '#/admin/access/preview' },
+]
+
+export const PROJECT_TRACKER_SECTIONS: {
+  key: ProjectTrackerAdminSection
+  label: string
+  icon: typeof Settings2
+}[] = [
+  { key: 'walkthrough', label: 'Onboarding', icon: GraduationCap },
+  { key: 'calendar', label: 'Work Calendar', icon: CalendarDays },
+  { key: 'work-centers', label: 'Work Centers', icon: Factory },
+  { key: 'holidays', label: 'Holidays', icon: CalendarDays },
+  { key: 'imports', label: 'Imports', icon: UploadCloud },
+]
+
+export const ENGINEERING_SECTIONS: {
+  key: EngineeringAdminSection
+  label: string
+  icon: typeof Settings2
+}[] = [
+  { key: 'file-storage', label: 'File Storage', icon: FolderTree },
+]
+
+export const QUALITY_SECTIONS: {
+  key: QualityAdminSection
+  label: string
+  icon: typeof Settings2
+}[] = [
+  { key: 'assignment-rules', label: 'Workflow', icon: Waypoints },
 ]

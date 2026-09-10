@@ -1,23 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent, MouseEvent } from 'react'
-import {
-  ArrowLeft,
-  CalendarDays,
-  ExternalLink,
-  Factory,
-  FolderTree,
-  GraduationCap,
-  LockKeyhole,
-  Settings2,
-  ShieldCheck,
-  UploadCloud,
-  Waypoints,
-} from 'lucide-react'
+import { ExternalLink, LockKeyhole } from 'lucide-react'
 import AccessPanel from './AccessPanel'
 import BennySettingsPanel from './BennySettingsPanel'
 import AccessPreviewPanel from './AccessPreviewPanel'
-import { AdminModuleTabs, ArdaAccessTabs } from './AdminNavigation'
-import { ADMIN_MODULES, ARDA_ACCESS_SECTIONS } from './adminNavigationModel'
+import AdminNavigation from './AdminNavigation'
+import { ADMIN_MODULES, ARDA_ACCESS_SECTIONS, PROJECT_TRACKER_SECTIONS, ENGINEERING_SECTIONS, QUALITY_SECTIONS } from './adminNavigationModel'
 import EngineeringStoragePanel from './EngineeringStoragePanel'
 import EstimatorSettingsPanel from './EstimatorSettingsPanel'
 import EstimatingImportAccessPanel from './EstimatingImportAccessPanel'
@@ -36,15 +23,14 @@ import {
 import type {
   AdminModuleKey,
   ArdaAccessSection,
-  EngineeringAdminSection,
   ProjectTrackerAdminSection,
-  QualityAdminSection,
   ProjectTrackerUser,
   AdminAccessPreviewTarget,
 } from './types'
 import './admin.css'
 import './admin-responsive.css'
 import './access-management.css'
+import './admin-workspace.css'
 
 interface AdminRoute {
   module: AdminModuleKey
@@ -60,34 +46,6 @@ const PERMISSIONS = {
   holidays: 'settings.holidays.manage',
   imports: 'import.manage',
 } as const
-
-const PROJECT_TRACKER_SECTIONS: {
-  key: ProjectTrackerAdminSection
-  label: string
-  icon: typeof Settings2
-}[] = [
-  { key: 'walkthrough', label: 'Onboarding', icon: GraduationCap },
-  { key: 'calendar', label: 'Work Calendar', icon: CalendarDays },
-  { key: 'work-centers', label: 'Work Centers', icon: Factory },
-  { key: 'holidays', label: 'Holidays', icon: CalendarDays },
-  { key: 'imports', label: 'Imports', icon: UploadCloud },
-]
-
-const ENGINEERING_SECTIONS: {
-  key: EngineeringAdminSection
-  label: string
-  icon: typeof Settings2
-}[] = [
-  { key: 'file-storage', label: 'File Storage', icon: FolderTree },
-]
-
-const QUALITY_SECTIONS: {
-  key: QualityAdminSection
-  label: string
-  icon: typeof Settings2
-}[] = [
-  { key: 'assignment-rules', label: 'Workflow', icon: Waypoints },
-]
 
 function parseRoute(hash = window.location.hash): AdminRoute {
   const path = hash.replace(/^#\/?/, '').split('?')[0]
@@ -138,23 +96,6 @@ function parseRoute(hash = window.location.hash): AdminRoute {
   }
 }
 
-function handleTabKeys(event: KeyboardEvent<HTMLElement>, currentHref: string) {
-  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-  const tabs = [...event.currentTarget.querySelectorAll<HTMLAnchorElement>(
-    '[role="tab"]:not([aria-disabled="true"])',
-  )]
-  if (!tabs.length) return
-  const currentIndex = Math.max(0, tabs.findIndex((tab) => tab.hash === currentHref))
-  const nextIndex = event.key === 'Home'
-    ? 0
-    : event.key === 'End'
-      ? tabs.length - 1
-      : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
-  event.preventDefault()
-  tabs[nextIndex].click()
-  tabs[nextIndex].focus()
-}
-
 function NoAccess({ detail }: { detail: string }) {
   return (
     <section className="admin-surface admin-placeholder" role="alert">
@@ -196,13 +137,9 @@ export default function AdminConsole({
   const [permissionsError, setPermissionsError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (route.module === 'raid-log' || route.module === 'integrations' || route.module === 'engineering' || route.module === 'api-customizer') {
-      setPermissionsLoading(false)
-      setPermissionsError(null)
-      return
-    }
     let active = true
     setPermissionsLoading(true)
+    setPermissionsError(null)
     void trackerApi<ProjectTrackerUser>('/api/me')
       .then((user) => {
         if (active) setTrackerUser(user)
@@ -277,7 +214,12 @@ export default function AdminConsole({
         : canPreviewAccess
           ? 'preview'
           : undefined
-  const Icon = activeModule.icon
+  const activeSection = (route.module === 'access' ? ARDA_ACCESS_SECTIONS
+    : route.module === 'project-tracker' ? PROJECT_TRACKER_SECTIONS
+    : route.module === 'engineering' ? ENGINEERING_SECTIONS
+    : route.module === 'quality-assurance' ? QUALITY_SECTIONS : []).find((section) => section.key === route.section)
+  const pageTitle = activeSection?.label ?? activeModule.label
+  const permissionsReady = !permissionsLoading && !permissionsError
 
   useEffect(() => {
     if (route.module !== 'project-tracker'
@@ -315,137 +257,29 @@ export default function AdminConsole({
     selectedAccessSectionAllowed,
   ])
 
-  function blockUnauthorizedNavigation(
-    event: MouseEvent<HTMLAnchorElement>,
-    allowed: boolean,
-  ) {
-    if (!allowed) event.preventDefault()
-  }
-
   return (
     <main className="portal-main admin-main" id="main-content">
-      <a className="admin-back-link" href="#/"><ArrowLeft size={15} /> Back to Applications</a>
-      <header className="admin-page-head">
-        <div>
-          <span className="kicker">Administration</span>
-          <h1>Arda Admin</h1>
-          <p>Manage module-owned settings from one controlled workspace.</p>
-        </div>
-        <span className="admin-controlled-badge"><ShieldCheck size={15} /> Permission controlled</span>
-      </header>
-
-      <AdminModuleTabs
+      <AdminNavigation
         selected={route.module}
+        section={route.section}
         canSeeAdminOnly={currentPortalRole === 'Admin'}
-        canSeeBenny={!permissionsLoading && !permissionsError && canAdministerBenny}
-        onKeyDown={(event) => handleTabKeys(event, activeModule.href)}
+        canSeeBenny={permissionsReady && canAdministerBenny}
+        canManageGroups={permissionsReady && canManageGroups}
+        canManageUsers={permissionsReady && canManageUsers}
+        canPreviewAccess={canPreviewAccess}
+        canOpenTrackerSection={(section) => permissionsReady && canOpenSection(section)}
+        canManageQualityRules={permissionsReady && canManageQualityRules}
       />
-
-      <section className="admin-module-panel" id="admin-module-panel" role="tabpanel" aria-labelledby={`admin-module-tab-${route.module}`}>
-        <header className="admin-module-head">
-          <span className="admin-module-icon"><Icon size={23} aria-hidden="true" /></span>
-          <div><span className="kicker">Module administration</span><h2 ref={panelHeadingRef} tabIndex={-1}>{activeModule.label}</h2><p>{activeModule.description}</p></div>
-          {activeModule.openUrl && <a className="ghost-button" href={activeModule.openUrl} target="_top">Open module <ExternalLink size={15} /></a>}
+      <section className="admin-module-panel" aria-labelledby="admin-workspace-title">
+        <header className="admin-workspace-head">
+          <div>
+            <p className="admin-breadcrumb">Administration <span aria-hidden="true">/</span> {activeModule.label}</p>
+            <h1 id="admin-workspace-title" ref={panelHeadingRef} tabIndex={-1}>{pageTitle}</h1>
+            <p className="admin-workspace-description">{activeModule.description}</p>
+          </div>
+          {activeModule.openUrl && <a className="ghost-button" href={activeModule.openUrl} target="_top">Open module <ExternalLink size={15} aria-hidden="true" /></a>}
         </header>
-
-        {route.module === 'access' && (
-          <ArdaAccessTabs
-            selected={selectedAccessSection}
-            selectedAllowed={selectedAccessSectionAllowed}
-            firstAllowed={firstAllowedAccessSection}
-            canManageGroups={!permissionsLoading && !permissionsError && canManageGroups}
-            canManageUsers={!permissionsLoading && !permissionsError && canManageUsers}
-            canPreviewAccess={canPreviewAccess}
-            onKeyDown={(event) => handleTabKeys(event, selectedAccessSection === 'preview' ? '#/admin/access/preview' : selectedAccessSection === 'people' ? '#/admin/access/people' : '#/admin/access')}
-          />
-        )}
-
-        {route.module === 'project-tracker' && (
-          <nav className="admin-section-tabs" role="tablist" aria-label="Project Tracker admin sections" onKeyDown={(event) => handleTabKeys(event, `#/admin/project-tracker/${route.section}`)}>
-            {PROJECT_TRACKER_SECTIONS.map((section) => {
-              const SectionIcon = section.icon
-              const selected = section.key === route.section
-              const allowed = !permissionsLoading && canOpenSection(section.key)
-              return (
-                <a
-                  key={section.key}
-                  role="tab"
-                  id={`admin-section-tab-${section.key}`}
-                  aria-selected={selected}
-                  aria-disabled={!allowed}
-                  aria-controls="admin-section-panel"
-                  tabIndex={allowed && (selected || (!selectedSectionAllowed && section.key === firstAllowedTrackerSection)) ? 0 : -1}
-                  className={`${selected ? 'active' : ''} ${allowed ? '' : 'disabled'}`.trim()}
-                  href={`#/admin/project-tracker/${section.key}`}
-                  onClick={(event) => blockUnauthorizedNavigation(event, allowed)}
-                >
-                  <SectionIcon size={15} aria-hidden="true" /> {section.label}
-                </a>
-              )
-            })}
-          </nav>
-        )}
-        {route.module === 'engineering' && (
-          <nav className="admin-section-tabs" role="tablist" aria-label="Engineering admin sections" onKeyDown={(event) => handleTabKeys(event, `#/admin/engineering/${route.section}`)}>
-            {ENGINEERING_SECTIONS.map((section) => {
-              const SectionIcon = section.icon
-              const selected = section.key === route.section
-              return (
-                <a
-                  key={section.key}
-                  role="tab"
-                  id={`admin-engineering-section-tab-${section.key}`}
-                  aria-selected={selected}
-                  aria-controls="admin-section-panel"
-                  tabIndex={selected ? 0 : -1}
-                  className={selected ? 'active' : ''}
-                  href={`#/admin/engineering/${section.key}`}
-                >
-                  <SectionIcon size={15} aria-hidden="true"/> {section.label}
-                </a>
-              )
-            })}
-          </nav>
-        )}
-        {route.module === 'quality-assurance' && (
-          <nav className="admin-section-tabs" role="tablist" aria-label="Quality Assurance admin sections" onKeyDown={(event) => handleTabKeys(event, `#/admin/quality-assurance/${route.section}`)}>
-            {QUALITY_SECTIONS.map((section) => {
-              const SectionIcon = section.icon
-              const selected = section.key === route.section
-              const allowed = !permissionsLoading && canManageQualityRules
-              return (
-                <a
-                  key={section.key}
-                  role="tab"
-                  id={`admin-quality-section-tab-${section.key}`}
-                  aria-selected={selected}
-                  aria-disabled={!allowed}
-                  aria-controls="admin-section-panel"
-                  tabIndex={selected && allowed ? 0 : -1}
-                  className={`${selected ? 'active' : ''} ${allowed ? '' : 'disabled'}`.trim()}
-                  href={`#/admin/quality-assurance/${section.key}`}
-                  onClick={(event) => blockUnauthorizedNavigation(event, allowed)}
-                >
-                  <SectionIcon size={15} aria-hidden="true" /> {section.label}
-                </a>
-              )
-            })}
-          </nav>
-        )}
-
-        <div
-          id="admin-section-panel"
-          role={route.module === 'access' || route.module === 'project-tracker' || route.module === 'engineering' || route.module === 'quality-assurance' ? 'tabpanel' : undefined}
-          aria-labelledby={route.module === 'access'
-            ? `admin-access-section-tab-${selectedAccessSection}`
-            : route.module === 'project-tracker'
-              ? `admin-section-tab-${route.section}`
-            : route.module === 'engineering'
-              ? `admin-engineering-section-tab-${route.section}`
-              : route.module === 'quality-assurance'
-                ? `admin-quality-section-tab-${route.section}`
-              : undefined}
-        >
+        <div id="admin-section-panel" className="admin-workspace-content">
           {route.module === 'access' && selectedAccessSection !== 'preview' && permissionsLoading && <div className="admin-loading" role="status">Checking Access permissions...</div>}
           {route.module === 'access' && selectedAccessSection !== 'preview' && !permissionsLoading && permissionsError && <NoAccess detail={permissionsError} />}
           {route.module === 'access' && selectedAccessSection !== 'preview' && !permissionsLoading && !permissionsError && !selectedAccessSectionAllowed && <NoAccess detail={`Your groups do not grant permission to manage ${selectedAccessSection === 'people' ? 'people' : 'permission groups'}.`} />}
