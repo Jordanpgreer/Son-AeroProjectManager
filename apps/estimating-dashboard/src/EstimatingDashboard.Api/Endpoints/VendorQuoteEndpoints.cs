@@ -56,6 +56,7 @@ public static class VendorQuoteEndpoints
         var group = api.MapGroup("/quote-status").RequireAuthorization(EstimatingPolicies.ViewHistory);
         group.AddEndpointFilter(ErrorFilter);
         group.MapManualEmails();
+        group.MapItemLifecycle();
         group.MapGet("", async (HttpContext ctx, QuoteStatusService service, string? search, string? status,
             int? quoteNumber, int page = 1, int pageSize = 50, CancellationToken cancellationToken = default) =>
             Results.Ok(await service.ListAsync(Access(ctx), search, status, quoteNumber, page, pageSize, cancellationToken)));

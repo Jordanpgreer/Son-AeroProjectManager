@@ -16,7 +16,8 @@ public sealed record VendorQuoteDetailDto(
 
 public sealed record VendorQuoteActivityDto(
     long Id, string Kind, string Text, string? OldValue, string? NewValue,
-    DateTimeOffset OccurredAt, string AccountName, string DisplayName);
+    DateTimeOffset OccurredAt, string AccountName, string DisplayName,
+    DateTimeOffset? EditedAt = null, string? EditedBy = null, string? ActivityId = null);
 
 public sealed record VendorQuoteMessageDto(
     long Id, string Direction, string Subject, string FromAddress, string? FromName,

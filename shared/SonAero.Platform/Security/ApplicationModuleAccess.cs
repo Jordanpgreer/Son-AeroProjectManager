@@ -145,7 +145,7 @@ public static class ApplicationModuleCatalog
         var deleteQuotes = new PermissionDefinition(
             "estimating.quotes.delete",
             "Delete quotes",
-            "Permanently delete any local quote, including published revisions and their drafts.",
+            "Permanently delete any local quote, including published revisions and their drafts. Remove and restore quote emails and internal notes.",
             category);
         var manageInputs = new PermissionDefinition(
             "estimating.inputs.manage",

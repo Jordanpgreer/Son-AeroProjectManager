@@ -32,6 +32,9 @@ export interface VendorActivity {
   occurredAt: string
   accountName: string
   displayName: string
+  activityId?: string | null
+  editedAt?: string | null
+  editedBy?: string | null
 }
 
 export interface VendorMessage {
@@ -97,12 +100,19 @@ export interface QuoteStatusSummary {
   status: string; statusChangedAt: string | null; statusChangedBy: string | null
   followUpDate: string | null; updatedAt: string; lastMessageAt: string | null
   threadCount: number; messageCount: number; unassignedMessageCount: number; version: number; canEdit: boolean
+  canRemove: boolean
 }
 export interface QuoteActivity extends Omit<VendorActivity, 'id'> {
   id: string; requestId: number | null; vendorName: string | null; partNumber: string | null
+  removedAt?: string | null; removedBy?: string | null
 }
 export interface QuoteStatusDetail {
   quote: QuoteStatusSummary; activity: QuoteActivity[]; threads: VendorDetail[]; unassignedMessages: VendorMessage[]; workflow: PersonalQuote
+  removedMessages: RemovedQuoteEmail[]; removedNotes: QuoteActivity[]
+}
+export interface RemovedQuoteEmail {
+  id: number; subject: string; direction: string; fromAddress: string; fromName: string | null; vendorEmail: string
+  sentAt: string; removedAt: string; removedBy: string | null; requestId: number | null; vendorName: string | null; partNumber: string | null
 }
 export interface QuoteStatusPage { items: QuoteStatusSummary[]; totalCount: number; page: number; pageSize: number }
 export interface QuoteStatusUpdate { expectedVersion: number; status: string; followUpDate: string | null; note: string | null }

@@ -23,6 +23,12 @@ public sealed partial class VendorQuoteService
         CancellationToken ct, int? explicitQuoteId = null, ManualQuoteEmailImportOptions? manual = null)
     {
         Guard(access, true);
+        if (manual is null)
+        {
+            var identity = Hash(Email(dto.VendorEmail) + "\n" + Required(dto.SourceMessageId, "Source message ID", 1024));
+            if (await db.Set<VendorQuoteMessage>().AnyAsync(x => x.DeduplicationKey == identity && (x.RemovedAt != null || x.MovedAt != null), ct))
+                return new("duplicate", null, null, "This email was already handled in Arda. Sync left it unchanged.");
+        }
         var subject = manual is null ? Required(dto.Subject, "Subject", 998) : dto.Subject;
         if (subject.Length > 998) throw new VendorQuoteException(400, "Subject exceeds 998 characters.");
         var quoteNumber = MatchQuoteNumber(subject);
@@ -51,7 +57,9 @@ public sealed partial class VendorQuoteService
         {
             // A reused source ID cannot expose another quote or silently rewrite previously imported evidence.
             if (existing.QuoteHistoryId != quote.Id) throw new VendorQuoteException(409, "The source message ID is already attached to a different quote.");
-            return new("duplicate", existing.RequestId, quoteNumber, "This email has already been imported. No email or additional note was added.");
+            return new("duplicate", existing.RequestId, quoteNumber, existing.RemovedAt.HasValue
+                ? "This email was removed from Arda. Restore it from Removed items instead of importing it again. No additional note was added."
+                : "This email has already been imported. No email or additional note was added.");
         }
         if (manual is not null) Version(quote.Version, manual.ExpectedVersion);
         var mailbox = manual is null ? Email(dto.Mailbox) : "";
@@ -76,7 +84,7 @@ public sealed partial class VendorQuoteService
         if (manual is null && conversation is not null)
         {
             var related = await db.Set<VendorQuoteMessage>().Where(x => x.QuoteHistoryId == quote.Id && x.VendorEmail == vendor
-                && x.ConversationId == conversation && x.RequestId != null).Select(x => x.RequestId!.Value).Distinct().ToListAsync(ct);
+                && x.ConversationId == conversation && x.RequestId != null && x.RemovedAt == null).Select(x => x.RequestId!.Value).Distinct().ToListAsync(ct);
             var match = candidates.Where(x => related.Contains(x.Id)).ToList();
             if (match.Count == 1) request = match[0];
         }

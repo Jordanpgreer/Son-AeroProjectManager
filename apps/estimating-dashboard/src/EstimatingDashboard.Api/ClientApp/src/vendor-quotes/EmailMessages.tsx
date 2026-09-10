@@ -1,11 +1,13 @@
-import { Download, Inbox, Mail, Paperclip, Send } from 'lucide-react'
+import { ArrowRightLeft, Download, Inbox, Mail, Paperclip, Send, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { attachmentSize, canAssignMessageToContact, dateTime } from './model'
 import type { VendorDetail, VendorMessage } from './types'
+import RecordMenu from './RecordMenu'
 
-export default function EmailMessages({ messages, unassignedIds, threads, canEdit, onAssign }: {
+export default function EmailMessages({ messages, unassignedIds, threads, canEdit, onAssign, canRemove = false, busy = false, onMove, onRemove }: {
   messages: VendorMessage[]; unassignedIds: Set<number>; threads: VendorDetail[]; canEdit: boolean
   onAssign: (messageId: number, requestId: number) => Promise<void>
+  canRemove?: boolean; busy?: boolean; onMove?: (message: VendorMessage) => void; onRemove?: (message: VendorMessage) => void
 }) {
   const [assigning, setAssigning] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -14,9 +16,11 @@ export default function EmailMessages({ messages, unassignedIds, threads, canEdi
     const outgoing = ['outbound', 'outgoing', 'sent'].includes(message.direction.toLowerCase())
     const Icon = outgoing ? Send : Mail
     const availableThreads = threads.filter(thread => canAssignMessageToContact(message, thread.request.vendorEmail))
-    return <article className="vq-email" key={message.id}>
+    const actions = [...(canEdit && onMove ? [{ label: 'Move email', icon: <ArrowRightLeft size={15} />, onSelect: () => onMove(message) }] : []), ...(canRemove && onRemove ? [{ label: 'Remove from Arda', icon: <Trash2 size={15} />, destructive: true, onSelect: () => onRemove(message) }] : [])]
+    return <article className={`vq-email${actions.length ? ' qs-email-has-actions' : ''}`} key={message.id}>
+      {actions.length > 0 && <div className="qs-email-actions"><RecordMenu label={`Actions for ${message.subject || 'email'}`} items={actions} disabled={busy || assigning !== null} /></div>}
       {unassignedIds.has(message.id) && <div className="vq-unassigned"><span>Quote-level email · choose a thread when ready</span>
-        {canEdit && availableThreads.length > 0 && <select aria-label={`Assign ${message.subject} to a thread`} value="" disabled={assigning !== null} onChange={async event => {
+        {canEdit && availableThreads.length > 0 && <select aria-label={`Assign ${message.subject} to a thread`} value="" disabled={assigning !== null || busy} onChange={async event => {
           const id = Number(event.target.value)
           if (!id) return
           setError(null); setAssigning(message.id)

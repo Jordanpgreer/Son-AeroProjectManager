@@ -3,6 +3,7 @@ using EstimatingDashboard.Api.Endpoints;
 using EstimatingDashboard.Api.Models;
 using EstimatingDashboard.Api.Services;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Infrastructure;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
@@ -87,13 +88,17 @@ public sealed class VendorQuotePersistenceTests
         var app = builder.Build();
         app.MapGroup("/api").MapVendorQuoteEndpoints().MapQuoteStatusEndpoints();
         var routes = ((IEndpointRouteBuilder)app).DataSources.SelectMany(x => x.Endpoints).OfType<RouteEndpoint>().ToList();
-        Assert.Equal(18, routes.Count);
+        Assert.Equal(24, routes.Count);
         Assert.All(routes, route =>
         {
             var auth = route.Metadata.GetOrderedMetadata<IAuthorizeData>();
             Assert.Contains(auth, x => x.Policy == EstimatingPolicies.ViewHistory);
             if (route.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Any(x => x is "POST" or "PUT"))
                 Assert.Contains(auth, x => x.Policy == EstimatingPolicies.Editor);
+            if (route.RoutePattern.RawText?.EndsWith("/remove") == true || route.RoutePattern.RawText?.EndsWith("/restore") == true)
+                Assert.Contains(route.Metadata.GetOrderedMetadata<AuthorizationPolicy>().SelectMany(x => x.Requirements)
+                    .OfType<ClaimsAuthorizationRequirement>(), x => x.ClaimType == EstimatingPolicies.PermissionClaim
+                    && x.AllowedValues?.Contains(EstimatingPermissions.DeleteQuotes) == true);
         });
     }
 }

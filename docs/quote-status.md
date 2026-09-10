@@ -39,6 +39,16 @@ The server checks quote and thread access, validates the file and message, and r
 
 Direct dragging from an Outlook window depends on whether the browser receives an email file. If it receives no usable file, save the message in Outlook first and attach that file. Local file-upload tests do not establish native Outlook-to-browser drag support on every workstation.
 
+## Correcting and removing records
+
+Email and internal-note actions are available from each item's **More** menu. **Move email** changes its quote or part/vendor thread while preserving the original subject, message dates, body, and attachments. The user must have editing access to both quotes, and a vendor thread must match the email's correspondent. Moving correspondence does not change either quote's status or either thread's status.
+
+**Remove from Arda** hides an email from active correspondence. The original Outlook email is untouched. **Remove note** hides an internal note from the active timeline. Removed items remain recoverable through **Undo** or the quote's **Removed** view; removal is not permanent erasure. Attachment downloads are unavailable while their email is removed. Internal notes can be edited, with their original author/date retained and the correction recorded in history. Automatic status and audit events are not editable notes.
+
+Removal and restoration require the existing **Delete quotes** permission (`estimating.quotes.delete`) in addition to editing access to the quote. Note edits and email moves require quote editing access. Preview and read-only users cannot mutate records. These checks apply to direct API calls as well as the interface; no existing group permissions are automatically expanded by this feature.
+
+Every removal, restoration, move, and note edit records the acting user and time. Changes use the loaded quote version to prevent stale actions from overwriting newer work. The source identity of a removed or moved email remains reserved, so Outlook reconciliation does not recreate or return the same identified email to its former location. An explicit restore is required to recover a removed email. Identity matching retains the limitations documented for manual imports when an original Internet Message ID is absent.
+
 ## Installation and release
 
 The Estimating schema initializer adds the quote tracking tables for both SQLite and SQL Server. The Outlook connector files are linked from `scripts/outlook-estimating` into the Estimating build and publish output under `Assets/OutlookConnector`.
@@ -53,13 +63,15 @@ Run the Estimating API on port 5282 with an explicit disposable SQLite `Connecti
 
 ## Verification on September 10, 2026
 
-- 186 backend tests passed, including permissions, concurrency, shared quote workflow fields, canonical status filters, activity recency, exact subject matching, duplicate imports, ambiguous assignment, attachments, SQLite schema initialization, and 19 manual email regressions.
-- 126 frontend tests passed, including independent overview/activity drafts, email file validation, thread/correspondent matching, and stale-version protection; one native Excel test was skipped. TypeScript, Vite production build, and lint passed.
+- 200 backend tests passed, including permissions, concurrency, shared quote workflow fields, canonical status filters, activity recency, exact subject matching, duplicate imports, ambiguous assignment, attachments, SQLite schema initialization, 19 manual email regressions, and 14 record lifecycle regressions.
+- 133 frontend tests passed, including independent overview/activity drafts, email file validation, thread/correspondent matching, lifecycle request versions, immutable automatic activity, keyboard-menu behavior, and stale-version protection; one native Excel test was skipped. TypeScript, Vite production build, and lint passed.
 - The downloaded ZIP passed 60 synthetic assertions in Windows PowerShell 5.1 without Outlook or network access during the self-test.
 - Browser checks used a separate SQLite database with synthetic quotes. They covered multiple vendors on one part, combined and scoped history, general quote notes, manual email assignment, vendor search, unsaved-note retention/discard, light/dark themes, and a 390-pixel mobile layout without horizontal document overflow.
 - The redesigned page was checked for dashboard row navigation, focused quote links, All quotes navigation, desktop/mobile navigation order, saving status and summary notes, custom estimating due dates, restoring the automatic date, and retaining/discarding unsaved quote edits.
 - Inline editing was verified for status, date, and summary saves; preserving an activity draft during a details save and a summary draft during an activity save; retaining edits on a version conflict; and protecting unsaved changes during navigation.
 - Manual email browser checks covered received and sent `.eml` imports, a valid Outlook `.msg` import, incorrect subjects, explicit vendor-thread placement, optional notes, duplicate rejection, preservation of both unsaved drafts, original message dates, and attachment download. The review dialog was checked in light/dark themes and at 390 pixels without horizontal document overflow. Unsupported files and malformed messages were rejected; uploads without the required request header returned 403. No native Outlook drag was performed.
+- Record lifecycle browser checks covered editing and removing a saved note while both existing drafts were retained, immediate Undo, email removal surviving reload, restoration from Removed items, quote search and cross-quote moves, destination email counts, matching vendor-thread choices, and light/dark mobile dialogs without document overflow. The final built preview logged no browser warnings or errors.
+- Live API checks on the disposable preview confirmed removal permission denial, removed attachment denial and restored download, repeated automatic import suppression after removal/move, wrong-vendor and stale-version rejection, quote/thread note author and date retention, and unchanged statuses. The populated preview database upgraded successfully; automated tests also repeated the legacy SQLite upgrade and checked atomic concurrency rollback and SQL Server upgrade guards.
 - The Release API was published to a temporary directory with the built frontend in `wwwroot`; the page and authenticated connector ZIP were verified from that API. The sample attachment downloaded with forced-download headers.
 
 No real mailbox was connected or production deployment performed. SQL Server DDL was structurally tested but was not executed against a live SQL Server. Live Outlook validation still depends on the intended user's profile, Windows authentication, and company policy.

@@ -62,21 +62,22 @@ public sealed partial class VendorQuoteService(EstimatingAccessDbContext db, Tim
         page = Math.Clamp(page, 1, 1000000); pageSize = Math.Clamp(pageSize, 1, 100);
         var selected = rows.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         var selectedIds = selected.Select(x => x.Id).ToArray();
-        var counts = await db.Set<VendorQuoteMessage>().Where(x => x.RequestId.HasValue && selectedIds.Contains(x.RequestId.Value)).GroupBy(x => x.RequestId!.Value).Select(g => new { Id = g.Key, Count = g.Count() }).ToDictionaryAsync(x => x.Id, x => x.Count, ct);
-        var notes = await db.Set<VendorQuoteActivity>().Where(x => selectedIds.Contains(x.RequestId) && x.Kind == "note").GroupBy(x => x.RequestId).Select(g => new { Id = g.Key, Count = g.Count() }).ToDictionaryAsync(x => x.Id, x => x.Count, ct);
+        var counts = await db.Set<VendorQuoteMessage>().Where(x => x.RemovedAt == null && x.RequestId.HasValue && selectedIds.Contains(x.RequestId.Value)).GroupBy(x => x.RequestId!.Value).Select(g => new { Id = g.Key, Count = g.Count() }).ToDictionaryAsync(x => x.Id, x => x.Count, ct);
+        var notes = await db.Set<VendorQuoteActivity>().Where(x => selectedIds.Contains(x.RequestId) && x.Kind == "note" && x.RemovedAt == null).GroupBy(x => x.RequestId).Select(g => new { Id = g.Key, Count = g.Count() }).ToDictionaryAsync(x => x.Id, x => x.Count, ct);
         return new(selected.Select(x => Summary(x, access, counts.GetValueOrDefault(x.Id), notes.GetValueOrDefault(x.Id))).ToList(), rows.Count, page, pageSize);
     }
     public async Task<VendorQuoteDetailDto> DetailAsync(int id, EstimatingAccessProfile access, CancellationToken ct)
     {
         var request = await RequestAsync(id, access, false, ct);
         var messages = await MessagesAsync(db.Set<VendorQuoteMessage>().Where(x => x.RequestId == id), ct);
-        var activity = await db.Set<VendorQuoteActivity>().AsNoTracking().Where(x => x.RequestId == id).ToListAsync(ct);
+        var activity = await db.Set<VendorQuoteActivity>().AsNoTracking().Where(x => x.RequestId == id && x.RemovedAt == null).ToListAsync(ct);
         return new(Summary(request, access, messages.Count, activity.Count(x => x.Kind == "note")), messages,
             activity.OrderByDescending(x => x.OccurredAt).ThenByDescending(x => x.Id)
-                .Select(x => new VendorQuoteActivityDto(x.Id, x.Kind, x.Text, x.OldValue, x.NewValue, x.OccurredAt, x.AccountName, x.DisplayName)).ToList());
+                .Select(x => new VendorQuoteActivityDto(x.Id, x.Kind, x.Text, x.OldValue, x.NewValue, x.OccurredAt, x.AccountName, x.DisplayName, x.EditedAt, x.EditedBy, $"thread-{x.Id}")).ToList());
     }
     internal async Task<IReadOnlyList<VendorQuoteMessageDto>> MessagesAsync(IQueryable<VendorQuoteMessage> query, CancellationToken ct)
     {
+        query = query.Where(x => x.RemovedAt == null);
         // Project attachment metadata only: opening a thread never loads every attachment BLOB.
         var messages = await query.AsNoTracking().Select(x => new VendorQuoteMessageDto(x.Id, x.Direction,
             x.Subject, x.FromAddress, x.FromName, Array.Empty<string>(), x.SentAt, x.ReceivedAt, x.ImportedAt,
@@ -148,10 +149,12 @@ public sealed partial class VendorQuoteService(EstimatingAccessDbContext db, Tim
     public async Task<VendorQuoteAttachment> AttachmentAsync(long id, EstimatingAccessProfile access, CancellationToken ct)
     {
         Guard(access);
-        var parent = await db.Set<VendorQuoteAttachment>().Where(x => x.Id == id).Select(x => (int?)x.Message.QuoteHistoryId).SingleOrDefaultAsync(ct)
+        var parent = await db.Set<VendorQuoteAttachment>().Where(x => x.Id == id && x.Message.RemovedAt == null).Select(x => (int?)x.Message.QuoteHistoryId).SingleOrDefaultAsync(ct)
             ?? throw new VendorQuoteException(404, "The attachment was not found.");
         await QuoteAsync(parent, access, false, ct);
-        return await db.Set<VendorQuoteAttachment>().AsNoTracking().SingleAsync(x => x.Id == id, ct);
+        return await db.Set<VendorQuoteAttachment>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == id
+            && x.Message.RemovedAt == null && x.Message.QuoteHistoryId == parent, ct)
+            ?? throw new VendorQuoteException(404, "The attachment is no longer available on this quote.");
     }
     private VendorQuoteRequest NewRequest(EstimatingQuoteHistoryRecord quote, string email, string name, string title, string? part, EstimatingAccessProfile access)
     {

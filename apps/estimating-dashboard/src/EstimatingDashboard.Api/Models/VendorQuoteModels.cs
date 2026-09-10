@@ -44,6 +44,9 @@ public sealed class VendorQuoteMessage
     public DateTimeOffset ImportedAt { get; set; }
     public string ImportedBy { get; set; } = "";
     public string BodyText { get; set; } = "";
+    public DateTimeOffset? RemovedAt { get; set; }
+    public string? RemovedBy { get; set; }
+    public DateTimeOffset? MovedAt { get; set; }
     public ICollection<VendorQuoteAttachment> Attachments { get; set; } = [];
 }
 
@@ -58,7 +61,7 @@ public sealed class VendorQuoteAttachment
     public byte[] Content { get; set; } = [];
 }
 
-public sealed class VendorQuoteActivity
+public sealed class VendorQuoteActivity : IQuoteNoteRecord
 {
     public long Id { get; set; }
     public int RequestId { get; set; }
@@ -70,6 +73,10 @@ public sealed class VendorQuoteActivity
     public DateTimeOffset OccurredAt { get; set; }
     public string AccountName { get; set; } = "";
     public string DisplayName { get; set; } = "";
+    public DateTimeOffset? EditedAt { get; set; }
+    public string? EditedBy { get; set; }
+    public DateTimeOffset? RemovedAt { get; set; }
+    public string? RemovedBy { get; set; }
 }
 
 public sealed class VendorQuoteSyncState
@@ -99,7 +106,7 @@ public sealed class QuoteStatusMetadata
     public DateTime? FollowUpDate { get; set; }
 }
 
-public sealed class QuoteStatusActivity
+public sealed class QuoteStatusActivity : IQuoteNoteRecord
 {
     public long Id { get; set; }
     public int QuoteHistoryId { get; set; }
@@ -111,4 +118,18 @@ public sealed class QuoteStatusActivity
     public DateTimeOffset OccurredAt { get; set; }
     public string AccountName { get; set; } = "";
     public string DisplayName { get; set; } = "";
+    public DateTimeOffset? EditedAt { get; set; }
+    public string? EditedBy { get; set; }
+    public DateTimeOffset? RemovedAt { get; set; }
+    public string? RemovedBy { get; set; }
+}
+
+public interface IQuoteNoteRecord
+{
+    string Kind { get; set; }
+    string Text { get; set; }
+    DateTimeOffset? EditedAt { get; set; }
+    string? EditedBy { get; set; }
+    DateTimeOffset? RemovedAt { get; set; }
+    string? RemovedBy { get; set; }
 }

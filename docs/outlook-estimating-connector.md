@@ -46,6 +46,8 @@ The connector reads the full plain text body and non-inline attachment bytes int
 
 `imported`, `duplicate`, and `unassigned` are durable success outcomes. `unassigned` means the server stored the correspondence on the quote for review; it must not be retried. Acknowledgements are recorded per correspondent, allowing partially successful outgoing fanout to resume without reposting successful recipients. `unmatched`, `ambiguous`, unexpected responses, and HTTP errors remain retryable. A crash before saving an acknowledgement is safe because backend deduplication is authoritative. Message IDs and mailbox addresses do not grant access to a quote.
 
+Removing or moving an email inside Arda retains its source identity. A repeated automatic import is acknowledged as `duplicate` without restoring the email, undoing its placement, or disclosing the destination quote. This also applies if local connector acknowledgements have expired or are being rebuilt. Restoring removed correspondence is an explicit Arda action; the connector never changes or deletes the original Outlook item.
+
 `POST /api/vendor-quotes/sync` sends a heartbeat with `mailbox`, `clientName`, `importedCount`, `duplicateCount`, `deferredCount`, and an optional safe `error` code. Deferred count is the current pending queue size. The connector does not call administrative endpoints, send email, save items, change read state, move messages, or delete anything in Outlook.
 
 ## Verification

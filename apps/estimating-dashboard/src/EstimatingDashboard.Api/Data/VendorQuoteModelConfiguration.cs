@@ -35,6 +35,7 @@ internal static class VendorQuoteModelConfiguration
             e.Property(x => x.FromAddress).HasMaxLength(254);
             e.Property(x => x.FromName).HasMaxLength(200);
             e.Property(x => x.ImportedBy).HasMaxLength(160);
+            e.Property(x => x.RemovedBy).HasMaxLength(160);
             e.Property(x => x.VendorEmail).HasMaxLength(254);
             e.Property(x => x.ConversationId).HasMaxLength(512);
             e.HasOne(x => x.Request).WithMany(x => x.Messages).HasForeignKey(x => x.RequestId).OnDelete(DeleteBehavior.Restrict);
@@ -54,10 +55,12 @@ internal static class VendorQuoteModelConfiguration
             e.HasKey(x => x.Id);
             e.Property(x => x.Kind).HasMaxLength(40);
             e.Property(x => x.Text).HasMaxLength(4000);
-            e.Property(x => x.OldValue).HasMaxLength(1000);
-            e.Property(x => x.NewValue).HasMaxLength(1000);
+            e.Property(x => x.OldValue).HasMaxLength(4000);
+            e.Property(x => x.NewValue).HasMaxLength(4000);
             e.Property(x => x.AccountName).HasMaxLength(160);
             e.Property(x => x.DisplayName).HasMaxLength(160);
+            e.Property(x => x.EditedBy).HasMaxLength(160);
+            e.Property(x => x.RemovedBy).HasMaxLength(160);
             e.HasOne(x => x.Request).WithMany(x => x.Activity).HasForeignKey(x => x.RequestId).OnDelete(DeleteBehavior.Restrict);
         });
         model.Entity<VendorQuoteSyncState>(e =>
@@ -82,10 +85,12 @@ internal static class VendorQuoteModelConfiguration
             e.HasKey(x => x.Id);
             e.Property(x => x.Kind).HasMaxLength(40);
             e.Property(x => x.Text).HasMaxLength(4000);
-            e.Property(x => x.OldValue).HasMaxLength(1000);
-            e.Property(x => x.NewValue).HasMaxLength(1000);
+            e.Property(x => x.OldValue).HasMaxLength(4000);
+            e.Property(x => x.NewValue).HasMaxLength(4000);
             e.Property(x => x.AccountName).HasMaxLength(160);
             e.Property(x => x.DisplayName).HasMaxLength(160);
+            e.Property(x => x.EditedBy).HasMaxLength(160);
+            e.Property(x => x.RemovedBy).HasMaxLength(160);
             e.HasOne(x => x.QuoteHistory).WithMany().HasForeignKey(x => x.QuoteHistoryId).OnDelete(DeleteBehavior.Restrict);
         });
     }
