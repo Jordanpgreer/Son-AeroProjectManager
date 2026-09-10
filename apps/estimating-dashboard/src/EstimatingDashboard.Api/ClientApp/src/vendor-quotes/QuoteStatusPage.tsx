@@ -66,9 +66,10 @@ export default function QuoteStatusPage({ me }: { me: EstimatingMe }) {
     void loadQuoteStatusDetail(selectedId, controller.signal).then(result => { if (!controller.signal.aborted) setDetail(result) }).catch(reason => { if (!controller.signal.aborted) setDetailError(reason instanceof Error ? reason.message : 'Quote details could not be loaded.') }).finally(() => { if (!controller.signal.aborted) setDetailLoading(false) })
     return () => controller.abort()
   }, [selectedId])
-  const changed = useCallback(async () => {
+  const changed = useCallback(async (provided?: QuoteStatusDetail) => {
     if (!selectedId) return null
-    const updated = await loadQuoteStatusDetail(selectedId)
+    const updated = provided ?? await loadQuoteStatusDetail(selectedId)
+    if (updated.quote.quoteHistoryId !== selectedId) return null
     if (activeSelection.current !== selectedId) return null
     setDetail(updated)
     setDetailError(null)

@@ -6,6 +6,7 @@ import EmailMessages from './EmailMessages'
 import NewThreadDialog from './NewThreadDialog'
 import ThreadGroups from './ThreadGroups'
 import QuoteOverview from './QuoteOverview'
+import ManualEmailUpload from './ManualEmailUpload'
 import { quoteDetailsDirty, quoteDetailsDraft, quoteDetailsUpdate, rebaseQuoteDetailsAfterActivity } from './quoteDetailsModel'
 import UpdateComposer from './UpdateComposer'
 import { assignQuoteMessage, updateQuoteStatus, updateVendorRequest } from './api'
@@ -16,7 +17,7 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   detail: QuoteStatusDetail; statuses: string[]; threadStatuses: string[]; canManage: boolean
   draftReset: number
   focused: boolean
-  onBack: () => void; onChanged: () => Promise<QuoteStatusDetail | null>; onDirty: (dirty: boolean) => void; guard: (action: () => void) => void
+  onBack: () => void; onChanged: (provided?: QuoteStatusDetail) => Promise<QuoteStatusDetail | null>; onDirty: (dirty: boolean) => void; guard: (action: () => void) => void
 }) {
   const { quote, threads } = detail
   const [threadId, setThreadId] = useState<number | null>(null)
@@ -34,13 +35,14 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   const [overviewSaving, setOverviewSaving] = useState(false)
   const [overviewSaved, setOverviewSaved] = useState(false)
   const [overviewError, setOverviewError] = useState<string | null>(null)
+  const [emailDirty, setEmailDirty] = useState(false)
   const canEdit = target.canEdit && canManage
   const dirty = isUpdateDirty(draft, target.status, target.followUpDate)
   const overviewDirty = quoteDetailsDirty(overviewDraft, overviewBase)
   const previousTarget = useRef({ scope: threadId, status: target.status, followUpDate: target.followUpDate?.slice(0, 10) || '' })
   const messages = thread ? thread.messages : [...detail.unassignedMessages, ...threads.flatMap(item => item.messages)]
   const scopedLabel = thread ? `${thread.request.partNumber ? `${thread.request.partNumber} · ` : ''}${thread.request.vendorName || thread.request.title}` : `Quote ${quote.quoteNumber}`
-  useEffect(() => { onDirty(dirty || overviewDirty || saving || overviewSaving) }, [dirty, overviewDirty, saving, overviewSaving, onDirty])
+  useEffect(() => { onDirty(dirty || overviewDirty || emailDirty || saving || overviewSaving) }, [dirty, overviewDirty, emailDirty, saving, overviewSaving, onDirty])
   useEffect(() => () => onDirty(false), [onDirty])
   useEffect(() => {
     const next = { scope: threadId, status: target.status, followUpDate: target.followUpDate?.slice(0, 10) || '' }
@@ -92,6 +94,10 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   function discardOverview() {
     setOverviewBase(detail.workflow); setOverviewDraft(quoteDetailsDraft(detail.workflow)); setOverviewError(null); setOverviewSaved(false)
   }
+  async function emailImported(imported: QuoteStatusDetail) {
+    const updated = await onChanged(imported)
+    if (updated) setOverviewBase(current => rebaseQuoteDetailsAfterActivity(current, updated.workflow))
+  }
   return <section className="vq-detail" aria-label={`Quote ${quote.quoteNumber} details`}>
     <header className="vq-detail-heading"><button className={`${focused ? 'qs-back-to-quotes' : 'vq-mobile-back'} vq-button`} onClick={onBack}><ArrowLeft size={16} /> All quotes</button><div className="vq-detail-title"><div><span className="vq-eyebrow">SHARED QUOTE RECORD</span><h2>Quote {quote.quoteNumber}</h2><p>{quote.customer || 'Customer not recorded'}</p></div><StatusBadge status={quote.status} /></div>
       {!thread && <QuoteOverview detail={detail} canEdit={quote.canEdit && canManage} showSummary={tab === 'activity'} draft={overviewDraft} dirty={overviewDirty} saving={overviewSaving} busy={saving} saved={overviewSaved} error={overviewError} onChange={value => { setOverviewDraft(value); setOverviewSaved(false) }} onSave={() => void saveOverview()} onDiscard={discardOverview} />}
@@ -107,11 +113,12 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
       {thread && tab !== 'threads' && <div className="vq-thread-context"><div><h3>{thread.request.title}</h3><p>{thread.request.vendorEmail || 'Internal thread'}{thread.request.followUpDate && <> · Follow up {dateOnly(thread.request.followUpDate)}</>}</p><p>Status changed {dateTime(thread.request.statusChangedAt)} · {thread.request.statusChangedBy}</p></div><StatusBadge status={thread.request.status} />{canEdit && <button className="vq-icon-button" aria-label="Edit thread details" onClick={() => transition(() => setEditingThread(true))}><Pencil size={15} /></button>}{thread.request.vendorEmail && <a className="vq-button" href={mailtoVendor(thread.request.vendorEmail, quote.quoteNumber)}><ArrowUpRight size={14} /> Open Outlook</a>}</div>}
       {tab === 'activity' && <>
         <UpdateComposer label={scopedLabel} kind={thread ? 'thread' : 'quote'} draft={draft} statuses={thread ? threadStatuses : statuses} onChange={value => { setDraft(value); setSaved(false) }} canEdit={canEdit} saving={saving || overviewSaving} error={error} saved={saved} onSave={() => void save()} />
+        {canEdit && <ManualEmailUpload detail={detail} selectedThread={thread} disabled={saving || overviewSaving} resetToken={draftReset} onDirty={setEmailDirty} onImported={emailImported} />}
         <div className="vq-section-title"><h3>Activity record</h3><span><CalendarDays size={13} /> Newest first</span></div>
         <ActivityTimeline activity={thread ? thread.activity : detail.activity} onThread={selectThread} />
       </>}
       {tab === 'threads' && <><div className="vq-section-title"><div><h3>Every part, in context</h3><p>Each thread keeps its own status and follow-up record.</p></div>{quote.canEdit && canManage && <button className="vq-button" disabled={saving || overviewSaving} onClick={() => transition(() => setNewThread(true))}><Plus size={15} />Add thread</button>}</div><ThreadGroups threads={threads} onSelect={selectThread} onNew={() => transition(() => setNewThread(true))} canEdit={quote.canEdit && canManage && !saving && !overviewSaving} /></>}
-      {tab === 'emails' && <><div className="vq-section-title"><div><h3>Correspondence</h3><p>Incoming and sent messages copied from Outlook.</p></div></div><EmailMessages messages={messages} unassignedIds={new Set(detail.unassignedMessages.map(item => item.id))} threads={threads} canEdit={quote.canEdit && canManage && !saving && !overviewSaving} onAssign={async (messageId, requestId) => { await assignQuoteMessage(quote.quoteHistoryId, messageId, quote.version, requestId); const updated = await onChanged(); if (updated) setOverviewBase(current => rebaseQuoteDetailsAfterActivity(current, updated.workflow)) }} /></>}
+      {tab === 'emails' && <><div className="vq-section-title"><div><h3>Correspondence</h3><p>Incoming and sent messages copied from Outlook.</p></div></div>{canEdit && <ManualEmailUpload detail={detail} selectedThread={thread} disabled={saving || overviewSaving} resetToken={draftReset} onDirty={setEmailDirty} onImported={emailImported} />}<EmailMessages messages={messages} unassignedIds={new Set(detail.unassignedMessages.map(item => item.id))} threads={threads} canEdit={quote.canEdit && canManage && !saving && !overviewSaving} onAssign={async (messageId, requestId) => { await assignQuoteMessage(quote.quoteHistoryId, messageId, quote.version, requestId); const updated = await onChanged(); if (updated) setOverviewBase(current => rebaseQuoteDetailsAfterActivity(current, updated.workflow)) }} /></>}
     </div>
     {newThread && <NewThreadDialog quote={quote} statuses={threadStatuses} onClose={() => setNewThread(false)} onCreated={created => { setNewThread(false); void onChanged().then(() => { setThreadId(created.request.id); setTab('activity') }).catch(reason => setError(reason instanceof Error ? reason.message : 'Your thread was created, but the activity could not be refreshed.')) }} />}
     {editingThread && thread && <NewThreadDialog quote={quote} existing={thread} statuses={threadStatuses} onClose={() => setEditingThread(false)} onCreated={() => { setEditingThread(false); void onChanged().catch(reason => setError(reason instanceof Error ? reason.message : 'Thread details could not be refreshed.')) }} />}

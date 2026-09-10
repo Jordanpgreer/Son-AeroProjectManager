@@ -17,19 +17,33 @@ public sealed partial class VendorQuoteService
         return match.Success && int.TryParse(match.Groups[1].Value, out var number) && number > 0 ? number : null;
     }
     public async Task<VendorQuoteImportResultDto> ImportAsync(ImportVendorQuoteMessageDto dto, EstimatingAccessProfile access, CancellationToken ct)
+        => await ImportCoreAsync(dto, access, ct);
+
+    private async Task<VendorQuoteImportResultDto> ImportCoreAsync(ImportVendorQuoteMessageDto dto, EstimatingAccessProfile access,
+        CancellationToken ct, int? explicitQuoteId = null, ManualQuoteEmailImportOptions? manual = null)
     {
         Guard(access, true);
-        var subject = Required(dto.Subject, "Subject", 998);
+        var subject = manual is null ? Required(dto.Subject, "Subject", 998) : dto.Subject;
+        if (subject.Length > 998) throw new VendorQuoteException(400, "Subject exceeds 998 characters.");
         var quoteNumber = MatchQuoteNumber(subject);
-        if (quoteNumber is null)
+        if (quoteNumber is null && explicitQuoteId is null)
         {
             var ambiguous = Regex.Matches(subject, @"\bQuote\s+[0-9]+\b", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)).Count > 1;
             return new(ambiguous ? "ambiguous" : "unmatched", null, null, "Subject must be Quote followed by one exact quote number, optionally prefixed by RE, FW, or FWD.");
         }
-        var quoteId = await db.QuoteHistory.Where(x => x.QuoteNumber == quoteNumber).Select(x => (int?)x.Id).SingleOrDefaultAsync(ct);
+        var quoteId = explicitQuoteId ?? await db.QuoteHistory.Where(x => x.QuoteNumber == quoteNumber).Select(x => (int?)x.Id).SingleOrDefaultAsync(ct);
         if (!quoteId.HasValue) return new("unmatched", null, quoteNumber, "This quote is not yet in Arda. The connector can retry later.");
         var quote = await QuoteAsync(quoteId.Value, access, true, ct);
+        quoteNumber = quote.QuoteNumber;
         var vendor = Email(dto.VendorEmail);
+        VendorQuoteRequest? explicitThread = null;
+        if (manual?.RequestId is int threadId)
+        {
+            explicitThread = await db.Set<VendorQuoteRequest>().SingleOrDefaultAsync(x => x.Id == threadId && x.QuoteHistoryId == quote.Id, ct)
+                ?? throw new VendorQuoteException(400, "Choose a thread belonging to this quote.");
+            if (explicitThread.VendorEmail.Length > 0 && explicitThread.VendorEmail != vendor)
+                throw new VendorQuoteException(400, "The selected thread belongs to a different email correspondent.");
+        }
         var sourceId = Required(dto.SourceMessageId, "Source message ID", 1024);
         var dedup = Hash(vendor + "\n" + sourceId);
         var existing = await db.Set<VendorQuoteMessage>().AsNoTracking().SingleOrDefaultAsync(x => x.DeduplicationKey == dedup, ct);
@@ -37,9 +51,10 @@ public sealed partial class VendorQuoteService
         {
             // A reused source ID cannot expose another quote or silently rewrite previously imported evidence.
             if (existing.QuoteHistoryId != quote.Id) throw new VendorQuoteException(409, "The source message ID is already attached to a different quote.");
-            return new("duplicate", existing.RequestId, quoteNumber, "This message has already been imported.");
+            return new("duplicate", existing.RequestId, quoteNumber, "This email has already been imported. No email or additional note was added.");
         }
-        var mailbox = Email(dto.Mailbox);
+        if (manual is not null) Version(quote.Version, manual.ExpectedVersion);
+        var mailbox = manual is null ? Email(dto.Mailbox) : "";
         var from = Email(dto.FromAddress);
         var direction = Required(dto.Direction, "Direction", 16).ToLowerInvariant();
         if (direction is not ("incoming" or "outgoing")) throw new VendorQuoteException(400, "Direction must be incoming or outgoing.");
@@ -54,18 +69,19 @@ public sealed partial class VendorQuoteService
             || (dto.ReceivedAt.HasValue && (dto.ReceivedAt.Value.Year < 2000 || dto.ReceivedAt > clock.GetUtcNow().AddDays(1))))
             throw new VendorQuoteException(400, "The message dates are outside the supported range.");
         var attachments = DecodeAttachments(dto.Attachments);
+        var note = Optional(manual?.Note, "Note", 4000);
         var candidates = await db.Set<VendorQuoteRequest>().Where(x => x.QuoteHistoryId == quote.Id && x.VendorEmail == vendor).ToListAsync(ct);
-        VendorQuoteRequest? request = null;
+        VendorQuoteRequest? request = explicitThread;
         var createdThread = false;
-        if (conversation is not null)
+        if (manual is null && conversation is not null)
         {
             var related = await db.Set<VendorQuoteMessage>().Where(x => x.QuoteHistoryId == quote.Id && x.VendorEmail == vendor
                 && x.ConversationId == conversation && x.RequestId != null).Select(x => x.RequestId!.Value).Distinct().ToListAsync(ct);
             var match = candidates.Where(x => related.Contains(x.Id)).ToList();
             if (match.Count == 1) request = match[0];
         }
-        if (request is null && candidates.Count == 1) request = candidates[0];
-        if (request is null && candidates.Count == 0)
+        if (manual is null && request is null && candidates.Count == 1) request = candidates[0];
+        if (manual is null && request is null && candidates.Count == 0)
         {
             request = NewRequest(quote, vendor, Optional(dto.VendorName, "Vendor name", 200) ?? vendor,
                 $"Correspondence with {vendor}"[..Math.Min(240, $"Correspondence with {vendor}".Length)], null, access);
@@ -84,21 +100,30 @@ public sealed partial class VendorQuoteService
             var eventTime = message.ReceivedAt ?? message.SentAt;
             request.LastMessageAt = request.LastMessageAt is null || request.LastMessageAt < eventTime ? eventTime : request.LastMessageAt;
             request.UpdatedAt = clock.GetUtcNow(); request.Version++;
-            AddActivity(request, "email", direction == "incoming" ? "Email received" : "Sent email imported", access, null, subject);
-            if (direction == "incoming" && (createdThread || eventTime >= request.StatusChangedAt)
+            var correspondent = request.VendorEmail.Length > 0 ? request.VendorName
+                : direction == "incoming" ? fromName ?? from : vendor;
+            AddActivity(request, "email", EmailActivity(direction, correspondent, manual is not null), access, null, subject);
+            if (note is not null) AddActivity(request, "note", note, access);
+            if (manual is null && direction == "incoming" && (createdThread || eventTime >= request.StatusChangedAt)
                 && request.Status is "Untouched" or "Rates requested" or "Waiting on vendor") SetStatus(request, "Reply received", access);
         }
         else
         {
             db.Add(new QuoteStatusActivity { QuoteHistory = quote, Kind = "email-unassigned",
-                Text = "Email received; choose the matching part and thread", NewValue = subject,
+                Text = EmailActivity(direction, Optional(dto.VendorName, "Vendor name", 200) ?? vendor, manual is not null)
+                    + "; choose the matching part and thread", NewValue = subject,
+                OccurredAt = clock.GetUtcNow(), AccountName = access.AccountName, DisplayName = access.DisplayName });
+            if (note is not null) db.Add(new QuoteStatusActivity { QuoteHistory = quote, Kind = "note", Text = note,
                 OccurredAt = clock.GetUtcNow(), AccountName = access.AccountName, DisplayName = access.DisplayName });
         }
+        if (manual is not null) { quote.Version++; quote.UpdatedAt = clock.GetUtcNow(); quote.UpdatedBy = access.AccountName; }
         // EF wraps the message, blobs, state change, and audit inserts in one transaction.
         await SaveAsync(ct);
         return new(request is null ? "unassigned" : "imported", request?.Id, quoteNumber,
             request is null ? "Email saved to this quote. Select a thread in Arda to assign it." : "Email imported into the matching quote thread.");
     }
+    private static string EmailActivity(string direction, string vendor, bool manual) =>
+        $"Email {(direction == "incoming" ? "received from" : "sent to")} {vendor}" + (manual ? " (imported manually)" : "");
     private static List<VendorQuoteAttachment> DecodeAttachments(IReadOnlyList<ImportVendorQuoteAttachmentDto>? inputs)
     {
         if (inputs is null || inputs.Count > 25) throw new VendorQuoteException(400, "A message may contain up to 25 attachments.");

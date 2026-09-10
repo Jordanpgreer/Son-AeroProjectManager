@@ -107,6 +107,14 @@ export interface QuoteStatusDetail {
 export interface QuoteStatusPage { items: QuoteStatusSummary[]; totalCount: number; page: number; pageSize: number }
 export interface QuoteStatusUpdate { expectedVersion: number; status: string; followUpDate: string | null; note: string | null }
 
+export interface ManualEmailPreview {
+  fileName: string; subject: string; fromAddress: string; fromName: string | null; toAddresses: string[]
+  sentAt: string; receivedAt: string | null; attachmentCount: number
+}
+export interface ManualEmailImportResult {
+  outcome: 'imported' | 'duplicate' | 'unassigned'; requestId: number | null; quoteNumber: number; message: string; detail: QuoteStatusDetail
+}
+
 export interface VendorUpdate {
   expectedVersion: number
   vendorName: string

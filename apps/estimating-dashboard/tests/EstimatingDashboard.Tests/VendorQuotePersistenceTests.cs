@@ -87,7 +87,7 @@ public sealed class VendorQuotePersistenceTests
         var app = builder.Build();
         app.MapGroup("/api").MapVendorQuoteEndpoints().MapQuoteStatusEndpoints();
         var routes = ((IEndpointRouteBuilder)app).DataSources.SelectMany(x => x.Endpoints).OfType<RouteEndpoint>().ToList();
-        Assert.Equal(16, routes.Count);
+        Assert.Equal(18, routes.Count);
         Assert.All(routes, route =>
         {
             var auth = route.Metadata.GetOrderedMetadata<IAuthorizeData>();

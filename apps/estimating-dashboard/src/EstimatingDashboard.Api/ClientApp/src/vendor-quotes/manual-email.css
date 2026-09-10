@@ -1,0 +1,52 @@
+.qs-email-upload { margin: 17px 0 23px; min-width: 0; }
+.qs-email-drop { display: flex; align-items: center; gap: 13px; min-width: 0; padding: 18px; border: 1px dashed var(--line-3); border-radius: 9px; background: color-mix(in srgb,var(--steel-tint) 20%,var(--surface)); transition: background .15s,border-color .15s; }
+.qs-email-drop.is-dragging { border-color: var(--steel); border-style: solid; background: var(--steel-tint); outline: 3px solid color-mix(in srgb,var(--steel) 14%,transparent); }
+.qs-email-drop-icon { display: flex; align-items: center; justify-content: center; width: 37px; height: 37px; flex: 0 0 37px; border-radius: 8px; background: var(--surface-2); color: var(--steel-700); }
+.qs-email-drop > div { flex: 1; min-width: 0; }
+.qs-email-drop strong { color: var(--ink-2); font-size: 13px; font-weight: 600; }
+.qs-email-drop p { margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.qs-email-drop-hint { margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.qs-email-file-input { display: none; }
+.qs-upload-loading { display: grid; justify-items: center; gap: 15px; padding: 50px 15px; color: var(--muted); }
+.qs-upload-loading strong { font-size: 16px; color: var(--ink-2); }
+.qs-upload-loading > span { max-width: 100%; overflow-wrap: anywhere; font-size: 13px; }
+.qs-email-review { display: grid; gap: 22px; }
+.qs-email-preview { padding: 19px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); }
+.qs-email-preview h3 { margin: 9px 0 15px; color: var(--ink); font-size: 17px; line-height: 1.5; overflow-wrap: anywhere; }
+.qs-email-preview dl { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 8px 13px; margin: 0; font-size: 12px; }
+.qs-email-preview dt { color: var(--muted); }
+.qs-email-preview dd { margin: 0; color: var(--ink-2); overflow-wrap: anywhere; }
+.qs-email-preview > div { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.qs-email-preview > div span { margin-left: auto; overflow-wrap: anywhere; max-width: 100%; }
+.qs-email-review > label { display: grid; gap: 8px; color: var(--ink-2); font-size: 13px; font-weight: 600; }
+.qs-email-review select,.qs-email-review textarea { width: 100%; min-width: 0; padding: 10px 12px; min-height: 43px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--ink); font: inherit; font-size: 14px; font-weight: 400; }
+.qs-email-review textarea { resize: vertical; line-height: 1.7; }
+.qs-email-review small { color: var(--muted); font-size: 11px; font-weight: 400; line-height: 1.65; }
+.qs-email-direction { display: flex; gap: 11px; margin: 0; padding: 0; border: 0; }
+.qs-email-direction legend { margin-bottom: 10px; color: var(--ink-2); font-size: 13px; font-weight: 600; }
+.qs-email-direction label { display: flex; align-items: center; justify-content: center; flex: 1; gap: 8px; min-height: 47px; padding: 10px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--muted); font-size: 13px; cursor: pointer; }
+.qs-email-direction label.is-selected { border-color: var(--steel); color: var(--steel-700); background: var(--steel-tint); }
+.qs-email-direction input { accent-color: var(--steel-action); }
+.qs-email-review .vq-modal-footer { margin-top: 0; }
+.qs-upload-fallback p { color: var(--muted); font-size: 13px; line-height: 1.7; }
+.qs-upload-result { display: grid; justify-items: center; gap: 14px; padding-top: 8px; text-align: center; }
+.qs-upload-result > svg { color: var(--ok-700); }
+.qs-upload-result h3 { margin: 0; color: var(--ink); font-size: 20px; }
+.qs-upload-result > p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.8; }
+.qs-upload-result > div { display: flex; align-items: center; gap: 9px; width: 100%; padding: 14px 17px; border-radius: 8px; background: var(--surface-2); color: var(--ink-2); font-size: 13px; text-align: left; overflow-wrap: anywhere; }
+.qs-upload-result .vq-modal-footer { width: 100%; }
+.qs-upload-skipped-note { display: grid; gap: 9px; width: 100%; color: var(--ink-2); text-align: left; font-size: 13px; font-weight: 600; }
+.qs-upload-skipped-note textarea { width: 100%; min-width: 0; padding: 12px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--ink-2); font: inherit; font-size: 13px; font-weight: 400; line-height: 1.7; resize: vertical; }
+.qs-upload-skipped-note small { color: var(--muted); font-size: 11px; font-weight: 400; }
+@media (max-width: 550px) {
+  .qs-email-drop { flex-wrap: wrap; padding: 15px; gap: 11px; }
+  .qs-email-drop > div { flex-basis: calc(100% - 50px); }
+  .qs-email-drop > .vq-button { width: 100%; }
+  .qs-email-drop strong { font-size: 13px; }
+  .qs-email-drop p { font-size: 12px; }
+  .qs-email-preview { padding: 16px; }
+  .qs-email-preview h3 { font-size: 16px; }
+  .qs-email-preview > div span { width: 100%; margin: 3px 0 0; }
+  .qs-email-review select,.qs-email-review textarea { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) { .qs-email-drop { transition: none; } }

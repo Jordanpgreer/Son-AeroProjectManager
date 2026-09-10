@@ -29,6 +29,16 @@ Attachments are bounded and downloaded through authenticated endpoints. Email bo
 
 See [Outlook connector operation](outlook-estimating-connector.md) for setup, limits, troubleshooting, and synthetic checks.
 
+## Manual email import
+
+Use **Attach email** or drop a saved `.msg` or `.eml` message into the quote's email import area. Review its original sender, subject, date, attachments, and destination before importing. Choose Received or Sent; for a sent email, choose the relevant recipient. An optional internal note can accompany the import. A selected part/vendor thread provides the destination; importing at quote level keeps the email on that quote for later organization.
+
+Manual import uses the selected quote, so a missing or incorrect quote number in the original subject does not block it. Automatic Outlook matching retains its strict subject rule. Original email content is not rewritten to manufacture a match. Received and sent activity labels describe the direction and correspondent; Arda does not infer that an email is an RFQ or a completed vendor quote.
+
+The server checks quote and thread access, validates the file and message, and records the importing user and time separately from the email's original date. Previewing a file does not save it to the quote. Duplicate message detection covers repeated file imports and messages with matching Internet Message IDs received from the connector. The manual import does not require a running Outlook connector or new mailbox permissions.
+
+Direct dragging from an Outlook window depends on whether the browser receives an email file. If it receives no usable file, save the message in Outlook first and attach that file. Local file-upload tests do not establish native Outlook-to-browser drag support on every workstation.
+
 ## Installation and release
 
 The Estimating schema initializer adds the quote tracking tables for both SQLite and SQL Server. The Outlook connector files are linked from `scripts/outlook-estimating` into the Estimating build and publish output under `Assets/OutlookConnector`.
@@ -43,12 +53,13 @@ Run the Estimating API on port 5282 with an explicit disposable SQLite `Connecti
 
 ## Verification on September 10, 2026
 
-- 167 backend tests passed, including permissions, concurrency, shared quote workflow fields, canonical status filters, activity recency, exact subject matching, duplicate imports, ambiguous assignment, attachments, and SQLite schema initialization.
-- 122 frontend tests passed, including independent overview/activity drafts and stale-version protection; one native Excel test was skipped. TypeScript, Vite production build, and lint passed.
+- 186 backend tests passed, including permissions, concurrency, shared quote workflow fields, canonical status filters, activity recency, exact subject matching, duplicate imports, ambiguous assignment, attachments, SQLite schema initialization, and 19 manual email regressions.
+- 126 frontend tests passed, including independent overview/activity drafts, email file validation, thread/correspondent matching, and stale-version protection; one native Excel test was skipped. TypeScript, Vite production build, and lint passed.
 - The downloaded ZIP passed 60 synthetic assertions in Windows PowerShell 5.1 without Outlook or network access during the self-test.
 - Browser checks used a separate SQLite database with synthetic quotes. They covered multiple vendors on one part, combined and scoped history, general quote notes, manual email assignment, vendor search, unsaved-note retention/discard, light/dark themes, and a 390-pixel mobile layout without horizontal document overflow.
 - The redesigned page was checked for dashboard row navigation, focused quote links, All quotes navigation, desktop/mobile navigation order, saving status and summary notes, custom estimating due dates, restoring the automatic date, and retaining/discarding unsaved quote edits.
 - Inline editing was verified for status, date, and summary saves; preserving an activity draft during a details save and a summary draft during an activity save; retaining edits on a version conflict; and protecting unsaved changes during navigation.
+- Manual email browser checks covered received and sent `.eml` imports, a valid Outlook `.msg` import, incorrect subjects, explicit vendor-thread placement, optional notes, duplicate rejection, preservation of both unsaved drafts, original message dates, and attachment download. The review dialog was checked in light/dark themes and at 390 pixels without horizontal document overflow. Unsupported files and malformed messages were rejected; uploads without the required request header returned 403. No native Outlook drag was performed.
 - The Release API was published to a temporary directory with the built frontend in `wwwroot`; the page and authenticated connector ZIP were verified from that API. The sample attachment downloaded with forced-download headers.
 
 No real mailbox was connected or production deployment performed. SQL Server DDL was structurally tested but was not executed against a live SQL Server. Live Outlook validation still depends on the intended user's profile, Windows authentication, and company policy.
