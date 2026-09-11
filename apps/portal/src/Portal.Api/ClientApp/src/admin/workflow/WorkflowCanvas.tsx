@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from 'react'
-import type { DragEvent } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { DragEvent, MouseEvent as ReactMouseEvent } from 'react'
 import {
   Background, BackgroundVariant, Handle, MarkerType, MiniMap, Panel, Position,
   ReactFlow, ReactFlowProvider, useReactFlow, useViewport,
@@ -7,10 +7,10 @@ import {
 import type { Connection, Edge, Node, NodeChange, NodeProps } from '@xyflow/react'
 import {
   ArrowRight, Check, CircleCheck, CirclePlay, GitBranch, GripVertical, Inbox,
-  LayoutGrid, LockKeyhole, Minus, MousePointer2, Plus, ScanLine, TriangleAlert,
+  LayoutGrid, LockKeyhole, Minus, MousePointer2, PencilLine, Plus, ScanLine, Trash2, TriangleAlert,
 } from 'lucide-react'
 import type { QualityAssignmentOptions } from '../types'
-import { FIELDS, MODES, OPERATORS, TRIGGERS } from './model'
+import { changeTriggerAction, FIELDS, MODES, OPERATORS, reconnectNodeEdge, removeNode, TRIGGERS } from './model'
 import type { WorkflowGraph, WorkflowNode, WorkflowNodeType } from './types'
 import '@xyflow/react/dist/style.css'
 import './workflow-canvas.css'
@@ -32,6 +32,7 @@ const KINDS = {
   end: { label: 'Keep assignment', icon: CircleCheck, description: 'Finish without changing the assignment' },
 } as const
 const STEP_MIME = 'application/arda-workflow-step'
+const FIT_VIEW_OPTIONS = { padding: .07, maxZoom: 1.2 } as const
 type CanvasNode = Node<{
   step: WorkflowNode
   options: QualityAssignmentOptions
@@ -146,7 +147,7 @@ function CanvasControls({ onArrange, disabled }: { onArrange: () => void; disabl
     <span aria-label={`Zoom ${Math.round(zoom * 100)} percent`}>{Math.round(zoom * 100)}%</span>
     <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => void flow.zoomIn()}><Plus size={15} /></button>
     <i aria-hidden="true" />
-    <button type="button" aria-label="Fit workflow to view" title="Fit to view" onClick={() => void flow.fitView({ padding: .18, maxZoom: 1 })}><ScanLine size={16} /></button>
+    <button type="button" aria-label="Fit workflow to view" title="Fit to view" onClick={() => void flow.fitView(FIT_VIEW_OPTIONS)}><ScanLine size={16} /></button>
     <button type="button" aria-label="Arrange workflow steps" title="Arrange steps" disabled={disabled} onClick={onArrange}><LayoutGrid size={15} /></button>
   </Panel>
 }
@@ -158,6 +159,27 @@ function CanvasContent({ graph, options, selectedId, onSelect, onChange, trace =
   const [dropActive, setDropActive] = useState(false)
   const [dragPositions, setDragPositions] = useState<Record<string, { x: number; y: number }>>({})
   const [measurements, setMeasurements] = useState<Record<string, { width: number; height: number }>>({})
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!contextMenu) return
+    const dismiss = (event: PointerEvent) => {
+      if (!contextMenuRef.current?.contains(event.target as globalThis.Node)) setContextMenu(null)
+    }
+    const dismissOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setContextMenu(null) }
+    const dismissForViewportChange = () => setContextMenu(null)
+    window.addEventListener('pointerdown', dismiss)
+    window.addEventListener('keydown', dismissOnEscape)
+    window.addEventListener('resize', dismissForViewportChange)
+    window.addEventListener('scroll', dismissForViewportChange, true)
+    return () => {
+      window.removeEventListener('pointerdown', dismiss)
+      window.removeEventListener('keydown', dismissOnEscape)
+      window.removeEventListener('resize', dismissForViewportChange)
+      window.removeEventListener('scroll', dismissForViewportChange, true)
+    }
+  }, [contextMenu])
   const nodes = useMemo<CanvasNode[]>(() => graph.nodes.map(step => ({
     id: step.id, type: 'workflow', position: dragPositions[step.id] ?? { x: step.x, y: step.y },
     measured: measurements[step.id],
@@ -176,9 +198,11 @@ function CanvasContent({ graph, options, selectedId, onSelect, onChange, trace =
       style: { strokeWidth: traced ? 2.5 : 1.6 },
       labelStyle: { fill: 'var(--muted)', fontSize: 10, fontWeight: 600 },
       labelBgStyle: { fill: 'var(--surface)' }, labelBgPadding: [6, 3] as [number, number], labelBgBorderRadius: 4,
-      deletable: false, focusable: false,
+      selected: edge.id === selectedEdgeId,
+      deletable: false, focusable: !disabled, reconnectable: !disabled,
+      ariaLabel: `Connection from ${graph.nodes.find(node => node.id === edge.source)?.label ?? 'step'} to ${graph.nodes.find(node => node.id === edge.target)?.label ?? 'step'}. Select and drag either endpoint to reconnect.`,
     }
-  }), [graph.edges, trace])
+  }), [graph.edges, graph.nodes, trace, selectedEdgeId, disabled])
 
   function changeNodes(changes: NodeChange<CanvasNode>[]) {
     if (changes.some(change => change.type === 'dimensions' && change.dimensions)) {
@@ -221,7 +245,43 @@ function CanvasContent({ graph, options, selectedId, onSelect, onChange, trace =
     if (issue) { setFeedback(issue); return }
     const branch = connection.sourceHandle === 'yes' || connection.sourceHandle === 'no' ? connection.sourceHandle : undefined
     onChange({ ...graph, edges: [...graph.edges, { id: crypto.randomUUID(), source: connection.source, target: connection.target, ...(branch ? { branch } : {}) }] })
+    setSelectedEdgeId(null)
+    setContextMenu(null)
     setFeedback(`Connected${branch ? ` the ${branch === 'yes' ? 'Yes' : 'No'} path` : ''}. Select a step to review its settings.`)
+  }
+
+  function reconnect(oldEdge: Edge, connection: Connection) {
+    if (disabled) return
+    const graphWithoutEdge = { ...graph, edges: graph.edges.filter(edge => edge.id !== oldEdge.id) }
+    const issue = connectionIssue(graphWithoutEdge, connection)
+    if (issue) { setFeedback(issue); return }
+    const branch = connection.sourceHandle === 'yes' || connection.sourceHandle === 'no' ? connection.sourceHandle : undefined
+    const next = reconnectNodeEdge(graph, oldEdge.id, connection.source, connection.target, branch)
+    if (next === graph) { setFeedback('That connection cannot be moved there. Choose an open path and a later step.'); return }
+    onChange(next)
+    setSelectedEdgeId(oldEdge.id)
+    setFeedback(`Connection moved to ${graph.nodes.find(node => node.id === connection.target)?.label ?? 'the selected block'}.`)
+  }
+
+  function openContextMenu(event: ReactMouseEvent, node: CanvasNode) {
+    event.preventDefault()
+    const height = node.data.step.type === 'trigger' ? 164 : 96
+    setSelectedEdgeId(null)
+    onSelect(node.id)
+    setContextMenu({
+      nodeId: node.id,
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - 236)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8)),
+    })
+  }
+
+  function removeContextNode() {
+    if (!contextMenu || disabled) return
+    const node = graph.nodes.find(item => item.id === contextMenu.nodeId)
+    onChange(removeNode(graph, contextMenu.nodeId))
+    onSelect(null)
+    setContextMenu(null)
+    setFeedback(`${node?.label || 'Block'} removed. Use Undo if you need it back.`)
   }
 
   function addStep(type: WorkflowNodeType, point?: { x: number; y: number }) {
@@ -268,27 +328,45 @@ function CanvasContent({ graph, options, selectedId, onSelect, onChange, trace =
         const reached = new Set<string>()
         const visit = (id: string) => { if (reached.has(id)) return; reached.add(id); graph.edges.filter(edge => edge.source === id).forEach(edge => visit(edge.target)) }
         if (event.target.value) visit(event.target.value)
-        void flow.fitView({ ...(event.target.value ? { nodes: graph.nodes.filter(node => reached.has(node.id)).map(node => ({ id: node.id })) } : {}), padding: .18, maxZoom: 1, duration: 180 })
+        void flow.fitView({ ...(event.target.value ? { nodes: graph.nodes.filter(node => reached.has(node.id)).map(node => ({ id: node.id })) } : {}), ...FIT_VIEW_OPTIONS, duration: 180 })
       }}><option value="">All actions</option>{graph.nodes.filter(node => node.type === 'trigger').map(node => <option key={node.id} value={node.id}>{node.label}</option>)}</select></label>
     </div>
     <div className="workflow-map-stage" ref={stage} onDrop={dropStep}
       onDragOver={event => { if (!disabled && event.dataTransfer.types.includes(STEP_MIME)) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDropActive(true) } }}
       onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as globalThis.Node | null)) setDropActive(false) }}>
-      <ReactFlow<CanvasNode> nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={changeNodes} onConnect={connect}
-        onNodeClick={(_, node) => onSelect(node.id)} onPaneClick={() => onSelect(null)}
-        nodesDraggable={!disabled} nodesConnectable={!disabled} deleteKeyCode={null}
-        fitView fitViewOptions={{ padding: .18, maxZoom: .95 }} minZoom={.15} maxZoom={1.5}
+      <ReactFlow<CanvasNode> nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={changeNodes} onConnect={connect} onReconnect={reconnect}
+        onNodeClick={(_, node) => { setSelectedEdgeId(null); setContextMenu(null); onSelect(node.id) }}
+        onNodeContextMenu={openContextMenu}
+        onEdgeClick={(_, edge) => { setContextMenu(null); setSelectedEdgeId(edge.id); setFeedback('Drag either end of the selected connection to move it to another block.') }}
+        onPaneClick={() => { setSelectedEdgeId(null); setContextMenu(null); onSelect(null) }}
+        nodesDraggable={!disabled} nodesConnectable={!disabled} edgesReconnectable={!disabled} reconnectRadius={18} deleteKeyCode={null}
+        fitView fitViewOptions={FIT_VIEW_OPTIONS} minZoom={.2} maxZoom={1.6}
         snapToGrid snapGrid={[10, 10]} panOnScroll zoomOnScroll={false} selectionOnDrag={false}
         aria-label="Workflow steps and connections" attributionPosition="top-right">
         <Background variant={BackgroundVariant.Dots} gap={20} size={1.1} color="var(--line-2)" />
         {graph.nodes.length === 0 && <Panel position="top-center" className="workflow-map-empty"><MousePointer2 size={26} /><strong>Start with an action</strong><p>Add a QA action above, then connect conditions and queues to shape its path.</p></Panel>}
         <CanvasControls disabled={disabled || !graph.nodes.length} onArrange={() => {
           onChange(arrangeGraph(graph)); setFeedback('Steps arranged from actions to destinations.')
-          requestAnimationFrame(() => requestAnimationFrame(() => void flow.fitView({ padding: .18, maxZoom: 1 })))
+          requestAnimationFrame(() => requestAnimationFrame(() => void flow.fitView(FIT_VIEW_OPTIONS)))
         }} />
         {graph.nodes.length > 4 && <MiniMap className="workflow-map-minimap" position="bottom-right" pannable zoomable nodeColor="var(--line-3, var(--muted))" maskColor="color-mix(in srgb, var(--surface) 65%, transparent)" />}
       </ReactFlow>
     </div>
+    {contextMenu && (() => {
+      const node = graph.nodes.find(item => item.id === contextMenu.nodeId)
+      if (!node) return null
+      return <div className="workflow-node-context" ref={contextMenuRef} role="dialog" aria-label={`Actions for ${node.label}`} style={{ left: contextMenu.x, top: contextMenu.y }} onContextMenu={event => event.preventDefault()}>
+        <button type="button" onClick={() => { onSelect(node.id); setContextMenu(null); setFeedback(`Editing ${node.label}.`) }}><PencilLine size={14} /><span>Edit block settings</span></button>
+        {node.type === 'trigger' && <label><span>Change action</span><select value={node.trigger ?? ''} disabled={disabled} onChange={event => {
+          const next = changeTriggerAction(graph, node.id, event.target.value)
+          if (next === graph) { setFeedback('That action is already used by another starting block.'); return }
+          onChange(next)
+          setContextMenu(null)
+          setFeedback('Workflow action changed. Review its permissions before publishing.')
+        }}><option value="">Choose an action</option>{TRIGGERS.map(([value, label]) => <option key={value} value={value} disabled={graph.nodes.some(item => item.id !== node.id && item.type === 'trigger' && item.trigger === value)}>{label}</option>)}</select></label>}
+        <button type="button" className="is-danger" disabled={disabled} onClick={removeContextNode}><Trash2 size={14} /><span>Delete block</span></button>
+      </div>
+    })()}
     <div className="workflow-canvas-status" role="status" aria-live="polite"><MousePointer2 size={13} /><span>{feedback}</span><span className="workflow-canvas-keyboard">Tab to a step · Enter to select{!disabled && ' · Arrow keys to move'}</span></div>
   </section>
 }

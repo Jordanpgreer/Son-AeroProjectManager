@@ -113,6 +113,8 @@
 .workflow-map-edge .react-flow__edge-path { stroke: var(--workflow-connector); }
 .workflow-map-edge.is-yes .react-flow__edge-path { stroke: color-mix(in srgb, var(--workflow-green) 70%, var(--workflow-connector)); }
 .workflow-map-edge.is-traced .react-flow__edge-path { stroke: var(--workflow-green); }
+.workflow-map-stage .react-flow__edge.selected .react-flow__edge-path { stroke: var(--steel); stroke-width: 2.4; }
+.workflow-map-stage .react-flow__edgeupdater { fill: var(--surface); stroke: var(--steel); stroke-width: 2; }
 .workflow-map-controls { display: flex; align-items: center; gap: 2px; margin: 16px; padding: 4px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 8px; box-shadow: var(--shadow-1); }
 .workflow-map-controls > button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; background: transparent; color: var(--ink-2); border: 0; border-radius: 5px; cursor: pointer; }
 .workflow-map-controls > button:hover:not(:disabled) { color: var(--ink); background: var(--surface-2); }
@@ -126,6 +128,40 @@
 .workflow-map-empty > svg { margin-bottom: 14px; color: var(--steel); }
 .workflow-map-empty > strong { color: var(--ink); font-size: 15px; }
 .workflow-map-empty > p { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.workflow-node-context {
+  position: fixed;
+  z-index: 1200;
+  display: grid;
+  width: 228px;
+  padding: 6px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+  box-shadow: 0 14px 38px color-mix(in srgb, var(--ink) 18%, transparent);
+}
+.workflow-node-context > button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 36px;
+  padding: 8px 9px;
+  color: var(--ink-2);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.workflow-node-context > button:hover:not(:disabled) { color: var(--ink); background: var(--surface-2); }
+.workflow-node-context > button.is-danger { margin-top: 5px; color: var(--danger); border-top: 1px solid var(--line); border-radius: 0 0 6px 6px; }
+.workflow-node-context > button:disabled { opacity: .45; cursor: not-allowed; }
+.workflow-node-context > label { display: grid; gap: 5px; padding: 8px 9px 9px; border-top: 1px solid var(--line); }
+.workflow-node-context > label > span { color: var(--muted); font-size: 9px; font-weight: 650; text-transform: uppercase; letter-spacing: .07em; }
+.workflow-node-context select { width: 100%; min-height: 32px; padding: 5px 7px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-2); border-radius: 5px; font: inherit; font-size: 10px; }
+.workflow-node-context button:focus-visible, .workflow-node-context select:focus-visible { outline: 2px solid var(--steel); outline-offset: 1px; }
 .workflow-canvas-status { display: flex; align-items: center; gap: 7px; min-height: 36px; padding: 9px 14px; color: var(--muted); background: var(--surface); border-top: 1px solid var(--line-2); font-size: 10px; line-height: 1.5; }
 .workflow-canvas-status > svg { flex: none; }
 .workflow-canvas-keyboard { margin-left: auto; font-size: 9px; white-space: nowrap; }

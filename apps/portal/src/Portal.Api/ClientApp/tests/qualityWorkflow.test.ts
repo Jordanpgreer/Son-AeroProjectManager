@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canConnect, connectNode, removeNode, TRIGGERS, validateGraph } from '../src/admin/workflow/model'
+import { canConnect, changeTriggerAction, connectNode, reconnectNodeEdge, removeNode, TRIGGERS, validateGraph } from '../src/admin/workflow/model'
 import type { WorkflowGraph, WorkflowNode } from '../src/admin/workflow/types'
 
 function node(id: string, type: WorkflowNode['type'], fields: Partial<WorkflowNode> = {}): WorkflowNode {
@@ -83,6 +83,20 @@ describe('Quality workflow connections', () => {
     expect(graph.edges.find(edge => edge.id === 'matched')?.target).toBe('inspection')
   })
 
+  it('moves an existing connection endpoint while preserving its identity', () => {
+    const graph = branchGraph()
+    const next = reconnectNodeEdge(graph, 'matched', 'customer-check', 'keep', 'yes')
+    expect(next.edges.find(edge => edge.id === 'matched')).toEqual({ id: 'matched', source: 'customer-check', target: 'keep', branch: 'yes' })
+    expect(next.edges.find(edge => edge.id === 'otherwise')).toEqual(graph.edges.find(edge => edge.id === 'otherwise'))
+    expect(graph.edges.find(edge => edge.id === 'matched')?.target).toBe('inspection')
+  })
+
+  it('rejects reconnecting onto an occupied branch or into a loop', () => {
+    const graph = branchGraph()
+    expect(reconnectNodeEdge(graph, 'start', 'customer-check', 'inspection', 'yes')).toBe(graph)
+    expect(reconnectNodeEdge(graph, 'matched', 'customer-check', 'created', 'yes')).toBe(graph)
+  })
+
   it('replaces an action output instead of giving the action two next steps', () => {
     const next = connectNode(branchGraph(), 'created', 'keep')
     expect(next.edges.filter(edge => edge.source === 'created')).toEqual([
@@ -100,6 +114,25 @@ describe('Quality workflow connections', () => {
     expect(next.edges).toEqual([{ id: 'updated-keep', source: 'updated', target: 'keep' }])
     expect(next.name).toBe(graph.name)
     expect(graph.edges).toHaveLength(4)
+  })
+
+  it('changes a starting action without duplicating actions', () => {
+    const graph = branchGraph()
+    const changed = changeTriggerAction(graph, 'created', 'shipment-updated')
+    expect(changed.nodes.find(item => item.id === 'created')).toEqual(expect.objectContaining({
+      trigger: 'shipment-updated',
+      label: 'created',
+    }))
+    changed.nodes.push(node('shipped', 'trigger', { trigger: 'shipment-shipped' }))
+    expect(changeTriggerAction(changed, 'created', 'shipment-shipped')).toBe(changed)
+  })
+
+  it('updates a default action label but preserves a custom block name', () => {
+    const graph = branchGraph()
+    graph.nodes[0].label = 'Create shipment'
+    expect(changeTriggerAction(graph, 'created', 'shipment-updated').nodes[0].label).toBe('Update shipment')
+    graph.nodes[0].label = 'Customer intake'
+    expect(changeTriggerAction(graph, 'created', 'shipment-updated').nodes[0].label).toBe('Customer intake')
   })
 })
 

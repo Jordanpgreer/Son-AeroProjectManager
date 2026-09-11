@@ -53,9 +53,11 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
   const [groupDraft, setGroupDraft] = useState<{ id?: number; version?: number; name: string; description: string; sortOrder: number } | null>(null)
   const [itemDraft, setItemDraft] = useState<ItemDraft | null>(null)
   const [noteDrafts, setNoteDrafts] = useState<Record<number, string>>({})
-  const dialogHeading = useRef<HTMLHeadingElement>(null)
   const dialog = useRef<HTMLElement>(null)
   const dialogOpener = useRef<HTMLElement | null>(null)
+  const dialogKey = groupDraft
+    ? `group:${groupDraft.id ?? 'new'}`
+    : itemDraft ? `item:${itemDraft.id ?? 'new'}` : null
 
   async function load() {
     try {
@@ -70,8 +72,7 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
 
   useEffect(() => { void load() }, [])
   useEffect(() => {
-    if (!groupDraft && !itemDraft) return
-    dialogHeading.current?.focus()
+    if (!dialogKey) return
     const close = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { closeDialog(); return }
       if (event.key !== 'Tab' || !dialog.current) return
@@ -85,7 +86,7 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
     }
     window.addEventListener('keydown', close)
     return () => window.removeEventListener('keydown', close)
-  }, [groupDraft, itemDraft])
+  }, [dialogKey])
 
   function closeDialog() {
     const opener = dialogOpener.current
@@ -265,7 +266,7 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
 
       {(groupDraft || itemDraft) && <div className="raid-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog() }}>
         <section className="raid-dialog" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="raid-dialog-title">
-          <header><div><span className="kicker">RAID Log</span><h3 id="raid-dialog-title" ref={dialogHeading} tabIndex={-1}>{groupDraft ? `${groupDraft.id ? 'Edit' : 'Add'} group` : `${itemDraft?.id ? 'Edit' : 'Add'} item`}</h3></div><button className="admin-icon-button" type="button" aria-label="Close" onClick={closeDialog}><X size={17} /></button></header>
+          <header><div><span className="kicker">RAID Log</span><h3 id="raid-dialog-title">{groupDraft ? `${groupDraft.id ? 'Edit' : 'Add'} group` : `${itemDraft?.id ? 'Edit' : 'Add'} item`}</h3></div><button className="admin-icon-button" type="button" aria-label="Close" onClick={closeDialog}><X size={17} /></button></header>
           {groupDraft ? <div className="raid-form"><label><span>Group name</span><input autoFocus maxLength={120} value={groupDraft.name} onChange={(event) => setGroupDraft({ ...groupDraft, name: event.target.value })} /></label><label><span>Description <small>Optional</small></span><textarea rows={3} maxLength={500} value={groupDraft.description} onChange={(event) => setGroupDraft({ ...groupDraft, description: event.target.value })} /></label></div>
             : itemDraft && <div className="raid-form"><label className="wide"><span>Title</span><input autoFocus maxLength={240} value={itemDraft.title} onChange={(event) => setItemDraft({ ...itemDraft, title: event.target.value })} /></label><label><span>Group</span><select value={itemDraft.groupId} onChange={(event) => setItemDraft({ ...itemDraft, groupId: Number(event.target.value) })}>{overview?.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label><label><span>Type</span><select value={itemDraft.kind} onChange={(event) => setItemDraft({ ...itemDraft, kind: event.target.value as RaidLogKind })}>{kinds.map((value) => <option key={value}>{value}</option>)}</select></label><label><span>Priority</span><select value={itemDraft.priority} onChange={(event) => setItemDraft({ ...itemDraft, priority: event.target.value as RaidLogPriority })}>{priorities.map((value) => <option key={value}>{value}</option>)}</select></label><label><span>Assigned admin</span><select value={itemDraft.assignedToUserId ?? ''} onChange={(event) => setItemDraft({ ...itemDraft, assignedToUserId: event.target.value ? Number(event.target.value) : null })}><option value="">Unassigned</option>{overview?.admins.map((admin) => <option key={admin.id} value={admin.id}>{admin.displayName}</option>)}</select></label><label className="wide"><span>Details <small>Optional</small></span><textarea rows={5} maxLength={4000} value={itemDraft.description} onChange={(event) => setItemDraft({ ...itemDraft, description: event.target.value })} placeholder="What needs attention, why it matters, and the intended outcome." /></label></div>}
           <footer><button className="ghost-button" type="button" onClick={closeDialog}>Cancel</button><button className="solid-button" type="button" disabled={busy || Boolean(groupDraft && !groupDraft.name.trim()) || Boolean(itemDraft && !itemDraft.title.trim())} onClick={() => void (groupDraft ? saveGroup() : saveItem())}>{busy ? 'Saving...' : 'Save'}</button></footer>

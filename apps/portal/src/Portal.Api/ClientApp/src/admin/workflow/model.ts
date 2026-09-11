@@ -34,6 +34,51 @@ export function connectNode(graph: WorkflowGraph, source: string, target: string
   return { ...graph, edges: [...edges, { id: crypto.randomUUID(), source, target, ...(branch ? { branch } : {}) }] }
 }
 
+export function reconnectNodeEdge(
+  graph: WorkflowGraph,
+  edgeId: string,
+  source: string,
+  target: string,
+  branch?: 'yes' | 'no',
+): WorkflowGraph {
+  const edge = graph.edges.find(item => item.id === edgeId)
+  const sourceNode = graph.nodes.find(node => node.id === source)
+  if (!edge || !sourceNode) return graph
+  const normalizedBranch = sourceNode.type === 'condition' ? branch : undefined
+  if (sourceNode.type === 'condition' && !normalizedBranch) return graph
+
+  const remainingEdges = graph.edges.filter(item => item.id !== edgeId)
+  const candidate = { ...graph, edges: remainingEdges }
+  if (
+    remainingEdges.some(item => item.source === source && (item.branch ?? undefined) === normalizedBranch)
+    || !canConnect(candidate, source, target)
+  ) return graph
+
+  return {
+    ...graph,
+    edges: graph.edges.map(item => item.id === edgeId
+      ? { id: edgeId, source, target, ...(normalizedBranch ? { branch: normalizedBranch } : {}) }
+      : item),
+  }
+}
+
+export function changeTriggerAction(graph: WorkflowGraph, nodeId: string, trigger: string): WorkflowGraph {
+  const node = graph.nodes.find(item => item.id === nodeId)
+  const action = TRIGGERS.find(([key]) => key === trigger)
+  if (!node || node.type !== 'trigger' || !action) return graph
+  if (graph.nodes.some(item => item.id !== nodeId && item.type === 'trigger' && item.trigger === trigger)) return graph
+
+  const previousDefaultLabel = TRIGGERS.find(([key]) => key === node.trigger)?.[1]
+  return {
+    ...graph,
+    nodes: graph.nodes.map(item => item.id === nodeId ? {
+      ...item,
+      trigger,
+      label: item.label === previousDefaultLabel ? action[1] : item.label,
+    } : item),
+  }
+}
+
 export function removeNode(graph: WorkflowGraph, id: string): WorkflowGraph {
   return { ...graph, nodes: graph.nodes.filter(node => node.id !== id), edges: graph.edges.filter(edge => edge.source !== id && edge.target !== id) }
 }
