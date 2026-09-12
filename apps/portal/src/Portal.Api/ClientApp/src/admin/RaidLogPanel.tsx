@@ -5,6 +5,7 @@ import {
   ChevronDown,
   CircleCheck,
   ClipboardList,
+  ListTree,
   MessageSquareText,
   Pencil,
   Play,
@@ -32,6 +33,7 @@ type ItemDraft = {
   id?: number
   version?: number
   groupId: number
+  parentItemId: number | null
   title: string
   description: string
   kind: RaidLogKind
@@ -138,6 +140,7 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
   const counts = useMemo(() => raidCounts(items), [items])
   const currentAdminId = overview?.admins.find((admin) =>
     admin.accountName.toLowerCase() === currentAccountName?.toLowerCase())?.id ?? null
+  const draftParent = itemDraft?.parentItemId ? items.find((item) => item.id === itemDraft.parentItemId) ?? null : null
   function activeDuration(item: RaidLogItem) {
     if (!item.activeWorkSession || !overview) return item.activeSeconds
     return item.activeSeconds + Math.max(0, Math.floor((clock - Date.parse(overview.generatedAt)) / 1000))
@@ -160,16 +163,16 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
     }
   }
 
-  function newItem(groupId?: number) {
+  function newItem(groupId?: number, parent?: RaidLogItem) {
     if (!overview?.groups.length) { openGroup({ name: '', description: '', sortOrder: 0 }); return }
     dialogOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    setItemDraft({ groupId: groupId ?? overview.groups[0].id, title: '', description: '', kind: 'Action', priority: 'Normal', assignedToUserId: null })
+    setItemDraft({ groupId: parent?.groupId ?? groupId ?? overview.groups[0].id, parentItemId: parent?.id ?? null, title: '', description: '', kind: 'Action', priority: 'Normal', assignedToUserId: null })
   }
 
   function editItem(item: RaidLogItem) {
     dialogOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setItemDraft({
-      id: item.id, version: item.version, groupId: item.groupId, title: item.title,
+      id: item.id, version: item.version, groupId: item.groupId, parentItemId: item.parentItemId, title: item.title,
       description: item.description ?? '', kind: item.kind, priority: item.priority,
       assignedToUserId: item.assignedToUserId,
     })
@@ -188,10 +191,11 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
   async function saveItem() {
     if (!itemDraft) return
     const editing = itemDraft.id !== undefined
+    const label = itemDraft.parentItemId ? 'Subtask' : 'RAID item'
     const ok = await mutate(() => portalApi(
       editing ? `/api/admin/raid-log/items/${itemDraft.id}` : '/api/admin/raid-log/items',
       { method: editing ? 'PUT' : 'POST', body: JSON.stringify(itemDraft) },
-    ), editing ? 'RAID item updated.' : 'RAID item added.')
+    ), editing ? `${label} updated.` : `${label} added.`)
     if (ok) closeDialog()
   }
 
@@ -299,15 +303,20 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
                 {visible.map((item) => {
                   const active = item.activeWorkSession
                   const activeByMe = sameAccount(active?.startedBy, currentAccountName)
+                  const subtasks = group.items.filter((candidate) => candidate.parentItemId === item.id)
+                  const completedSubtasks = subtasks.filter((subtask) => subtask.completedAt).length
+                  const openSubtasks = subtasks.length - completedSubtasks
+                  const isSubtask = item.parentItemId !== null
+                  const completionBlocked = !item.completedAt && openSubtasks > 0
                   const firstSession = item.workSessions[item.workSessions.length - 1]
                   const liveOffset = active && overview
                     ? Math.max(0, Math.floor((clock - Date.parse(overview.generatedAt)) / 1000))
                     : 0
                   return (
-                    <article className={`raid-item ${item.completedAt ? 'completed' : ''} ${active ? 'working' : ''}`} key={item.id}>
+                    <article className={`raid-item ${isSubtask ? 'subtask' : ''} ${item.completedAt ? 'completed' : ''} ${active ? 'working' : ''}`} key={item.id}>
                       <div className="raid-item-row">
-                        <button className="raid-complete" type="button" aria-label={item.completedAt ? `Reopen ${item.title}` : `Mark ${item.title} complete`} aria-pressed={Boolean(item.completedAt)} disabled={busy} onClick={() => void toggleComplete(item)}>{item.completedAt && <Check size={15} />}</button>
-                        <div className="raid-item-copy"><div><span className={`raid-priority ${item.priority.toLowerCase()}`}>{item.priority}</span><span className="raid-kind">{item.kind}</span>{active && <span className="raid-working-badge"><Timer size={11} /> Working</span>}</div><strong>{item.title}</strong><small>{item.completedAt ? `Completed ${when(item.completedAt)}` : active ? `${active.startedByDisplayName} started ${when(active.startedAt)}` : `Updated ${when(item.updatedAt)}`}</small></div>
+                        <button className="raid-complete" type="button" title={completionBlocked ? `Complete ${openSubtasks} remaining subtask${openSubtasks === 1 ? '' : 's'} first` : undefined} aria-label={item.completedAt ? `Reopen ${item.title}` : completionBlocked ? `${item.title} has incomplete subtasks` : `Mark ${item.title} complete`} aria-pressed={Boolean(item.completedAt)} disabled={busy || completionBlocked} onClick={() => void toggleComplete(item)}>{item.completedAt && <Check size={15} />}</button>
+                        <div className="raid-item-copy"><div><span className={`raid-priority ${item.priority.toLowerCase()}`}>{item.priority}</span><span className="raid-kind">{item.kind}</span>{isSubtask && <span className="raid-subtask-badge"><ListTree size={11} /> Subtask</span>}{subtasks.length > 0 && <span className={`raid-dependency-badge ${openSubtasks ? 'open' : ''}`}><ListTree size={11} /> {completedSubtasks}/{subtasks.length}</span>}{active && <span className="raid-working-badge"><Timer size={11} /> Working</span>}</div><strong>{item.title}</strong><small>{isSubtask && `Under ${item.parentTitle ?? 'parent task'} · `}{item.completedAt ? `Completed ${when(item.completedAt)}` : active ? `${active.startedByDisplayName} started ${when(active.startedAt)}` : `Updated ${when(item.updatedAt)}`}</small></div>
                         <span className={`raid-assignee ${item.assignedToUserId ? '' : 'unassigned'}`}><UserRound size={14} /> {item.assignedToDisplayName ?? 'Unassigned'}</span>
                         <div className="raid-work-control">
                           {Boolean(item.activeSeconds) && <small><Timer size={12} /> {duration(activeDuration(item))}</small>}
@@ -322,7 +331,7 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
                       </div>
                       {expanded.has(item.id) && <div className="raid-item-detail" id={`raid-item-${item.id}`}>
                         <div className="raid-detail-main">
-                          <div className="raid-detail-heading"><h4>Details</h4><div className="raid-detail-actions"><button className="ghost-button" type="button" disabled={busy} onClick={() => void toggleComplete(item)}><CircleCheck size={14} /> {item.completedAt ? 'Reopen task' : 'Complete task'}</button><button className="ghost-button" type="button" onClick={() => editItem(item)}><Pencil size={14} /> Edit</button></div></div>
+                          <div className="raid-detail-heading"><h4>Details</h4><div className="raid-detail-actions">{!isSubtask && !item.completedAt && <button className="ghost-button" type="button" onClick={() => newItem(item.groupId, item)}><ListTree size={14} /> Add subtask</button>}<button className="ghost-button" type="button" title={completionBlocked ? `Complete ${openSubtasks} remaining subtask${openSubtasks === 1 ? '' : 's'} first` : undefined} disabled={busy || completionBlocked} onClick={() => void toggleComplete(item)}><CircleCheck size={14} /> {item.completedAt ? 'Reopen task' : completionBlocked ? `${openSubtasks} remaining` : 'Complete task'}</button><button className="ghost-button" type="button" onClick={() => editItem(item)}><Pencil size={14} /> Edit</button></div></div>
                           <p>{item.description || 'No details have been added.'}</p>
                           <dl>
                             <div><dt>Created</dt><dd>{when(item.createdAt)} by {item.createdBy}</dd></div>
@@ -330,6 +339,12 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
                             <div><dt>Active work</dt><dd>{duration(activeDuration(item))} across {item.workSessions.length} session{item.workSessions.length === 1 ? '' : 's'}</dd></div>
                             {item.completedAt && <div><dt>Completion</dt><dd>{when(item.completedAt)} by {item.completedByDisplayName ?? item.completedBy}</dd></div>}
                           </dl>
+                          {!isSubtask && <section className="raid-dependencies" aria-label="Dependent jobs">
+                            <div><h4>Dependent jobs</h4><span>{subtasks.length ? `${completedSubtasks} of ${subtasks.length} complete` : 'None added'}</span></div>
+                            {!subtasks.length && <p>Add subtasks when this task depends on smaller jobs being finished first.</p>}
+                            {subtasks.length > 0 && <ol>{subtasks.map((subtask) => <li key={subtask.id}><span className={subtask.completedAt ? 'complete' : ''}>{subtask.completedAt ? <Check size={11} /> : <ListTree size={11} />}</span><div><strong>{subtask.title}</strong><small>{subtask.assignedToDisplayName ?? 'Unassigned'} · {subtask.completedAt ? 'Complete' : 'Open'}</small></div></li>)}</ol>}
+                            {openSubtasks > 0 && <p className="raid-dependency-warning">This parent task stays locked from completion until all {openSubtasks} remaining subtask{openSubtasks === 1 ? '' : 's'} are complete.</p>}
+                          </section>}
                           <section className="raid-work-history" aria-label="Work session history">
                             <div><h4>Work sessions</h4>{!item.completedAt && !active && <button className="ghost-button" type="button" onClick={() => openWork(item, 'start')}><Play size={13} /> Start work</button>}</div>
                             {!item.workSessions.length && <p>No work sessions have been recorded.</p>}
@@ -359,9 +374,9 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
 
       {(groupDraft || itemDraft || workDraft) && <div className="raid-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog() }}>
         <section className="raid-dialog" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="raid-dialog-title">
-          <header><div><span className="kicker">RAID Log</span><h3 id="raid-dialog-title">{groupDraft ? `${groupDraft.id ? 'Edit' : 'Add'} group` : itemDraft ? `${itemDraft.id ? 'Edit' : 'Add'} item` : workDraft?.action === 'start' ? 'Start working' : 'Stop working'}</h3></div><button className="admin-icon-button" type="button" aria-label="Close" onClick={closeDialog}><X size={17} /></button></header>
+          <header><div><span className="kicker">RAID Log</span><h3 id="raid-dialog-title">{groupDraft ? `${groupDraft.id ? 'Edit' : 'Add'} group` : itemDraft ? `${itemDraft.id ? 'Edit' : 'Add'} ${itemDraft.parentItemId ? 'subtask' : 'item'}` : workDraft?.action === 'start' ? 'Start working' : 'Stop working'}</h3></div><button className="admin-icon-button" type="button" aria-label="Close" onClick={closeDialog}><X size={17} /></button></header>
           {groupDraft ? <div className="raid-form"><label><span>Group name</span><input autoFocus maxLength={120} value={groupDraft.name} onChange={(event) => setGroupDraft({ ...groupDraft, name: event.target.value })} /></label><label><span>Description <small>Optional</small></span><textarea rows={3} maxLength={500} value={groupDraft.description} onChange={(event) => setGroupDraft({ ...groupDraft, description: event.target.value })} /></label></div>
-            : itemDraft ? <div className="raid-form"><label className="wide"><span>Title</span><input autoFocus maxLength={240} value={itemDraft.title} onChange={(event) => setItemDraft({ ...itemDraft, title: event.target.value })} /></label><label><span>Group</span><select value={itemDraft.groupId} onChange={(event) => setItemDraft({ ...itemDraft, groupId: Number(event.target.value) })}>{overview?.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label><label><span>Type</span><select value={itemDraft.kind} onChange={(event) => setItemDraft({ ...itemDraft, kind: event.target.value as RaidLogKind })}>{kinds.map((value) => <option key={value}>{value}</option>)}</select></label><label><span>Priority</span><select value={itemDraft.priority} onChange={(event) => setItemDraft({ ...itemDraft, priority: event.target.value as RaidLogPriority })}>{priorities.map((value) => <option key={value}>{value}</option>)}</select></label><label><span>Assigned admin</span><select value={itemDraft.assignedToUserId ?? ''} onChange={(event) => setItemDraft({ ...itemDraft, assignedToUserId: event.target.value ? Number(event.target.value) : null })}><option value="">Unassigned</option>{overview?.admins.map((admin) => <option key={admin.id} value={admin.id}>{admin.displayName}</option>)}</select></label><label className="wide"><span>Details <small>Optional</small></span><textarea rows={5} maxLength={4000} value={itemDraft.description} onChange={(event) => setItemDraft({ ...itemDraft, description: event.target.value })} placeholder="What needs attention, why it matters, and the intended outcome." /></label></div>
+            : itemDraft ? <div className="raid-form">{draftParent && <div className="raid-parent-context"><span><ListTree size={13} /> Dependent job for</span><strong>{draftParent.title}</strong><small>The parent cannot be completed until this subtask is complete.</small></div>}<label className="wide"><span>Title</span><input autoFocus maxLength={240} value={itemDraft.title} onChange={(event) => setItemDraft({ ...itemDraft, title: event.target.value })} /></label><label><span>Group</span><select value={itemDraft.groupId} disabled={itemDraft.parentItemId !== null} onChange={(event) => setItemDraft({ ...itemDraft, groupId: Number(event.target.value) })}>{overview?.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label><label><span>Type</span><select value={itemDraft.kind} onChange={(event) => setItemDraft({ ...itemDraft, kind: event.target.value as RaidLogKind })}>{kinds.map((value) => <option key={value}>{value}</option>)}</select></label><label><span>Priority</span><select value={itemDraft.priority} onChange={(event) => setItemDraft({ ...itemDraft, priority: event.target.value as RaidLogPriority })}>{priorities.map((value) => <option key={value}>{value}</option>)}</select></label><label><span>Assigned admin</span><select value={itemDraft.assignedToUserId ?? ''} onChange={(event) => setItemDraft({ ...itemDraft, assignedToUserId: event.target.value ? Number(event.target.value) : null })}><option value="">Unassigned</option>{overview?.admins.map((admin) => <option key={admin.id} value={admin.id}>{admin.displayName}</option>)}</select></label><label className="wide"><span>Details <small>Optional</small></span><textarea rows={5} maxLength={4000} value={itemDraft.description} onChange={(event) => setItemDraft({ ...itemDraft, description: event.target.value })} placeholder="What needs attention, why it matters, and the intended outcome." /></label></div>
               : workDraft && <div className="raid-form raid-work-form"><div className="raid-work-task"><span>{workDraft.item.kind}</span><strong>{workDraft.item.title}</strong><small>{workDraft.action === 'start' ? 'Starting this task will assign it to you. Any other RAID task you are working on will be stopped.' : `Active since ${when(workDraft.item.activeWorkSession?.startedAt ?? workDraft.item.updatedAt)}.`}</small></div><label className="wide"><span>{workDraft.action === 'start' ? 'What are you working on?' : 'Progress note'} {workDraft.action === 'stop' && <small>Optional</small>}</span><textarea autoFocus rows={4} maxLength={2000} value={workDraft.note} onChange={(event) => setWorkDraft({ ...workDraft, note: event.target.value })} placeholder={workDraft.action === 'start' ? 'Describe the specific work you are starting for this session.' : 'Record what changed, what remains, or the next step.'} /></label></div>}
           <footer><button className="ghost-button" type="button" onClick={closeDialog}>Cancel</button><button className="solid-button" type="button" disabled={busy || Boolean(groupDraft && !groupDraft.name.trim()) || Boolean(itemDraft && !itemDraft.title.trim()) || Boolean(workDraft?.action === 'start' && !workDraft.note.trim())} onClick={() => void (groupDraft ? saveGroup() : itemDraft ? saveItem() : saveWork())}>{busy ? 'Saving...' : workDraft?.action === 'start' ? 'Start work' : workDraft?.action === 'stop' ? 'Stop and save time' : 'Save'}</button></footer>
         </section>

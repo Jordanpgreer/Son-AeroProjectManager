@@ -330,6 +330,8 @@ export interface RaidLogWorkSession {
 export interface RaidLogItem {
   id: number
   groupId: number
+  parentItemId: number | null
+  parentTitle: string | null
   title: string
   description: string | null
   kind: RaidLogKind

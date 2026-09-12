@@ -10,11 +10,23 @@ const priorityRank: Record<RaidLogPriority, number> = {
 export type RaidLogView = 'open' | 'mine' | 'unassigned' | 'completed'
 
 export function sortRaidItems(items: RaidLogItem[]) {
-  return [...items].sort((left, right) =>
+  const byId = new Map(items.map((item) => [item.id, item]))
+  const root = (item: RaidLogItem) => item.parentItemId ? byId.get(item.parentItemId) ?? item : item
+  const compare = (left: RaidLogItem, right: RaidLogItem) =>
     Number(left.completedAt !== null) - Number(right.completedAt !== null)
     || priorityRank[left.priority] - priorityRank[right.priority]
     || Date.parse(right.updatedAt) - Date.parse(left.updatedAt)
-    || left.id - right.id)
+    || left.id - right.id
+
+  return [...items].sort((left, right) => {
+    const leftRoot = root(left)
+    const rightRoot = root(right)
+    const familyOrder = compare(leftRoot, rightRoot)
+    if (leftRoot.id !== rightRoot.id) return familyOrder
+    if (left.id === leftRoot.id) return -1
+    if (right.id === rightRoot.id) return 1
+    return compare(left, right)
+  })
 }
 
 export function filterRaidItems(
@@ -25,7 +37,8 @@ export function filterRaidItems(
   priority: RaidLogPriority | 'All',
 ) {
   const needle = search.trim().toLowerCase()
-  return sortRaidItems(items).filter((item) => {
+  const sorted = sortRaidItems(items)
+  const directMatches = sorted.filter((item) => {
     const matchesView = view === 'completed'
       ? item.completedAt !== null
       : item.completedAt === null && (view === 'open'
@@ -35,6 +48,8 @@ export function filterRaidItems(
     const haystack = `${item.title} ${item.description ?? ''} ${item.kind} ${item.assignedToDisplayName ?? ''}`.toLowerCase()
     return matchesView && matchesPriority && (!needle || haystack.includes(needle))
   })
+  const familyIds = new Set(directMatches.map((item) => item.parentItemId ?? item.id))
+  return sorted.filter((item) => familyIds.has(item.id) || (item.parentItemId !== null && familyIds.has(item.parentItemId)))
 }
 
 export function raidCounts(items: RaidLogItem[], now = new Date()) {

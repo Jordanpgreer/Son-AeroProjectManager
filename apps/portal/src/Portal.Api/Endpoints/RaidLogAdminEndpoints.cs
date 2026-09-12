@@ -117,12 +117,13 @@ public static class RaidLogAdminEndpoints
     {
         var actor = await AdministratorAsync(users, cancellationToken);
         if (actor is null) return AdministratorRequired();
-        var validation = await ValidateItemAsync(dto.GroupId, dto.Title, dto.Description, dto.Kind, dto.Priority, dto.AssignedToUserId, db, cancellationToken);
+        var validation = await ValidateItemAsync(dto.GroupId, dto.ParentItemId, null, dto.Title, dto.Description, dto.Kind, dto.Priority, dto.AssignedToUserId, db, cancellationToken);
         if (validation.Error is not null) return Invalid(validation.Error);
         var now = DateTimeOffset.UtcNow;
         var item = new RaidLogItemRecord
         {
             GroupId = dto.GroupId,
+            ParentItemId = dto.ParentItemId,
             Title = validation.Title,
             Description = validation.Description,
             Kind = validation.Kind,
@@ -134,7 +135,22 @@ public static class RaidLogAdminEndpoints
             UpdatedBy = actor.AccountName,
             Version = 1,
         };
-        item.Activity.Add(Activity(item, "created", $"Created {item.Kind.ToLowerInvariant()}.", actor.AccountName, now));
+        item.Activity.Add(Activity(item, "created", dto.ParentItemId is null
+            ? $"Created {item.Kind.ToLowerInvariant()}."
+            : $"Created {item.Kind.ToLowerInvariant()} subtask.", actor.AccountName, now));
+        if (dto.ParentItemId is int parentId)
+        {
+            var parent = await db.RaidLogItems.Include(candidate => candidate.Activity)
+                .SingleOrDefaultAsync(candidate => candidate.Id == parentId, cancellationToken);
+            if (parent is null) return Invalid("Choose an existing parent task.");
+            if (parent.CompletedAt is not null) return Results.Conflict(new { detail = "Reopen the parent task before adding a subtask." });
+            if (parent.ParentItemId is not null || parent.GroupId != dto.GroupId)
+                return Invalid("Subtasks must belong to a top-level task in the same RAID Log group.");
+            parent.UpdatedAt = now;
+            parent.UpdatedBy = actor.AccountName;
+            parent.Version++;
+            parent.Activity.Add(Activity(parent, "subtask-added", $"Added subtask: {item.Title}.", actor.AccountName, now));
+        }
         db.RaidLogItems.Add(item);
         try { await db.SaveChangesAsync(cancellationToken); }
         catch (DbUpdateConcurrencyException) { return Stale(); }
@@ -153,7 +169,9 @@ public static class RaidLogAdminEndpoints
         var item = await db.RaidLogItems.SingleOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
         if (item is null) return Results.NotFound();
         if (item.Version != dto.Version) return Stale();
-        var validation = await ValidateItemAsync(dto.GroupId, dto.Title, dto.Description, dto.Kind, dto.Priority, dto.AssignedToUserId, db, cancellationToken);
+        if (item.ParentItemId != dto.ParentItemId)
+            return Invalid("A task's parent relationship cannot be changed after it is created.");
+        var validation = await ValidateItemAsync(dto.GroupId, dto.ParentItemId, id, dto.Title, dto.Description, dto.Kind, dto.Priority, dto.AssignedToUserId, db, cancellationToken);
         if (validation.Error is not null) return Invalid(validation.Error);
 
         var changes = new List<string>();
@@ -164,6 +182,20 @@ public static class RaidLogAdminEndpoints
             || !string.Equals(item.Description, validation.Description, StringComparison.Ordinal)
             || !string.Equals(item.Kind, validation.Kind, StringComparison.Ordinal)) changes.Add("details");
         var now = DateTimeOffset.UtcNow;
+        if (item.ParentItemId is null && item.GroupId != dto.GroupId)
+        {
+            var subtasks = await db.RaidLogItems.Include(candidate => candidate.Activity)
+                .Where(candidate => candidate.ParentItemId == item.Id)
+                .ToListAsync(cancellationToken);
+            foreach (var subtask in subtasks)
+            {
+                subtask.GroupId = dto.GroupId;
+                subtask.UpdatedAt = now;
+                subtask.UpdatedBy = actor.AccountName;
+                subtask.Version++;
+                subtask.Activity.Add(Activity(subtask, "parent-moved", "Moved to another group with its parent task.", actor.AccountName, now));
+            }
+        }
         item.GroupId = dto.GroupId;
         item.Title = validation.Title;
         item.Description = validation.Description;
@@ -195,6 +227,30 @@ public static class RaidLogAdminEndpoints
         if (item is null) return Results.NotFound();
         if (item.Version != dto.Version) return Stale();
         if ((item.CompletedAt is not null) == dto.Completed) return Results.NoContent();
+        if (dto.Completed && item.ParentItemId is null)
+        {
+            var openSubtasks = await db.RaidLogItems.AsNoTracking()
+                .Where(candidate => candidate.ParentItemId == item.Id && candidate.CompletedAt == null)
+                .Select(candidate => candidate.Title)
+                .OrderBy(title => title)
+                .Take(4)
+                .ToListAsync(cancellationToken);
+            if (openSubtasks.Count > 0)
+                return Results.Conflict(new
+                {
+                    detail = $"Complete all subtasks before completing this task. Still open: {string.Join(", ", openSubtasks)}."
+                });
+        }
+
+        RaidLogItemRecord? parent = null;
+        if (item.ParentItemId is int parentId)
+        {
+            parent = await db.RaidLogItems.Include(candidate => candidate.Activity)
+                .SingleOrDefaultAsync(candidate => candidate.Id == parentId, cancellationToken);
+            if (parent is null) return Results.Conflict(new { detail = "The parent task is no longer available." });
+            if (!dto.Completed && parent.CompletedAt is not null)
+                return Results.Conflict(new { detail = "Reopen the parent task before reopening this subtask." });
+        }
         var now = DateTimeOffset.UtcNow;
         var activeSession = item.WorkSessions.SingleOrDefault(session => session.StoppedAt is null);
         if (dto.Completed && activeSession is not null)
@@ -208,6 +264,13 @@ public static class RaidLogAdminEndpoints
         item.UpdatedBy = actor.AccountName;
         item.Version++;
         item.Activity.Add(Activity(item, dto.Completed ? "completed" : "reopened", dto.Completed ? "Marked complete." : "Reopened.", actor.AccountName, now));
+        if (parent is not null)
+        {
+            parent.UpdatedAt = now;
+            parent.UpdatedBy = actor.AccountName;
+            parent.Version++;
+            parent.Activity.Add(Activity(parent, "subtask-updated", $"Subtask {item.Title} was {(dto.Completed ? "completed" : "reopened")}.", actor.AccountName, now));
+        }
         try { await db.SaveChangesAsync(cancellationToken); }
         catch (DbUpdateConcurrencyException) { return Stale(); }
         return Results.NoContent();
@@ -379,14 +442,31 @@ public static class RaidLogAdminEndpoints
             .Include(group => group.Items).ThenInclude(item => item.WorkSessions)
             .OrderBy(group => group.SortOrder).ThenBy(group => group.Name)
             .ToListAsync(cancellationToken);
-        return new RaidLogOverviewDto(generatedAt, admins, groups.Select(group => new RaidLogGroupDto(
+        return new RaidLogOverviewDto(generatedAt, admins, groups.Select(group => MapGroup(group, names, generatedAt)).ToList());
+    }
+
+    private static RaidLogGroupDto MapGroup(
+        RaidLogGroupRecord group,
+        IReadOnlyDictionary<string, string> names,
+        DateTimeOffset generatedAt)
+    {
+        var titles = group.Items.ToDictionary(item => item.Id, item => item.Title);
+        return new RaidLogGroupDto(
             group.Id, group.Name, group.Description, group.SortOrder, group.Version,
-            group.Items.Select(item => MapItem(item, names, generatedAt))
-                .OrderBy(item => PriorityRank(item.Priority)).ThenBy(item => item.CompletedAt is not null).ThenByDescending(item => item.UpdatedAt).ToList())).ToList());
+            group.Items.Select(item => MapItem(
+                    item,
+                    item.ParentItemId is int parentId && titles.TryGetValue(parentId, out var title) ? title : null,
+                    names,
+                    generatedAt))
+                .OrderBy(item => PriorityRank(item.Priority))
+                .ThenBy(item => item.CompletedAt is not null)
+                .ThenByDescending(item => item.UpdatedAt)
+                .ToList());
     }
 
     private static RaidLogItemDto MapItem(
         RaidLogItemRecord item,
+        string? parentTitle,
         IReadOnlyDictionary<string, string> names,
         DateTimeOffset generatedAt)
     {
@@ -395,7 +475,7 @@ public static class RaidLogAdminEndpoints
             .Select(session => MapWorkSession(session, names, generatedAt))
             .ToList();
         return new RaidLogItemDto(
-            item.Id, item.GroupId, item.Title, item.Description, item.Kind, item.Priority,
+            item.Id, item.GroupId, item.ParentItemId, parentTitle, item.Title, item.Description, item.Kind, item.Priority,
             item.AssignedToUserId, item.AssignedToUser is null ? null : DisplayName(item.AssignedToUser),
             item.CreatedAt, item.CreatedBy, item.UpdatedAt, item.UpdatedBy,
             item.CompletedAt, item.CompletedBy,
@@ -453,7 +533,7 @@ public static class RaidLogAdminEndpoints
     }
 
     private static async Task<(string Title, string? Description, string Kind, string Priority, string? Error)> ValidateItemAsync(
-        int groupId, string titleValue, string? descriptionValue, string kindValue, string priorityValue,
+        int groupId, int? parentItemId, int? existingItemId, string titleValue, string? descriptionValue, string kindValue, string priorityValue,
         int? assignedToUserId, PortalRoleDbContext db, CancellationToken cancellationToken)
     {
         var title = Clean(titleValue);
@@ -465,6 +545,16 @@ public static class RaidLogAdminEndpoints
         if (description?.Length > 4000) return (title, description, kind, priority, "Details must be 4,000 characters or fewer.");
         if (!Kinds.Contains(kind)) return (title, description, kind, priority, "Choose Risk, Action, Issue, or Decision.");
         if (!Priorities.Contains(priority)) return (title, description, kind, priority, "Choose Critical, High, Normal, or Low priority.");
+        if (parentItemId is int parentId)
+        {
+            if (parentId == existingItemId) return (title, description, kind, priority, "A task cannot depend on itself.");
+            var parent = await db.RaidLogItems.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.Id == parentId, cancellationToken);
+            if (parent is null) return (title, description, kind, priority, "Choose an existing parent task.");
+            if (parent.ParentItemId is not null) return (title, description, kind, priority, "Subtasks cannot contain additional subtasks.");
+            if (parent.GroupId != groupId) return (title, description, kind, priority, "A subtask must stay in the same RAID Log group as its parent.");
+            if (existingItemId is null && parent.CompletedAt is not null)
+                return (title, description, kind, priority, "Reopen the parent task before adding a subtask.");
+        }
         if (assignedToUserId is not null)
         {
             var assignee = await db.Users.AsNoTracking().SingleOrDefaultAsync(user => user.Id == assignedToUserId, cancellationToken);

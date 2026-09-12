@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Portal.Api.Data;
 
@@ -9,9 +10,51 @@ public sealed class PortalRaidLogSchemaInitializer(PortalRoleDbContext db)
     {
         var provider = db.Database.ProviderName ?? string.Empty;
         if (provider.Contains("Sqlite", StringComparison.OrdinalIgnoreCase))
+        {
             await db.Database.ExecuteSqlRawAsync(SqliteSchema, cancellationToken);
+            await EnsureSqliteDependencyColumnsAsync(cancellationToken);
+        }
         else if (provider.Contains("SqlServer", StringComparison.OrdinalIgnoreCase))
             await db.Database.ExecuteSqlRawAsync(SqlServerSchema, cancellationToken);
+    }
+
+    private async Task EnsureSqliteDependencyColumnsAsync(CancellationToken cancellationToken)
+    {
+        var connection = db.Database.GetDbConnection();
+        var closeWhenDone = connection.State != ConnectionState.Open;
+        if (closeWhenDone) await connection.OpenAsync(cancellationToken);
+        try
+        {
+            var hasParentItemId = false;
+            await using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "PRAGMA table_info(\"RaidLogItems\");";
+                await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                {
+                    if (string.Equals(reader.GetString(1), "ParentItemId", StringComparison.OrdinalIgnoreCase))
+                    {
+                        hasParentItemId = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!hasParentItemId)
+            {
+                await using var alter = connection.CreateCommand();
+                alter.CommandText = "ALTER TABLE \"RaidLogItems\" ADD COLUMN \"ParentItemId\" INTEGER NULL REFERENCES \"RaidLogItems\" (\"Id\") ON DELETE RESTRICT;";
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await using var index = connection.CreateCommand();
+            index.CommandText = "CREATE INDEX IF NOT EXISTS \"IX_RaidLogItems_ParentItemId_CompletedAt\" ON \"RaidLogItems\" (\"ParentItemId\", \"CompletedAt\");";
+            await index.ExecuteNonQueryAsync(cancellationToken);
+        }
+        finally
+        {
+            if (closeWhenDone) await connection.CloseAsync();
+        }
     }
 
     internal const string SqliteSchema = """
@@ -30,6 +73,7 @@ public sealed class PortalRaidLogSchemaInitializer(PortalRoleDbContext db)
         CREATE TABLE IF NOT EXISTS "RaidLogItems" (
             "Id" INTEGER NOT NULL CONSTRAINT "PK_RaidLogItems" PRIMARY KEY AUTOINCREMENT,
             "GroupId" INTEGER NOT NULL,
+            "ParentItemId" INTEGER NULL,
             "Title" TEXT NOT NULL,
             "Description" TEXT NULL,
             "Kind" TEXT NOT NULL,
@@ -43,6 +87,7 @@ public sealed class PortalRaidLogSchemaInitializer(PortalRoleDbContext db)
             "CompletedBy" TEXT NULL,
             "Version" INTEGER NOT NULL,
             CONSTRAINT "FK_RaidLogItems_RaidLogGroups_GroupId" FOREIGN KEY ("GroupId") REFERENCES "RaidLogGroups" ("Id") ON DELETE RESTRICT,
+            CONSTRAINT "FK_RaidLogItems_RaidLogItems_ParentItemId" FOREIGN KEY ("ParentItemId") REFERENCES "RaidLogItems" ("Id") ON DELETE RESTRICT,
             CONSTRAINT "FK_RaidLogItems_Users_AssignedToUserId" FOREIGN KEY ("AssignedToUserId") REFERENCES "Users" ("Id") ON DELETE SET NULL
         );
         CREATE TABLE IF NOT EXISTS "RaidLogNotes" (
@@ -107,6 +152,7 @@ public sealed class PortalRaidLogSchemaInitializer(PortalRoleDbContext db)
             CREATE TABLE [dbo].[RaidLogItems] (
                 [Id] int IDENTITY(1,1) NOT NULL CONSTRAINT [PK_RaidLogItems] PRIMARY KEY,
                 [GroupId] int NOT NULL,
+                [ParentItemId] int NULL,
                 [Title] nvarchar(240) NOT NULL,
                 [Description] nvarchar(4000) NULL,
                 [Kind] nvarchar(24) NOT NULL,
@@ -120,11 +166,18 @@ public sealed class PortalRaidLogSchemaInitializer(PortalRoleDbContext db)
                 [CompletedBy] nvarchar(160) NULL,
                 [Version] bigint NOT NULL,
                 CONSTRAINT [FK_RaidLogItems_RaidLogGroups_GroupId] FOREIGN KEY ([GroupId]) REFERENCES [dbo].[RaidLogGroups] ([Id]),
+                CONSTRAINT [FK_RaidLogItems_RaidLogItems_ParentItemId] FOREIGN KEY ([ParentItemId]) REFERENCES [dbo].[RaidLogItems] ([Id]),
                 CONSTRAINT [FK_RaidLogItems_Users_AssignedToUserId] FOREIGN KEY ([AssignedToUserId]) REFERENCES [dbo].[Users] ([Id]) ON DELETE SET NULL
             );
             CREATE INDEX [IX_RaidLogItems_GroupId_CompletedAt_Priority] ON [dbo].[RaidLogItems] ([GroupId], [CompletedAt], [Priority]);
             CREATE INDEX [IX_RaidLogItems_AssignedToUserId] ON [dbo].[RaidLogItems] ([AssignedToUserId]);
         END;
+        IF COL_LENGTH(N'dbo.RaidLogItems', N'ParentItemId') IS NULL
+            ALTER TABLE [dbo].[RaidLogItems] ADD [ParentItemId] int NULL;
+        IF OBJECT_ID(N'[dbo].[FK_RaidLogItems_RaidLogItems_ParentItemId]', N'F') IS NULL
+            ALTER TABLE [dbo].[RaidLogItems] ADD CONSTRAINT [FK_RaidLogItems_RaidLogItems_ParentItemId] FOREIGN KEY ([ParentItemId]) REFERENCES [dbo].[RaidLogItems] ([Id]);
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_RaidLogItems_ParentItemId_CompletedAt' AND object_id = OBJECT_ID(N'[dbo].[RaidLogItems]'))
+            CREATE INDEX [IX_RaidLogItems_ParentItemId_CompletedAt] ON [dbo].[RaidLogItems] ([ParentItemId], [CompletedAt]);
         IF OBJECT_ID(N'[dbo].[RaidLogNotes]', N'U') IS NULL
         BEGIN
             CREATE TABLE [dbo].[RaidLogNotes] (

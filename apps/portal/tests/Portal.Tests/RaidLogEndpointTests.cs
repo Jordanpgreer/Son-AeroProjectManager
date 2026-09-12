@@ -58,6 +58,9 @@ public sealed class RaidLogEndpointTests
         Assert.True(group.GetIndexes().Single(index => index.Properties.Single().Name == nameof(RaidLogGroupRecord.NormalizedName)).IsUnique);
         Assert.Contains(item.GetIndexes(), index => index.Properties.Select(property => property.Name)
             .SequenceEqual([nameof(RaidLogItemRecord.GroupId), nameof(RaidLogItemRecord.CompletedAt), nameof(RaidLogItemRecord.Priority)]));
+        Assert.Contains(item.GetIndexes(), index => index.Properties.Select(property => property.Name)
+            .SequenceEqual([nameof(RaidLogItemRecord.ParentItemId), nameof(RaidLogItemRecord.CompletedAt)]));
+        Assert.Equal(DeleteBehavior.Restrict, item.GetForeignKeys().Single(key => key.PrincipalEntityType == item).DeleteBehavior);
         Assert.Equal(DeleteBehavior.Cascade, note.GetForeignKeys().Single().DeleteBehavior);
         Assert.Equal(DeleteBehavior.Cascade, activity.GetForeignKeys().Single().DeleteBehavior);
         Assert.Equal(DeleteBehavior.Cascade, workSession.GetForeignKeys().Single().DeleteBehavior);
@@ -90,11 +93,40 @@ public sealed class RaidLogEndpointTests
         Assert.Contains("RaidLogWorkSessions", names);
         Assert.Contains("IX_RaidLogGroups_NormalizedName", names);
         Assert.Contains("IX_RaidLogItems_GroupId_CompletedAt_Priority", names);
+        Assert.Contains("IX_RaidLogItems_ParentItemId_CompletedAt", names);
         Assert.Contains("IX_RaidLogNotes_ItemId_CreatedAt", names);
         Assert.Contains("IX_RaidLogActivity_ItemId_OccurredAt", names);
         Assert.Contains("IX_RaidLogWorkSessions_ItemId_StartedAt", names);
         Assert.Contains("IX_RaidLogWorkSessions_ItemId_Open", names);
         Assert.Contains("IX_RaidLogWorkSessions_StartedBy_Open", names);
+    }
+
+    [Fact]
+    public async Task Raid_log_initializer_adds_dependencies_to_an_existing_sqlite_schema()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using (var oldSchema = connection.CreateCommand())
+        {
+            oldSchema.CommandText = """
+                CREATE TABLE "RaidLogItems" (
+                    "Id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    "GroupId" INTEGER NOT NULL,
+                    "CompletedAt" TEXT NULL,
+                    "Priority" TEXT NOT NULL,
+                    "AssignedToUserId" INTEGER NULL
+                );
+                """;
+            await oldSchema.ExecuteNonQueryAsync();
+        }
+
+        var options = new DbContextOptionsBuilder<PortalRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new PortalRoleDbContext(options);
+        await new PortalRaidLogSchemaInitializer(db).InitializeAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('RaidLogItems') WHERE name = 'ParentItemId';";
+        Assert.Equal(1L, (long)(await command.ExecuteScalarAsync())!);
     }
 
     [Fact]
@@ -213,6 +245,70 @@ public sealed class RaidLogEndpointTests
         Assert.Equal(2, completed.WorkSessions.Count);
         Assert.All(completed.WorkSessions, session => Assert.NotNull(session.StoppedAt));
         Assert.Contains(completed.Activity, activity => activity.Action == "completed");
+    }
+
+    [Fact]
+    public async Task Raid_parent_completion_requires_every_subtask_and_reopening_preserves_the_invariant()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<PortalRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new PortalRoleDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
+        const string account = "SONAERO\\worker.one";
+        var now = DateTimeOffset.UtcNow;
+        var user = new PortalRoleRecord
+        {
+            AccountName = account,
+            DisplayName = "Worker One",
+            Role = "Admin",
+            IsActive = true,
+            LastSeenAt = now,
+        };
+        var group = new RaidLogGroupRecord
+        {
+            Name = "Operations",
+            NormalizedName = "OPERATIONS",
+            CreatedAt = now,
+            UpdatedAt = now,
+            CreatedBy = account,
+            UpdatedBy = account,
+            Version = 1,
+        };
+        var parent = NewItem(group, "Release package", now);
+        var subtask = NewItem(group, "Verify certificates", now);
+        subtask.ParentItem = parent;
+        db.AddRange(user, group, parent, subtask);
+        await db.SaveChangesAsync();
+        var portalUsers = PortalUsers(account);
+
+        db.ChangeTracker.Clear();
+        await RaidLogAdminEndpoints.SetCompletionAsync(
+            parent.Id, new RaidLogCompletionDto(true, 1), portalUsers, db, default);
+        db.ChangeTracker.Clear();
+        Assert.Null((await db.RaidLogItems.SingleAsync(item => item.Id == parent.Id)).CompletedAt);
+
+        db.ChangeTracker.Clear();
+        await RaidLogAdminEndpoints.SetCompletionAsync(
+            subtask.Id, new RaidLogCompletionDto(true, 1), portalUsers, db, default);
+        db.ChangeTracker.Clear();
+        var updatedParent = await db.RaidLogItems.SingleAsync(item => item.Id == parent.Id);
+        var completedSubtask = await db.RaidLogItems.SingleAsync(item => item.Id == subtask.Id);
+        Assert.Equal(2, updatedParent.Version);
+        Assert.NotNull(completedSubtask.CompletedAt);
+
+        db.ChangeTracker.Clear();
+        await RaidLogAdminEndpoints.SetCompletionAsync(
+            parent.Id, new RaidLogCompletionDto(true, updatedParent.Version), portalUsers, db, default);
+        db.ChangeTracker.Clear();
+        Assert.NotNull((await db.RaidLogItems.SingleAsync(item => item.Id == parent.Id)).CompletedAt);
+
+        db.ChangeTracker.Clear();
+        await RaidLogAdminEndpoints.SetCompletionAsync(
+            subtask.Id, new RaidLogCompletionDto(false, completedSubtask.Version), portalUsers, db, default);
+        db.ChangeTracker.Clear();
+        Assert.NotNull((await db.RaidLogItems.SingleAsync(item => item.Id == subtask.Id)).CompletedAt);
     }
 
     [Fact]

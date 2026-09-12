@@ -18,6 +18,8 @@ public sealed record RaidLogGroupDto(
 public sealed record RaidLogItemDto(
     int Id,
     int GroupId,
+    int? ParentItemId,
+    string? ParentTitle,
     string Title,
     string? Description,
     string Kind,
@@ -71,6 +73,7 @@ public sealed record RaidLogGroupCreateDto(string Name, string? Description);
 public sealed record RaidLogGroupUpdateDto(string Name, string? Description, int SortOrder, long Version);
 public sealed record RaidLogItemCreateDto(
     int GroupId,
+    int? ParentItemId,
     string Title,
     string? Description,
     string Kind,
@@ -78,6 +81,7 @@ public sealed record RaidLogItemCreateDto(
     int? AssignedToUserId);
 public sealed record RaidLogItemUpdateDto(
     int GroupId,
+    int? ParentItemId,
     string Title,
     string? Description,
     string Kind,

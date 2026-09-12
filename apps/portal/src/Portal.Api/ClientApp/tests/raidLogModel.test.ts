@@ -6,6 +6,8 @@ function item(overrides: Partial<RaidLogItem> = {}): RaidLogItem {
   return {
     id: 1,
     groupId: 1,
+    parentItemId: null,
+    parentTitle: null,
     title: 'Review access rules',
     description: null,
     kind: 'Action',
@@ -62,5 +64,18 @@ describe('RAID Log model', () => {
       item({ id: 5, completedAt: '2026-08-30T12:00:00Z' }),
     ]
     expect(raidCounts(entries, new Date('2026-09-07T12:00:00Z'))).toEqual({ open: 3, urgent: 2, completedThisMonth: 1 })
+  })
+
+  it('keeps dependent jobs with their parent and includes the full family for context', () => {
+    const entries = [
+      item({ id: 10, title: 'Parent task', priority: 'Normal', assignedToUserId: 2 }),
+      item({ id: 11, parentItemId: 10, parentTitle: 'Parent task', title: 'Completed child', completedAt: '2026-09-03T12:00:00Z' }),
+      item({ id: 12, parentItemId: 10, parentTitle: 'Parent task', title: 'Assigned child', priority: 'High', assignedToUserId: 7 }),
+      item({ id: 20, title: 'Unrelated task', priority: 'Critical' }),
+    ]
+
+    expect(sortRaidItems(entries).map((entry) => entry.id)).toEqual([20, 10, 12, 11])
+    expect(filterRaidItems(entries, 'mine', 7, '', 'All').map((entry) => entry.id)).toEqual([10, 12, 11])
+    expect(filterRaidItems(entries, 'open', 7, 'assigned child', 'All').map((entry) => entry.id)).toEqual([10, 12, 11])
   })
 })

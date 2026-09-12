@@ -298,6 +298,7 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
             entity.ToTable("RaidLogItems");
             entity.HasKey(item => item.Id);
             entity.HasIndex(item => new { item.GroupId, item.CompletedAt, item.Priority });
+            entity.HasIndex(item => new { item.ParentItemId, item.CompletedAt });
             entity.Property(item => item.Title).HasMaxLength(240);
             entity.Property(item => item.Description).HasMaxLength(4000);
             entity.Property(item => item.Kind).HasMaxLength(24);
@@ -310,6 +311,10 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
                 .WithMany()
                 .HasForeignKey(item => item.AssignedToUserId)
                 .OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne(item => item.ParentItem)
+                .WithMany(parent => parent.Subtasks)
+                .HasForeignKey(item => item.ParentItemId)
+                .OnDelete(DeleteBehavior.Restrict);
             entity.HasMany(item => item.Notes)
                 .WithOne(note => note.Item)
                 .HasForeignKey(note => note.ItemId)
@@ -591,6 +596,8 @@ public sealed class RaidLogItemRecord
     public int Id { get; set; }
     public int GroupId { get; set; }
     public RaidLogGroupRecord Group { get; set; } = null!;
+    public int? ParentItemId { get; set; }
+    public RaidLogItemRecord? ParentItem { get; set; }
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
     public string Kind { get; set; } = "Action";
@@ -607,6 +614,7 @@ public sealed class RaidLogItemRecord
     public ICollection<RaidLogNoteRecord> Notes { get; set; } = [];
     public ICollection<RaidLogActivityRecord> Activity { get; set; } = [];
     public ICollection<RaidLogWorkSessionRecord> WorkSessions { get; set; } = [];
+    public ICollection<RaidLogItemRecord> Subtasks { get; set; } = [];
 }
 
 public sealed class RaidLogNoteRecord
