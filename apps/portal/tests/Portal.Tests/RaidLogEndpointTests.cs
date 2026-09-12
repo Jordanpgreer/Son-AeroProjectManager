@@ -1,12 +1,16 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Portal.Api.Data;
+using Portal.Api.Dtos;
 using Portal.Api.Endpoints;
 using Portal.Api.Services;
+using System.Security.Claims;
 
 namespace Portal.Tests;
 
@@ -28,7 +32,7 @@ public sealed class RaidLogEndpointTests
             .Where(endpoint => endpoint.RoutePattern.RawText?.StartsWith("/api/admin/raid-log") == true)
             .ToList();
 
-        Assert.Equal(7, routes.Count);
+        Assert.Equal(10, routes.Count);
         Assert.All(routes, endpoint => Assert.NotEmpty(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>()));
     }
 
@@ -42,11 +46,13 @@ public sealed class RaidLogEndpointTests
         var item = db.Model.FindEntityType(typeof(RaidLogItemRecord))!;
         var note = db.Model.FindEntityType(typeof(RaidLogNoteRecord))!;
         var activity = db.Model.FindEntityType(typeof(RaidLogActivityRecord))!;
+        var workSession = db.Model.FindEntityType(typeof(RaidLogWorkSessionRecord))!;
 
         Assert.Equal("RaidLogGroups", group.GetTableName());
         Assert.Equal("RaidLogItems", item.GetTableName());
         Assert.Equal("RaidLogNotes", note.GetTableName());
         Assert.Equal("RaidLogActivity", activity.GetTableName());
+        Assert.Equal("RaidLogWorkSessions", workSession.GetTableName());
         Assert.True(group.FindProperty(nameof(RaidLogGroupRecord.Version))!.IsConcurrencyToken);
         Assert.True(item.FindProperty(nameof(RaidLogItemRecord.Version))!.IsConcurrencyToken);
         Assert.True(group.GetIndexes().Single(index => index.Properties.Single().Name == nameof(RaidLogGroupRecord.NormalizedName)).IsUnique);
@@ -54,6 +60,12 @@ public sealed class RaidLogEndpointTests
             .SequenceEqual([nameof(RaidLogItemRecord.GroupId), nameof(RaidLogItemRecord.CompletedAt), nameof(RaidLogItemRecord.Priority)]));
         Assert.Equal(DeleteBehavior.Cascade, note.GetForeignKeys().Single().DeleteBehavior);
         Assert.Equal(DeleteBehavior.Cascade, activity.GetForeignKeys().Single().DeleteBehavior);
+        Assert.Equal(DeleteBehavior.Cascade, workSession.GetForeignKeys().Single().DeleteBehavior);
+        Assert.True(workSession.FindProperty(nameof(RaidLogWorkSessionRecord.LastHeartbeatAt))!.IsConcurrencyToken);
+        Assert.Contains(workSession.GetIndexes(), index => index.IsUnique
+            && index.Properties.Single().Name == nameof(RaidLogWorkSessionRecord.ItemId));
+        Assert.Contains(workSession.GetIndexes(), index => index.IsUnique
+            && index.Properties.Single().Name == nameof(RaidLogWorkSessionRecord.StartedBy));
     }
 
     [Fact]
@@ -75,10 +87,132 @@ public sealed class RaidLogEndpointTests
         Assert.Contains("RaidLogItems", names);
         Assert.Contains("RaidLogNotes", names);
         Assert.Contains("RaidLogActivity", names);
+        Assert.Contains("RaidLogWorkSessions", names);
         Assert.Contains("IX_RaidLogGroups_NormalizedName", names);
         Assert.Contains("IX_RaidLogItems_GroupId_CompletedAt_Priority", names);
         Assert.Contains("IX_RaidLogNotes_ItemId_CreatedAt", names);
         Assert.Contains("IX_RaidLogActivity_ItemId_OccurredAt", names);
+        Assert.Contains("IX_RaidLogWorkSessions_ItemId_StartedAt", names);
+        Assert.Contains("IX_RaidLogWorkSessions_ItemId_Open", names);
+        Assert.Contains("IX_RaidLogWorkSessions_StartedBy_Open", names);
+    }
+
+    [Fact]
+    public async Task Raid_log_allows_history_but_prevents_overlapping_work_sessions()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<PortalRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new PortalRoleDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
+        var now = DateTimeOffset.UtcNow;
+        var group = new RaidLogGroupRecord
+        {
+            Name = "Operations",
+            NormalizedName = "OPERATIONS",
+            CreatedAt = now,
+            UpdatedAt = now,
+            CreatedBy = "admin",
+            UpdatedBy = "admin",
+            Version = 1,
+        };
+        var firstItem = NewItem(group, "First task", now);
+        var secondItem = NewItem(group, "Second task", now);
+        db.RaidLogGroups.Add(group);
+        db.RaidLogItems.AddRange(firstItem, secondItem);
+        await db.SaveChangesAsync();
+
+        db.RaidLogWorkSessions.Add(NewSession(firstItem.Id, "SONAERO\\worker.one", now));
+        await db.SaveChangesAsync();
+
+        db.RaidLogWorkSessions.Add(NewSession(firstItem.Id, "SONAERO\\worker.two", now.AddMinutes(1)));
+        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+        db.ChangeTracker.Clear();
+
+        db.RaidLogWorkSessions.Add(NewSession(secondItem.Id, "SONAERO\\worker.one", now.AddMinutes(1)));
+        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+        db.ChangeTracker.Clear();
+
+        var completedSession = await db.RaidLogWorkSessions.SingleAsync();
+        completedSession.StoppedAt = now.AddMinutes(2);
+        completedSession.StoppedBy = "SONAERO\\worker.one";
+        completedSession.StopReason = "manual";
+        completedSession.LastHeartbeatAt = completedSession.StoppedAt.Value;
+        await db.SaveChangesAsync();
+        db.RaidLogWorkSessions.Add(NewSession(secondItem.Id, "SONAERO\\worker.one", now.AddMinutes(3)));
+        await db.SaveChangesAsync();
+
+        Assert.Equal(2, await db.RaidLogWorkSessions.CountAsync());
+        Assert.Single(await db.RaidLogWorkSessions.Where(session => session.StoppedAt == null).ToListAsync());
+    }
+
+    [Fact]
+    public async Task Raid_work_sessions_record_pickup_progress_and_completion()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<PortalRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new PortalRoleDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
+        const string account = "SONAERO\\worker.one";
+        var now = DateTimeOffset.UtcNow;
+        var user = new PortalRoleRecord
+        {
+            AccountName = account,
+            DisplayName = "Worker One",
+            Role = "Admin",
+            IsActive = true,
+            LastSeenAt = now,
+        };
+        var group = new RaidLogGroupRecord
+        {
+            Name = "Operations",
+            NormalizedName = "OPERATIONS",
+            CreatedAt = now,
+            UpdatedAt = now,
+            CreatedBy = account,
+            UpdatedBy = account,
+            Version = 1,
+        };
+        var item = NewItem(group, "Review supplier issue", now);
+        db.AddRange(user, group, item);
+        await db.SaveChangesAsync();
+        var portalUsers = PortalUsers(account);
+
+        db.ChangeTracker.Clear();
+        await RaidLogAdminEndpoints.StartWorkAsync(
+            item.Id, new RaidLogWorkStartDto("Checking the supplier response.", 1), portalUsers, db, default);
+        db.ChangeTracker.Clear();
+        var started = await db.RaidLogItems.Include(record => record.WorkSessions).Include(record => record.Activity).SingleAsync();
+        Assert.Equal(user.Id, started.AssignedToUserId);
+        Assert.Equal(2, started.Version);
+        Assert.Equal("Checking the supplier response.", started.WorkSessions.Single().StartNote);
+        Assert.Contains(started.Activity, activity => activity.Action == "work-started");
+
+        await RaidLogAdminEndpoints.StopWorkAsync(
+            started.Id, new RaidLogWorkStopDto("Supplier reply verified.", started.Version), portalUsers, db, default);
+        db.ChangeTracker.Clear();
+        var stopped = await db.RaidLogItems.Include(record => record.WorkSessions).SingleAsync();
+        var firstSession = stopped.WorkSessions.Single();
+        Assert.NotNull(firstSession.StoppedAt);
+        Assert.Equal(account, firstSession.StoppedBy);
+        Assert.Equal("Supplier reply verified.", firstSession.StopNote);
+
+        await RaidLogAdminEndpoints.StartWorkAsync(
+            stopped.Id, new RaidLogWorkStartDto("Preparing the final disposition.", stopped.Version), portalUsers, db, default);
+        db.ChangeTracker.Clear();
+        var restarted = await db.RaidLogItems.Include(record => record.WorkSessions).SingleAsync();
+        await RaidLogAdminEndpoints.SetCompletionAsync(
+            restarted.Id, new RaidLogCompletionDto(true, restarted.Version), portalUsers, db, default);
+        db.ChangeTracker.Clear();
+        var completed = await db.RaidLogItems.Include(record => record.WorkSessions).Include(record => record.Activity).SingleAsync();
+        Assert.NotNull(completed.CompletedAt);
+        Assert.Equal(account, completed.CompletedBy);
+        Assert.Equal(2, completed.WorkSessions.Count);
+        Assert.All(completed.WorkSessions, session => Assert.NotNull(session.StoppedAt));
+        Assert.Contains(completed.Activity, activity => activity.Action == "completed");
     }
 
     [Fact]
@@ -114,5 +248,49 @@ public sealed class RaidLogEndpointTests
         staleCopy.Version++;
 
         await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => second.SaveChangesAsync());
+    }
+
+    private static RaidLogItemRecord NewItem(RaidLogGroupRecord group, string title, DateTimeOffset now) => new()
+    {
+        Group = group,
+        Title = title,
+        Kind = "Action",
+        Priority = "Normal",
+        CreatedAt = now,
+        UpdatedAt = now,
+        CreatedBy = "admin",
+        UpdatedBy = "admin",
+        Version = 1,
+    };
+
+    private static RaidLogWorkSessionRecord NewSession(int itemId, string actor, DateTimeOffset now) => new()
+    {
+        ItemId = itemId,
+        StartedAt = now,
+        StartedBy = actor,
+        LastHeartbeatAt = now,
+    };
+
+    private static PortalUserService PortalUsers(string account)
+    {
+        var httpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, account)], "Test")),
+        };
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Authentication:Mode"] = "Development",
+            ["Portal:DevelopmentRole"] = "Admin",
+        }).Build();
+        return new PortalUserService(new HttpContextAccessor { HttpContext = httpContext }, configuration, new EmptyRoleStore());
+    }
+
+    private sealed class EmptyRoleStore : IPortalRoleStore
+    {
+        public Task<PortalAccountLookup> FindAccountAsync(string accountName, CancellationToken cancellationToken = default) =>
+            Task.FromResult(PortalAccountLookup.Missing());
+
+        public Task<PortalAccountLookup> RegisterPendingAccountAsync(string accountName, string displayName, CancellationToken cancellationToken = default) =>
+            Task.FromResult(PortalAccountLookup.Missing());
     }
 }

@@ -1,6 +1,7 @@
 namespace Portal.Api.Dtos;
 
 public sealed record RaidLogOverviewDto(
+    DateTimeOffset GeneratedAt,
     IReadOnlyList<RaidLogAdminDto> Admins,
     IReadOnlyList<RaidLogGroupDto> Groups);
 
@@ -29,9 +30,27 @@ public sealed record RaidLogItemDto(
     string UpdatedBy,
     DateTimeOffset? CompletedAt,
     string? CompletedBy,
+    string? CompletedByDisplayName,
+    long ActiveSeconds,
+    RaidLogWorkSessionDto? ActiveWorkSession,
     long Version,
+    IReadOnlyList<RaidLogWorkSessionDto> WorkSessions,
     IReadOnlyList<RaidLogNoteDto> Notes,
     IReadOnlyList<RaidLogActivityDto> Activity);
+
+public sealed record RaidLogWorkSessionDto(
+    long Id,
+    DateTimeOffset StartedAt,
+    string StartedBy,
+    string StartedByDisplayName,
+    string? StartNote,
+    DateTimeOffset LastHeartbeatAt,
+    DateTimeOffset? StoppedAt,
+    string? StoppedBy,
+    string? StoppedByDisplayName,
+    string? StopNote,
+    string? StopReason,
+    long DurationSeconds);
 
 public sealed record RaidLogNoteDto(
     long Id,
@@ -67,3 +86,5 @@ public sealed record RaidLogItemUpdateDto(
     long Version);
 public sealed record RaidLogCompletionDto(bool Completed, long Version);
 public sealed record RaidLogNoteCreateDto(string Body);
+public sealed record RaidLogWorkStartDto(string? Note, long Version);
+public sealed record RaidLogWorkStopDto(string? Note, long Version);

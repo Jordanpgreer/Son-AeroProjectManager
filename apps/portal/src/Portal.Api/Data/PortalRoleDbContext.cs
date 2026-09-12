@@ -31,6 +31,7 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
     public DbSet<RaidLogItemRecord> RaidLogItems => Set<RaidLogItemRecord>();
     public DbSet<RaidLogNoteRecord> RaidLogNotes => Set<RaidLogNoteRecord>();
     public DbSet<RaidLogActivityRecord> RaidLogActivity => Set<RaidLogActivityRecord>();
+    public DbSet<RaidLogWorkSessionRecord> RaidLogWorkSessions => Set<RaidLogWorkSessionRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -317,6 +318,10 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
                 .WithOne(activity => activity.Item)
                 .HasForeignKey(activity => activity.ItemId)
                 .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(item => item.WorkSessions)
+                .WithOne(session => session.Item)
+                .HasForeignKey(session => session.ItemId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<RaidLogNoteRecord>(entity =>
@@ -336,6 +341,27 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
             entity.Property(activity => activity.Action).HasMaxLength(32);
             entity.Property(activity => activity.Summary).HasMaxLength(500);
             entity.Property(activity => activity.Actor).HasMaxLength(160);
+        });
+
+        modelBuilder.Entity<RaidLogWorkSessionRecord>(entity =>
+        {
+            entity.ToTable("RaidLogWorkSessions");
+            entity.HasKey(session => session.Id);
+            entity.HasIndex(session => new { session.ItemId, session.StartedAt });
+            entity.HasIndex(session => session.ItemId)
+                .IsUnique()
+                .HasDatabaseName("IX_RaidLogWorkSessions_ItemId_Open")
+                .HasFilter("StoppedAt IS NULL");
+            entity.HasIndex(session => session.StartedBy)
+                .IsUnique()
+                .HasDatabaseName("IX_RaidLogWorkSessions_StartedBy_Open")
+                .HasFilter("StoppedAt IS NULL");
+            entity.Property(session => session.StartedBy).HasMaxLength(160);
+            entity.Property(session => session.StartNote).HasMaxLength(2000);
+            entity.Property(session => session.LastHeartbeatAt).IsConcurrencyToken();
+            entity.Property(session => session.StoppedBy).HasMaxLength(160);
+            entity.Property(session => session.StopNote).HasMaxLength(2000);
+            entity.Property(session => session.StopReason).HasMaxLength(32);
         });
     }
 }
@@ -580,6 +606,7 @@ public sealed class RaidLogItemRecord
     public long Version { get; set; }
     public ICollection<RaidLogNoteRecord> Notes { get; set; } = [];
     public ICollection<RaidLogActivityRecord> Activity { get; set; } = [];
+    public ICollection<RaidLogWorkSessionRecord> WorkSessions { get; set; } = [];
 }
 
 public sealed class RaidLogNoteRecord
@@ -601,4 +628,19 @@ public sealed class RaidLogActivityRecord
     public string Summary { get; set; } = string.Empty;
     public DateTimeOffset OccurredAt { get; set; }
     public string Actor { get; set; } = string.Empty;
+}
+
+public sealed class RaidLogWorkSessionRecord
+{
+    public long Id { get; set; }
+    public int ItemId { get; set; }
+    public RaidLogItemRecord Item { get; set; } = null!;
+    public DateTimeOffset StartedAt { get; set; }
+    public string StartedBy { get; set; } = string.Empty;
+    public string? StartNote { get; set; }
+    public DateTimeOffset LastHeartbeatAt { get; set; }
+    public DateTimeOffset? StoppedAt { get; set; }
+    public string? StoppedBy { get; set; }
+    public string? StopNote { get; set; }
+    public string? StopReason { get; set; }
 }

@@ -177,6 +177,22 @@ export default function App() {
   }, [me?.accountStatus])
 
   useEffect(() => {
+    if (me?.accountStatus !== 'configured' || me.role?.toLowerCase() !== 'admin') return
+    const heartbeat = () => void fetch('/api/admin/raid-log/work/heartbeat', {
+      method: 'POST',
+      credentials: 'include',
+    }).catch(() => undefined)
+    const resumeHeartbeat = () => { if (document.visibilityState === 'visible') heartbeat() }
+    heartbeat()
+    const interval = window.setInterval(heartbeat, 30_000)
+    document.addEventListener('visibilitychange', resumeHeartbeat)
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', resumeHeartbeat)
+    }
+  }, [me?.accountStatus, me?.role])
+
+  useEffect(() => {
     if (me?.accountStatus === 'configured' && !accessPreview) {
       void ensureArdaPushSubscription()
     }

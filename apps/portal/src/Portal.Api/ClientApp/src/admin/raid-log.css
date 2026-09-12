@@ -42,8 +42,9 @@
 .raid-group-actions .ghost-button { min-height: 32px; padding: 6px 9px; }
 .raid-group-empty { margin: 0; padding: 18px; color: var(--muted); border: 1px dashed var(--line-2); border-radius: var(--r-sm); text-align: center; font-size: 10.5px; }
 .raid-item { overflow: clip; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.raid-item.working { border-color: color-mix(in srgb, var(--steel) 52%, var(--line)); box-shadow: inset 3px 0 0 var(--steel); }
 .raid-item.completed { opacity: .72; }
-.raid-item-row { display: grid; grid-template-columns: 28px minmax(220px, 1fr) minmax(120px, auto) 42px 34px; align-items: center; gap: 10px; min-height: 64px; padding: 9px 10px; }
+.raid-item-row { display: grid; grid-template-columns: 28px minmax(220px, 1fr) minmax(120px, auto) minmax(118px, auto) 42px 34px; align-items: center; gap: 10px; min-height: 64px; padding: 9px 10px; }
 .raid-complete { display: grid; width: 24px; height: 24px; place-items: center; color: #fff; background: var(--surface); border: 1.5px solid var(--line-2); border-radius: 50%; cursor: pointer; }
 .raid-complete:hover { border-color: var(--ok); }
 .raid-complete[aria-pressed="true"] { background: var(--ok); border-color: var(--ok); }
@@ -58,22 +59,44 @@
 .raid-priority.high { color: #8a5800; background: #fff3d8; }
 .raid-priority.low { color: var(--muted); background: var(--surface-2); }
 .raid-kind { color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); }
+.raid-working-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; color: var(--steel-700); background: var(--steel-tint); border-radius: var(--r-pill); font-size: 7.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
 .raid-assignee, .raid-note-count { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-2); font-size: 9px; }
 .raid-assignee svg, .raid-note-count svg { color: var(--steel-700); }
 .raid-assignee.unassigned { color: var(--muted); }
 .raid-note-count { justify-content: center; font-family: var(--font-mono); }
+.raid-work-control { display: grid; justify-items: start; gap: 4px; }
+.raid-work-control > small { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-family: var(--font-mono); font-size: 8px; }
+.raid-work-button { display: inline-flex; min-height: 29px; align-items: center; justify-content: center; gap: 5px; padding: 5px 8px; color: var(--steel-700); background: var(--steel-tint); border: 1px solid color-mix(in srgb, var(--steel) 35%, var(--line)); border-radius: var(--r-sm); cursor: pointer; font: inherit; font-size: 8.5px; font-weight: 750; white-space: nowrap; }
+.raid-work-button:hover:not(:disabled) { color: #fff; background: var(--steel-700); }
+.raid-work-button.stop { color: var(--risk-700); background: var(--risk-tint); border-color: color-mix(in srgb, var(--risk) 32%, var(--line)); }
+.raid-work-button.stop:hover:not(:disabled) { color: #fff; background: var(--risk-700); }
+.raid-work-button:disabled { cursor: not-allowed; opacity: .62; }
 .raid-item-row > .admin-icon-button[aria-expanded="true"] svg { transform: rotate(180deg); }
 .raid-item-row > .admin-icon-button svg { transition: transform 180ms ease; }
 .raid-item-detail { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(260px, .75fr); gap: 14px; padding: 14px; background: var(--surface-2); border-top: 1px solid var(--line); }
 .raid-detail-main, .raid-notes { min-width: 0; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); }
 .raid-detail-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .raid-detail-heading .ghost-button { min-height: 30px; padding: 5px 8px; }
+.raid-detail-actions { display: flex; align-items: center; gap: 6px; }
 .raid-item-detail h4 { margin: 0; color: var(--ink); font-size: 10.5px; }
 .raid-detail-main > p { margin: 10px 0 14px; color: var(--ink-2); font-size: 10.5px; line-height: 1.55; white-space: pre-wrap; }
 .raid-detail-main dl { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 15px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 .raid-detail-main dl div { display: grid; gap: 2px; }
 .raid-detail-main dt { color: var(--muted); font-size: 7.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .raid-detail-main dd { margin: 0; color: var(--ink-2); font-size: 8.5px; }
+.raid-work-history { display: grid; gap: 9px; margin: 0 0 15px; padding: 12px 0 15px; border-bottom: 1px solid var(--line); }
+.raid-work-history > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.raid-work-history .ghost-button { min-height: 29px; padding: 5px 8px; }
+.raid-work-history > p { margin: 0; color: var(--muted); font-size: 9px; }
+.raid-work-history ol { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.raid-work-history li { display: grid; gap: 4px; padding: 9px 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.raid-work-history li.active { background: var(--steel-tint); border-color: color-mix(in srgb, var(--steel) 38%, var(--line)); }
+.raid-work-history li > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.raid-work-history li strong { color: var(--ink-2); font-size: 9.5px; }
+.raid-work-history li b { color: var(--steel-700); font-family: var(--font-mono); font-size: 9px; }
+.raid-work-history li small { color: var(--muted); font-size: 8px; }
+.raid-work-history li p { margin: 1px 0 0; color: var(--ink-2); font-size: 9px; line-height: 1.45; white-space: pre-wrap; }
+.raid-work-history li p span { color: var(--muted); font-size: 7.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
 .raid-timeline, .raid-notes > ol { display: grid; gap: 9px; margin: 10px 0 0; padding: 0; list-style: none; }
 .raid-timeline li { display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 8px; }
 .raid-timeline li > span { width: 7px; height: 7px; margin-top: 3px; background: var(--steel); border-radius: 50%; }
@@ -104,12 +127,17 @@
 .raid-form label small { font-weight: 500; letter-spacing: 0; text-transform: none; }
 .raid-form input, .raid-form select, .raid-form textarea { width: 100%; }
 .raid-form textarea { resize: vertical; }
+.raid-work-form { grid-template-columns: 1fr; }
+.raid-work-task { display: grid; gap: 5px; padding: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.raid-work-task > span { color: var(--steel-700); font-size: 8px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.raid-work-task > strong { color: var(--ink); font-size: 12px; }
+.raid-work-task > small { color: var(--muted); font-size: 9px; line-height: 1.45; }
 
 @media (max-width: 900px) {
   .raid-toolbar { grid-template-columns: 1fr auto; }
   .raid-view-tabs { grid-row: 2; grid-column: 1 / -1; }
   .raid-view-tabs button { flex: 1; }
-  .raid-item-row { grid-template-columns: 28px minmax(170px, 1fr) minmax(110px, auto) 34px; }
+  .raid-item-row { grid-template-columns: 28px minmax(170px, 1fr) minmax(110px, auto) minmax(112px, auto) 34px; }
   .raid-note-count { display: none; }
   .raid-item-detail { grid-template-columns: 1fr; }
 }
@@ -124,6 +152,9 @@
   .raid-group-actions .ghost-button { justify-content: center; }
   .raid-item-row { grid-template-columns: 28px minmax(0, 1fr) 34px; }
   .raid-assignee { grid-row: 2; grid-column: 2 / -1; }
+  .raid-work-control { grid-row: 3; grid-column: 2 / -1; }
+  .raid-detail-heading { align-items: flex-start; }
+  .raid-detail-actions { align-items: stretch; flex-direction: column; }
   .raid-item-copy > strong { white-space: normal; }
   .raid-form { grid-template-columns: 1fr; }
   .raid-form label.wide { grid-column: auto; }

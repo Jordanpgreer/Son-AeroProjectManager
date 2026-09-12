@@ -7,8 +7,11 @@ import {
   ClipboardList,
   MessageSquareText,
   Pencil,
+  Play,
   Plus,
   Search,
+  Square,
+  Timer,
   UserRound,
   X,
 } from 'lucide-react'
@@ -35,9 +38,28 @@ type ItemDraft = {
   priority: RaidLogPriority
   assignedToUserId: number | null
 }
+type WorkDraft = {
+  item: RaidLogItem
+  action: 'start' | 'stop'
+  note: string
+}
 
 function when(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+}
+
+function duration(totalSeconds: number) {
+  const seconds = Math.max(0, Math.floor(totalSeconds))
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const remainder = seconds % 60
+  if (hours) return `${hours}h ${minutes.toString().padStart(2, '0')}m`
+  if (minutes) return `${minutes}m ${remainder.toString().padStart(2, '0')}s`
+  return `${remainder}s`
+}
+
+function sameAccount(left: string | null | undefined, right: string | null | undefined) {
+  return Boolean(left && right && left.toLowerCase() === right.toLowerCase())
 }
 
 export default function RaidLogPanel({ currentAccountName }: { currentAccountName: string | null }) {
@@ -52,25 +74,36 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
   const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(new Set())
   const [groupDraft, setGroupDraft] = useState<{ id?: number; version?: number; name: string; description: string; sortOrder: number } | null>(null)
   const [itemDraft, setItemDraft] = useState<ItemDraft | null>(null)
+  const [workDraft, setWorkDraft] = useState<WorkDraft | null>(null)
   const [noteDrafts, setNoteDrafts] = useState<Record<number, string>>({})
+  const [clock, setClock] = useState(() => Date.now())
   const dialog = useRef<HTMLElement>(null)
   const dialogOpener = useRef<HTMLElement | null>(null)
   const dialogKey = groupDraft
     ? `group:${groupDraft.id ?? 'new'}`
-    : itemDraft ? `item:${itemDraft.id ?? 'new'}` : null
+    : itemDraft ? `item:${itemDraft.id ?? 'new'}`
+      : workDraft ? `work:${workDraft.action}:${workDraft.item.id}` : null
 
-  async function load() {
+  async function load(reportError = true) {
     try {
-      setError(null)
+      if (reportError) setError(null)
       setOverview(await portalApi<RaidLogOverview>('/api/admin/raid-log'))
       return true
     } catch (cause) {
-      setError(toErrorMessage(cause))
+      if (reportError) setError(toErrorMessage(cause))
       return false
     }
   }
 
-  useEffect(() => { void load() }, [])
+  useEffect(() => {
+    void load()
+    const refresh = window.setInterval(() => void load(false), 30_000)
+    return () => window.clearInterval(refresh)
+  }, [])
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(Date.now()), 1_000)
+    return () => window.clearInterval(timer)
+  }, [])
   useEffect(() => {
     if (!dialogKey) return
     const close = (event: KeyboardEvent) => {
@@ -92,6 +125,7 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
     const opener = dialogOpener.current
     setGroupDraft(null)
     setItemDraft(null)
+    setWorkDraft(null)
     window.setTimeout(() => opener?.focus(), 0)
   }
 
@@ -104,6 +138,10 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
   const counts = useMemo(() => raidCounts(items), [items])
   const currentAdminId = overview?.admins.find((admin) =>
     admin.accountName.toLowerCase() === currentAccountName?.toLowerCase())?.id ?? null
+  function activeDuration(item: RaidLogItem) {
+    if (!item.activeWorkSession || !overview) return item.activeSeconds
+    return item.activeSeconds + Math.max(0, Math.floor((clock - Date.parse(overview.generatedAt)) / 1000))
+  }
 
   async function mutate(action: () => Promise<unknown>, success: string) {
     setBusy(true)
@@ -161,6 +199,21 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
     await mutate(() => portalApi(`/api/admin/raid-log/items/${item.id}/completion`, {
       method: 'POST', body: JSON.stringify({ completed: !item.completedAt, version: item.version }),
     }), item.completedAt ? 'Item reopened.' : 'Item completed.')
+  }
+
+  function openWork(item: RaidLogItem, action: WorkDraft['action']) {
+    dialogOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setWorkDraft({ item, action, note: '' })
+  }
+
+  async function saveWork() {
+    if (!workDraft) return
+    const starting = workDraft.action === 'start'
+    const ok = await mutate(() => portalApi(`/api/admin/raid-log/items/${workDraft.item.id}/work/${workDraft.action}`, {
+      method: 'POST',
+      body: JSON.stringify({ note: workDraft.note.trim() || null, version: workDraft.item.version }),
+    }), starting ? 'Work session started.' : 'Work session stopped and time recorded.')
+    if (ok) closeDialog()
   }
 
   async function addNote(item: RaidLogItem) {
@@ -243,33 +296,74 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
                   <button className="ghost-button" type="button" onClick={() => newItem(group.id)}><Plus size={14} /> Add item</button>
                 </div>
                 {!visible.length && <p className="raid-group-empty">No items match this view.</p>}
-                {visible.map((item) => (
-                  <article className={`raid-item ${item.completedAt ? 'completed' : ''}`} key={item.id}>
-                    <div className="raid-item-row">
-                      <button className="raid-complete" type="button" aria-label={item.completedAt ? `Reopen ${item.title}` : `Mark ${item.title} complete`} aria-pressed={Boolean(item.completedAt)} disabled={busy} onClick={() => void toggleComplete(item)}>{item.completedAt && <Check size={15} />}</button>
-                      <div className="raid-item-copy"><div><span className={`raid-priority ${item.priority.toLowerCase()}`}>{item.priority}</span><span className="raid-kind">{item.kind}</span></div><strong>{item.title}</strong><small>{item.completedAt ? `Completed ${when(item.completedAt)}` : `Updated ${when(item.updatedAt)}`}</small></div>
-                      <span className={`raid-assignee ${item.assignedToUserId ? '' : 'unassigned'}`}><UserRound size={14} /> {item.assignedToDisplayName ?? 'Unassigned'}</span>
-                      <span className="raid-note-count"><MessageSquareText size={14} /> {item.notes.length}</span>
-                      <button className="admin-icon-button" type="button" aria-label={`${expanded.has(item.id) ? 'Close' : 'Open'} details for ${item.title}`} aria-expanded={expanded.has(item.id)} aria-controls={`raid-item-${item.id}`} onClick={() => setExpanded((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })}><ChevronDown size={16} /></button>
-                    </div>
-                    {expanded.has(item.id) && <div className="raid-item-detail" id={`raid-item-${item.id}`}>
-                      <div className="raid-detail-main"><div className="raid-detail-heading"><h4>Details</h4><button className="ghost-button" type="button" onClick={() => editItem(item)}><Pencil size={14} /> Edit</button></div><p>{item.description || 'No details have been added.'}</p><dl><div><dt>Created</dt><dd>{when(item.createdAt)} by {item.createdBy}</dd></div>{item.completedAt && <div><dt>Completion</dt><dd>{when(item.completedAt)} by {item.completedBy}</dd></div>}</dl><h4>Activity</h4><ol className="raid-timeline">{item.activity.map((activity) => <li key={activity.id}><span /><div><strong>{activity.summary}</strong><small>{activity.actorDisplayName} · {when(activity.occurredAt)}</small></div></li>)}</ol></div>
-                      <aside className="raid-notes"><h4>Notes <span>{item.notes.length}</span></h4><form onSubmit={(event) => { event.preventDefault(); void addNote(item) }}><label htmlFor={`raid-note-${item.id}`}>Add a note</label><textarea id={`raid-note-${item.id}`} rows={3} maxLength={4000} value={noteDrafts[item.id] ?? ''} onChange={(event) => setNoteDrafts((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="Record context, a decision, or the next step." /><button className="solid-button" type="submit" disabled={busy || !noteDrafts[item.id]?.trim()}>Add note</button></form><ol>{item.notes.map((note) => <li key={note.id}><p>{note.body}</p><small>{note.createdByDisplayName} · {when(note.createdAt)}</small></li>)}</ol></aside>
-                    </div>}
-                  </article>
-                ))}
+                {visible.map((item) => {
+                  const active = item.activeWorkSession
+                  const activeByMe = sameAccount(active?.startedBy, currentAccountName)
+                  const firstSession = item.workSessions[item.workSessions.length - 1]
+                  const liveOffset = active && overview
+                    ? Math.max(0, Math.floor((clock - Date.parse(overview.generatedAt)) / 1000))
+                    : 0
+                  return (
+                    <article className={`raid-item ${item.completedAt ? 'completed' : ''} ${active ? 'working' : ''}`} key={item.id}>
+                      <div className="raid-item-row">
+                        <button className="raid-complete" type="button" aria-label={item.completedAt ? `Reopen ${item.title}` : `Mark ${item.title} complete`} aria-pressed={Boolean(item.completedAt)} disabled={busy} onClick={() => void toggleComplete(item)}>{item.completedAt && <Check size={15} />}</button>
+                        <div className="raid-item-copy"><div><span className={`raid-priority ${item.priority.toLowerCase()}`}>{item.priority}</span><span className="raid-kind">{item.kind}</span>{active && <span className="raid-working-badge"><Timer size={11} /> Working</span>}</div><strong>{item.title}</strong><small>{item.completedAt ? `Completed ${when(item.completedAt)}` : active ? `${active.startedByDisplayName} started ${when(active.startedAt)}` : `Updated ${when(item.updatedAt)}`}</small></div>
+                        <span className={`raid-assignee ${item.assignedToUserId ? '' : 'unassigned'}`}><UserRound size={14} /> {item.assignedToDisplayName ?? 'Unassigned'}</span>
+                        <div className="raid-work-control">
+                          {Boolean(item.activeSeconds) && <small><Timer size={12} /> {duration(activeDuration(item))}</small>}
+                          {!item.completedAt && (activeByMe
+                            ? <button className="raid-work-button stop" type="button" disabled={busy} onClick={() => openWork(item, 'stop')}><Square size={12} /> Stop work</button>
+                            : active
+                              ? <button className="raid-work-button" type="button" disabled title={`${active.startedByDisplayName} is working on this task`}><Timer size={12} /> In progress</button>
+                              : <button className="raid-work-button" type="button" disabled={busy || currentAdminId === null} onClick={() => openWork(item, 'start')}><Play size={12} /> {item.assignedToUserId === currentAdminId ? 'Start work' : 'Pick up & start'}</button>)}
+                        </div>
+                        <span className="raid-note-count"><MessageSquareText size={14} /> {item.notes.length}</span>
+                        <button className="admin-icon-button" type="button" aria-label={`${expanded.has(item.id) ? 'Close' : 'Open'} details for ${item.title}`} aria-expanded={expanded.has(item.id)} aria-controls={`raid-item-${item.id}`} onClick={() => setExpanded((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })}><ChevronDown size={16} /></button>
+                      </div>
+                      {expanded.has(item.id) && <div className="raid-item-detail" id={`raid-item-${item.id}`}>
+                        <div className="raid-detail-main">
+                          <div className="raid-detail-heading"><h4>Details</h4><div className="raid-detail-actions"><button className="ghost-button" type="button" disabled={busy} onClick={() => void toggleComplete(item)}><CircleCheck size={14} /> {item.completedAt ? 'Reopen task' : 'Complete task'}</button><button className="ghost-button" type="button" onClick={() => editItem(item)}><Pencil size={14} /> Edit</button></div></div>
+                          <p>{item.description || 'No details have been added.'}</p>
+                          <dl>
+                            <div><dt>Created</dt><dd>{when(item.createdAt)} by {item.createdBy}</dd></div>
+                            {firstSession && <div><dt>First started</dt><dd>{when(firstSession.startedAt)} by {firstSession.startedByDisplayName}</dd></div>}
+                            <div><dt>Active work</dt><dd>{duration(activeDuration(item))} across {item.workSessions.length} session{item.workSessions.length === 1 ? '' : 's'}</dd></div>
+                            {item.completedAt && <div><dt>Completion</dt><dd>{when(item.completedAt)} by {item.completedByDisplayName ?? item.completedBy}</dd></div>}
+                          </dl>
+                          <section className="raid-work-history" aria-label="Work session history">
+                            <div><h4>Work sessions</h4>{!item.completedAt && !active && <button className="ghost-button" type="button" onClick={() => openWork(item, 'start')}><Play size={13} /> Start work</button>}</div>
+                            {!item.workSessions.length && <p>No work sessions have been recorded.</p>}
+                            <ol>{item.workSessions.map((session) => (
+                              <li className={session.stoppedAt ? '' : 'active'} key={session.id}>
+                                <div><strong>{session.stoppedAt ? 'Work session' : 'Working now'}</strong><b>{duration(session.durationSeconds + (session.stoppedAt ? 0 : liveOffset))}</b></div>
+                                <small>Started by {session.startedByDisplayName} · {when(session.startedAt)}</small>
+                                {session.startNote && <p><span>Started:</span> {session.startNote}</p>}
+                                {session.stoppedAt && <small>Stopped by {session.stoppedByDisplayName ?? session.stoppedBy} · {when(session.stoppedAt)}</small>}
+                                {session.stopNote && <p><span>Progress:</span> {session.stopNote}</p>}
+                              </li>
+                            ))}</ol>
+                          </section>
+                          <h4>Activity</h4>
+                          <ol className="raid-timeline">{item.activity.map((activity) => <li key={activity.id}><span /><div><strong>{activity.summary}</strong><small>{activity.actorDisplayName} · {when(activity.occurredAt)}</small></div></li>)}</ol>
+                        </div>
+                        <aside className="raid-notes"><h4>Notes <span>{item.notes.length}</span></h4><form onSubmit={(event) => { event.preventDefault(); void addNote(item) }}><label htmlFor={`raid-note-${item.id}`}>Add a note</label><textarea id={`raid-note-${item.id}`} rows={3} maxLength={4000} value={noteDrafts[item.id] ?? ''} onChange={(event) => setNoteDrafts((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="Record context, a decision, or the next step." /><button className="solid-button" type="submit" disabled={busy || !noteDrafts[item.id]?.trim()}>Add note</button></form><ol>{item.notes.map((note) => <li key={note.id}><p>{note.body}</p><small>{note.createdByDisplayName} · {when(note.createdAt)}</small></li>)}</ol></aside>
+                      </div>}
+                    </article>
+                  )
+                })}
               </div>
             </details>
           )
         })}
       </div>
 
-      {(groupDraft || itemDraft) && <div className="raid-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog() }}>
+      {(groupDraft || itemDraft || workDraft) && <div className="raid-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDialog() }}>
         <section className="raid-dialog" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="raid-dialog-title">
-          <header><div><span className="kicker">RAID Log</span><h3 id="raid-dialog-title">{groupDraft ? `${groupDraft.id ? 'Edit' : 'Add'} group` : `${itemDraft?.id ? 'Edit' : 'Add'} item`}</h3></div><button className="admin-icon-button" type="button" aria-label="Close" onClick={closeDialog}><X size={17} /></button></header>
+          <header><div><span className="kicker">RAID Log</span><h3 id="raid-dialog-title">{groupDraft ? `${groupDraft.id ? 'Edit' : 'Add'} group` : itemDraft ? `${itemDraft.id ? 'Edit' : 'Add'} item` : workDraft?.action === 'start' ? 'Start working' : 'Stop working'}</h3></div><button className="admin-icon-button" type="button" aria-label="Close" onClick={closeDialog}><X size={17} /></button></header>
           {groupDraft ? <div className="raid-form"><label><span>Group name</span><input autoFocus maxLength={120} value={groupDraft.name} onChange={(event) => setGroupDraft({ ...groupDraft, name: event.target.value })} /></label><label><span>Description <small>Optional</small></span><textarea rows={3} maxLength={500} value={groupDraft.description} onChange={(event) => setGroupDraft({ ...groupDraft, description: event.target.value })} /></label></div>
-            : itemDraft && <div className="raid-form"><label className="wide"><span>Title</span><input autoFocus maxLength={240} value={itemDraft.title} onChange={(event) => setItemDraft({ ...itemDraft, title: event.target.value })} /></label><label><span>Group</span><select value={itemDraft.groupId} onChange={(event) => setItemDraft({ ...itemDraft, groupId: Number(event.target.value) })}>{overview?.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label><label><span>Type</span><select value={itemDraft.kind} onChange={(event) => setItemDraft({ ...itemDraft, kind: event.target.value as RaidLogKind })}>{kinds.map((value) => <option key={value}>{value}</option>)}</select></label><label><span>Priority</span><select value={itemDraft.priority} onChange={(event) => setItemDraft({ ...itemDraft, priority: event.target.value as RaidLogPriority })}>{priorities.map((value) => <option key={value}>{value}</option>)}</select></label><label><span>Assigned admin</span><select value={itemDraft.assignedToUserId ?? ''} onChange={(event) => setItemDraft({ ...itemDraft, assignedToUserId: event.target.value ? Number(event.target.value) : null })}><option value="">Unassigned</option>{overview?.admins.map((admin) => <option key={admin.id} value={admin.id}>{admin.displayName}</option>)}</select></label><label className="wide"><span>Details <small>Optional</small></span><textarea rows={5} maxLength={4000} value={itemDraft.description} onChange={(event) => setItemDraft({ ...itemDraft, description: event.target.value })} placeholder="What needs attention, why it matters, and the intended outcome." /></label></div>}
-          <footer><button className="ghost-button" type="button" onClick={closeDialog}>Cancel</button><button className="solid-button" type="button" disabled={busy || Boolean(groupDraft && !groupDraft.name.trim()) || Boolean(itemDraft && !itemDraft.title.trim())} onClick={() => void (groupDraft ? saveGroup() : saveItem())}>{busy ? 'Saving...' : 'Save'}</button></footer>
+            : itemDraft ? <div className="raid-form"><label className="wide"><span>Title</span><input autoFocus maxLength={240} value={itemDraft.title} onChange={(event) => setItemDraft({ ...itemDraft, title: event.target.value })} /></label><label><span>Group</span><select value={itemDraft.groupId} onChange={(event) => setItemDraft({ ...itemDraft, groupId: Number(event.target.value) })}>{overview?.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label><label><span>Type</span><select value={itemDraft.kind} onChange={(event) => setItemDraft({ ...itemDraft, kind: event.target.value as RaidLogKind })}>{kinds.map((value) => <option key={value}>{value}</option>)}</select></label><label><span>Priority</span><select value={itemDraft.priority} onChange={(event) => setItemDraft({ ...itemDraft, priority: event.target.value as RaidLogPriority })}>{priorities.map((value) => <option key={value}>{value}</option>)}</select></label><label><span>Assigned admin</span><select value={itemDraft.assignedToUserId ?? ''} onChange={(event) => setItemDraft({ ...itemDraft, assignedToUserId: event.target.value ? Number(event.target.value) : null })}><option value="">Unassigned</option>{overview?.admins.map((admin) => <option key={admin.id} value={admin.id}>{admin.displayName}</option>)}</select></label><label className="wide"><span>Details <small>Optional</small></span><textarea rows={5} maxLength={4000} value={itemDraft.description} onChange={(event) => setItemDraft({ ...itemDraft, description: event.target.value })} placeholder="What needs attention, why it matters, and the intended outcome." /></label></div>
+              : workDraft && <div className="raid-form raid-work-form"><div className="raid-work-task"><span>{workDraft.item.kind}</span><strong>{workDraft.item.title}</strong><small>{workDraft.action === 'start' ? 'Starting this task will assign it to you. Any other RAID task you are working on will be stopped.' : `Active since ${when(workDraft.item.activeWorkSession?.startedAt ?? workDraft.item.updatedAt)}.`}</small></div><label className="wide"><span>{workDraft.action === 'start' ? 'What are you working on?' : 'Progress note'} {workDraft.action === 'stop' && <small>Optional</small>}</span><textarea autoFocus rows={4} maxLength={2000} value={workDraft.note} onChange={(event) => setWorkDraft({ ...workDraft, note: event.target.value })} placeholder={workDraft.action === 'start' ? 'Describe the specific work you are starting for this session.' : 'Record what changed, what remains, or the next step.'} /></label></div>}
+          <footer><button className="ghost-button" type="button" onClick={closeDialog}>Cancel</button><button className="solid-button" type="button" disabled={busy || Boolean(groupDraft && !groupDraft.name.trim()) || Boolean(itemDraft && !itemDraft.title.trim()) || Boolean(workDraft?.action === 'start' && !workDraft.note.trim())} onClick={() => void (groupDraft ? saveGroup() : itemDraft ? saveItem() : saveWork())}>{busy ? 'Saving...' : workDraft?.action === 'start' ? 'Start work' : workDraft?.action === 'stop' ? 'Stop and save time' : 'Save'}</button></footer>
         </section>
       </div>}
     </section>

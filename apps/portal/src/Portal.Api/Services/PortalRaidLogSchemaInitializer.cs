@@ -62,11 +62,27 @@ public sealed class PortalRaidLogSchemaInitializer(PortalRoleDbContext db)
             "Actor" TEXT NOT NULL,
             CONSTRAINT "FK_RaidLogActivity_RaidLogItems_ItemId" FOREIGN KEY ("ItemId") REFERENCES "RaidLogItems" ("Id") ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS "RaidLogWorkSessions" (
+            "Id" INTEGER NOT NULL CONSTRAINT "PK_RaidLogWorkSessions" PRIMARY KEY AUTOINCREMENT,
+            "ItemId" INTEGER NOT NULL,
+            "StartedAt" TEXT NOT NULL,
+            "StartedBy" TEXT NOT NULL,
+            "StartNote" TEXT NULL,
+            "LastHeartbeatAt" TEXT NOT NULL,
+            "StoppedAt" TEXT NULL,
+            "StoppedBy" TEXT NULL,
+            "StopNote" TEXT NULL,
+            "StopReason" TEXT NULL,
+            CONSTRAINT "FK_RaidLogWorkSessions_RaidLogItems_ItemId" FOREIGN KEY ("ItemId") REFERENCES "RaidLogItems" ("Id") ON DELETE CASCADE
+        );
         CREATE INDEX IF NOT EXISTS "IX_RaidLogItems_GroupId_CompletedAt_Priority" ON "RaidLogItems" ("GroupId", "CompletedAt", "Priority");
         CREATE UNIQUE INDEX IF NOT EXISTS "IX_RaidLogGroups_NormalizedName" ON "RaidLogGroups" ("NormalizedName");
         CREATE INDEX IF NOT EXISTS "IX_RaidLogItems_AssignedToUserId" ON "RaidLogItems" ("AssignedToUserId");
         CREATE INDEX IF NOT EXISTS "IX_RaidLogNotes_ItemId_CreatedAt" ON "RaidLogNotes" ("ItemId", "CreatedAt");
         CREATE INDEX IF NOT EXISTS "IX_RaidLogActivity_ItemId_OccurredAt" ON "RaidLogActivity" ("ItemId", "OccurredAt");
+        CREATE INDEX IF NOT EXISTS "IX_RaidLogWorkSessions_ItemId_StartedAt" ON "RaidLogWorkSessions" ("ItemId", "StartedAt");
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_RaidLogWorkSessions_ItemId_Open" ON "RaidLogWorkSessions" ("ItemId") WHERE "StoppedAt" IS NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS "IX_RaidLogWorkSessions_StartedBy_Open" ON "RaidLogWorkSessions" ("StartedBy") WHERE "StoppedAt" IS NULL;
         """;
 
     internal const string SqlServerSchema = """
@@ -134,5 +150,27 @@ public sealed class PortalRaidLogSchemaInitializer(PortalRoleDbContext db)
             );
             CREATE INDEX [IX_RaidLogActivity_ItemId_OccurredAt] ON [dbo].[RaidLogActivity] ([ItemId], [OccurredAt]);
         END;
+        IF OBJECT_ID(N'[dbo].[RaidLogWorkSessions]', N'U') IS NULL
+        BEGIN
+            CREATE TABLE [dbo].[RaidLogWorkSessions] (
+                [Id] bigint IDENTITY(1,1) NOT NULL CONSTRAINT [PK_RaidLogWorkSessions] PRIMARY KEY,
+                [ItemId] int NOT NULL,
+                [StartedAt] datetimeoffset NOT NULL,
+                [StartedBy] nvarchar(160) NOT NULL,
+                [StartNote] nvarchar(2000) NULL,
+                [LastHeartbeatAt] datetimeoffset NOT NULL,
+                [StoppedAt] datetimeoffset NULL,
+                [StoppedBy] nvarchar(160) NULL,
+                [StopNote] nvarchar(2000) NULL,
+                [StopReason] nvarchar(32) NULL,
+                CONSTRAINT [FK_RaidLogWorkSessions_RaidLogItems_ItemId] FOREIGN KEY ([ItemId]) REFERENCES [dbo].[RaidLogItems] ([Id]) ON DELETE CASCADE
+            );
+        END;
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_RaidLogWorkSessions_ItemId_StartedAt' AND object_id = OBJECT_ID(N'[dbo].[RaidLogWorkSessions]'))
+            CREATE INDEX [IX_RaidLogWorkSessions_ItemId_StartedAt] ON [dbo].[RaidLogWorkSessions] ([ItemId], [StartedAt]);
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_RaidLogWorkSessions_ItemId_Open' AND object_id = OBJECT_ID(N'[dbo].[RaidLogWorkSessions]'))
+            CREATE UNIQUE INDEX [IX_RaidLogWorkSessions_ItemId_Open] ON [dbo].[RaidLogWorkSessions] ([ItemId]) WHERE [StoppedAt] IS NULL;
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_RaidLogWorkSessions_StartedBy_Open' AND object_id = OBJECT_ID(N'[dbo].[RaidLogWorkSessions]'))
+            CREATE UNIQUE INDEX [IX_RaidLogWorkSessions_StartedBy_Open] ON [dbo].[RaidLogWorkSessions] ([StartedBy]) WHERE [StoppedAt] IS NULL;
         """;
 }

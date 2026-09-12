@@ -312,6 +312,21 @@ export interface RaidLogActivity {
   actorDisplayName: string
 }
 
+export interface RaidLogWorkSession {
+  id: number
+  startedAt: string
+  startedBy: string
+  startedByDisplayName: string
+  startNote: string | null
+  lastHeartbeatAt: string
+  stoppedAt: string | null
+  stoppedBy: string | null
+  stoppedByDisplayName: string | null
+  stopNote: string | null
+  stopReason: string | null
+  durationSeconds: number
+}
+
 export interface RaidLogItem {
   id: number
   groupId: number
@@ -327,7 +342,11 @@ export interface RaidLogItem {
   updatedBy: string
   completedAt: string | null
   completedBy: string | null
+  completedByDisplayName: string | null
+  activeSeconds: number
+  activeWorkSession: RaidLogWorkSession | null
   version: number
+  workSessions: RaidLogWorkSession[]
   notes: RaidLogNote[]
   activity: RaidLogActivity[]
 }
@@ -342,6 +361,7 @@ export interface RaidLogGroup {
 }
 
 export interface RaidLogOverview {
+  generatedAt: string
   admins: RaidLogAdmin[]
   groups: RaidLogGroup[]
 }
