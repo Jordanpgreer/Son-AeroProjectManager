@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   AlertTriangle,
@@ -14,6 +14,7 @@ import { toErrorMessage, trackerApi } from './api'
 import { orderPeopleForSetup } from './accessPeople'
 import { GroupCreationWizard, GroupEditor } from './AccessGroupManagement'
 import type { AccessGroupTemplate, NewAccessGroup } from './AccessGroupManagement'
+import { useUnsavedChangesGuard } from './workflow/useWorkflowLeaveGuard'
 import type {
   AccessGroup,
   AccessOverview,
@@ -79,6 +80,7 @@ export default function AccessPanel({
   const [groupTemplate, setGroupTemplate] = useState<AccessGroupTemplate | null>(null)
   const [creatingGroup, setCreatingGroup] = useState(false)
   const [deletingGroupId, setDeletingGroupId] = useState<number | null>(null)
+  const leaveDialogRef = useRef<HTMLDialogElement>(null)
 
   async function load(preserveDrafts = false) {
     setLoading(true)
@@ -131,6 +133,7 @@ export default function AccessPanel({
   }).map((group) => group.id), [groupDrafts, overview])
 
   const pendingCount = dirtyUserIds.length + dirtyGroupIds.length
+  const leaveGuard = useUnsavedChangesGuard(pendingCount > 0)
   const filteredUsers = orderPeopleForSetup((overview?.users ?? []).filter((user) => {
     const query = search.trim().toLowerCase()
     return !query
@@ -144,6 +147,15 @@ export default function AccessPanel({
       || group.name.toLowerCase().includes(query)
       || group.description?.toLowerCase().includes(query)
   })
+
+  useEffect(() => {
+    if (leaveGuard.destination) {
+      leaveDialogRef.current?.showModal()
+      leaveDialogRef.current?.querySelector<HTMLButtonElement>('[data-primary-action]')?.focus()
+    } else {
+      leaveDialogRef.current?.close()
+    }
+  }, [leaveGuard.destination])
 
   function updateUser(id: number, update: (draft: UserDraft) => UserDraft) {
     setUserDrafts((current) => {
@@ -226,7 +238,7 @@ export default function AccessPanel({
   }
 
   async function saveAll() {
-    if (!overview || !pendingCount || saving) return
+    if (!overview || !pendingCount || saving) return false
     setSaving(true)
     setError(null)
     setMessage(null)
@@ -253,11 +265,17 @@ export default function AccessPanel({
       }
       setMessage('Access changes saved.')
       await load()
+      return true
     } catch (cause) {
       setError(`${toErrorMessage(cause)} Unsaved changes remain on this page.`)
+      return false
     } finally {
       setSaving(false)
     }
+  }
+
+  async function saveAndLeave() {
+    if (await saveAll()) leaveGuard.leave()
   }
 
   return (
@@ -468,7 +486,7 @@ export default function AccessPanel({
                     })
                   }}
                   onDelete={() => deleteGroup(group)}
-                  onSave={saveAll}
+                  onSave={async () => { await saveAll() }}
                 />
               ))}
               {!filteredGroups.length && <p className="admin-empty">No permission groups match that search.</p>}
@@ -479,12 +497,32 @@ export default function AccessPanel({
         </>
       )}
 
-      <div className="admin-save-bar">
-        <p aria-live="polite">{pendingCount ? `${pendingCount} pending change${pendingCount === 1 ? '' : 's'}` : 'All access changes saved'}</p>
-        <button className="solid-button" type="button" disabled={!pendingCount || saving} onClick={() => void saveAll()}>
-          <Save size={15} /> {saving ? 'Saving…' : 'Save access changes'}
-        </button>
-      </div>
+      {pendingCount > 0 && (
+        <div className="admin-save-bar" role="status">
+          <p aria-live="polite">{pendingCount} pending change{pendingCount === 1 ? '' : 's'}</p>
+          <button className="solid-button" type="button" disabled={saving} onClick={() => void saveAll()}>
+            <Save size={15} /> {saving ? 'Saving…' : 'Save access changes'}
+          </button>
+        </div>
+      )}
+
+      <dialog
+        className="access-leave-dialog"
+        ref={leaveDialogRef}
+        aria-labelledby="access-leave-title"
+        onCancel={leaveGuard.stay}
+      >
+        <span className="access-leave-icon"><AlertTriangle size={22} aria-hidden="true" /></span>
+        <h2 id="access-leave-title">Save access changes?</h2>
+        <p>You have {pendingCount} unsaved access change{pendingCount === 1 ? '' : 's'}. Save before leaving, or leave without applying them.</p>
+        <footer>
+          <button className="ghost-button" type="button" disabled={saving} onClick={leaveGuard.stay}>Keep editing</button>
+          <button className="ghost-button danger" type="button" disabled={saving} onClick={leaveGuard.leave}>Leave without saving</button>
+          <button className="solid-button" type="button" disabled={saving} data-primary-action onClick={() => void saveAndLeave()}>
+            <Save size={15} aria-hidden="true" /> {saving ? 'Saving…' : 'Save and leave'}
+          </button>
+        </footer>
+      </dialog>
     </section>
   )
 }

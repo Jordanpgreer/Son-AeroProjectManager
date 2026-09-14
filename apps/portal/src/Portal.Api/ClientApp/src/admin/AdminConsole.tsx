@@ -288,6 +288,7 @@ export default function AdminConsole({
           {route.module === 'access' && selectedAccessSection !== 'preview' && !permissionsLoading && !permissionsError && !selectedAccessSectionAllowed && <NoAccess detail={`Your groups do not grant permission to manage ${selectedAccessSection === 'people' ? 'people' : 'permission groups'}.`} />}
           {route.module === 'access' && selectedAccessSection !== 'preview' && !permissionsLoading && !permissionsError && selectedAccessSectionAllowed && (
             <AccessPanel
+              key={selectedAccessSection}
               currentAccountName={trackerUser?.accountName ?? currentAccountName}
               canManageUsers={canManageUsers}
               canManageGroups={canManageGroups}

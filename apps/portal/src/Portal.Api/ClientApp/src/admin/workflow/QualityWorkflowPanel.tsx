@@ -45,12 +45,6 @@ export default function QualityWorkflowPanel({ canManage }: { canManage: boolean
   }
   useEffect(() => { void load() }, [])
   useEffect(() => {
-    if (!dirty) return
-    const warn = (event: BeforeUnloadEvent) => { if (leaveGuard.approved.current) return; event.preventDefault(); event.returnValue = '' }
-    window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
-  }, [dirty, leaveGuard.approved])
-  useEffect(() => {
     if (reviewOpen) reviewRef.current?.showModal()
     else reviewRef.current?.close()
   }, [reviewOpen])

@@ -158,6 +158,22 @@
 .access-change-review section > span { color: var(--muted); font-size: 9.5px; }
 .admin-save-bar { position: sticky; z-index: 3; bottom: 12px; box-shadow: var(--shadow-2); }
 
+.access-leave-dialog {
+  width: min(500px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 28px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  box-shadow: var(--shadow-2);
+}
+.access-leave-dialog::backdrop { background: #0d182760; backdrop-filter: blur(3px); }
+.access-leave-icon { display: grid; width: 42px; height: 42px; color: #8a5800; background: #fff4d6; border: 1px solid #e7be5f; border-radius: 12px; place-items: center; }
+.access-leave-dialog h2 { margin: 18px 0 10px; font-size: 22px; }
+.access-leave-dialog p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.access-leave-dialog footer { display: flex; justify-content: flex-end; gap: 9px; margin-top: 24px; }
+
 @media (max-width: 1100px) {
   .access-overview-stats { grid-template-columns: repeat(3, minmax(100px, 1fr)); }
   .access-overview-stats > p { grid-column: 1 / -1; }
@@ -176,6 +192,8 @@
 }
 
 @media (max-width: 620px) {
+  .access-leave-dialog { padding: 20px; }
+  .access-leave-dialog footer { align-items: stretch; flex-direction: column-reverse; }
   .admin-section-tabs[aria-label="Arda Access sections"] {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));

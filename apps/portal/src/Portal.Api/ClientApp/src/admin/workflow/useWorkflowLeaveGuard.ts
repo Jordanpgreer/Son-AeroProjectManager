@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
-/** Protect draft edits on both sidebar navigation and browser history changes. */
-export function useWorkflowLeaveGuard(dirty: boolean) {
+/** Protect unsaved edits across links, browser history, refreshes, and tab closes. */
+export function useUnsavedChangesGuard(dirty: boolean) {
   const [destination, setDestination] = useState<string | null>(null)
   const approved = useRef(false)
   useEffect(() => {
@@ -25,6 +25,16 @@ export function useWorkflowLeaveGuard(dirty: boolean) {
     window.addEventListener('hashchange', hash, true)
     return () => { window.removeEventListener('click', click, true); window.removeEventListener('hashchange', hash, true) }
   }, [dirty])
+  useEffect(() => {
+    if (!dirty) return
+    const warn = (event: BeforeUnloadEvent) => {
+      if (approved.current) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
   const leave = () => {
     if (!destination) return
     approved.current = true
@@ -34,3 +44,5 @@ export function useWorkflowLeaveGuard(dirty: boolean) {
   }
   return { destination, stay: () => setDestination(null), leave, approved }
 }
+
+export const useWorkflowLeaveGuard = useUnsavedChangesGuard
