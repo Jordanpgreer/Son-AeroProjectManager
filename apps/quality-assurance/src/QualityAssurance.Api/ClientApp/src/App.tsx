@@ -19,6 +19,7 @@ import { canRunQualityAction } from './workflowPermissions'
 import { persistTheme, readThemePreference } from './theme'
 import type { AppTheme } from './theme'
 import type { QualityAssuranceUser } from './types'
+import { canViewQualityPage, firstAccessibleQualityPage, routeFromHash } from './qualityNavigation'
 
 function defaultHubUrl() {
   const hostname = window.location.hostname.toLowerCase()
@@ -47,12 +48,6 @@ function initials(name: string) {
   if (!parts.length) return 'QA'
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
   return `${parts[0][0]}${parts.at(-1)?.[0] ?? ''}`.toUpperCase()
-}
-
-function routeFromHash() {
-  return window.location.hash.toLowerCase().startsWith('#/shipping-status')
-    ? 'shipping-status'
-    : 'dashboard'
 }
 
 function ThemeSwitch({ theme, onToggleTheme }: { theme: AppTheme; onToggleTheme: () => void }) {
@@ -130,9 +125,20 @@ export default function App() {
     }
   }, [])
 
+  const userPermissions = user?.permissions ?? []
+  const firstAccessiblePage = firstAccessibleQualityPage(userPermissions)
+  const canViewCurrentPage = Boolean(user && canViewQualityPage(userPermissions, route))
+  const activeRoute = canViewCurrentPage ? route : firstAccessiblePage ?? route
+
   useEffect(() => {
-    document.title = `${route === 'dashboard' ? 'Quality Dashboard' : 'Shipping Status'} · Arda`
-  }, [route])
+    if (!user || canViewCurrentPage || !firstAccessiblePage) return
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/${firstAccessiblePage}`)
+    setRoute(firstAccessiblePage)
+  }, [canViewCurrentPage, firstAccessiblePage, user])
+
+  useEffect(() => {
+    document.title = `${activeRoute === 'dashboard' ? 'Quality Dashboard' : 'Shipping Status'} · Arda`
+  }, [activeRoute])
 
   if (!user) {
     return (
@@ -148,12 +154,25 @@ export default function App() {
     )
   }
 
-  const page = route === 'dashboard'
+  if (!firstAccessiblePage) {
+    return (
+      <main className="access-state">
+        <section className="access-card">
+          <span className="access-icon"><LockKeyhole size={31} /></span>
+          <span className="eyebrow">Quality Assurance access</span>
+          <h1>No Quality pages assigned</h1>
+          <p>Your account can open Quality Assurance, but your group does not currently have permission to view any pages.</p>
+          <a className="return-button" href={hubUrl} target="_top"><AlertTriangle size={17} /> Return to Applications</a>
+        </section>
+      </main>
+    )
+  }
+
+  const page = activeRoute === 'dashboard'
     ? { eyebrow: 'Quality Assurance Module', title: 'Dashboard', description: 'Your workload, due-date risk, and completion performance.' }
     : { eyebrow: 'Quality Operations', title: 'Shipping Status', description: 'Controlled shipment queue, ownership, and completion tracking.' }
-  const userPermissions = user.permissions
-
   function openShippingShipment(shipmentId: number, isShipped: boolean, openComments = false) {
+    if (!canViewQualityPage(userPermissions, 'shipping-status')) return
     const notificationScope = userPermissions.includes('quality-assurance.shipments.view-all')
       ? 'all'
       : userPermissions.includes('quality-assurance.dashboard.team-view') ? 'team' : 'mine'
@@ -175,11 +194,11 @@ export default function App() {
         <div className="nav-section">
           <span className="nav-heading">Quality Assurance</span>
           <nav aria-label="Quality Assurance pages">
-            <a className={`nav-button ${route === 'dashboard' ? 'active' : ''}`} href="#/dashboard" aria-current={route === 'dashboard' ? 'page' : undefined} title="Dashboard"><span className="nav-icon"><LayoutDashboard size={17} /></span><span className="nav-label">Dashboard</span></a>
-            <a className={`nav-button ${route === 'shipping-status' ? 'active' : ''}`} href="#/shipping-status" aria-current={route === 'shipping-status' ? 'page' : undefined} title="Shipping Status"><span className="nav-icon"><Truck size={17} /></span><span className="nav-label">Shipping Status</span></a>
+            {canViewQualityPage(userPermissions, 'dashboard') && <a className={`nav-button ${activeRoute === 'dashboard' ? 'active' : ''}`} href="#/dashboard" aria-current={activeRoute === 'dashboard' ? 'page' : undefined} title="Dashboard"><span className="nav-icon"><LayoutDashboard size={17} /></span><span className="nav-label">Dashboard</span></a>}
+            {canViewQualityPage(userPermissions, 'shipping-status') && <a className={`nav-button ${activeRoute === 'shipping-status' ? 'active' : ''}`} href="#/shipping-status" aria-current={activeRoute === 'shipping-status' ? 'page' : undefined} title="Shipping Status"><span className="nav-icon"><Truck size={17} /></span><span className="nav-label">Shipping Status</span></a>}
           </nav>
         </div>
-        <div className="sidebar-foot"><nav className="foot-nav" aria-label="Quality Assurance administration"><a className="nav-button" href={qualityAdminUrl} target="_top" title="Quality Admin / Settings"><span className="nav-icon"><Settings2 size={17} /></span><span className="nav-label">Quality Admin / Settings</span></a></nav></div>
+        {userPermissions.includes('quality-assurance.settings.view') && <div className="sidebar-foot"><nav className="foot-nav" aria-label="Quality Assurance administration"><a className="nav-button" href={qualityAdminUrl} target="_top" title="Quality Admin / Settings"><span className="nav-icon"><Settings2 size={17} /></span><span className="nav-label">Quality Admin / Settings</span></a></nav></div>}
       </aside>
 
       <main className="main-area" id="main-content">
@@ -198,11 +217,11 @@ export default function App() {
             <a className="topbar-brand-link" href={hubUrl} target="_top" aria-label="Return to Arda applications" title="Return to Arda applications"><img className="topbar-brand-mark-standard" src="/brand/arda-mark.png" alt="" /><img className="topbar-brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" /></a>
             <div className="topbar-identity"><ThemeSwitch theme={theme} onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} /><div className="user-chip topbar-user-chip" title={`${user.displayName}\n${user.groups.join(', ')}`}><span className="user-copy"><strong>{user.displayName}</strong></span><span className="avatar">{initials(user.displayName)}</span></div></div>
             {userPermissions.includes('quality-assurance.shipments.view') && userPermissions.includes('quality-assurance.fields.comments.view') && <QualityNotificationCenter onOpenShipment={(shipmentId, isShipped) => openShippingShipment(shipmentId, isShipped, true)} />}
-            {route === 'shipping-status' && canRunQualityAction(user, 'shipment-imported', userPermissions.includes('quality-assurance.shipments.import')) && <button className="button ghost" type="button" onClick={() => window.dispatchEvent(new Event('quality:open-shipping-import'))}><FileUp size={15} /> Import Excel</button>}
+            {activeRoute === 'shipping-status' && canRunQualityAction(user, 'shipment-imported', userPermissions.includes('quality-assurance.shipments.import')) && <button className="button ghost" type="button" onClick={() => window.dispatchEvent(new Event('quality:open-shipping-import'))}><FileUp size={15} /> Import Excel</button>}
             <button className="button ghost" type="button" onClick={() => setReloadKey((value) => value + 1)}><RefreshCw size={15} /> Refresh</button>
           </div>
         </header>
-        <div className="main-scroll">{route === 'dashboard' ? <Dashboard user={user} reloadKey={reloadKey} onOpenShipment={(shipment) => openShippingShipment(shipment.id, shipment.isShipped)} /> : <ShippingStatus user={user} reloadKey={reloadKey} />}</div>
+        <div className="main-scroll">{activeRoute === 'dashboard' ? <Dashboard user={user} reloadKey={reloadKey} onOpenShipment={canViewQualityPage(userPermissions, 'shipping-status') ? (shipment) => openShippingShipment(shipment.id, shipment.isShipped) : undefined} /> : <ShippingStatus user={user} reloadKey={reloadKey} />}</div>
       </main>
     </div>
   )

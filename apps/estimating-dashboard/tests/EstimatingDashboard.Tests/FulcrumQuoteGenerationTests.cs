@@ -40,7 +40,7 @@ public sealed class FulcrumQuoteGenerationTests
     }
 
     [Fact]
-    public void Endpoint_requires_history_and_manage_inputs()
+    public void Endpoint_requires_quotes_page_and_manage_inputs_without_logs_access()
     {
         var builder = WebApplication.CreateBuilder();
         builder.Services.AddAuthorization();
@@ -49,7 +49,8 @@ public sealed class FulcrumQuoteGenerationTests
         app.MapGroup("/api").MapFulcrumQuoteGenerationEndpoints();
         var endpoint = Assert.Single(((IEndpointRouteBuilder)app).DataSources.SelectMany(x => x.Endpoints));
         var policies = endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>();
-        Assert.Contains(policies, x => x.Policy == EstimatingPolicies.ViewHistory);
+        Assert.Contains(policies, x => x.Policy == EstimatingPolicies.QuotesView);
+        Assert.DoesNotContain(policies, x => x.Policy == EstimatingPolicies.ViewHistory);
         Assert.Contains(policies, x => x.Policy == EstimatingPolicies.ManageInputs);
         Assert.Contains(policies, x => x.Policy == EstimatingPolicies.Editor);
     }

@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using SonAero.Platform.Security;
 
 namespace EstimatingDashboard.Api.Auth;
 
@@ -34,12 +35,22 @@ public static class EstimatingPermissions
     public const string ViewHistory = "estimating.history.view";
     public const string ImportHistory = "estimating.history.import";
     public const string ManageHistory = "estimating.history.manage";
+    public const string QuotesView = EstimatingPagePermissions.QuotesDashboardView;
+    public const string QuoteStatusView = EstimatingPagePermissions.QuoteStatusView;
+    public const string CalculatorView = EstimatingPagePermissions.CalculatorView;
+    public const string RatesView = EstimatingPagePermissions.RatesView;
+    public const string OperationRulesView = EstimatingPagePermissions.OperationRulesView;
 
     private static readonly IReadOnlyList<string> ViewerPermissions =
     [
         View,
         Calculate,
-        ViewHistory
+        ViewHistory,
+        QuotesView,
+        QuoteStatusView,
+        CalculatorView,
+        RatesView,
+        OperationRulesView
     ];
 
     private static readonly IReadOnlyList<string> EditorPermissions =
@@ -79,6 +90,11 @@ public static class EstimatingPolicies
     public const string ViewHistory = "EstimatingViewHistory";
     public const string ImportHistory = "EstimatingImportHistory";
     public const string ManageHistory = "EstimatingManageHistory";
+    public const string QuotesView = "EstimatingQuotesView";
+    public const string QuoteStatusView = "EstimatingQuoteStatusView";
+    public const string CalculatorView = "EstimatingCalculatorView";
+    public const string RatesView = "EstimatingRatesView";
+    public const string OperationRulesView = "EstimatingOperationRulesView";
     public const string PermissionClaim = "sonaero.permission";
     public const string AccessItem = "EstimatingAccess";
 

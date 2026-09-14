@@ -279,9 +279,29 @@ export default function App() {
 
   useEffect(() => {
     const applyDrawingRoute = () => {
+      if (!me) return
       const route = window.location.hash.replace(/^#\/?/, '')
+      const allowed = (permission: string) => hasEngineeringPermission(me.permissions, permission)
+      const showFirstAllowedSection = () => {
+        if (allowed(engineeringPermissionKeys.dashboardView)) {
+          setActiveSectionId('dashboard')
+          window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+        } else if (allowed(engineeringPermissionKeys.drawingsView)) {
+          setActiveSectionId('drawing-document-control')
+          setDrawingScreen('dashboard')
+          window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#drawing-dashboard`)
+        } else if (allowed(engineeringPermissionKeys.toolingView)) {
+          setActiveSectionId('tooling-management')
+          setToolingRecordId(null)
+          window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#tooling-dashboard`)
+        } else if (allowed(engineeringPermissionKeys.compoundDataView)) {
+          setActiveSectionId('compound-test-data-management')
+          window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+        }
+      }
       const toolingMatch = route.match(/^tooling-record\/(\d+)$/)
       if (toolingMatch) {
+        if (!allowed(engineeringPermissionKeys.toolingView)) return showFirstAllowedSection()
         setToolingHeader(null)
         setToolingEditRequest(0)
         setToolingAuditRequest(0)
@@ -291,6 +311,7 @@ export default function App() {
         return
       }
       if (route === 'tooling-dashboard') {
+        if (!allowed(engineeringPermissionKeys.toolingView)) return showFirstAllowedSection()
         setToolingHeader(null)
         setToolingEditRequest(0)
         setToolingAuditRequest(0)
@@ -300,6 +321,7 @@ export default function App() {
         return
       }
       if (route === 'drawing-record/new') {
+        if (!allowed(engineeringPermissionKeys.drawingsView)) return showFirstAllowedSection()
         setDrawingHeader(null)
         setDrawingEditRequest(0)
         setDrawingArchiveRequest(0)
@@ -311,10 +333,12 @@ export default function App() {
         return
       }
       if (route === 'settings') {
-        window.location.replace(engineeringAdminUrl)
+        if (allowed(engineeringPermissionKeys.settingsView)) window.location.replace(engineeringAdminUrl)
+        else showFirstAllowedSection()
         return
       }
       if (route === 'drawing-record') {
+        if (!allowed(engineeringPermissionKeys.drawingsView)) return showFirstAllowedSection()
         setDrawingHeader(null)
         setDrawingEditRequest(0)
         setDrawingArchiveRequest(0)
@@ -328,6 +352,7 @@ export default function App() {
       }
       const match = route.match(/^drawing-record\/(\d+)$/)
       if (match) {
+        if (!allowed(engineeringPermissionKeys.drawingsView)) return showFirstAllowedSection()
         setDrawingHeader(null)
         setDrawingEditRequest(0)
         setDrawingArchiveRequest(0)
@@ -337,6 +362,7 @@ export default function App() {
         setDrawingId(Number(match[1]))
         setCreatingDrawing(false)
       } else if (route === 'drawing-dashboard') {
+        if (!allowed(engineeringPermissionKeys.drawingsView)) return showFirstAllowedSection()
         setDrawingHeader(null)
         setDrawingEditRequest(0)
         setDrawingArchiveRequest(0)
@@ -350,7 +376,7 @@ export default function App() {
     applyDrawingRoute()
     window.addEventListener('hashchange', applyDrawingRoute)
     return () => window.removeEventListener('hashchange', applyDrawingRoute)
-  }, [])
+  }, [me])
 
   useEffect(() => {
     const syncTheme = () => setTheme(readThemePreference())

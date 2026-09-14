@@ -152,6 +152,16 @@ builder.Services.AddAuthorization(options =>
         policy => policy.RequireClaim(
             EstimatingPolicies.PermissionClaim,
             EstimatingPermissions.ManageHistory));
+    options.AddPolicy(EstimatingPolicies.QuotesView, policy => policy.RequireClaim(
+        EstimatingPolicies.PermissionClaim, EstimatingPermissions.QuotesView));
+    options.AddPolicy(EstimatingPolicies.QuoteStatusView, policy => policy.RequireClaim(
+        EstimatingPolicies.PermissionClaim, EstimatingPermissions.QuoteStatusView));
+    options.AddPolicy(EstimatingPolicies.CalculatorView, policy => policy.RequireClaim(
+        EstimatingPolicies.PermissionClaim, EstimatingPermissions.CalculatorView));
+    options.AddPolicy(EstimatingPolicies.RatesView, policy => policy.RequireClaim(
+        EstimatingPolicies.PermissionClaim, EstimatingPermissions.RatesView));
+    options.AddPolicy(EstimatingPolicies.OperationRulesView, policy => policy.RequireClaim(
+        EstimatingPolicies.PermissionClaim, EstimatingPermissions.OperationRulesView));
 });
 
 var app = builder.Build();

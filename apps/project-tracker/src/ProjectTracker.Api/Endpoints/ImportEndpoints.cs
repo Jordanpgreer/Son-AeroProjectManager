@@ -1,3 +1,4 @@
+using ProjectTracker.Api.Auth;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Dtos;
 using ProjectTracker.Api.Services;
@@ -61,14 +62,14 @@ public static class ImportEndpoints
             .RequireAuthorization("ManageImports");
 
         api.MapGet("/projects/{projectId:int}/bom/template", DownloadProjectTemplateAsync)
-            .RequireAuthorization("ManageImports");
+            .RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, "ManageImports");
         api.MapPost("/projects/{projectId:int}/bom/validate", ValidateProjectBomAsync)
-            .RequireAuthorization("ManageImports")
+            .RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, "ManageImports")
             .DisableAntiforgery();
         api.MapGet("/projects/{projectId:int}/bom/reviews/{reviewId}/workbook", DownloadProjectReviewAsync)
-            .RequireAuthorization("ManageImports");
+            .RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, "ManageImports");
         api.MapPost("/projects/{projectId:int}/bom/reviews/{reviewId}/confirm", ConfirmProjectBomAsync)
-            .RequireAuthorization("ManageImports");
+            .RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, "ManageImports");
         return api;
     }
 

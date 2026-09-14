@@ -19,6 +19,7 @@ public sealed class AccessControlSeeder
     private const string ProjectQuantitiesPermissionVersion = "project-quantities-permission-v1";
     private const string ProjectNotificationScopingPermissionsVersion = "project-notification-scoping-permissions-v1";
     private const string EstimatingHistoryImportPermissionVersion = "estimating-history-import-permission-v1";
+    private const string PageViewPermissionsVersion = "module-page-view-permissions-v1";
     private const string LegacyEstimatingEditorCompatibilityGroup = "Estimating Editor Access";
 
     public async Task SeedAsync(
@@ -39,6 +40,11 @@ public sealed class AccessControlSeeder
         {
             await EnsureQualityShipperGroupAsync(db, cancellationToken);
             await RecordVersionAsync(db, QualityShipperGroupVersion, cancellationToken);
+        }
+        if (!await HasVersionAsync(db, PageViewPermissionsVersion, cancellationToken))
+        {
+            await AddExistingPageViewPermissionsAsync(db, cancellationToken);
+            await RecordVersionAsync(db, PageViewPermissionsVersion, cancellationToken);
         }
         var addQualityShippingPermissions = !await HasVersionAsync(
             db,
@@ -265,6 +271,37 @@ public sealed class AccessControlSeeder
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    private static async Task AddExistingPageViewPermissionsAsync(
+        ProjectTrackerDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var groups = await db.Groups
+            .Include(group => group.Permissions)
+            .ToListAsync(cancellationToken);
+
+        foreach (var group in groups)
+        {
+            var existing = group.Permissions
+                .Select(permission => permission.PermissionKey)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var additions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (existing.Contains(ApplicationPermissions.ModuleView))
+                additions.UnionWith(ApplicationPermissions.DefaultPageViewPermissions);
+            if (existing.Contains("estimating.view"))
+                additions.UnionWith(EstimatingPagePermissions.All);
+            if (existing.Contains(QualityAssurancePermissions.ModuleView))
+                additions.Add(QualityAssurancePermissions.DashboardView);
+            if (existing.Contains(QualityAssurancePermissions.RulesManage))
+                additions.Add(QualityAssurancePermissions.SettingsView);
+
+            foreach (var permission in additions.Where(existing.Add))
+                group.Permissions.Add(new AppGroupPermission { PermissionKey = permission });
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     private static async Task<Dictionary<string, int>> EnsureDefaultGroupsAsync(
         ProjectTrackerDbContext db,
         bool addSharedModuleDefaults,
@@ -304,6 +341,7 @@ public sealed class AccessControlSeeder
             ]),
             (ProjectTrackerGroups.ViewOnly, "Read-only access to current information across enabled modules.", [
                 ApplicationPermissions.ModuleView,
+                .. ApplicationPermissions.DefaultPageViewPermissions,
                 .. EngineeringPermissions.DefaultsForGroup(ProjectTrackerGroups.ViewOnly)
             ])
         };

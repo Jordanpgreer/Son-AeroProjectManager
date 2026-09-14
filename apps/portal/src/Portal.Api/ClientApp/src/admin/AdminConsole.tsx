@@ -177,6 +177,8 @@ export default function AdminConsole({
   const canManageUsers = granted.has(PERMISSIONS.manageUsers)
   const canManageGroups = granted.has(PERMISSIONS.manageGroups)
   const canPreviewAccess = currentPortalRole === 'Admin'
+  const canViewEngineeringSettings = granted.has('engineering.settings.view')
+  const canViewQualitySettings = granted.has('quality-assurance.settings.view')
   const canManageQualityRules = granted.has('quality-assurance.rules.manage')
   const canManageEstimatingSettings = granted.has('estimating.settings.admin')
   const canManageEstimatingImportAccess = canManageGroups
@@ -268,7 +270,8 @@ export default function AdminConsole({
         canManageUsers={permissionsReady && canManageUsers}
         canPreviewAccess={canPreviewAccess}
         canOpenTrackerSection={(section) => permissionsReady && canOpenSection(section)}
-        canManageQualityRules={permissionsReady && canManageQualityRules}
+        canViewEngineeringSettings={permissionsReady && canViewEngineeringSettings}
+        canViewQualitySettings={permissionsReady && canViewQualitySettings}
       />
       <section className="admin-module-panel" aria-labelledby="admin-workspace-title">
         <header className="admin-workspace-head">
@@ -310,11 +313,14 @@ export default function AdminConsole({
               {route.section === 'imports' && <ImportsPanel />}
             </>
           )}
-          {route.module === 'engineering' && <EngineeringStoragePanel/>}
+          {route.module === 'engineering' && permissionsLoading && <div className="admin-loading" role="status">Checking Engineering permissions...</div>}
+          {route.module === 'engineering' && !permissionsLoading && permissionsError && <NoAccess detail={permissionsError} />}
+          {route.module === 'engineering' && !permissionsLoading && !permissionsError && !canViewEngineeringSettings && <NoAccess detail="Your groups do not grant permission to view Engineering settings." />}
+          {route.module === 'engineering' && !permissionsLoading && !permissionsError && canViewEngineeringSettings && <EngineeringStoragePanel/>}
           {route.module === 'quality-assurance' && permissionsLoading && <div className="admin-loading" role="status">Checking Quality Assurance permissions...</div>}
           {route.module === 'quality-assurance' && !permissionsLoading && permissionsError && <NoAccess detail={permissionsError} />}
-          {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && !canManageQualityRules && <NoAccess detail="Your groups do not grant permission to manage Quality workflows." />}
-          {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && canManageQualityRules && <QualityAssignmentRulesPanel />}
+          {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && !canViewQualitySettings && <NoAccess detail="Your groups do not grant permission to view Quality settings." />}
+          {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && canViewQualitySettings && <QualityAssignmentRulesPanel canManage={canManageQualityRules} />}
           {route.module === 'raid-log' && currentPortalRole !== 'Admin' && <NoAccess detail="The RAID Log is available only to Arda administrators." />}
           {route.module === 'raid-log' && currentPortalRole === 'Admin' && <RaidLogPanel currentAccountName={trackerUser?.accountName ?? currentAccountName} />}
           {route.module === 'estimating' && permissionsLoading && <div className="admin-loading" role="status">Checking Estimating permissions...</div>}

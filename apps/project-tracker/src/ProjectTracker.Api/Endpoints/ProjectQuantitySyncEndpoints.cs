@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ProjectTracker.Api.Auth;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Dtos;
 using ProjectTracker.Api.Mapping;
@@ -16,13 +17,13 @@ public static class ProjectQuantitySyncEndpoints
     public static RouteGroupBuilder MapProjectQuantitySyncEndpoints(this RouteGroupBuilder api)
     {
         api.MapPost("/projects/{projectId:int}/quantities/sync", SyncActiveAsync)
-            .RequireAuthorization(AuthorizationPolicy);
+            .RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, AuthorizationPolicy);
         api.MapPost("/projects/{projectId:int}/quantities/sync/{provider}", SyncLegacyAsync)
-            .RequireAuthorization(AuthorizationPolicy);
+            .RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, AuthorizationPolicy);
         api.MapPost("/projects/{projectId:int}/routing/override", OverrideRoutingAsync)
-            .RequireAuthorization(RoutingOverrideAuthorizationPolicy);
+            .RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, RoutingOverrideAuthorizationPolicy);
         api.MapGet("/project-quantity-lookups/{kind}", SearchAsync)
-            .RequireAuthorization(AuthorizationPolicy);
+            .RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, AuthorizationPolicy);
         return api;
     }
 

@@ -102,6 +102,19 @@ builder.Services.AddScoped<IClaimsTransformation, RoleClaimsTransformation>();
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy(ProjectTrackerAccessAuthorization.PolicyName, ProjectTrackerAccessAuthorization.ConfigurePolicy);
+    options.AddPolicy(ProjectTrackerPagePolicies.AnyPage, ProjectTrackerPagePolicies.ConfigureAnyPage);
+    options.AddPolicy(ProjectTrackerPagePolicies.Dashboard, policy => policy.RequireClaim(
+        ApplicationClaimTypes.Permission, ApplicationPermissions.DashboardView));
+    options.AddPolicy(ProjectTrackerPagePolicies.ProjectDetail, policy => policy.RequireClaim(
+        ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectDetailView));
+    options.AddPolicy(ProjectTrackerPagePolicies.Calendar, policy => policy.RequireClaim(
+        ApplicationClaimTypes.Permission, ApplicationPermissions.CalendarView));
+    options.AddPolicy(ProjectTrackerPagePolicies.PastProjects, policy => policy.RequireClaim(
+        ApplicationClaimTypes.Permission, ApplicationPermissions.PastProjectsView));
+    options.AddPolicy(ProjectTrackerPagePolicies.ScheduleData, ProjectTrackerPagePolicies.ConfigureScheduleData);
+    options.AddPolicy(
+        ProjectTrackerPagePolicies.ProjectDetailOrPastProjects,
+        ProjectTrackerPagePolicies.ConfigureProjectDetailOrPastProjects);
     options.AddPolicy("ProjectCreate", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectCreate));
     options.AddPolicy("ProjectPriority", policy => policy.RequireClaim(ApplicationClaimTypes.Permission, ApplicationPermissions.ProjectReorderPriority));
     options.AddPolicy(ProjectQuantitySyncEndpoints.AuthorizationPolicy, policy =>
@@ -239,7 +252,7 @@ api.MapGet("/projects/{id:int}/messages", async (int id, int? afterId, ProjectTr
         .ToListAsync(cancellationToken);
     messages.Reverse();
     return Results.Ok(messages);
-});
+}).RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail);
 
 api.MapGet("/projects/{id:int}/activity", async (int id, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
 {
@@ -255,7 +268,7 @@ api.MapGet("/projects/{id:int}/activity", async (int id, ProjectTrackerDbContext
         .AsNoTracking()
         .ToListAsync(cancellationToken);
     return Results.Ok(entries.Select(ToAuditEntryDto).ToList());
-}).RequireAuthorization("ProjectActivityView");
+}).RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, "ProjectActivityView");
 
 api.MapPost("/projects/{id:int}/messages", async (int id, ProjectMessageCreateDto dto, ProjectTrackerDbContext db, CurrentUserService currentUser, MentionNotificationService notifications, CancellationToken cancellationToken) =>
 {
@@ -293,7 +306,7 @@ api.MapPost("/projects/{id:int}/messages", async (int id, ProjectMessageCreateDt
     await db.SaveChangesAsync(cancellationToken);
     notifications.DispatchAfterPersistence(mentionNotifications);
     return Results.Created($"/api/projects/{id}/messages/{message.Id}", ToMessageDto(message));
-});
+}).RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail);
 
 api.MapGet("/users/mentions", async (ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
 {
@@ -303,7 +316,7 @@ api.MapGet("/users/mentions", async (ProjectTrackerDbContext db, CancellationTok
         .Where(user => user.IsActive)
         .ToListAsync(cancellationToken);
     return users.Select(user => new MentionableUserDto(user.AccountName, user.DisplayName, MentionNotificationService.MentionHandle(user.AccountName))).ToList();
-});
+}).RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail);
 
 api.MapPost("/projects", async (ProjectCreateDto dto, ProjectTrackerDbContext db, CurrentUserService currentUser, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
@@ -402,7 +415,7 @@ api.MapPost("/projects", async (ProjectCreateDto dto, ProjectTrackerDbContext db
             .ToList());
     await db.SaveChangesAsync(cancellationToken);
     return Results.Created($"/api/projects/{project.Id}", ToDetailDto(project));
-}).RequireAuthorization("ProjectCreate");
+}).RequireAuthorization(ProjectTrackerPagePolicies.Dashboard, "ProjectCreate");
 
 api.MapPut("/projects/{id:int}", async (int id, ProjectUpsertDto dto, ProjectTrackerDbContext db, CurrentUserService currentUser, ProjectMetricsService metrics, ProjectAuditService audit, ProjectNotificationAudienceService notificationAudience, CancellationToken cancellationToken) =>
 {
@@ -450,7 +463,7 @@ api.MapPut("/projects/{id:int}", async (int id, ProjectUpsertDto dto, ProjectTra
     await db.SaveChangesAsync(cancellationToken);
     await notificationAudience.ReconcileOpenPromptsAsync(project, cancellationToken);
     return Results.Ok(ToDetailDto(project));
-}).RequireAuthorization(ProjectTrackerAccessAuthorization.PolicyName);
+}).RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, ProjectTrackerAccessAuthorization.PolicyName);
 
 api.MapPost("/projects/{id:int}/complete", async (int id, ProjectActionDto dto, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
@@ -497,7 +510,7 @@ api.MapPost("/projects/{id:int}/complete", async (int id, ProjectActionDto dto, 
         ProjectAuditService.Diff(before, ProjectAuditService.CaptureProject(project)));
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(ToDetailDto(project));
-}).RequireAuthorization("ProjectComplete");
+}).RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, "ProjectComplete");
 
 api.MapPost("/projects/{id:int}/reopen", async (int id, ProjectActionDto dto, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
@@ -546,7 +559,7 @@ api.MapPost("/projects/{id:int}/reopen", async (int id, ProjectActionDto dto, Pr
         ProjectAuditService.Diff(before, ProjectAuditService.CaptureProject(project)));
     await db.SaveChangesAsync(cancellationToken);
     return Results.Ok(ToDetailDto(project));
-}).RequireAuthorization("ProjectReopen");
+}).RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetailOrPastProjects, "ProjectReopen");
 
 api.MapPut("/projects/{id:int}/priority", async (int id, ProjectPriorityDto dto, ProjectTrackerDbContext db, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
@@ -593,7 +606,7 @@ api.MapPut("/projects/{id:int}/priority", async (int id, ProjectPriorityDto dto,
 
     await db.SaveChangesAsync(cancellationToken);
     return Results.NoContent();
-}).RequireAuthorization("ProjectPriority");
+}).RequireAuthorization(ProjectTrackerPagePolicies.Dashboard, "ProjectPriority");
 
 api.MapDelete("/projects/{id:int}", async (
     int id,
@@ -633,7 +646,7 @@ api.MapDelete("/projects/{id:int}", async (
     BumpPriorityVersions(remainingProjects, previousPriorities);
     await db.SaveChangesAsync(cancellationToken);
     return Results.NoContent();
-}).RequireAuthorization("ProjectArchive");
+}).RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, "ProjectArchive");
 
 api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertDto dto, ProjectTrackerDbContext db, CurrentUserService currentUser, ProjectMetricsService metrics, ProjectAuditService audit, MentionNotificationService notifications, CancellationToken cancellationToken) =>
 {
@@ -699,7 +712,7 @@ api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertD
     await db.SaveChangesAsync(cancellationToken);
     notifications.DispatchAfterPersistence(mentionNotifications);
     return Results.Created($"/api/projects/{projectId}", ToTaskDto(task));
-}).RequireAuthorization("TaskCreate");
+}).RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, "TaskCreate");
 
 api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectTrackerDbContext db, CurrentUserService currentUser, ProjectMetricsService metrics, ProjectAuditService audit, MentionNotificationService notifications, CancellationToken cancellationToken) =>
 {
@@ -769,7 +782,7 @@ api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectT
     await db.SaveChangesAsync(cancellationToken);
     notifications.DispatchAfterPersistence(mentionNotifications);
     return Results.Ok(ToTaskDto(task));
-}).RequireAuthorization(ProjectTrackerAccessAuthorization.PolicyName);
+}).RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, ProjectTrackerAccessAuthorization.PolicyName);
 
 api.MapDelete("/tasks/{taskId:int}", async (int taskId, long version, long projectVersion, bool? detachDependents, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
 {
@@ -837,14 +850,14 @@ api.MapDelete("/tasks/{taskId:int}", async (int taskId, long version, long proje
         taskId);
     await db.SaveChangesAsync(cancellationToken);
     return Results.NoContent();
-}).RequireAuthorization("TaskDelete");
+}).RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, "TaskDelete");
 
 api.MapGet("/holidays", async (ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
 {
     return await db.Holidays.OrderBy(holiday => holiday.Date)
         .Select(holiday => new HolidayDto(holiday.Id, holiday.Date, holiday.Name))
         .ToListAsync(cancellationToken);
-});
+}).RequireAuthorization(ProjectTrackerPagePolicies.ScheduleData);
 
 api.MapPost("/holidays", async (HolidayUpsertDto dto, ProjectTrackerDbContext db, ProjectMetricsService metrics, CancellationToken cancellationToken) =>
 {
@@ -892,7 +905,7 @@ api.MapGet("/work-centers", async (ProjectTrackerDbContext db, CancellationToken
     return await db.WorkCenters.OrderBy(workCenter => workCenter.Name)
         .Select(workCenter => new WorkCenterDto(workCenter.Id, workCenter.Name))
         .ToListAsync(cancellationToken);
-});
+}).RequireAuthorization(ProjectTrackerPagePolicies.ScheduleData);
 
 api.MapPost("/work-centers", async (WorkCenterUpsertDto dto, ProjectTrackerDbContext db, CancellationToken cancellationToken) =>
 {
@@ -945,7 +958,7 @@ api.MapGet("/settings/work-calendar", async (ProjectTrackerDbContext db, Cancell
 {
     var settings = await GetOrCreateScheduleSettingsAsync(db, cancellationToken);
     return new ScheduleSettingsDto(settings.GetWorkingDays().OrderBy(day => ((int)day + 6) % 7).ToList(), settings.UpdatedAt);
-});
+}).RequireAuthorization(ProjectTrackerPagePolicies.ScheduleData);
 
 api.MapPut("/settings/work-calendar", async (ScheduleSettingsUpsertDto dto, ProjectTrackerDbContext db, ProjectMetricsService metrics, CancellationToken cancellationToken) =>
 {

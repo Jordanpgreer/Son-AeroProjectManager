@@ -10,7 +10,7 @@ import type { WorkflowDocument, WorkflowGraph, WorkflowSimulation } from './type
 import { useWorkflowLeaveGuard } from './useWorkflowLeaveGuard'
 import './workflow-editor.css'
 
-export default function QualityWorkflowPanel() {
+export default function QualityWorkflowPanel({ canManage }: { canManage: boolean }) {
   const [document, setDocument] = useState<WorkflowDocument | null>(null)
   const [options, setOptions] = useState<QualityAssignmentOptions | null>(null)
   const [graph, setGraph] = useState<WorkflowGraph | null>(null)
@@ -25,7 +25,7 @@ export default function QualityWorkflowPanel() {
   const [reviewOpen, setReviewOpen] = useState(false)
   const reviewRef = useRef<HTMLDialogElement>(null)
   const leaveRef = useRef<HTMLDialogElement>(null)
-  const dirty = !!graph && !!document && JSON.stringify(graph) !== JSON.stringify(document.draft)
+  const dirty = canManage && !!graph && !!document && JSON.stringify(graph) !== JSON.stringify(document.draft)
   const leaveGuard = useWorkflowLeaveGuard(dirty)
   const structuralIssues = graph ? validateGraph(graph) : []
   const issues = [...structuralIssues, ...(!dirty ? document?.validation.issues.filter(issue => !structuralIssues.some(local => local.nodeId === issue.nodeId)) ?? [] : [])]
@@ -60,7 +60,7 @@ export default function QualityWorkflowPanel() {
   }, [leaveGuard.destination])
 
   function change(next: WorkflowGraph) {
-    if (!graph || busy || JSON.stringify(next) === JSON.stringify(graph)) return
+    if (!canManage || !graph || busy || JSON.stringify(next) === JSON.stringify(graph)) return
     setPast(current => [...current.slice(-49), graph]); setFuture([])
     setGraph(next); setSimulation(null); setMessage(null)
   }
@@ -75,7 +75,7 @@ export default function QualityWorkflowPanel() {
     setPast(current => [...current, graph]); setFuture(future.slice(1)); setGraph(next); setSimulation(null)
   }
   async function save() {
-    if (!graph || !document) return
+    if (!canManage || !graph || !document) return
     setBusy(true); setError(null); setMessage(null)
     try {
       const saved = await qualityAdminApi<WorkflowDocument>('/api/admin/workflow/draft', { method: 'PUT', body: JSON.stringify({ version: document.version, graph }) })
@@ -84,7 +84,7 @@ export default function QualityWorkflowPanel() {
     finally { setBusy(false) }
   }
   async function publish() {
-    if (!document || dirty || issues.length) return
+    if (!canManage || !document || dirty || issues.length) return
     setBusy(true); setError(null); setMessage(null)
     try {
       const published = await qualityAdminApi<WorkflowDocument>('/api/admin/workflow/publish', { method: 'POST', body: JSON.stringify({ version: document.version }) })
@@ -99,23 +99,23 @@ export default function QualityWorkflowPanel() {
   const selected = graph.nodes.find(node => node.id === selectedId)
   return <section className="workflow-editor" aria-label="Quality workflow editor">
     <header className="workflow-toolbar">
-      <div className="workflow-document-name"><span className="workflow-document-icon"><GitBranch size={19} /></span><div><label className="sr-only" htmlFor="workflow-name">Workflow name</label><input id="workflow-name" value={graph.name} maxLength={160} disabled={busy} onChange={event => change({ ...graph, name: event.target.value })} /><span>{document.publishedRevision ? `Live version ${document.publishedRevision}` : 'Current assignment rules are live'} · {dirty ? 'Unsaved changes' : publishedMatches ? 'Published' : 'Draft'}</span></div></div>
-      <div className="workflow-toolbar-actions"><div className="workflow-history-buttons"><button type="button" className="workflow-icon-button" aria-label="Undo change" title="Undo" disabled={busy || !past.length} onClick={undo}><Undo2 size={16} /></button><button type="button" className="workflow-icon-button" aria-label="Redo change" title="Redo" disabled={busy || !future.length} onClick={redo}><Redo2 size={16} /></button></div>
+      <div className="workflow-document-name"><span className="workflow-document-icon"><GitBranch size={19} /></span><div><label className="sr-only" htmlFor="workflow-name">Workflow name</label><input id="workflow-name" value={graph.name} maxLength={160} disabled={busy || !canManage} onChange={event => change({ ...graph, name: event.target.value })} /><span>{document.publishedRevision ? `Live version ${document.publishedRevision}` : 'Current assignment rules are live'} · {canManage ? dirty ? 'Unsaved changes' : publishedMatches ? 'Published' : 'Draft' : 'View only'}</span></div></div>
+      {canManage ? <div className="workflow-toolbar-actions"><div className="workflow-history-buttons"><button type="button" className="workflow-icon-button" aria-label="Undo change" title="Undo" disabled={busy || !past.length} onClick={undo}><Undo2 size={16} /></button><button type="button" className="workflow-icon-button" aria-label="Redo change" title="Redo" disabled={busy || !future.length} onClick={redo}><Redo2 size={16} /></button></div>
         <button className="ghost-button" type="button" aria-pressed={testOpen} onClick={() => setTestOpen(!testOpen)}><FlaskConical size={15} /> Test path</button>
         <button className="ghost-button" type="button" disabled={busy || (!dirty && document.version > 0)} onClick={() => void save()}><Save size={15} /> Save draft</button>
         <button className="solid-button" type="button" disabled={busy || dirty || document.version === 0 || !!issues.length || publishedMatches} title={dirty || document.version === 0 ? 'Save your draft before publishing' : issues.length ? 'Resolve the highlighted issues before publishing' : 'Review and publish routing changes'} onClick={() => setReviewOpen(true)}><Upload size={15} /> Publish</button>
-      </div>
+      </div> : <span className="workflow-validation"><Check size={14} /> View only</span>}
     </header>
     <div className="workflow-context-bar"><span><span className="workflow-scope-dot" /> Quality Assurance</span><p>Decide what happens next, and who gets the work.</p><span className={`workflow-validation ${issues.length ? 'has-issues' : ''}`}>{issues.length ? <AlertCircle size={14} /> : <Check size={14} />}{issues.length ? `${issues.length} items to resolve` : 'Ready to test'}</span></div>
     {error && <p className="workflow-banner workflow-error" role="alert"><AlertCircle size={16} />{error}<button type="button" className="workflow-icon-button" aria-label="Dismiss error" onClick={() => setError(null)}><X size={15} /></button></p>}
     {message && <p className="workflow-banner" role="status"><Check size={16} />{message}</p>}
-    <div className="workflow-workspace"><WorkflowCanvas graph={graph} options={options} selectedId={selectedId} onSelect={setSelectedId} onChange={change} trace={simulation?.path} disabled={busy} />
-      <WorkflowInspector graph={graph} node={selected} options={options} issues={issues.filter(issue => issue.nodeId === selectedId)} onChange={change} onClose={() => setSelectedId(null)} onDelete={() => { if (selectedId) change(removeNode(graph, selectedId)); setSelectedId(null) }} disabled={busy} />
+    <div className="workflow-workspace"><WorkflowCanvas graph={graph} options={options} selectedId={selectedId} onSelect={setSelectedId} onChange={change} trace={simulation?.path} disabled={busy || !canManage} />
+      <WorkflowInspector graph={graph} node={selected} options={options} issues={issues.filter(issue => issue.nodeId === selectedId)} onChange={change} onClose={() => setSelectedId(null)} onDelete={() => { if (selectedId) change(removeNode(graph, selectedId)); setSelectedId(null) }} disabled={busy || !canManage} />
     </div>
-    {testOpen && <WorkflowTestPanel graph={graph} options={options} result={simulation} onResult={setSimulation} onClose={() => { setTestOpen(false); setSimulation(null) }} onSelect={setSelectedId} />}
+    {canManage && testOpen && <WorkflowTestPanel graph={graph} options={options} result={simulation} onResult={setSimulation} onClose={() => { setTestOpen(false); setSimulation(null) }} onSelect={setSelectedId} />}
     <footer className="workflow-footer"><span>{graph.nodes.filter(node => node.type === 'trigger').length} actions · {graph.nodes.length} blocks · {graph.edges.length} connections</span><span><Clock3 size={13} />{document.updatedAt ? `Saved ${new Date(document.updatedAt).toLocaleString()}` : 'Save a draft to keep your changes'}</span></footer>
     {!!issues.length && <details className="workflow-validation-list"><summary><AlertCircle size={14} /> Review {issues.length} items before publishing</summary><ul>{issues.map((issue, index) => <li key={index}>{issue.nodeId ? <button type="button" onClick={() => setSelectedId(issue.nodeId!)}>{issue.message}</button> : issue.message}</li>)}</ul></details>}
-    {!!document.history.length && <details className="workflow-activity"><summary><Clock3 size={14} /> Version activity</summary>{document.published && !publishedMatches && <button type="button" className="ghost-button" disabled={busy} onClick={() => change(document.published!)}>Restore live version to draft</button>}<ol>{document.history.map(entry => <li key={entry.id}><span>{entry.action === 'DraftSaved' ? 'Draft saved' : entry.action} {entry.revision > 0 && `· v${entry.revision}`}</span><span>{entry.displayName || entry.accountName} · {new Date(entry.occurredAt).toLocaleString()}</span></li>)}</ol></details>}
+    {!!document.history.length && <details className="workflow-activity"><summary><Clock3 size={14} /> Version activity</summary>{canManage && document.published && !publishedMatches && <button type="button" className="ghost-button" disabled={busy} onClick={() => change(document.published!)}>Restore live version to draft</button>}<ol>{document.history.map(entry => <li key={entry.id}><span>{entry.action === 'DraftSaved' ? 'Draft saved' : entry.action} {entry.revision > 0 && `· v${entry.revision}`}</span><span>{entry.displayName || entry.accountName} · {new Date(entry.occurredAt).toLocaleString()}</span></li>)}</ol></details>}
     <dialog className="workflow-publish-dialog" ref={reviewRef} aria-labelledby="workflow-publish-title" onCancel={event => { if (busy) event.preventDefault(); else setReviewOpen(false) }}>
       <span className="workflow-document-icon"><Upload size={22} /></span><h2 id="workflow-publish-title">Publish this workflow?</h2><p>Version {document.publishedRevision + 1} will apply to future QA actions immediately. Existing shipments move only when a configured action runs.</p>
       <div className="workflow-publish-summary"><strong>{graph.name}</strong><span>{graph.nodes.filter(node => node.type === 'trigger').length} configured actions · {graph.nodes.filter(node => node.type === 'route').length} destinations</span><span>{simulation?.isValid ? 'A sample path has been tested.' : 'You can test a sample path before publishing.'}</span></div>

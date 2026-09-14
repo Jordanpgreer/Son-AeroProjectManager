@@ -49,7 +49,7 @@ public static class OutlookConnectorEndpoints
             }
             context.Response.Headers.CacheControl = "no-store";
             return Results.File(output.ToArray(), "application/zip", "Arda-Outlook-Connector.zip");
-        }).RequireAuthorization(EstimatingPolicies.ViewHistory, EstimatingPolicies.Editor);
+        }).RequireAuthorization(EstimatingPolicies.QuoteStatusView, EstimatingPolicies.Editor);
         return api;
     }
 }

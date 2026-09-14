@@ -36,6 +36,24 @@ public static class ApplicationModuleRoles
     };
 }
 
+public static class EstimatingPagePermissions
+{
+    public const string QuotesDashboardView = "estimating.quotes.view";
+    public const string QuoteStatusView = "estimating.quote-status.view";
+    public const string CalculatorView = "estimating.calculator.view";
+    public const string RatesView = "estimating.rates.view";
+    public const string OperationRulesView = "estimating.operation-rules.view";
+
+    public static readonly IReadOnlyList<string> All =
+    [
+        QuotesDashboardView,
+        QuoteStatusView,
+        CalculatorView,
+        RatesView,
+        OperationRulesView
+    ];
+}
+
 public sealed record ApplicationModuleDefinition(
     string Key,
     string Name,
@@ -127,11 +145,37 @@ public static class ApplicationModuleCatalog
     private static ApplicationModuleDefinition CreateEstimatingModule()
     {
         const string category = "Estimating";
+        const string pageCategory = "Pages";
         var view = new PermissionDefinition(
             "estimating.view",
             "View estimating",
             "Open and view the Estimating module.",
             category);
+        var viewQuotes = new PermissionDefinition(
+            EstimatingPagePermissions.QuotesDashboardView,
+            "View Quotes Dashboard",
+            "Open the personal quotes dashboard and assigned Fulcrum quote queue.",
+            pageCategory);
+        var viewQuoteStatus = new PermissionDefinition(
+            EstimatingPagePermissions.QuoteStatusView,
+            "View Quote Status",
+            "Open shared quote status records, vendor threads, and communications.",
+            pageCategory);
+        var viewCalculator = new PermissionDefinition(
+            EstimatingPagePermissions.CalculatorView,
+            "View Estimate Calculator",
+            "Open saved estimates and the estimate calculation workspace.",
+            pageCategory);
+        var viewRates = new PermissionDefinition(
+            EstimatingPagePermissions.RatesView,
+            "View Rates Reference",
+            "Open controlled estimating rates and source information.",
+            pageCategory);
+        var viewOperationRules = new PermissionDefinition(
+            EstimatingPagePermissions.OperationRulesView,
+            "View Operation Rules",
+            "Open controlled operation-step translation rules.",
+            pageCategory);
         var calculate = new PermissionDefinition(
             "estimating.calculate",
             "Calculate estimates",
@@ -166,7 +210,7 @@ public static class ApplicationModuleCatalog
             "estimating.history.view",
             "View Estimating Logs",
             "Open Estimating Logs to search imported quotes and view estimator statistics.",
-            category);
+            pageCategory);
         var importHistory = new PermissionDefinition(
             "estimating.history.import",
             "Import Estimating Logs",
@@ -184,13 +228,13 @@ public static class ApplicationModuleCatalog
             [
                 new ApplicationModuleRoleDefinition(
                     ApplicationRoles.Viewer,
-                    [view, calculate, viewHistory]),
+                    [view, viewQuotes, viewQuoteStatus, viewCalculator, viewHistory, viewRates, viewOperationRules, calculate]),
                 new ApplicationModuleRoleDefinition(
                     ApplicationRoles.Editor,
-                    [view, calculate, manageQuotes, manageInputs, viewHistory]),
+                    [view, viewQuotes, viewQuoteStatus, viewCalculator, viewHistory, viewRates, viewOperationRules, calculate, manageQuotes, manageInputs]),
                 new ApplicationModuleRoleDefinition(
                     ApplicationRoles.Admin,
-                    [view, calculate, manageQuotes, deleteQuotes, manageInputs, viewHistory, importHistory, manageHistory, administerRates, administerSettings])
+                    [view, viewQuotes, viewQuoteStatus, viewCalculator, viewHistory, viewRates, viewOperationRules, calculate, manageQuotes, deleteQuotes, manageInputs, importHistory, manageHistory, administerRates, administerSettings])
             ]);
     }
 

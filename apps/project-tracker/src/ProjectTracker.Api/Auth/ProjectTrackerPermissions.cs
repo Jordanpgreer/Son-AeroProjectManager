@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using SonAero.Platform.Security;
 
 namespace ProjectTracker.Api.Auth;
@@ -49,4 +50,29 @@ public static class ProjectTrackerPermissions
         ApplicationGroups.Sales => [ProjectActivityView, ProjectEditJobNumber, ProjectEditQuantities, ProjectEditSalesPerson, ProjectNotificationsManage, OperationScheduleConfirm],
         _ => []
     };
+}
+
+public static class ProjectTrackerPagePolicies
+{
+    public const string AnyPage = "ProjectTrackerAnyPage";
+    public const string Dashboard = "ProjectTrackerDashboardView";
+    public const string ProjectDetail = "ProjectTrackerProjectDetailView";
+    public const string Calendar = "ProjectTrackerCalendarView";
+    public const string PastProjects = "ProjectTrackerPastProjectsView";
+    public const string ScheduleData = "ProjectTrackerScheduleDataView";
+    public const string ProjectDetailOrPastProjects = "ProjectTrackerProjectDetailOrPastView";
+
+    public static void ConfigureAnyPage(AuthorizationPolicyBuilder policy) =>
+        policy.RequireAssertion(context => HasAny(context.User, ApplicationPermissions.DefaultPageViewPermissions));
+
+    public static void ConfigureScheduleData(AuthorizationPolicyBuilder policy) =>
+        policy.RequireAssertion(context => HasAny(context.User,
+            [ApplicationPermissions.ProjectDetailView, ApplicationPermissions.CalendarView]));
+
+    public static void ConfigureProjectDetailOrPastProjects(AuthorizationPolicyBuilder policy) =>
+        policy.RequireAssertion(context => HasAny(context.User,
+            [ApplicationPermissions.ProjectDetailView, ApplicationPermissions.PastProjectsView]));
+
+    private static bool HasAny(System.Security.Claims.ClaimsPrincipal user, IEnumerable<string> permissions) =>
+        permissions.Any(permission => user.HasClaim(ApplicationClaimTypes.Permission, permission));
 }

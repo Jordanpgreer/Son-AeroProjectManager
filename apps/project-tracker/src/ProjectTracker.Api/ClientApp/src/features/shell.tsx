@@ -48,6 +48,7 @@ import type {
 } from '../types'
 import type { AppTheme } from '../theme'
 import { usePushNotifications } from '../push-notifications'
+import { canViewProjectTrackerScreen } from '../permissions'
 
 function hasPermission(user: User | null, permission: string) {
   return Boolean(user?.permissions?.includes(permission))
@@ -117,6 +118,8 @@ export function Sidebar({
   user: User | null
   trainingMode?: boolean
 }) {
+  const permissions = user?.permissions ?? []
+
   return (
     <aside className="sidebar" id="project-tracker-sidebar" data-guide-id={trainingMode ? 'main-navigation' : undefined}>
       {trainingMode ? <div className="brand brand-hub-link training-brand-static" aria-label="Arda Project Tracker training">
@@ -155,10 +158,10 @@ export function Sidebar({
       <div className="nav-section">
         <span className="nav-heading">Program Control</span>
         <nav aria-label="Primary">
-          <NavButton guideId={trainingMode ? 'nav-dashboard' : undefined} active={screen === 'dashboard'} onClick={() => setScreen('dashboard')} icon={<LayoutDashboard size={17} />} label="Dashboard" />
-          <NavButton guideId={trainingMode ? 'nav-project' : undefined} active={screen === 'project' && selectedProject?.status !== 'Complete'} onClick={() => void onOpenActiveProjects()} icon={<ListChecks size={17} />} label="Project Detail" disabled={!hasActiveProjects} />
-          <NavButton guideId={trainingMode ? 'nav-calendar' : undefined} active={screen === 'calendar'} onClick={() => setScreen('calendar')} icon={<CalendarRange size={17} />} label="Calendar" />
-          <NavButton guideId={trainingMode ? 'nav-past' : undefined} active={screen === 'pastProjects' || (screen === 'project' && selectedProject?.status === 'Complete')} onClick={() => setScreen('pastProjects')} icon={<Archive size={17} />} label="Past Projects" />
+          {canViewProjectTrackerScreen(permissions, 'dashboard') && <NavButton guideId={trainingMode ? 'nav-dashboard' : undefined} active={screen === 'dashboard'} onClick={() => setScreen('dashboard')} icon={<LayoutDashboard size={17} />} label="Dashboard" />}
+          {canViewProjectTrackerScreen(permissions, 'project') && <NavButton guideId={trainingMode ? 'nav-project' : undefined} active={screen === 'project' && selectedProject?.status !== 'Complete'} onClick={() => void onOpenActiveProjects()} icon={<ListChecks size={17} />} label="Project Detail" disabled={!hasActiveProjects} />}
+          {canViewProjectTrackerScreen(permissions, 'calendar') && <NavButton guideId={trainingMode ? 'nav-calendar' : undefined} active={screen === 'calendar'} onClick={() => setScreen('calendar')} icon={<CalendarRange size={17} />} label="Calendar" />}
+          {canViewProjectTrackerScreen(permissions, 'pastProjects') && <NavButton guideId={trainingMode ? 'nav-past' : undefined} active={screen === 'pastProjects' || (screen === 'project' && selectedProject?.status === 'Complete')} onClick={() => setScreen('pastProjects')} icon={<Archive size={17} />} label="Past Projects" />}
         </nav>
       </div>
 

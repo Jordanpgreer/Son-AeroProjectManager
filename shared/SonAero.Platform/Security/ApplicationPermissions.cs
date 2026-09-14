@@ -3,6 +3,10 @@ namespace SonAero.Platform.Security;
 public static class ApplicationPermissions
 {
     public const string ModuleView = "module.view";
+    public const string DashboardView = "project-tracker.dashboard.view";
+    public const string ProjectDetailView = "project-tracker.project-detail.view";
+    public const string CalendarView = "project-tracker.calendar.view";
+    public const string PastProjectsView = "project-tracker.past-projects.view";
 
     public const string ProjectCreate = "project.create";
     public const string ProjectEditProgramName = "project.edit.programName";
@@ -43,6 +47,10 @@ public static class ApplicationPermissions
     public static readonly IReadOnlyList<PermissionDefinition> All =
     [
         new(ModuleView, "Module Access", "Open the Project Tracker module and read project data.", "General"),
+        new(DashboardView, "View Dashboard", "Open the Project Tracker dashboard and active project queue.", "Pages"),
+        new(ProjectDetailView, "View Project Detail", "Open individual project records and their operation schedules.", "Pages"),
+        new(CalendarView, "View Calendar", "Open the production calendar and scheduled project milestones.", "Pages"),
+        new(PastProjectsView, "View Past Projects", "Open completed projects and optionally reveal archived projects.", "Pages"),
         new(ProjectCreate, "Create Projects", "Add new projects to the portfolio.", "Projects"),
         new(ProjectEditProgramName, "Edit Part Number", "Change the project part / program name.", "Projects"),
         new(ProjectEditProgramManager, "Edit Contact Lead", "Change the contact lead / program manager field.", "Projects"),
@@ -109,9 +117,18 @@ public static class ApplicationPermissions
 
     public static readonly IReadOnlyList<string> DefaultAdministratorPermissions = All.Select(permission => permission.Key).ToList();
 
+    public static readonly IReadOnlyList<string> DefaultPageViewPermissions =
+    [
+        DashboardView,
+        ProjectDetailView,
+        CalendarView,
+        PastProjectsView
+    ];
+
     public static string[] DefaultManagerPermissions =>
     [
         ModuleView,
+        .. DefaultPageViewPermissions,
         ProjectCreate,
         ProjectEditProgramName,
         ProjectEditProgramManager,
@@ -144,6 +161,7 @@ public static class ApplicationPermissions
     public static string[] DefaultEngineeringPermissions =>
     [
         ModuleView,
+        .. DefaultPageViewPermissions,
         TaskCreate,
         TaskEditTitle,
         TaskEditWorkStation,
@@ -164,6 +182,7 @@ public static class ApplicationPermissions
     public static string[] DefaultSalesPermissions =>
     [
         ModuleView,
+        .. DefaultPageViewPermissions,
         ProjectEditCustomerName,
         ProjectEditSalesOrderNumber,
         ProjectEditProgramManager,

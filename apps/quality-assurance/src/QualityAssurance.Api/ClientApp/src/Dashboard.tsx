@@ -16,7 +16,7 @@ import './Dashboard.css'
 
 type TeamSelection = number | 'group' | 'unassigned' | null
 
-export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: QualityAssuranceUser; reloadKey: number; onOpenShipment: (shipment: Shipment) => void }) {
+export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: QualityAssuranceUser; reloadKey: number; onOpenShipment?: (shipment: Shipment) => void }) {
   const [data, setData] = useState<DashboardData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -174,7 +174,7 @@ export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: Q
           </article>
         )}
       </section>
-      {selectedShipment && <DashboardShipmentQuickView shipment={selectedShipment} fields={data.fields} canViewAssignment={data.canViewAssignment} canAssign={canRunQualityAction(user, 'assignment-changed', data.canAssign)} canAssignGroup={canRunQualityAction(user, 'assignment-changed', data.canAssignGroup)} canAssignUser={canRunQualityAction(user, 'assignment-changed', data.canAssignUser)} onClose={() => setSelectedShipment(null)} onOpen={() => onOpenShipment(selectedShipment)} onSaved={accepted} />}
+      {selectedShipment && <DashboardShipmentQuickView shipment={selectedShipment} fields={data.fields} canViewAssignment={data.canViewAssignment} canAssign={canRunQualityAction(user, 'assignment-changed', data.canAssign)} canAssignGroup={canRunQualityAction(user, 'assignment-changed', data.canAssignGroup)} canAssignUser={canRunQualityAction(user, 'assignment-changed', data.canAssignUser)} onClose={() => setSelectedShipment(null)} onOpen={onOpenShipment ? () => onOpenShipment(selectedShipment) : undefined} onSaved={accepted} />}
     </div>
   )
 }

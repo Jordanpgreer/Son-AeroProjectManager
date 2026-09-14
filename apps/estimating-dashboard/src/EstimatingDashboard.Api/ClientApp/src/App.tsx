@@ -26,7 +26,13 @@ import type { EstimatingMe } from './authorization'
 import { persistTheme, readThemePreference } from './theme'
 import type { AppTheme } from './theme'
 
-import { PAGE_META, pageFromHash, type EstimatingPage } from './estimatingNavigation'
+import {
+  PAGE_META,
+  canViewEstimatingPage,
+  firstAccessibleEstimatingPage,
+  pageFromHash,
+  type EstimatingPage,
+} from './estimatingNavigation'
 
 const QuoteStatusPage = lazy(() => import('./vendor-quotes/QuoteStatusPage'))
 
@@ -206,7 +212,10 @@ export default function App() {
     }
   }, [])
 
-  const meta = PAGE_META[page]
+  const permissions = me?.permissions ?? []
+  const firstAccessiblePage = firstAccessibleEstimatingPage(permissions)
+  const canViewCurrentPage = Boolean(me && canViewEstimatingPage(permissions, page))
+  const meta = PAGE_META[canViewCurrentPage ? page : firstAccessiblePage ?? page]
   const canManageQuotes = hasEstimatingPermission(
     me,
     estimatingPermissions.manageQuotes,
@@ -220,6 +229,11 @@ export default function App() {
     estimatingPermissions.manageInputs,
   ) && !me?.isPreview
   const canViewHistory = hasEstimatingPermission(me, estimatingPermissions.viewHistory)
+  const canViewQuotes = hasEstimatingPermission(me, estimatingPermissions.quotesView)
+  const canViewQuoteStatus = hasEstimatingPermission(me, estimatingPermissions.quoteStatusView)
+  const canViewCalculator = hasEstimatingPermission(me, estimatingPermissions.calculatorView)
+  const canViewRates = hasEstimatingPermission(me, estimatingPermissions.ratesView)
+  const canViewOperationRules = hasEstimatingPermission(me, estimatingPermissions.operationRulesView)
   const canAdministerRates = hasEstimatingPermission(
     me,
     estimatingPermissions.administerRates,
@@ -229,14 +243,14 @@ export default function App() {
     estimatingPermissions.importHistory,
   ) && !me?.isPreview
   useEffect(() => {
-    if (accessLoading || !me || (page !== 'history' && page !== 'quote-status') || canViewHistory) return
+    if (accessLoading || !me || canViewCurrentPage || !firstAccessiblePage) return
     window.history.replaceState(
       null,
       '',
-      `${window.location.pathname}${window.location.search}#/quotes`,
+      `${window.location.pathname}${window.location.search}#/${firstAccessiblePage}`,
     )
-    setPage('quotes')
-  }, [accessLoading, canViewHistory, me, page])
+    setPage(firstAccessiblePage)
+  }, [accessLoading, canViewCurrentPage, firstAccessiblePage, me])
 
   useEffect(() => {
     if (page !== 'history' || !canImportHistory) setHistoryImportOpen(false)
@@ -261,6 +275,18 @@ export default function App() {
             Return to Applications
           </a>
         )}
+      </main>
+    )
+  }
+
+  if (!firstAccessiblePage) {
+    return (
+      <main className="estimating-access-state">
+        <span className="access-state-icon"><LockKeyhole size={30} aria-hidden="true" /></span>
+        <span className="eyebrow">Permission controlled</span>
+        <h1>No Estimating pages assigned</h1>
+        <p>Your account can open Estimating, but your group does not currently have permission to view any pages.</p>
+        <a href={hubUrl} target="_top">Back to Applications</a>
       </main>
     )
   }
@@ -303,7 +329,7 @@ export default function App() {
             <span>Estimating</span>
           </div>
           <nav className="primary-nav" aria-label="Estimating pages">
-            <a
+            {canViewQuotes && <a
               className={`nav-link ${page === 'quotes' ? 'active' : ''}`}
               href="#/quotes"
               aria-current={page === 'quotes' ? 'page' : undefined}
@@ -311,8 +337,8 @@ export default function App() {
             >
               <span className="nav-icon"><LayoutDashboard size={17} aria-hidden="true" /></span>
               <span className="nav-link-label">Quotes Dashboard</span>
-            </a>
-            {canViewHistory && <a
+            </a>}
+            {canViewQuoteStatus && <a
               className={`nav-link ${page === 'quote-status' ? 'active' : ''}`}
               href="#/quote-status"
               aria-current={page === 'quote-status' ? 'page' : undefined}
@@ -321,7 +347,7 @@ export default function App() {
               <span className="nav-icon"><MessagesSquare size={17} aria-hidden="true" /></span>
               <span className="nav-link-label">Quote Status</span>
             </a>}
-            <a
+            {canViewCalculator && <a
               className={`nav-link ${page === 'calculator' ? 'active' : ''}`}
               href="#/calculator"
               aria-current={page === 'calculator' ? 'page' : undefined}
@@ -329,7 +355,7 @@ export default function App() {
             >
               <span className="nav-icon"><Calculator size={17} aria-hidden="true" /></span>
               <span className="nav-link-label">Estimate Calculator</span>
-            </a>
+            </a>}
             {canViewHistory && <a
               className={`nav-link ${page === 'history' ? 'active' : ''}`}
               href="#/history"
@@ -341,7 +367,7 @@ export default function App() {
             </a>}
           </nav>
         </section>
-        <section className="nav-section references-nav" aria-labelledby="references-nav-heading">
+        {(canViewRates || canViewOperationRules) && <section className="nav-section references-nav" aria-labelledby="references-nav-heading">
           <button
             type="button"
             className="nav-heading references-nav-toggle"
@@ -359,16 +385,16 @@ export default function App() {
             <ChevronDown className="references-nav-chevron" size={15} aria-hidden="true" />
           </button>
           <nav className="primary-nav references-nav-links" id="references-nav-links" aria-label="Estimating references" hidden={!referencesOpen}>
-            <a className={`nav-link ${page === 'rates' ? 'active' : ''}`} href="#/rates" aria-current={page === 'rates' ? 'page' : undefined} title="Rates Reference">
+            {canViewRates && <a className={`nav-link ${page === 'rates' ? 'active' : ''}`} href="#/rates" aria-current={page === 'rates' ? 'page' : undefined} title="Rates Reference">
               <span className="nav-icon"><BookOpen size={17} aria-hidden="true" /></span>
               <span className="nav-link-label">Rates Reference</span>
-            </a>
-            <a className={`nav-link ${page === 'operation-rules' ? 'active' : ''}`} href="#/operation-rules" aria-current={page === 'operation-rules' ? 'page' : undefined} title="Operation Rules">
+            </a>}
+            {canViewOperationRules && <a className={`nav-link ${page === 'operation-rules' ? 'active' : ''}`} href="#/operation-rules" aria-current={page === 'operation-rules' ? 'page' : undefined} title="Operation Rules">
               <span className="nav-icon"><ListChecks size={17} aria-hidden="true" /></span>
               <span className="nav-link-label">Operation Rules</span>
-            </a>
+            </a>}
           </nav>
-        </section>
+        </section>}
       </aside>
 
       <main className="main-area">
@@ -406,48 +432,48 @@ export default function App() {
         </header>
 
         <nav className="mobile-page-nav" aria-label="Estimating pages">
-          <a href="#/quotes" aria-current={page === 'quotes' ? 'page' : undefined}>
+          {canViewQuotes && <a href="#/quotes" aria-current={page === 'quotes' ? 'page' : undefined}>
             <LayoutDashboard size={16} aria-hidden="true" />
             Quotes
-          </a>
-          {canViewHistory && <a href="#/quote-status" aria-current={page === 'quote-status' ? 'page' : undefined}>
+          </a>}
+          {canViewQuoteStatus && <a href="#/quote-status" aria-current={page === 'quote-status' ? 'page' : undefined}>
             <MessagesSquare size={16} aria-hidden="true" />
             Quote Status
           </a>}
-          <a href="#/calculator" aria-current={page === 'calculator' ? 'page' : undefined}>
+          {canViewCalculator && <a href="#/calculator" aria-current={page === 'calculator' ? 'page' : undefined}>
             <Calculator size={16} aria-hidden="true" />
             Calculator
-          </a>
-          <a href="#/rates" aria-current={page === 'rates' ? 'page' : undefined}>
+          </a>}
+          {canViewRates && <a href="#/rates" aria-current={page === 'rates' ? 'page' : undefined}>
             <BookOpen size={16} aria-hidden="true" />
             Rates
-          </a>
+          </a>}
           {canViewHistory && <a href="#/history" aria-current={page === 'history' ? 'page' : undefined}>
             <History size={16} aria-hidden="true" />
             Logs
           </a>}
-          <a href="#/operation-rules" aria-current={page === 'operation-rules' ? 'page' : undefined}>
+          {canViewOperationRules && <a href="#/operation-rules" aria-current={page === 'operation-rules' ? 'page' : undefined}>
             <ListChecks size={16} aria-hidden="true" />
             Rules
-          </a>
+          </a>}
         </nav>
 
         <div className="main-scroll">
           <div className="view" id="main-content" tabIndex={-1}>
-            {page === 'quotes' && (
+            {page === 'quotes' && canViewQuotes && (
               <QuotesDashboardPage
                 ownerAccountName={me.accountName}
                 canManageQuotes={canManageQuotes}
                 canDeleteQuotes={canDeleteQuotes}
-                canGenerateQuotes={canManageQuotes && canManageInputs && canViewHistory}
+                canGenerateQuotes={canManageQuotes && canManageInputs}
               />
             )}
-            {page === 'quote-status' && canViewHistory && (
+            {page === 'quote-status' && canViewQuoteStatus && (
               <Suspense fallback={<div role="status" className="quote-empty-state">Loading quote status…</div>}>
                 <QuoteStatusPage key={me.accountName} me={me} />
               </Suspense>
             )}
-            {page === 'calculator' && (
+            {page === 'calculator' && canViewCalculator && (
               <EstimateCalculatorPage
                 key={me.accountName}
                 ownerAccountName={me.accountName}
@@ -455,8 +481,8 @@ export default function App() {
                 canManageInputs={canManageInputs}
               />
             )}
-            {page === 'rates' && <EstimatingRatesPage />}
-            {page === 'operation-rules' && (
+            {page === 'rates' && canViewRates && <EstimatingRatesPage />}
+            {page === 'operation-rules' && canViewOperationRules && (
               <OperationRulesPage canEdit={canAdministerRates} />
             )}
             {page === 'history' && canViewHistory && (

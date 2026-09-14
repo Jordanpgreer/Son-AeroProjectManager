@@ -100,7 +100,7 @@ public sealed class EstimatingHistoryEndpointAuthorizationTests
     }
 
     [Fact]
-    public void Personal_quote_workflow_reads_require_history_and_updates_require_editor()
+    public void Personal_quote_workflow_requires_quotes_page_and_updates_require_editor()
     {
         var builder = WebApplication.CreateBuilder();
         builder.Services.AddAuthorization();
@@ -118,7 +118,7 @@ public sealed class EstimatingHistoryEndpointAuthorizationTests
         Assert.Equal(3, endpoints.Count);
         Assert.All(endpoints, endpoint => Assert.Contains(
             endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
-            authorization => authorization.Policy == EstimatingPolicies.ViewHistory));
+            authorization => authorization.Policy == EstimatingPolicies.QuotesView));
 
         var update = Assert.Single(endpoints, endpoint =>
             endpoint.RoutePattern.RawText == "/api/quote-workflow/{quoteHistoryId:int}");

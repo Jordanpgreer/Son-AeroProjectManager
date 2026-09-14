@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ProjectTracker.Api.Auth;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Dtos;
 using ProjectTracker.Api.Services;
@@ -21,7 +22,7 @@ public static class NotificationEndpoints
                 currentUser.EffectiveAccountName,
                 cancellationToken);
             return preference is null ? Results.NotFound() : Results.Ok(preference);
-        });
+        }).RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail);
 
         api.MapPut("/projects/{projectId:int}/notification-preference", async (
             int projectId,
@@ -38,7 +39,7 @@ public static class NotificationEndpoints
                 currentUser.AccountName,
                 cancellationToken);
             return preference is null ? Results.NotFound() : Results.Ok(preference);
-        }).RequireAuthorization("ManageProjectNotifications");
+        }).RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, "ManageProjectNotifications");
 
         api.MapGet("/notifications", async (
             bool? unreadOnly,

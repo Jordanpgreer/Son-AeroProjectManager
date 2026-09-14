@@ -54,6 +54,27 @@ public sealed class ProjectReadServiceTests
     }
 
     [Fact]
+    public async Task DashboardRead_FiltersActiveAndCompletedSummariesForPageAccess()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<ProjectTrackerDbContext>().UseSqlite(connection).Options;
+        await using var db = new ProjectTrackerDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        db.Projects.AddRange(
+            new Project { ProgramName = "ACTIVE", PriorityRank = 1 },
+            new Project { ProgramName = "COMPLETE", CompletedOn = DateOnly.FromDateTime(DateTime.Today) });
+        await db.SaveChangesAsync();
+
+        var service = new ProjectReadService(db, new ProjectMetricsService(new ScheduleCalculator()));
+        var active = await service.DashboardAsync(includeActive: true, includeCompleted: false);
+        var completed = await service.DashboardAsync(includeActive: false, includeCompleted: true);
+
+        Assert.Equal("ACTIVE", Assert.Single(active.Projects).ProgramName);
+        Assert.Equal("COMPLETE", Assert.Single(completed.Projects).ProgramName);
+    }
+
+    [Fact]
     public async Task SoftDeleteFilters_HideArchivedGraphButRetainItForAdministration()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

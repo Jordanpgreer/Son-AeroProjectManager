@@ -9,18 +9,21 @@ public static class QualityWorkflowEndpoints
 {
     public static RouteGroupBuilder MapQualityWorkflowEndpoints(this RouteGroupBuilder api)
     {
-        var workflow = api.MapGroup("/admin/workflow").RequireAuthorization(QualityAssurancePermissions.RulesManage);
+        var workflow = api.MapGroup("/admin/workflow").RequireAuthorization(QualityAssurancePermissions.SettingsView);
         workflow.MapGet("/", async (HttpContext context, QualityWorkflowService service, CancellationToken cancellationToken) =>
             Results.Ok(await service.GetAsync(Access(context), cancellationToken)));
         workflow.MapPut("/draft", async (QualityWorkflowSaveDto dto, HttpContext context,
             QualityWorkflowService service, CancellationToken cancellationToken) =>
-            Results.Ok(await service.SaveAsync(dto, Access(context), cancellationToken)));
+            Results.Ok(await service.SaveAsync(dto, Access(context), cancellationToken)))
+            .RequireAuthorization(QualityAssurancePermissions.RulesManage);
         workflow.MapPost("/publish", async (QualityWorkflowVersionDto dto, HttpContext context,
             QualityWorkflowService service, CancellationToken cancellationToken) =>
-            Results.Ok(await service.PublishAsync(dto.Version, Access(context), cancellationToken)));
+            Results.Ok(await service.PublishAsync(dto.Version, Access(context), cancellationToken)))
+            .RequireAuthorization(QualityAssurancePermissions.RulesManage);
         workflow.MapPost("/simulate", async (QualityWorkflowSimulationDto dto, HttpContext context,
             QualityWorkflowService service, CancellationToken cancellationToken) =>
-            Results.Ok(await service.SimulateAsync(dto, Access(context), cancellationToken)));
+            Results.Ok(await service.SimulateAsync(dto, Access(context), cancellationToken)))
+            .RequireAuthorization(QualityAssurancePermissions.RulesManage);
         workflow.MapGet("/options", async (IQualityAssuranceAccessStore accessStore, CancellationToken cancellationToken) =>
         {
             var groups = await accessStore.GetGroupsWithPermissionAsync(QualityAssurancePermissions.ResponsibleGroupEligible, cancellationToken);

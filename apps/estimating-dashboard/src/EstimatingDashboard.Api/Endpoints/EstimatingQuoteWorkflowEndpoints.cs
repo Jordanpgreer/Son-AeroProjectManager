@@ -9,7 +9,7 @@ public static class EstimatingQuoteWorkflowEndpoints
     public static RouteGroupBuilder MapEstimatingQuoteWorkflowEndpoints(this RouteGroupBuilder api)
     {
         var workflow = api.MapGroup("/quote-workflow")
-            .RequireAuthorization(EstimatingPolicies.ViewHistory);
+            .RequireAuthorization(EstimatingPolicies.QuotesView);
 
         workflow.MapGet("/mine", async (
             HttpContext context,

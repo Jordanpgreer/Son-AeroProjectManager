@@ -35,13 +35,22 @@ public sealed class FulcrumEstimateEndpointAuthorizationTests
         foreach (var endpoint in routes.Where(endpoint =>
             endpoint.RoutePattern.RawText is "/api/fulcrum-estimates/preview"
                 or "/api/fulcrum-estimates/{reviewId:guid}/export"))
+        {
             Assert.Contains(
                 endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
                 authorization => authorization.Policy == EstimatingPolicies.ManageInputs);
+            Assert.Contains(
+                endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
+                authorization => authorization.Policy == EstimatingPolicies.CalculatorView);
+        }
 
-        var mutations = routes.Where(endpoint =>
-            endpoint.RoutePattern.RawText?.Contains("/rules") == true
-            && endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Any(method => method != "GET"));
+        var ruleRoutes = routes.Where(endpoint => endpoint.RoutePattern.RawText?.Contains("/rules") == true).ToList();
+        Assert.All(ruleRoutes, endpoint => Assert.Contains(
+            endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
+            authorization => authorization.Policy == EstimatingPolicies.OperationRulesView));
+
+        var mutations = ruleRoutes.Where(endpoint =>
+            endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Any(method => method != "GET"));
         Assert.Equal(3, mutations.Count());
         Assert.All(mutations, endpoint => Assert.Contains(
             endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),

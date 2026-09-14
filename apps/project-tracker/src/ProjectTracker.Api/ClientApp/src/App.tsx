@@ -94,6 +94,8 @@ import { saveTrainingProfile } from './demo/training-profile'
 import {
   hasAnyPermission,
   hasPermission,
+  canViewProjectTrackerScreen,
+  firstAccessibleProjectTrackerScreen,
   permissionKeys,
   projectMetadataEditPermissions,
   taskFieldEditPermissions,
@@ -477,14 +479,19 @@ function App() {
     setLoading(true)
     setError(null)
     try {
-      const [me, data] = await Promise.all([
-        api<User>('/api/me'),
-        api<Dashboard>('/api/dashboard'),
-      ])
+      const me = await api<User>('/api/me')
       setUser(me)
+      const firstScreen = firstAccessibleProjectTrackerScreen(me.permissions)
+      if (!firstScreen) {
+        setDashboard(emptyDashboard)
+        return
+      }
+      const targetScreen = canViewProjectTrackerScreen(me.permissions, screen) ? screen : firstScreen
+      if (targetScreen !== screen) setScreen(targetScreen)
+      const data = await api<Dashboard>('/api/dashboard')
       setDashboard(data)
       const notificationDestination = readNotificationDestination()
-      if (notificationDestination) {
+      if (notificationDestination && canViewProjectTrackerScreen(me.permissions, 'project')) {
         setScreen('project')
         await openProject(notificationDestination.projectId, false)
         if (notificationDestination.kind === 'ProjectChatMention') {
@@ -506,9 +513,10 @@ function App() {
         const projectId = storedProjectId && data.projects.some((project) => project.id === storedProjectId)
           ? storedProjectId
           : data.projects[0].id
-        if (screen === 'project') await openProject(projectId, false)
+        if (targetScreen === 'project') await openProject(projectId, false)
       }
-      if (!notificationDestination && screen !== 'project') await loadScreenData(screen)
+      if (notificationDestination && !canViewProjectTrackerScreen(me.permissions, 'project')) clearNotificationDestination()
+      if ((!notificationDestination || !canViewProjectTrackerScreen(me.permissions, 'project')) && targetScreen !== 'project') await loadScreenData(targetScreen)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load tracker data.')
     } finally {
@@ -520,18 +528,23 @@ function App() {
     setLoading(true)
     setError(null)
     try {
-      const [me, data] = await Promise.all([
-        api<User>('/api/me'),
-        api<Dashboard>('/api/dashboard'),
-      ])
+      const me = await api<User>('/api/me')
       setUser(me)
+      const firstScreen = firstAccessibleProjectTrackerScreen(me.permissions)
+      if (!firstScreen) {
+        setDashboard(emptyDashboard)
+        return
+      }
+      const targetScreen = canViewProjectTrackerScreen(me.permissions, screen) ? screen : firstScreen
+      if (targetScreen !== screen) setScreen(targetScreen)
+      const data = await api<Dashboard>('/api/dashboard')
       setDashboard(data)
-      await loadScreenData(screen, true)
+      await loadScreenData(targetScreen, true)
 
       const storedProjectId = readStoredProjectId()
       const projectId = selectedProject?.id
         ?? (storedProjectId && data.projects.some((project) => project.id === storedProjectId) ? storedProjectId : data.projects[0]?.id)
-      if (projectId && screen === 'project') {
+      if (projectId && targetScreen === 'project') {
         const project = await api<ProjectDetail>(`/api/projects/${projectId}`)
         setSelectedProject(project)
         setProjectChangeNotice(null)
@@ -546,6 +559,7 @@ function App() {
   }
 
   async function openProject(projectId: number, switchScreen = true) {
+    if (user && !canViewProjectTrackerScreen(user.permissions, 'project')) return
     // A legacy import can be completed later. Prompt again when the user deliberately
     // reopens that project, while still avoiding duplicate prompts during refreshes.
     promptedImportProjectId.current = null
@@ -1144,12 +1158,14 @@ function App() {
   }, [screen, selectedProject?.id, selectedProject?.version, loading, projectLoading, dismissedProjectVersion])
 
   useEffect(() => {
-    if (loading) return
+    if (loading || !user || !canViewProjectTrackerScreen(user.permissions, screen)) return
     void loadScreenData(screen).catch((err) => setError(err instanceof Error ? err.message : 'Unable to load screen data.'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, loading])
 
   const userPermissions = user?.permissions ?? []
+  const firstAccessibleScreen = firstAccessibleProjectTrackerScreen(userPermissions)
+  const canViewCurrentScreen = Boolean(user && canViewProjectTrackerScreen(userPermissions, screen))
   const previewReadOnly = Boolean(user?.preview?.readOnly)
   const mutationPermissions = previewReadOnly ? [] : userPermissions
   const canEnterProjectEdit = hasAnyPermission(mutationPermissions, [
@@ -1165,6 +1181,11 @@ function App() {
     && hasPermission(mutationPermissions, permissionKeys.archivedDelete)
   const canViewActivity = Boolean(userPermissions.includes('project.activity.view'))
   const isProjectScreen = screen === 'project'
+
+  useEffect(() => {
+    if (!user || canViewCurrentScreen || !firstAccessibleScreen) return
+    setScreen(firstAccessibleScreen)
+  }, [user, canViewCurrentScreen, firstAccessibleScreen])
   const pageToursEnabled = Boolean(
     user?.walkthroughEnabled
     && hasPermission(userPermissions, permissionKeys.moduleView)
@@ -1337,7 +1358,7 @@ function App() {
             <a className="button ghost" href={user.preview.endUrl} target="_top">Return to Hub Admin</a>
           </aside>
         )}
-        <PageHeader
+        {canViewCurrentScreen && <PageHeader
           theme={theme}
           onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
           screen={screen}
@@ -1360,11 +1381,19 @@ function App() {
             setActivityOpen(true)
           }}
           onStartTour={() => startPageTour(screen)}
-        />
+        />}
 
         <div className="main-scroll">
           {(loading || screenDataLoading) && <LoadingSkeleton screen={screen} />}
           {error && <ErrorState message={error} onRetry={refreshCurrent} />}
+          {!loading && !error && user && !firstAccessibleScreen && (
+            <section className="view">
+              <div className="panel empty-state">
+                <strong>No Project Tracker pages assigned</strong>
+                <p>Your account can open Project Tracker, but your group does not currently have permission to view any pages.</p>
+              </div>
+            </section>
+          )}
           {!loading && !screenDataLoading && !error && projectChangeNotice && isProjectScreen && selectedProject && (
             <section className="view change-notice-wrap">
               <div className="panel state-warning">
@@ -1405,7 +1434,7 @@ function App() {
             </section>
           )}
           {!loading && !screenDataLoading && !error && projectLoading && isProjectScreen && <ProjectSkeleton />}
-          {!loading && !screenDataLoading && !error && !projectLoading && (
+          {!loading && !screenDataLoading && !error && !projectLoading && canViewCurrentScreen && (
             <>
               {screen === 'dashboard' && (
                 <DashboardView dashboard={dashboard} search={dashboardSearch} currentUser={user} canReorderPriority={canReorderPriority} onOpenProject={(projectId) => requestNavigation(() => openProject(projectId))} onMovePriority={updateProjectPriority} />

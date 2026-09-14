@@ -34,7 +34,7 @@ public static class FulcrumQuoteGenerationEndpoints
                 return Results.Problem(statusCode: 502, title: "Could not generate quote",
                     detail: "Fulcrum data could not be safely converted into an estimate. Review the quote and API permissions, then try again.");
             }
-        }).RequireAuthorization(EstimatingPolicies.ViewHistory, EstimatingPolicies.ManageInputs, EstimatingPolicies.Editor);
+        }).RequireAuthorization(EstimatingPolicies.QuotesView, EstimatingPolicies.ManageInputs, EstimatingPolicies.Editor);
         return api;
     }
 

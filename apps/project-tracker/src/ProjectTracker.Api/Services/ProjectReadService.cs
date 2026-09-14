@@ -8,10 +8,20 @@ namespace ProjectTracker.Api.Services;
 
 public sealed class ProjectReadService(ProjectTrackerDbContext db, ProjectMetricsService metrics)
 {
-    public async Task<DashboardDto> DashboardAsync(CancellationToken cancellationToken = default)
+    public Task<DashboardDto> DashboardAsync(CancellationToken cancellationToken = default) =>
+        DashboardAsync(includeActive: true, includeCompleted: true, cancellationToken);
+
+    public async Task<DashboardDto> DashboardAsync(
+        bool includeActive,
+        bool includeCompleted,
+        CancellationToken cancellationToken = default)
     {
         var projects = await LoadProjectsAsync(cancellationToken);
         await RefreshForReadAsync(projects, cancellationToken);
+
+        projects = projects
+            .Where(project => project.Status == ProjectStatus.Complete ? includeCompleted : includeActive)
+            .ToList();
 
         var summaries = projects
             .OrderBy(project => project.Status == ProjectStatus.Complete ? 1 : 0)

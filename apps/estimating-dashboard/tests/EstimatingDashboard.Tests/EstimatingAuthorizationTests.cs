@@ -7,9 +7,9 @@ namespace EstimatingDashboard.Tests;
 public sealed class EstimatingAuthorizationTests
 {
     [Theory]
-    [InlineData(EstimatingRoles.Viewer, 3)]
-    [InlineData(EstimatingRoles.Editor, 5)]
-    [InlineData(EstimatingRoles.Admin, 10)]
+    [InlineData(EstimatingRoles.Viewer, 8)]
+    [InlineData(EstimatingRoles.Editor, 10)]
+    [InlineData(EstimatingRoles.Admin, 15)]
     public void PermissionsAreCumulativeByRole(string role, int expectedCount)
     {
         var permissions = EstimatingPermissions.ForRole(role);
@@ -18,6 +18,11 @@ public sealed class EstimatingAuthorizationTests
         Assert.Contains(EstimatingPermissions.View, permissions);
         Assert.Contains(EstimatingPermissions.Calculate, permissions);
         Assert.Contains(EstimatingPermissions.ViewHistory, permissions);
+        Assert.Contains(EstimatingPermissions.QuotesView, permissions);
+        Assert.Contains(EstimatingPermissions.QuoteStatusView, permissions);
+        Assert.Contains(EstimatingPermissions.CalculatorView, permissions);
+        Assert.Contains(EstimatingPermissions.RatesView, permissions);
+        Assert.Contains(EstimatingPermissions.OperationRulesView, permissions);
     }
 
     [Fact]

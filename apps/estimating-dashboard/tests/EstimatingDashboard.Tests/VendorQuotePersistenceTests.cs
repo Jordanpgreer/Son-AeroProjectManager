@@ -79,7 +79,7 @@ public sealed class VendorQuotePersistenceTests
     }
 
     [Fact]
-    public void Every_route_requires_history_and_every_write_requires_editor()
+    public void Every_route_requires_quote_status_page_and_every_write_requires_editor()
     {
         var builder = WebApplication.CreateBuilder();
         builder.Services.AddAuthorization();
@@ -92,7 +92,7 @@ public sealed class VendorQuotePersistenceTests
         Assert.All(routes, route =>
         {
             var auth = route.Metadata.GetOrderedMetadata<IAuthorizeData>();
-            Assert.Contains(auth, x => x.Policy == EstimatingPolicies.ViewHistory);
+            Assert.Contains(auth, x => x.Policy == EstimatingPolicies.QuoteStatusView);
             if (route.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Any(x => x is "POST" or "PUT"))
                 Assert.Contains(auth, x => x.Policy == EstimatingPolicies.Editor);
             if (route.RoutePattern.RawText?.EndsWith("/remove") == true || route.RoutePattern.RawText?.EndsWith("/restore") == true)

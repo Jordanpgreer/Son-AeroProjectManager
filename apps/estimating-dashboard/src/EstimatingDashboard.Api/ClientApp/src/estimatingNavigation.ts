@@ -1,4 +1,25 @@
+import { estimatingPermissions } from './authorization.ts'
+
 export type EstimatingPage = 'quotes' | 'quote-status' | 'calculator' | 'history' | 'rates' | 'operation-rules'
+
+export const ESTIMATING_PAGE_ORDER: readonly EstimatingPage[] = ['quotes', 'quote-status', 'calculator', 'history', 'rates', 'operation-rules']
+
+export const ESTIMATING_PAGE_PERMISSIONS: Readonly<Record<EstimatingPage, string>> = {
+  quotes: estimatingPermissions.quotesView,
+  'quote-status': estimatingPermissions.quoteStatusView,
+  calculator: estimatingPermissions.calculatorView,
+  history: estimatingPermissions.viewHistory,
+  rates: estimatingPermissions.ratesView,
+  'operation-rules': estimatingPermissions.operationRulesView,
+}
+
+export function canViewEstimatingPage(permissions: readonly string[], page: EstimatingPage) {
+  return permissions.includes(ESTIMATING_PAGE_PERMISSIONS[page])
+}
+
+export function firstAccessibleEstimatingPage(permissions: readonly string[]) {
+  return ESTIMATING_PAGE_ORDER.find((page) => canViewEstimatingPage(permissions, page)) ?? null
+}
 
 export const PAGE_META: Record<EstimatingPage, { eyebrow: string; title: string; subtitle: string }> = {
   quotes: {

@@ -15,7 +15,8 @@ interface AdminNavigationProps {
   canManageUsers: boolean
   canPreviewAccess: boolean
   canOpenTrackerSection: (section: ProjectTrackerAdminSection) => boolean
-  canManageQualityRules: boolean
+  canViewEngineeringSettings: boolean
+  canViewQualitySettings: boolean
 }
 
 export default function AdminNavigation(props: AdminNavigationProps) {
@@ -23,8 +24,12 @@ export default function AdminNavigation(props: AdminNavigationProps) {
   const sidebarRef = useRef<HTMLElement>(null)
   const toggleRef = useRef<HTMLButtonElement>(null)
   const { selected, section, canSeeAdminOnly, canSeeBenny } = props
-  const modules = ADMIN_MODULES.filter((module) => module.key === 'benny'
-    ? canSeeBenny : canSeeAdminOnly || !module.adminOnly)
+  const modules = ADMIN_MODULES.filter((module) => {
+    if (module.key === 'benny') return canSeeBenny
+    if (module.key === 'engineering') return props.canViewEngineeringSettings
+    if (module.key === 'quality-assurance') return props.canViewQualitySettings
+    return canSeeAdminOnly || !module.adminOnly
+  })
 
   useEffect(() => {
     sidebarRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest' })
@@ -39,10 +44,10 @@ export default function AdminNavigation(props: AdminNavigationProps) {
       ...item, href: `#/admin/project-tracker/${item.key}`, allowed: props.canOpenTrackerSection(item.key),
     }))
     if (module.key === 'engineering') return ENGINEERING_SECTIONS.map((item) => ({
-      ...item, href: `#/admin/engineering/${item.key}`, allowed: true,
+      ...item, href: `#/admin/engineering/${item.key}`, allowed: props.canViewEngineeringSettings,
     }))
     if (module.key === 'quality-assurance') return QUALITY_SECTIONS.map((item) => ({
-      ...item, href: `#/admin/quality-assurance/${item.key}`, allowed: props.canManageQualityRules,
+      ...item, href: `#/admin/quality-assurance/${item.key}`, allowed: props.canViewQualitySettings,
     }))
     return [{ key: module.href.split('/').at(-1)!, label: module.label, icon: module.icon, href: module.href, allowed: true }]
   }

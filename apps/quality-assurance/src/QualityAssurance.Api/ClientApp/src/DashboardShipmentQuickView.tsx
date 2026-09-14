@@ -22,7 +22,7 @@ export default function DashboardShipmentQuickView({
   canAssignGroup: boolean
   canAssignUser: boolean
   onClose: () => void
-  onOpen: () => void
+  onOpen?: () => void
   onSaved: (shipment: Shipment) => void
 }) {
   const [options, setOptions] = useState<AssignmentOptions | null>(null)
@@ -114,7 +114,7 @@ export default function DashboardShipmentQuickView({
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Close quick view"><X size={19} /></button>
         </header>
-        <div className="drawer-actions"><button className="button primary" type="button" onClick={onOpen}>Open In Shipping Status <ExternalLink size={14} /></button></div>
+        {onOpen && <div className="drawer-actions"><button className="button primary" type="button" onClick={onOpen}>Open In Shipping Status <ExternalLink size={14} /></button></div>}
         <div className="drawer-scroll">
           <section className="shipment-hero">
             <span className={`status-badge ${shipment.isShipped ? 'shipped' : ''}`}>{shipment.status ?? 'Status hidden'}</span>

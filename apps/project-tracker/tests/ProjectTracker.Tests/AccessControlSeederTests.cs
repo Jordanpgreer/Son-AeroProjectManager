@@ -413,6 +413,44 @@ public sealed class AccessControlSeederTests
             permission.PermissionKey == ApplicationPermissions.ModuleView);
     }
 
+    [Fact]
+    public async Task Seed_GrantsExistingModuleGroupsPageAccessOnceWithoutOverwritingLaterChoices()
+    {
+        await using var fixture = await AccessFixture.CreateAsync();
+        fixture.Db.Groups.Add(new AppGroup
+        {
+            Name = "Legacy Cross Module",
+            Permissions =
+            [
+                new AppGroupPermission { PermissionKey = ApplicationPermissions.ModuleView },
+                new AppGroupPermission { PermissionKey = "estimating.view" },
+                new AppGroupPermission { PermissionKey = QualityAssurancePermissions.ModuleView },
+                new AppGroupPermission { PermissionKey = QualityAssurancePermissions.RulesManage }
+            ]
+        });
+        await fixture.Db.SaveChangesAsync();
+
+        var seeder = new AccessControlSeeder();
+        await seeder.SeedAsync(fixture.Db, Configuration());
+
+        var group = await fixture.Db.Groups.Include(candidate => candidate.Permissions)
+            .SingleAsync(candidate => candidate.Name == "Legacy Cross Module");
+        Assert.All(ApplicationPermissions.DefaultPageViewPermissions, permission =>
+            Assert.Contains(group.Permissions, candidate => candidate.PermissionKey == permission));
+        Assert.All(EstimatingPagePermissions.All, permission =>
+            Assert.Contains(group.Permissions, candidate => candidate.PermissionKey == permission));
+        Assert.Contains(group.Permissions, candidate => candidate.PermissionKey == QualityAssurancePermissions.DashboardView);
+        Assert.Contains(group.Permissions, candidate => candidate.PermissionKey == QualityAssurancePermissions.SettingsView);
+
+        var removed = group.Permissions.Single(candidate => candidate.PermissionKey == ApplicationPermissions.ProjectDetailView);
+        fixture.Db.GroupPermissions.Remove(removed);
+        await fixture.Db.SaveChangesAsync();
+        await seeder.SeedAsync(fixture.Db, Configuration());
+
+        Assert.False(await fixture.Db.GroupPermissions.AnyAsync(candidate =>
+            candidate.AppGroupId == group.Id && candidate.PermissionKey == ApplicationPermissions.ProjectDetailView));
+    }
+
     private static IConfiguration Configuration(params (string Key, string Value)[] values) =>
         new ConfigurationBuilder()
             .AddInMemoryCollection(values.ToDictionary(pair => pair.Key, pair => (string?)pair.Value))

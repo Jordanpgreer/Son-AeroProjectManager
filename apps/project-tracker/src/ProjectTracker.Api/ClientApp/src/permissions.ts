@@ -1,5 +1,11 @@
+import type { Screen } from './types'
+
 export const permissionKeys = {
   moduleView: 'module.view',
+  dashboardView: 'project-tracker.dashboard.view',
+  projectDetailView: 'project-tracker.project-detail.view',
+  calendarView: 'project-tracker.calendar.view',
+  pastProjectsView: 'project-tracker.past-projects.view',
   projectCreate: 'project.create',
   projectEditProgramName: 'project.edit.programName',
   projectEditProgramManager: 'project.edit.programManager',
@@ -45,6 +51,23 @@ export const permissionKeys = {
 } as const
 
 export const allProjectTrackerPermissionKeys = Object.values(permissionKeys)
+
+export const projectTrackerScreenOrder: readonly Screen[] = ['dashboard', 'project', 'calendar', 'pastProjects']
+
+export const projectTrackerScreenPermissions: Readonly<Record<Screen, string>> = {
+  dashboard: permissionKeys.dashboardView,
+  project: permissionKeys.projectDetailView,
+  calendar: permissionKeys.calendarView,
+  pastProjects: permissionKeys.pastProjectsView,
+}
+
+export function canViewProjectTrackerScreen(permissions: readonly string[], screen: Screen) {
+  return permissions.includes(projectTrackerScreenPermissions[screen])
+}
+
+export function firstAccessibleProjectTrackerScreen(permissions: readonly string[]) {
+  return projectTrackerScreenOrder.find((screen) => canViewProjectTrackerScreen(permissions, screen)) ?? null
+}
 
 export const projectMetadataEditPermissions = [
   permissionKeys.projectEditProgramName,

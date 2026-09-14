@@ -18,16 +18,17 @@ public static class FulcrumEstimateEndpoints
             .DisableAntiforgery()
             .WithMetadata(new RequestSizeLimitAttribute(MaximumUploadBytes + 1024 * 1024))
             .WithMetadata(new RequestFormLimitsAttribute { MultipartBodyLengthLimit = MaximumUploadBytes })
-            .RequireAuthorization(EstimatingPolicies.ManageInputs);
+            .RequireAuthorization(EstimatingPolicies.CalculatorView, EstimatingPolicies.ManageInputs);
 
         estimates.MapPost("/{reviewId:guid}/export", Export)
             .WithMetadata(new RequestSizeLimitAttribute(256 * 1024))
-            .RequireAuthorization(EstimatingPolicies.ManageInputs);
+            .RequireAuthorization(EstimatingPolicies.CalculatorView, EstimatingPolicies.ManageInputs);
 
         estimates.MapGet("/rules", async (
             EstimatingOperationMappingService service,
             CancellationToken cancellationToken) =>
-            Results.Ok(await service.GetCatalogAsync(cancellationToken)));
+            Results.Ok(await service.GetCatalogAsync(cancellationToken)))
+            .RequireAuthorization(EstimatingPolicies.OperationRulesView);
 
         estimates.MapPost("/rules", (
             HttpContext context,
@@ -39,7 +40,7 @@ public static class FulcrumEstimateEndpoints
                 var created = await service.CreateAsync(request, Actor(context), cancellationToken);
                 return Results.Created($"/api/fulcrum-estimates/rules/{created.Id}", created);
             }))
-            .RequireAuthorization(EstimatingPolicies.AdministerRates);
+            .RequireAuthorization(EstimatingPolicies.OperationRulesView, EstimatingPolicies.AdministerRates);
 
         estimates.MapPut("/rules/{id:int}", (
             HttpContext context,
@@ -49,7 +50,7 @@ public static class FulcrumEstimateEndpoints
             CancellationToken cancellationToken) =>
             MappingResult(async () => Results.Ok(await service.UpdateAsync(
                 id, request, Actor(context), cancellationToken))))
-            .RequireAuthorization(EstimatingPolicies.AdministerRates);
+            .RequireAuthorization(EstimatingPolicies.OperationRulesView, EstimatingPolicies.AdministerRates);
 
         estimates.MapPost("/rules/{id:int}/deactivate", (
             HttpContext context,
@@ -59,7 +60,7 @@ public static class FulcrumEstimateEndpoints
             CancellationToken cancellationToken) =>
             MappingResult(async () => Results.Ok(await service.DeactivateAsync(
                 id, request.Version, Actor(context), cancellationToken))))
-            .RequireAuthorization(EstimatingPolicies.AdministerRates);
+            .RequireAuthorization(EstimatingPolicies.OperationRulesView, EstimatingPolicies.AdministerRates);
 
         return api;
     }

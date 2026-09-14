@@ -3,6 +3,7 @@ namespace SonAero.Platform.Security;
 public static class QualityAssurancePermissions
 {
     public const string ModuleView = "quality-assurance.view";
+    public const string DashboardView = "quality-assurance.dashboard.view";
     public const string ShipmentsView = "quality-assurance.shipments.view";
     public const string ShipmentsViewAll = "quality-assurance.shipments.view-all";
     public const string TeamDashboardView = "quality-assurance.dashboard.team-view";
@@ -16,6 +17,7 @@ public static class QualityAssurancePermissions
     public const string ResponsibleGroupEligible = "quality-assurance.assignments.responsible-group";
     public const string MarkShipped = "quality-assurance.shipments.mark-shipped";
     public const string AuditView = "quality-assurance.audit.view";
+    public const string SettingsView = "quality-assurance.settings.view";
     public const string RulesManage = "quality-assurance.rules.manage";
 
     public const string StatusView = "quality-assurance.fields.status.view";
@@ -90,6 +92,7 @@ public static class QualityAssurancePermissions
     public static readonly IReadOnlyList<PermissionDefinition> WorkflowDefinitions =
     [
         Permission(ModuleView, "View Quality Assurance", "Open the Quality Assurance module.", "Module access"),
+        Permission(DashboardView, "View Quality Dashboard", "Open personal workload, due-date risk, and completion statistics.", "Pages"),
         Permission(ShipmentsView, "View own shipping queue", "View shipments assigned directly to the current user.", "Shipping workflow"),
         Permission(ShipmentsViewAll, "View all shipments", "View open and past shipments across all groups and users.", "Shipping workflow"),
         Permission(TeamDashboardView, "View team queue statistics", "View queue volume and completion statistics for other users.", "Shipping workflow"),
@@ -103,6 +106,7 @@ public static class QualityAssurancePermissions
         Permission(ResponsibleGroupEligible, "Use as Quality Responsible Group", "Include this permission group in Quality Responsible Group dropdowns and automatic routing rules.", "Assignments"),
         Permission(MarkShipped, "Mark shipments shipped", "Complete a shipment and move it to Past Shipments.", "Shipping workflow"),
         Permission(AuditView, "View shipment audit history", "View permanent field, assignment, and completion changes.", "Audit"),
+        Permission(SettingsView, "View Quality Settings", "Open Quality workflow and assignment settings in the Admin Console.", "Pages"),
         Permission(RulesManage, "Manage Quality workflows", "Design, test, and publish Quality action paths, conditions, queue routing, and group restrictions.", "Administration")
     ];
 
@@ -110,7 +114,7 @@ public static class QualityAssurancePermissions
         [.. WorkflowDefinitions, .. FieldViewDefinitions, .. FieldEditDefinitions];
 
     public static readonly IReadOnlyList<string> ViewerDefaults =
-        [ModuleView, ShipmentsView, AssignmentView, .. FieldViewDefinitions.Select(x => x.Key)];
+        [ModuleView, DashboardView, ShipmentsView, AssignmentView, .. FieldViewDefinitions.Select(x => x.Key)];
 
     public static readonly IReadOnlyList<string> EditorDefaults =
         [.. ViewerDefaults, ShipmentCreate, MarkShipped, AuditView, .. FieldEditDefinitions.Select(x => x.Key)];

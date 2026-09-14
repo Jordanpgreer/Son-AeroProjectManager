@@ -23,6 +23,11 @@ export const estimatingPermissions = {
   viewHistory: 'estimating.history.view',
   importHistory: 'estimating.history.import',
   manageHistory: 'estimating.history.manage',
+  quotesView: 'estimating.quotes.view',
+  quoteStatusView: 'estimating.quote-status.view',
+  calculatorView: 'estimating.calculator.view',
+  ratesView: 'estimating.rates.view',
+  operationRulesView: 'estimating.operation-rules.view',
 } as const
 
 export function hasEstimatingPermission(

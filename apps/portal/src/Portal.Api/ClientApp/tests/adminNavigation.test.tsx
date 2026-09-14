@@ -22,7 +22,8 @@ function renderNavigation(overrides: Partial<NavigationProps> = {}) {
     canManageUsers
     canPreviewAccess
     canOpenTrackerSection={() => true}
-    canManageQualityRules
+    canViewEngineeringSettings
+    canViewQualitySettings
     {...overrides}
   />)
 }
@@ -54,14 +55,17 @@ describe('AdminNavigation', () => {
       canManageUsers: false,
       canPreviewAccess: false,
       canOpenTrackerSection: (section) => section === 'work-centers',
-      canManageQualityRules: false,
+      canViewEngineeringSettings: false,
+      canViewQualitySettings: false,
     })
 
-    for (const label of ['Permission groups', 'People', 'Access preview', 'Onboarding', 'Work Calendar', 'Holidays', 'Imports', 'Workflow']) {
+    for (const label of ['Permission groups', 'People', 'Access preview', 'Onboarding', 'Work Calendar', 'Holidays', 'Imports']) {
       const link = pageLink(markup, label)
       expect(link).toContain('aria-disabled="true"')
       expect(link).not.toContain('href=')
     }
+    expect(markup).not.toContain('<span>File Storage</span>')
+    expect(markup).not.toContain('<span>Workflow</span>')
     expect(pageLink(markup, 'Work Centers')).toContain('href="#/admin/project-tracker/work-centers"')
     expect(pageLink(markup, 'Work Centers')).not.toContain('aria-disabled')
   })

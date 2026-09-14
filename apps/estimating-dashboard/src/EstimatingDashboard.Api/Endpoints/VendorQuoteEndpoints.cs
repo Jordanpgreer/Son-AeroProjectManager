@@ -10,7 +10,7 @@ public static class VendorQuoteEndpoints
 {
     public static RouteGroupBuilder MapVendorQuoteEndpoints(this RouteGroupBuilder api)
     {
-        var group = api.MapGroup("/vendor-quotes").RequireAuthorization(EstimatingPolicies.ViewHistory);
+        var group = api.MapGroup("/vendor-quotes").RequireAuthorization(EstimatingPolicies.QuoteStatusView);
         group.AddEndpointFilter(ErrorFilter);
         group.MapGet("", async (HttpContext ctx, VendorQuoteService service, string? search, string? status,
             int? quoteNumber, int page = 1, int pageSize = 50, CancellationToken cancellationToken = default) =>
@@ -53,7 +53,7 @@ public static class VendorQuoteEndpoints
     }
     public static RouteGroupBuilder MapQuoteStatusEndpoints(this RouteGroupBuilder api)
     {
-        var group = api.MapGroup("/quote-status").RequireAuthorization(EstimatingPolicies.ViewHistory);
+        var group = api.MapGroup("/quote-status").RequireAuthorization(EstimatingPolicies.QuoteStatusView);
         group.AddEndpointFilter(ErrorFilter);
         group.MapManualEmails();
         group.MapItemLifecycle();

@@ -42,7 +42,7 @@ public static class ArchivedProjectEndpoints
                     project.DeletedAt!.Value,
                     project.DeletedByDisplayName))
                 .ToList();
-        });
+        }).RequireAuthorization(ProjectTrackerPagePolicies.PastProjects);
 
         api.MapPost("/archived-projects/{id:int}/restore", async (
             int id,
@@ -89,10 +89,10 @@ public static class ArchivedProjectEndpoints
                 [new ProjectAuditChange("Archived at", archivedAt?.ToString("O"), null)]);
             await db.SaveChangesAsync(cancellationToken);
             return Results.NoContent();
-        }).RequireAuthorization("RestoreArchived");
+        }).RequireAuthorization(ProjectTrackerPagePolicies.PastProjects, "RestoreArchived");
 
         api.MapDelete("/archived-projects/{id:int}", PermanentlyDeleteAsync)
-            .RequireAuthorization(PermanentDeletePolicyName);
+            .RequireAuthorization(ProjectTrackerPagePolicies.PastProjects, PermanentDeletePolicyName);
 
         return api;
     }
