@@ -114,6 +114,14 @@ public static class AdminAccessPreviewEndpoints
                 detail: "The selected user or group no longer exists or is inactive.");
         }
 
+        if (walkthrough && !target.CanLaunchProjectTrackerWalkthrough)
+        {
+            return Results.Problem(
+                statusCode: StatusCodes.Status403Forbidden,
+                title: "Walkthrough unavailable",
+                detail: "The selected target needs access to at least one Project Tracker page before its walkthrough can be opened.");
+        }
+
         var application = target.Applications.SingleOrDefault(candidate =>
             string.Equals(candidate.Id, applicationId, StringComparison.OrdinalIgnoreCase)
             && candidate.Status == ApplicationStatus.Active);
@@ -232,7 +240,8 @@ public static class AdminAccessPreviewEndpoints
                 "First-time Arda visitor",
                 PortalAccountStatus.PendingSetup,
                 null,
-                [])
+                [],
+                false)
         };
         targets.AddRange(users
             .Where(user => !WindowsAccountNames.Equals(user.AccountName, currentAccountName))
@@ -278,7 +287,8 @@ public static class AdminAccessPreviewEndpoints
             user.AccountName,
             configured ? PortalAccountStatus.Configured : PortalAccountStatus.PendingSetup,
             role,
-            applications);
+            applications,
+            ApplicationPermissions.CanViewAnyPage(permissions));
     }
 
     private static AdminAccessPreviewTargetDto ToSharedGroupTarget(
@@ -297,7 +307,8 @@ public static class AdminAccessPreviewEndpoints
             group.Description ?? "Shared permission group",
             applications.Count > 0 ? PortalAccountStatus.Configured : PortalAccountStatus.PendingSetup,
             role,
-            applications);
+            applications,
+            ApplicationPermissions.CanViewAnyPage(permissions));
     }
 
     private static AdminAccessPreviewTargetDto ToEngineeringGroupTarget(
@@ -314,7 +325,8 @@ public static class AdminAccessPreviewEndpoints
             group.Description ?? "Engineering permission group",
             applications.Count > 0 ? PortalAccountStatus.Configured : PortalAccountStatus.PendingSetup,
             "Engineering group",
-            applications);
+            applications,
+            false);
     }
 
     private static IReadOnlyList<ApplicationDto> SingleApplication(ApplicationRegistry registry, string id)

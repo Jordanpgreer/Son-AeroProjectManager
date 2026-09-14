@@ -108,7 +108,7 @@ export default function WalkthroughPreviewLauncher({
                 >
                   <span className="admin-walkthrough-target-icon"><UsersRound size={17} aria-hidden="true" /></span>
                   <span className="admin-walkthrough-target-copy"><strong>{target.title}</strong><small>{target.subtitle}</small></span>
-                  <em className={canLaunch ? 'available' : undefined}>{canLaunch ? 'Ready' : 'No module access'}</em>
+                  <em className={canLaunch ? 'available' : undefined}>{canLaunch ? 'Ready' : 'No page access'}</em>
                 </button>
               )
             })}
@@ -120,7 +120,7 @@ export default function WalkthroughPreviewLauncher({
               {selected
                 ? selectedCanLaunch
                   ? `Ready to preview lessons available to ${selected.title}.`
-                  : `${selected.title} cannot launch a walkthrough until it has Project Tracker access.`
+                  : `${selected.title} cannot launch a walkthrough until it can view at least one Project Tracker page.`
                 : 'Select a group or role to preview its walkthrough.'}
             </p>
             <button

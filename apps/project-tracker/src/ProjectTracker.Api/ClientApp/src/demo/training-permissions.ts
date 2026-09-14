@@ -1,6 +1,12 @@
 import { permissionKeys } from '../permissions.ts'
 
-export const VIEW_ONLY_PERMISSIONS = [permissionKeys.moduleView] as const
+export const VIEW_ONLY_PERMISSIONS = [
+  permissionKeys.moduleView,
+  permissionKeys.dashboardView,
+  permissionKeys.projectDetailView,
+  permissionKeys.calendarView,
+  permissionKeys.pastProjectsView,
+] as const
 
 export const PROJECT_FIELD_TRAINING_LABELS = {
   [permissionKeys.projectEditProgramName]: 'part number',
@@ -43,6 +49,10 @@ export const ADMIN_TRAINING_LABELS = {
 
 export const TRAINING_PERMISSION_COVERAGE: Record<string, string> = {
   [permissionKeys.moduleView]: 'page-tours',
+  [permissionKeys.dashboardView]: 'dashboard-tour',
+  [permissionKeys.projectDetailView]: 'project-tour',
+  [permissionKeys.calendarView]: 'calendar-tour',
+  [permissionKeys.pastProjectsView]: 'past-projects-tour',
   [permissionKeys.projectCreate]: 'page-tour-static',
   [permissionKeys.projectEditPriority]: 'page-tour-static',
   [permissionKeys.projectComplete]: 'page-tour-static',

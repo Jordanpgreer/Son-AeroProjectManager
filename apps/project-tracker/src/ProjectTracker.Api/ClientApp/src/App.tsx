@@ -1189,9 +1189,10 @@ function App() {
   const pageToursEnabled = Boolean(
     user?.walkthroughEnabled
     && hasPermission(userPermissions, permissionKeys.moduleView)
+    && firstAccessibleScreen
     && !user.preview
   )
-  const pageTourInvitationEnabled = pageToursEnabled && !isPortalEmbedded
+  const pageTourInvitationEnabled = pageToursEnabled && canViewCurrentScreen && !isPortalEmbedded
   const holidaySet = useMemo(() => new Set(holidays.map((holiday) => holiday.date)), [holidays])
   const workingDaySet = useMemo(() => new Set(scheduleSettings.workingDays.map(dayNameToIndex)), [scheduleSettings.workingDays])
   const knownWorkStations = useMemo(() => workCenters.map((workCenter) => workCenter.name), [workCenters])
@@ -1224,7 +1225,7 @@ function App() {
   }
 
   function startPageTour(target: Screen) {
-    if (!user || !pageToursEnabled) return
+    if (!user || !pageToursEnabled || !canViewProjectTrackerScreen(userPermissions, target)) return
     dismissPageTourPrompt(target)
     void requestNavigation(() => {
       saveTrainingProfile(user)
@@ -1241,14 +1242,20 @@ function App() {
   async function handleBennyCommand(command: BennySafeCommand): Promise<BennyCommandResult> {
     const navigationPending = editMode && projectMetadataDirty
     const pendingMessage = 'Review the unsaved project details prompt first; your destination is queued.'
+    const deniedPage = (target: Screen): BennyCommandResult => ({
+      ok: false,
+      message: `You do not have access to ${screenTitle(target, selectedProject)}.`,
+    })
 
     if (command.kind === 'screen') {
+      if (!canViewProjectTrackerScreen(userPermissions, command.screen)) return deniedPage(command.screen)
       await requestNavigation(command.screen === 'project' ? openActiveProjectWorkspace : () => setScreen(command.screen))
       if (navigationPending) return { ok: true, message: pendingMessage }
       return { ok: true, message: `${screenTitle(command.screen, selectedProject)} is open.` }
     }
 
     if (command.kind === 'filter') {
+      if (!canViewProjectTrackerScreen(userPermissions, command.screen)) return deniedPage(command.screen)
       if (command.filter === 'behind') {
         const behindCount = dashboard.projects.filter((project) => project.status === 'Behind').length
         await requestNavigation(() => {
@@ -1283,12 +1290,14 @@ function App() {
     }
 
     if (command.kind === 'open-project') {
+      if (!canViewProjectTrackerScreen(userPermissions, 'project')) return deniedPage('project')
       await requestNavigation(() => openProject(command.projectId))
       if (navigationPending) return { ok: true, message: pendingMessage }
       return { ok: await revealBennyTarget('project-summary'), message: 'The matching project is open.' }
     }
 
     if (command.kind === 'focus-operation') {
+      if (!canViewProjectTrackerScreen(userPermissions, 'project')) return deniedPage('project')
       await requestNavigation(async () => {
         await openProject(command.projectId)
         setNotificationTaskId(command.operationId)
@@ -1299,6 +1308,7 @@ function App() {
     }
 
     if (command.kind === 'open-gantt') {
+      if (!canViewProjectTrackerScreen(userPermissions, 'project')) return deniedPage('project')
       const projectId = command.projectId ?? selectedProject?.id ?? dashboard.projects.find((project) => project.status !== 'Complete')?.id
       if (!projectId) return { ok: false, message: 'There is no active project available for a Gantt schedule.' }
       await requestNavigation(async () => {
@@ -1311,6 +1321,7 @@ function App() {
 
     if (command.kind === 'focus-ui') {
       if (command.screen) {
+        if (!canViewProjectTrackerScreen(userPermissions, command.screen)) return deniedPage(command.screen)
         await requestNavigation(command.screen === 'project' ? openActiveProjectWorkspace : () => setScreen(command.screen!))
         if (navigationPending) return { ok: true, message: pendingMessage }
       }

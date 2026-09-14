@@ -9,6 +9,7 @@ export const PROJECT_TRACKER_APPLICATION_ID = 'project-tracker'
 export function walkthroughApplication(
   target: AdminAccessPreviewTarget,
 ): AdminPreviewApplication | null {
+  if (!target.canLaunchProjectTrackerWalkthrough) return null
   return target.applications.find((application) =>
     application.id === PROJECT_TRACKER_APPLICATION_ID
     && application.status === 'active') ?? null

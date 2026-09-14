@@ -1,5 +1,5 @@
 import type { BloubAnimationId } from './bloub-animations.ts'
-import { permissionKeys } from '../permissions.ts'
+import { canViewProjectTrackerScreen, permissionKeys } from '../permissions.ts'
 import {
   OPERATION_FIELD_TRAINING_LABELS,
   PROJECT_FIELD_TRAINING_LABELS,
@@ -38,6 +38,23 @@ export const TRAINING_TOUR_LABELS: Record<TrainingScreen, string> = {
   project: 'Project Detail',
   calendar: 'Calendar',
   pastProjects: 'Past Projects',
+}
+
+export function canViewTrainingScreen(screen: TrainingScreen, permissions: readonly string[]) {
+  return has(permissions, permissionKeys.moduleView)
+    && canViewProjectTrackerScreen(permissions, screen)
+}
+
+export function firstEligibleTrainingScreen(permissions: readonly string[]) {
+  return TRAINING_TOUR_ORDER.find((screen) => canViewTrainingScreen(screen, permissions)) ?? null
+}
+
+export function resolveTrainingScreen(
+  requested: TrainingScreen | null | undefined,
+  permissions: readonly string[],
+) {
+  if (requested && canViewTrainingScreen(requested, permissions)) return requested
+  return firstEligibleTrainingScreen(permissions)
 }
 
 const DASHBOARD_TOUR: TrainingStep[] = [
@@ -115,7 +132,7 @@ function buildPastProjectsTour(permissions: readonly string[]) {
 }
 
 export function eligibleTrainingTourSteps(screen: TrainingScreen, permissions: readonly string[]) {
-  if (!has(permissions, permissionKeys.moduleView)) return []
+  if (!canViewTrainingScreen(screen, permissions)) return []
   if (screen === 'dashboard') return [...DASHBOARD_TOUR]
   if (screen === 'project') return buildProjectTour(permissions)
   if (screen === 'calendar') return [...CALENDAR_TOUR]

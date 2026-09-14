@@ -6,6 +6,7 @@ import type {
   ProjectTask,
   User,
 } from '../types.ts'
+import { VIEW_ONLY_PERMISSIONS } from './training-permissions.ts'
 
 const taskDefaults: Omit<ProjectTask, 'id' | 'projectId' | 'sequence' | 'title' | 'workStation' | 'startDate' | 'originalStartDate' | 'endDate' | 'originalEndDate' | 'estimatedDuration' | 'actualDuration' | 'percentComplete' | 'status' | 'notes'> = {
   version: 1,
@@ -59,7 +60,7 @@ export const VIEW_ONLY_TRAINING_USER: User = {
   isRegistered: false,
   isActive: true,
   groups: [],
-  permissions: ['module.view'],
+  permissions: [...VIEW_ONLY_PERMISSIONS],
   canEdit: false,
   isAdmin: false,
   walkthroughEnabled: true,

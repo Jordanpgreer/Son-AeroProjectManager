@@ -9,6 +9,21 @@ namespace ProjectTracker.Tests;
 public sealed class WalkthroughAuthorizationTests
 {
     [Theory]
+    [InlineData(ApplicationPermissions.DashboardView)]
+    [InlineData(ApplicationPermissions.ProjectDetailView)]
+    [InlineData(ApplicationPermissions.CalendarView)]
+    [InlineData(ApplicationPermissions.PastProjectsView)]
+    public void Walkthrough_page_access_requires_module_and_page_permission(string pagePermission)
+    {
+        Assert.True(ApplicationPermissions.CanViewAnyPage(
+            [ApplicationPermissions.ModuleView, pagePermission]));
+        Assert.False(ApplicationPermissions.CanViewAnyPage(
+            [ApplicationPermissions.ModuleView]));
+        Assert.False(ApplicationPermissions.CanViewAnyPage(
+            [pagePermission]));
+    }
+
+    [Theory]
     [InlineData(true, true, true)]
     [InlineData(true, false, false)]
     [InlineData(false, true, false)]

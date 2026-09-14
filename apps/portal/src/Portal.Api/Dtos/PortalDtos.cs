@@ -46,7 +46,8 @@ public sealed record AdminAccessPreviewTargetDto(
     string Subtitle,
     PortalAccountStatus AccountStatus,
     string? Role,
-    IReadOnlyList<ApplicationDto> Applications);
+    IReadOnlyList<ApplicationDto> Applications,
+    bool CanLaunchProjectTrackerWalkthrough);
 
 public sealed record AdminAccessPreviewLaunchDto(
     string ActionUrl,

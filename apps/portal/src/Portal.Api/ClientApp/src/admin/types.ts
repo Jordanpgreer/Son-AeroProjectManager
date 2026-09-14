@@ -93,6 +93,7 @@ export interface AdminAccessPreviewTarget {
   role: string | null
   accountStatus: 'configured' | 'pendingSetup' | 'inactive' | 'unavailable'
   applications: AdminPreviewApplication[]
+  canLaunchProjectTrackerWalkthrough: boolean
 }
 
 export interface AdminAccessPreviewOverview {

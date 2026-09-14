@@ -19,11 +19,13 @@ import {
 import {
   VIEW_ONLY_PERMISSIONS,
   VIEW_ONLY_TRAINING_STEPS,
+  canViewTrainingScreen,
   eligibleTrainingTourSteps,
   eligibleTrainingTours,
   eligibleTrainingSteps,
   expandAndClampRect,
   placeTrainingCard,
+  resolveTrainingScreen,
 } from '../src/demo/training-model.ts'
 import { TRAINING_PERMISSION_COVERAGE } from '../src/demo/training-permissions.ts'
 import { clearTrainingProfile, readTrainingProfile, saveTrainingProfile } from '../src/demo/training-profile.ts'
@@ -64,7 +66,7 @@ test('filters Benny intents before matching or suggesting them', () => {
 
 test('matches permission-backed Benny actions when access is granted', () => {
   const result = resolveBennyQuery('How do I add an operation?', {
-    permissions: [permissionKeys.moduleView, permissionKeys.taskCreate],
+    permissions: [permissionKeys.moduleView, permissionKeys.projectDetailView, permissionKeys.taskCreate],
   })
   assert.equal(result.status, 'matched')
   assert.equal(result.match.intentId, 'add-operation')
@@ -73,7 +75,7 @@ test('matches permission-backed Benny actions when access is granted', () => {
 
 test('shows all behind-schedule projects for the exact natural-language question', () => {
   const result = resolveBennyQuery('What projects are behind schedule?', {
-    permissions: [permissionKeys.moduleView],
+    permissions: [permissionKeys.moduleView, permissionKeys.dashboardView],
   })
 
   assert.equal(result.status, 'matched')
@@ -88,7 +90,7 @@ test('recognizes common plural variants for behind-schedule projects', () => {
     'Are there any overdue projects?',
   ]) {
     const result = resolveBennyQuery(query, {
-      permissions: [permissionKeys.moduleView],
+      permissions: [permissionKeys.moduleView, permissionKeys.dashboardView],
     })
 
     assert.equal(result.status, 'matched', query)
@@ -99,12 +101,12 @@ test('recognizes common plural variants for behind-schedule projects', () => {
 
 test('supports any-of permission rules for operation schedule help', () => {
   const denied = resolveBennyQuery('change start date', {
-    permissions: [permissionKeys.moduleView],
+    permissions: [permissionKeys.moduleView, permissionKeys.projectDetailView],
   })
   assert.equal(denied.status, 'no-match')
 
   const allowed = resolveBennyQuery('change start date', {
-    permissions: [permissionKeys.moduleView, permissionKeys.taskEditStartDate],
+    permissions: [permissionKeys.moduleView, permissionKeys.projectDetailView, permissionKeys.taskEditStartDate],
   })
   assert.equal(allowed.status, 'matched')
   assert.equal(allowed.match.intentId, 'operation-schedule')
@@ -118,7 +120,7 @@ test('returns only safe typed commands from the Benny catalog', () => {
 
 test('opens an exact project entity using caller-supplied local context', () => {
   const result = resolveBennyQuery('Open DEMO-1001', {
-    permissions: [permissionKeys.moduleView],
+    permissions: [permissionKeys.moduleView, permissionKeys.dashboardView, permissionKeys.projectDetailView],
     currentScreen: 'dashboard',
     projects: [
       { id: 9001, programName: 'DEMO-1001', customerName: 'Acme', salesOrderNumber: 'TRAIN-1001' },
@@ -131,7 +133,7 @@ test('opens an exact project entity using caller-supplied local context', () => 
 
 test('opens the requested project Gantt instead of stopping at project detail', () => {
   const result = resolveBennyQuery('Show the Gantt for DEMO-1001', {
-    permissions: [permissionKeys.moduleView],
+    permissions: [permissionKeys.moduleView, permissionKeys.dashboardView, permissionKeys.projectDetailView],
     projects: [{ id: 9001, programName: 'DEMO-1001' }],
   })
   assert.equal(result.status, 'matched')
@@ -140,7 +142,7 @@ test('opens the requested project Gantt instead of stopping at project detail', 
 
 test('filters multiple projects when the matched entity is explicitly plural', () => {
   const result = resolveBennyQuery('Show Acme projects', {
-    permissions: [permissionKeys.moduleView],
+    permissions: [permissionKeys.moduleView, permissionKeys.dashboardView],
     projects: [
       { id: 9001, programName: 'DEMO-1001', customerName: 'Acme' },
       { id: 9002, programName: 'DEMO-1002', customerName: 'Acme' },
@@ -157,7 +159,7 @@ test('focuses an operation from selected-project context without inventing a wri
     operations: [{ id: 9103, title: 'CNC Machining' }],
   }
   const result = resolveBennyQuery('Show CNC Machining', {
-    permissions: [permissionKeys.moduleView],
+    permissions: [permissionKeys.moduleView, permissionKeys.dashboardView, permissionKeys.projectDetailView],
     selectedProject,
     projects: [selectedProject],
     currentScreen: 'project',
@@ -168,13 +170,13 @@ test('focuses an operation from selected-project context without inventing a wri
 
 test('returns deterministic ambiguity and permission-safe no-match suggestions', () => {
   const ambiguous = resolveBennyQuery('project schedule', {
-    permissions: [permissionKeys.moduleView],
+    permissions: [permissionKeys.moduleView, permissionKeys.projectDetailView, permissionKeys.calendarView],
   })
   assert.equal(ambiguous.status, 'ambiguous')
   assert.deepEqual(ambiguous.matches.map((match) => match.intentId), ['calendar', 'gantt'])
 
   const unknown = resolveBennyQuery('Tell me tomorrow\'s winning lottery numbers', {
-    permissions: [permissionKeys.moduleView],
+    permissions: [permissionKeys.moduleView, permissionKeys.dashboardView, permissionKeys.calendarView],
   })
   assert.equal(unknown.status, 'no-match')
   assert.deepEqual(unknown.suggestions.map((suggestion) => suggestion.intentId), [
@@ -187,7 +189,7 @@ test('returns deterministic ambiguity and permission-safe no-match suggestions',
 
 test('returns no-match instead of inventing an answer for an unknown Benny question', () => {
   const result = resolveBennyQuery('Which supplier should I call about material shortages?', {
-    permissions: [permissionKeys.moduleView],
+    permissions: [permissionKeys.moduleView, permissionKeys.dashboardView],
   })
 
   assert.equal(result.status, 'no-match')
@@ -225,14 +227,58 @@ test('builds four independent page tours from effective view access', () => {
   assert.equal(eligibleTrainingTours(['PROJECT.CREATE']).length, 0)
 })
 
+test('lets page permissions make the final walkthrough eligibility decision', () => {
+  const cases = [
+    ['dashboard', permissionKeys.dashboardView],
+    ['project', permissionKeys.projectDetailView],
+    ['calendar', permissionKeys.calendarView],
+    ['pastProjects', permissionKeys.pastProjectsView],
+  ]
+
+  for (const [screen, pagePermission] of cases) {
+    const permissions = [permissionKeys.moduleView, pagePermission]
+    assert.deepEqual(eligibleTrainingTours(permissions).map((tour) => tour.id), [screen])
+    assert.equal(canViewTrainingScreen(screen, permissions), true)
+    for (const [otherScreen] of cases.filter(([candidate]) => candidate !== screen)) {
+      assert.equal(canViewTrainingScreen(otherScreen, permissions), false)
+      assert.deepEqual(eligibleTrainingTourSteps(otherScreen, permissions), [])
+    }
+  }
+
+  assert.equal(resolveTrainingScreen('calendar', [permissionKeys.moduleView, permissionKeys.dashboardView]), 'dashboard')
+  assert.equal(resolveTrainingScreen('calendar', [permissionKeys.calendarView]), null)
+  assert.equal(resolveTrainingScreen(null, [permissionKeys.moduleView]), null)
+})
+
+test('never suggests or resolves Benny navigation to a page the user cannot view', () => {
+  const dashboardOnly = [permissionKeys.moduleView, permissionKeys.dashboardView]
+  const intents = availableBennyIntents(dashboardOnly)
+  assert.ok(intents.some((intent) => intent.id === 'dashboard'))
+  assert.ok(intents.every((intent) => intent.command.kind !== 'screen' || intent.command.screen === 'dashboard'))
+  assert.equal(intents.some((intent) => intent.id === 'calendar'), false)
+  assert.equal(intents.some((intent) => intent.id === 'gantt'), false)
+  assert.equal(intents.some((intent) => intent.id === 'past-projects'), false)
+
+  const exactProject = resolveBennyQuery('Open DEMO-1001', {
+    permissions: dashboardOnly,
+    projects: [{ id: 9001, programName: 'DEMO-1001' }],
+  })
+  assert.equal(exactProject.status, 'no-match')
+  assert.ok(exactProject.suggestions.every((suggestion) => suggestion.command.kind !== 'open-project'))
+})
+
 test('maps every Project Tracker access checkbox to a walkthrough capability', () => {
-  assert.equal(allProjectTrackerPermissionKeys.length, 43)
+  assert.equal(allProjectTrackerPermissionKeys.length, 47)
   assert.deepEqual(
     Object.keys(TRAINING_PERMISSION_COVERAGE).sort(),
     [...allProjectTrackerPermissionKeys].sort(),
   )
   const currentCoverage = new Set([
     'page-tours',
+    'dashboard-tour',
+    'project-tour',
+    'calendar-tour',
+    'past-projects-tour',
     'page-tour-static',
     'project-edit-overview',
     'past-actions',
@@ -305,7 +351,7 @@ test('teaches the project editor only when effective edit access exists', () => 
   )
 
   for (const editPermission of [permissionKeys.projectEditCustomerName, permissionKeys.taskCreate, permissionKeys.taskEditNotes]) {
-    const steps = eligibleTrainingTourSteps('project', [permissionKeys.moduleView, editPermission])
+    const steps = eligibleTrainingTourSteps('project', [permissionKeys.moduleView, permissionKeys.projectDetailView, editPermission])
     const ids = steps.map((step) => step.id)
     assert.ok(ids.includes('project-edit-open'), editPermission)
     assert.ok(ids.includes('project-edit-overview'), editPermission)
@@ -316,6 +362,7 @@ test('teaches the project editor only when effective edit access exists', () => 
 
   const adminOnlyIds = eligibleTrainingTourSteps('project', [
     permissionKeys.moduleView,
+    permissionKeys.projectDetailView,
     permissionKeys.settingsWorkCalendarManage,
   ]).map((step) => step.id)
   assert.ok(adminOnlyIds.every((id) => !id.startsWith('project-edit-')))
@@ -324,6 +371,7 @@ test('teaches the project editor only when effective edit access exists', () => 
 test('does not broaden the project edit lesson beyond the granted capability group', () => {
   const projectOnly = eligibleTrainingTourSteps('project', [
     permissionKeys.moduleView,
+    permissionKeys.projectDetailView,
     permissionKeys.projectEditCustomerName,
   ]).find((step) => step.id === 'project-edit-overview')
   assert.match(projectOnly.body, /project details/i)
@@ -331,6 +379,7 @@ test('does not broaden the project edit lesson beyond the granted capability gro
 
   const operationFieldOnly = eligibleTrainingTourSteps('project', [
     permissionKeys.moduleView,
+    permissionKeys.projectDetailView,
     permissionKeys.taskEditNotes,
   ]).find((step) => step.id === 'project-edit-overview')
   assert.match(operationFieldOnly.body, /operation fields/i)
@@ -338,6 +387,7 @@ test('does not broaden the project edit lesson beyond the granted capability gro
 
   const operationListOnly = eligibleTrainingTourSteps('project', [
     permissionKeys.moduleView,
+    permissionKeys.projectDetailView,
     permissionKeys.taskCreate,
   ]).find((step) => step.id === 'project-edit-overview')
   assert.match(operationListOnly.body, /operation list/i)
@@ -372,7 +422,7 @@ test('does not broaden the project edit lesson beyond the granted capability gro
   ])
   for (const permission of allProjectTrackerPermissionKeys) {
     if (permission === permissionKeys.moduleView) continue
-    const hasEditLesson = eligibleTrainingTourSteps('project', [permissionKeys.moduleView, permission])
+    const hasEditLesson = eligibleTrainingTourSteps('project', [permissionKeys.moduleView, permissionKeys.projectDetailView, permission])
       .some((step) => step.id === 'project-edit-overview')
     assert.equal(hasEditLesson, editorPermissions.has(permission), permission)
   }
@@ -386,7 +436,7 @@ test('teaches Past Projects actions only when a history action is granted', () =
   ])
   for (const permission of allProjectTrackerPermissionKeys) {
     if (permission === permissionKeys.moduleView) continue
-    const hasHistoryLesson = eligibleTrainingTourSteps('pastProjects', [permissionKeys.moduleView, permission])
+    const hasHistoryLesson = eligibleTrainingTourSteps('pastProjects', [permissionKeys.moduleView, permissionKeys.pastProjectsView, permission])
       .some((step) => step.id === 'past-actions')
     assert.equal(hasHistoryLesson, historyActions.has(permission), permission)
   }
@@ -409,8 +459,8 @@ test('keeps the permission snapshot through refresh until training explicitly cl
     },
   }
   saveTrainingProfile(VIEW_ONLY_TRAINING_USER)
-  assert.deepEqual(readTrainingProfile()?.permissions, [permissionKeys.moduleView])
-  assert.deepEqual(readTrainingProfile()?.permissions, [permissionKeys.moduleView])
+  assert.deepEqual(readTrainingProfile()?.permissions, [...VIEW_ONLY_PERMISSIONS])
+  assert.deepEqual(readTrainingProfile()?.permissions, [...VIEW_ONLY_PERMISSIONS])
   clearTrainingProfile()
   assert.equal(readTrainingProfile(), null)
   delete globalThis.window
@@ -436,7 +486,7 @@ test('gives every page-tour lesson a stable highlight target', () => {
 })
 
 test('keeps the in-memory training portfolio fictional and view only', () => {
-  assert.deepEqual(VIEW_ONLY_TRAINING_USER.permissions, ['module.view'])
+  assert.deepEqual(VIEW_ONLY_TRAINING_USER.permissions, [...VIEW_ONLY_PERMISSIONS])
   assert.equal(VIEW_ONLY_TRAINING_USER.canEdit, false)
   assert.equal(VIEW_ONLY_TRAINING_USER.isRegistered, false)
   assert.ok(TRAINING_PROJECT_DETAILS.every((project) => project.id >= 8_000))

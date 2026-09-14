@@ -18,6 +18,7 @@ function target(
     role: 'Viewer',
     accountStatus: 'configured',
     applications: [],
+    canLaunchProjectTrackerWalkthrough: false,
     ...overrides,
   }
 }

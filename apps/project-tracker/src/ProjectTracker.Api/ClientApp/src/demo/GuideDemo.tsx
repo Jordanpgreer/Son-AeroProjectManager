@@ -9,7 +9,9 @@ import {
 } from '../features/benny-assistant.tsx'
 import type { BennySafeCommand } from './benny-rules.ts'
 import {
+  canViewTrainingScreen,
   eligibleTrainingSteps,
+  resolveTrainingScreen,
   type TrainingScreen,
   type TrainingStep,
 } from './training-model.ts'
@@ -55,7 +57,7 @@ function prefilledSearchFor(step: TrainingStep | undefined) {
 
 export default function GuideDemo({ profile, initialTour }: { profile: TrainingProfile; initialTour?: TrainingScreen | null }) {
   const user = useMemo(() => trainingUser(profile), [profile])
-  const activeTour = initialTour ?? 'dashboard'
+  const activeTour = resolveTrainingScreen(initialTour, profile.permissions) ?? 'dashboard'
   const steps = useMemo(() => eligibleTrainingSteps(profile.permissions, activeTour), [activeTour, profile.permissions])
   const bennyDemo = import.meta.env.DEV && new URLSearchParams(window.location.search).get('bennyDemo') === '1'
   const [environmentActive, setEnvironmentActive] = useState(true)
@@ -75,6 +77,7 @@ export default function GuideDemo({ profile, initialTour }: { profile: TrainingP
   const restartButtonRef = useRef<HTMLButtonElement>(null)
   const step = steps[stepIndex] ?? steps[0]
   const returnLabel = profile.exitUrl ? 'Return to Hub Admin' : 'Return to Project Tracker'
+  const canOpenScreen = (target: TrainingScreen) => canViewTrainingScreen(target, profile.permissions)
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -181,6 +184,7 @@ export default function GuideDemo({ profile, initialTour }: { profile: TrainingP
   }
 
   function handleScreen(nextScreen: TrainingScreen, targetId?: string) {
+    if (!canOpenScreen(nextScreen)) return
     setScreen(nextScreen)
     setNotificationsOpen(false)
     setActivityOpen(false)
@@ -189,6 +193,7 @@ export default function GuideDemo({ profile, initialTour }: { profile: TrainingP
   }
 
   function handleOpenProject(projectId: number) {
+    if (!canOpenScreen('project')) return
     const project = TRAINING_PROJECT_DETAILS.find((candidate) => candidate.id === projectId)
     if (!project) return
     setSelectedProject(project)
@@ -219,6 +224,7 @@ export default function GuideDemo({ profile, initialTour }: { profile: TrainingP
   }
 
   function handleOpenNotification(notificationId: number) {
+    if (!canOpenScreen('project')) return
     const notification = notifications.find((candidate) => candidate.id === notificationId)
     const project = TRAINING_PROJECT_DETAILS.find((candidate) => candidate.id === notification?.projectId)
     if (!notification || !project) return
@@ -257,10 +263,12 @@ export default function GuideDemo({ profile, initialTour }: { profile: TrainingP
 
     switch (command.kind) {
       case 'screen':
-        if (!['dashboard', 'project', 'calendar', 'pastProjects'].includes(command.screen)) return { ok: false }
+        if (!['dashboard', 'project', 'calendar', 'pastProjects'].includes(command.screen)
+          || !canOpenScreen(command.screen as TrainingScreen)) return { ok: false }
         setScreen(command.screen as TrainingScreen)
         return { ok: true, message: `Opened ${command.screen === 'pastProjects' ? 'Past Projects' : command.screen}.` }
       case 'filter':
+        if (!canOpenScreen(command.screen)) return { ok: false }
         setScreen(command.screen)
         if (command.filter === 'query') setSearch(command.value ?? '')
         if (command.filter === 'behind') {
@@ -276,12 +284,14 @@ export default function GuideDemo({ profile, initialTour }: { profile: TrainingP
         }
         return { ok: true, message: command.filter === 'mine' ? 'Showing the fictional projects assigned to this training profile.' : 'The project list is filtered.' }
       case 'open-project': {
+        if (!canOpenScreen('project')) return { ok: false }
         const project = findProject(command.projectId)
         if (!project) return { ok: false }
         handleOpenProject(project.id)
         return { ok: true, message: `Opened ${project.programName}.` }
       }
       case 'focus-operation': {
+        if (!canOpenScreen('project')) return { ok: false }
         const project = findProject(command.projectId)
         if (!project) return { ok: false }
         handleOpenProject(project.id)
@@ -290,6 +300,7 @@ export default function GuideDemo({ profile, initialTour }: { profile: TrainingP
         return { ok: revealed, message: revealed ? 'Opened and highlighted the requested operation.' : undefined }
       }
       case 'open-gantt': {
+        if (!canOpenScreen('project')) return { ok: false }
         const project = findProject(command.projectId)
         if (!project) return { ok: false }
         handleOpenProject(project.id)
@@ -298,6 +309,7 @@ export default function GuideDemo({ profile, initialTour }: { profile: TrainingP
         return { ok: revealed, message: revealed ? `Opened the Gantt schedule for ${project.programName}.` : undefined }
       }
       case 'focus-ui': {
+        if (command.screen && !canOpenScreen(command.screen)) return { ok: false }
         if (command.screen && ['dashboard', 'project', 'calendar', 'pastProjects'].includes(command.screen)) {
           setScreen(command.screen as TrainingScreen)
         }

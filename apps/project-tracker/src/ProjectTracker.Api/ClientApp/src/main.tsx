@@ -6,6 +6,8 @@ import { hubUrl } from './lib.tsx'
 import { initializeTheme } from './theme.ts'
 import { clearTrainingProfile, type TrainingProfile } from './demo/training-profile.ts'
 import { parsePageTour } from './demo/page-tours.ts'
+import { firstEligibleTrainingScreen } from './demo/training-model.ts'
+import { VIEW_ONLY_PERMISSIONS } from './demo/training-permissions.ts'
 import { installBennyIdle } from '../../../../../../shared/frontend/benny-idle.ts'
 import './arda-shell.css'
 import { installArdaPresence } from '../../../../../../shared/frontend/arda-presence.ts'
@@ -43,7 +45,7 @@ async function renderTraining(profile: TrainingProfile) {
 
 async function start() {
   if (developmentViewOnly) {
-    await renderTraining({ displayName: 'Project Tracker Trainee', groups: [], permissions: ['module.view'] })
+    await renderTraining({ displayName: 'Project Tracker Trainee', groups: [], permissions: [...VIEW_ONLY_PERMISSIONS] })
     return
   }
 
@@ -56,7 +58,7 @@ async function start() {
     const response = await fetch('/api/walkthrough/bootstrap', { credentials: 'same-origin' })
     if (!response.ok) throw new Error('Walkthrough bootstrap failed')
     const bootstrap = await response.json() as WalkthroughBootstrap
-    if (!bootstrap.enabled || !bootstrap.permissions.some((permission) => permission.toLocaleLowerCase('en-US') === 'module.view')) {
+    if (!bootstrap.enabled || !firstEligibleTrainingScreen(bootstrap.permissions)) {
       renderApp()
       return
     }

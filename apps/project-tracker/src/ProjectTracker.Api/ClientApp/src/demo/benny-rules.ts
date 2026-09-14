@@ -1,4 +1,4 @@
-import { permissionKeys } from '../permissions.ts'
+import { canViewProjectTrackerScreen, permissionKeys } from '../permissions.ts'
 import type { Screen } from '../types.ts'
 
 export type BennySafeCommand =
@@ -219,7 +219,7 @@ export const BENNY_INTENTS: readonly BennyIntent[] = [
     title: 'Review operation schedule prompts',
     phrases: ['start confirmation', 'finish confirmation', 'schedule confirmation', 'operation prompt'],
     permission: { allOf: [permissionKeys.moduleView, permissionKeys.operationScheduleConfirm] },
-    command: { kind: 'focus-ui', targetId: 'notifications-button' },
+    command: { kind: 'focus-ui', targetId: 'notifications-button', screen: 'project' },
   },
 ] as const
 
@@ -238,8 +238,21 @@ export function canUseBennyIntent(intent: BennyIntent, permissions: readonly str
   return allGranted && (anyOf.length === 0 || anyOf.some((permission) => granted.has(permission.toLocaleLowerCase('en-US'))))
 }
 
+export function canUseBennyCommand(command: BennySafeCommand, permissions: readonly string[]) {
+  const targetScreen = command.kind === 'screen' || command.kind === 'filter'
+    ? command.screen
+    : command.kind === 'open-project' || command.kind === 'focus-operation' || command.kind === 'open-gantt'
+      ? 'project'
+      : command.kind === 'focus-ui'
+        ? command.screen ?? null
+        : null
+  return targetScreen === null || canViewProjectTrackerScreen(permissions, targetScreen)
+}
+
 export function availableBennyIntents(permissions: readonly string[]) {
-  return BENNY_INTENTS.filter((intent) => canUseBennyIntent(intent, permissions))
+  return BENNY_INTENTS.filter((intent) =>
+    canUseBennyIntent(intent, permissions)
+    && canUseBennyCommand(intent.command, permissions))
 }
 
 function suggestionFor(intent: BennyIntent): BennySuggestion {
@@ -378,7 +391,13 @@ export function resolveBennyQuery(value: string, context: BennyContext): BennyRe
   const openIntent = intents.find((intent) => intent.id === 'find-project')
   if (openIntent) {
     const entityResolution = resolveProjectEntity(query, context, openIntent)
-    if (entityResolution) return entityResolution
+    if (entityResolution?.status === 'matched'
+      && canUseBennyCommand(entityResolution.match.command, context.permissions)) return entityResolution
+    if (entityResolution?.status === 'ambiguous') {
+      const matches = entityResolution.matches.filter((match) => canUseBennyCommand(match.command, context.permissions))
+      if (matches.length === 1) return { status: 'matched', match: matches[0]! }
+      if (matches.length > 1) return { status: 'ambiguous', matches, suggestions: matches }
+    }
   }
 
   const scored = intents

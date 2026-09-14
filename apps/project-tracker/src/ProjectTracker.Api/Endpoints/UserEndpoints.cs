@@ -28,7 +28,7 @@ public static class UserEndpoints
                 ?? new FeatureSettings();
             var canLaunch = (featureSettings.WalkthroughEnabled || currentUser.IsAccessPreview)
                 && currentUser.IsRegistered
-                && currentUser.Permissions.Contains(ApplicationPermissions.ModuleView, StringComparer.OrdinalIgnoreCase);
+                && ApplicationPermissions.CanViewAnyPage(currentUser.Permissions);
 
             return new WalkthroughBootstrapDto(
                 canLaunch,

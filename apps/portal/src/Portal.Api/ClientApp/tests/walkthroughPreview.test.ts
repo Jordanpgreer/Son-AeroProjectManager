@@ -10,6 +10,8 @@ function group(
   key: string,
   title: string,
   applications: AdminAccessPreviewTarget['applications'],
+  canLaunchProjectTrackerWalkthrough = applications.some((application) =>
+    application.id === 'project-tracker' && application.status === 'active'),
 ): AdminAccessPreviewTarget {
   return {
     key,
@@ -19,6 +21,7 @@ function group(
     role: 'Shared group',
     accountStatus: 'configured',
     applications,
+    canLaunchProjectTrackerWalkthrough,
   }
 }
 
@@ -54,6 +57,7 @@ describe('Project Tracker walkthrough preview targets', () => {
     expect(walkthroughApplication(group('group:3', 'Maintenance', [
       { ...projectTracker, status: 'maintenance' },
     ]))).toBeNull()
+    expect(walkthroughApplication(group('group:4', 'No pages', [projectTracker], false))).toBeNull()
   })
 
   it('filters by group title, description, or role without changing the source list', () => {

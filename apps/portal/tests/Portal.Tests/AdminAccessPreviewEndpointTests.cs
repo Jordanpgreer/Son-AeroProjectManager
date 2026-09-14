@@ -180,6 +180,7 @@ public sealed class AdminAccessPreviewEndpointTests
         Assert.Equal(PortalAccountStatus.PendingSetup, target.AccountStatus);
         Assert.Null(target.Role);
         Assert.Empty(target.Applications);
+        Assert.False(target.CanLaunchProjectTrackerWalkthrough);
     }
 
     [Fact]
@@ -199,6 +200,7 @@ public sealed class AdminAccessPreviewEndpointTests
         Assert.Equal(PortalAccountStatus.PendingSetup, target.AccountStatus);
         Assert.Null(target.Role);
         Assert.Empty(target.Applications);
+        Assert.False(target.CanLaunchProjectTrackerWalkthrough);
     }
 
     [Fact]
@@ -223,6 +225,10 @@ public sealed class AdminAccessPreviewEndpointTests
                                 new PortalProjectTrackerPermissionRecord
                                 {
                                     PermissionKey = ApplicationPermissions.ModuleView
+                                },
+                                new PortalProjectTrackerPermissionRecord
+                                {
+                                    PermissionKey = ApplicationPermissions.DashboardView
                                 }
                             ]
                         }
@@ -234,6 +240,7 @@ public sealed class AdminAccessPreviewEndpointTests
         Assert.Equal(PortalAccountStatus.Configured, target.AccountStatus);
         Assert.Equal(ApplicationRoles.Viewer, target.Role);
         Assert.Equal(AccessPreviewApplications.ProjectTracker, Assert.Single(target.Applications).Id);
+        Assert.True(target.CanLaunchProjectTrackerWalkthrough);
     }
 
     private static ApplicationRegistry BuildRegistry()

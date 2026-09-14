@@ -125,6 +125,13 @@ public static class ApplicationPermissions
         PastProjectsView
     ];
 
+    public static bool CanViewAnyPage(IEnumerable<string> permissions)
+    {
+        var granted = permissions.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return granted.Contains(ModuleView)
+            && DefaultPageViewPermissions.Any(granted.Contains);
+    }
+
     public static string[] DefaultManagerPermissions =>
     [
         ModuleView,
