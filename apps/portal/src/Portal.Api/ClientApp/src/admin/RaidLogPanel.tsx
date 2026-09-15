@@ -17,7 +17,7 @@ import {
   X,
 } from 'lucide-react'
 import { portalApi, toErrorMessage } from './api'
-import { filterRaidItems, raidCounts } from './raidLogModel'
+import { filterRaidItems, raidCounts, raidItemsForDisplay } from './raidLogModel'
 import type {
   RaidLogItem,
   RaidLogKind,
@@ -146,6 +146,19 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
     return item.activeSeconds + Math.max(0, Math.floor((clock - Date.parse(overview.generatedAt)) / 1000))
   }
 
+  function toggleItem(itemId: number, childIds: number[] = []) {
+    setExpanded((current) => {
+      const next = new Set(current)
+      if (next.has(itemId)) {
+        next.delete(itemId)
+        childIds.forEach((id) => next.delete(id))
+      } else {
+        next.add(itemId)
+      }
+      return next
+    })
+  }
+
   async function mutate(action: () => Promise<unknown>, success: string) {
     setBusy(true)
     setError(null)
@@ -270,7 +283,11 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
 
       <div className="raid-group-list">
         {overview?.groups.map((group) => {
-          const visible = filterRaidItems(group.items, view, currentAdminId, search, priority)
+          const filtered = filterRaidItems(group.items, view, currentAdminId, search, priority)
+          const revealFilteredSubtasks = view !== 'open' || priority !== 'All' || Boolean(search.trim())
+          const visible = raidItemsForDisplay(filtered, expanded, revealFilteredSubtasks)
+          const visibleParents = filtered.filter((item) => item.parentItemId === null).length
+          const visibleSubtasks = filtered.length - visibleParents
           const open = group.items.filter((item) => !item.completedAt).length
           const complete = group.items.length - open
           return (
@@ -295,11 +312,11 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
               </summary>
               <div className="raid-group-body">
                 <div className="raid-group-actions">
-                  <span>{visible.length} item{visible.length === 1 ? '' : 's'} in this view</span>
+                  <span>{visibleParents} top-level task{visibleParents === 1 ? '' : 's'}{visibleSubtasks ? ` · ${visibleSubtasks} subtask${visibleSubtasks === 1 ? '' : 's'}` : ''} in this view</span>
                   <button className="ghost-button" type="button" onClick={() => openGroup({ id: group.id, version: group.version, name: group.name, description: group.description ?? '', sortOrder: group.sortOrder })}><Pencil size={14} /> Edit group</button>
                   <button className="ghost-button" type="button" onClick={() => newItem(group.id)}><Plus size={14} /> Add item</button>
                 </div>
-                {!visible.length && <p className="raid-group-empty">No items match this view.</p>}
+                {!filtered.length && <p className="raid-group-empty">No items match this view.</p>}
                 {visible.map((item) => {
                   const active = item.activeWorkSession
                   const activeByMe = sameAccount(active?.startedBy, currentAccountName)
@@ -314,7 +331,16 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
                     : 0
                   return (
                     <article className={`raid-item ${isSubtask ? 'subtask' : ''} ${item.completedAt ? 'completed' : ''} ${active ? 'working' : ''}`} key={item.id}>
-                      <div className="raid-item-row">
+                      <div
+                        className="raid-item-row"
+                        data-expandable="true"
+                        title={`Open ${item.title} progress and notes`}
+                        onClick={(event) => {
+                          const target = event.target as Element
+                          if (target.closest('button, a, input, select, textarea, label')) return
+                          toggleItem(item.id, subtasks.map((subtask) => subtask.id))
+                        }}
+                      >
                         <button className="raid-complete" type="button" title={completionBlocked ? `Complete ${openSubtasks} remaining subtask${openSubtasks === 1 ? '' : 's'} first` : undefined} aria-label={item.completedAt ? `Reopen ${item.title}` : completionBlocked ? `${item.title} has incomplete subtasks` : `Mark ${item.title} complete`} aria-pressed={Boolean(item.completedAt)} disabled={busy || completionBlocked} onClick={() => void toggleComplete(item)}>{item.completedAt && <Check size={15} />}</button>
                         <div className="raid-item-copy"><div><span className={`raid-priority ${item.priority.toLowerCase()}`}>{item.priority}</span><span className="raid-kind">{item.kind}</span>{isSubtask && <span className="raid-subtask-badge"><ListTree size={11} /> Subtask</span>}{subtasks.length > 0 && <span className={`raid-dependency-badge ${openSubtasks ? 'open' : ''}`}><ListTree size={11} /> {completedSubtasks}/{subtasks.length}</span>}{active && <span className="raid-working-badge"><Timer size={11} /> Working</span>}</div><strong>{item.title}</strong><small>{isSubtask && `Under ${item.parentTitle ?? 'parent task'} · `}{item.completedAt ? `Completed ${when(item.completedAt)}` : active ? `${active.startedByDisplayName} started ${when(active.startedAt)}` : `Updated ${when(item.updatedAt)}`}</small></div>
                         <span className={`raid-assignee ${item.assignedToUserId ? '' : 'unassigned'}`}><UserRound size={14} /> {item.assignedToDisplayName ?? 'Unassigned'}</span>
@@ -327,7 +353,7 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
                               : <button className="raid-work-button" type="button" disabled={busy || currentAdminId === null} onClick={() => openWork(item, 'start')}><Play size={12} /> {item.assignedToUserId === currentAdminId ? 'Start work' : 'Pick up & start'}</button>)}
                         </div>
                         <span className="raid-note-count"><MessageSquareText size={14} /> {item.notes.length}</span>
-                        <button className="admin-icon-button" type="button" aria-label={`${expanded.has(item.id) ? 'Close' : 'Open'} details for ${item.title}`} aria-expanded={expanded.has(item.id)} aria-controls={`raid-item-${item.id}`} onClick={() => setExpanded((current) => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })}><ChevronDown size={16} /></button>
+                        <button className="admin-icon-button" type="button" aria-label={`${expanded.has(item.id) ? 'Close' : 'Open'} ${item.title}${subtasks.length ? ` and ${subtasks.length} subtask${subtasks.length === 1 ? '' : 's'}` : ''}`} aria-expanded={expanded.has(item.id)} aria-controls={`raid-item-${item.id}`} onClick={() => toggleItem(item.id, subtasks.map((subtask) => subtask.id))}><ChevronDown size={16} /></button>
                       </div>
                       {expanded.has(item.id) && <div className="raid-item-detail" id={`raid-item-${item.id}`}>
                         <div className="raid-detail-main">
@@ -339,10 +365,10 @@ export default function RaidLogPanel({ currentAccountName }: { currentAccountNam
                             <div><dt>Active work</dt><dd>{duration(activeDuration(item))} across {item.workSessions.length} session{item.workSessions.length === 1 ? '' : 's'}</dd></div>
                             {item.completedAt && <div><dt>Completion</dt><dd>{when(item.completedAt)} by {item.completedByDisplayName ?? item.completedBy}</dd></div>}
                           </dl>
-                          {!isSubtask && <section className="raid-dependencies" aria-label="Dependent jobs">
-                            <div><h4>Dependent jobs</h4><span>{subtasks.length ? `${completedSubtasks} of ${subtasks.length} complete` : 'None added'}</span></div>
+                          {!isSubtask && <section className="raid-dependencies" aria-label="Subtasks">
+                            <div><h4>Subtasks</h4><span>{subtasks.length ? `${completedSubtasks} of ${subtasks.length} complete` : 'None added'}</span></div>
                             {!subtasks.length && <p>Add subtasks when this task depends on smaller jobs being finished first.</p>}
-                            {subtasks.length > 0 && <ol>{subtasks.map((subtask) => <li key={subtask.id}><span className={subtask.completedAt ? 'complete' : ''}>{subtask.completedAt ? <Check size={11} /> : <ListTree size={11} />}</span><div><strong>{subtask.title}</strong><small>{subtask.assignedToDisplayName ?? 'Unassigned'} · {subtask.completedAt ? 'Complete' : 'Open'}</small></div></li>)}</ol>}
+                            {subtasks.length > 0 && <p>Subtasks are shown directly below this task. Click any subtask bar to review its progress and notes.</p>}
                             {openSubtasks > 0 && <p className="raid-dependency-warning">This parent task stays locked from completion until all {openSubtasks} remaining subtask{openSubtasks === 1 ? '' : 's'} are complete.</p>}
                           </section>}
                           <section className="raid-work-history" aria-label="Work session history">

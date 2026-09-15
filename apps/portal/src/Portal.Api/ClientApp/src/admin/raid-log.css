@@ -46,6 +46,9 @@
 .raid-item.working { border-color: color-mix(in srgb, var(--steel) 52%, var(--line)); box-shadow: inset 3px 0 0 var(--steel); }
 .raid-item.completed { opacity: .72; }
 .raid-item-row { display: grid; grid-template-columns: 28px minmax(220px, 1fr) minmax(120px, auto) minmax(118px, auto) 42px 34px; align-items: center; gap: 10px; min-height: 64px; padding: 9px 10px; }
+.raid-item-row[data-expandable="true"] { cursor: pointer; transition: background-color 140ms ease; }
+.raid-item-row[data-expandable="true"]:hover { background: color-mix(in srgb, var(--steel-tint) 54%, var(--surface)); }
+.raid-item-row[data-expandable="true"]:has(.admin-icon-button:focus-visible) { outline: 2px solid var(--steel); outline-offset: -2px; }
 .raid-complete { display: grid; width: 24px; height: 24px; place-items: center; color: #fff; background: var(--surface); border: 1.5px solid var(--line-2); border-radius: 50%; cursor: pointer; }
 .raid-complete:hover { border-color: var(--ok); }
 .raid-complete[aria-pressed="true"] { background: var(--ok); border-color: var(--ok); }
@@ -94,13 +97,6 @@
 .raid-dependencies > div > span { color: var(--muted); font-family: var(--font-mono); font-size: 8px; }
 .raid-dependencies > p { margin: 0; color: var(--muted); font-size: 8.5px; line-height: 1.45; }
 .raid-dependencies > p.raid-dependency-warning { color: #8a5800; font-weight: 650; }
-.raid-dependencies ol { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.raid-dependencies li { display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: center; gap: 7px; padding: 7px 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); }
-.raid-dependencies li > span { display: grid; width: 20px; height: 20px; place-items: center; color: var(--steel-700); background: var(--steel-tint); border-radius: 50%; }
-.raid-dependencies li > span.complete { color: var(--ok-700); background: var(--ok-tint); }
-.raid-dependencies li > div { display: grid; gap: 2px; min-width: 0; }
-.raid-dependencies li strong { overflow: hidden; color: var(--ink-2); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.raid-dependencies li small { color: var(--muted); font-size: 7.5px; }
 .raid-work-history { display: grid; gap: 9px; margin: 0 0 15px; padding: 12px 0 15px; border-bottom: 1px solid var(--line); }
 .raid-work-history > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .raid-work-history .ghost-button { min-height: 29px; padding: 5px 8px; }

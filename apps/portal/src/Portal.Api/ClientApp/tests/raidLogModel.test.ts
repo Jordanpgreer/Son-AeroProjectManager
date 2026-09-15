@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterRaidItems, raidCounts, sortRaidItems } from '../src/admin/raidLogModel'
+import { filterRaidItems, raidCounts, raidItemsForDisplay, sortRaidItems } from '../src/admin/raidLogModel'
 import type { RaidLogItem } from '../src/admin/types'
 
 function item(overrides: Partial<RaidLogItem> = {}): RaidLogItem {
@@ -77,5 +77,18 @@ describe('RAID Log model', () => {
     expect(sortRaidItems(entries).map((entry) => entry.id)).toEqual([20, 10, 12, 11])
     expect(filterRaidItems(entries, 'mine', 7, '', 'All').map((entry) => entry.id)).toEqual([10, 12, 11])
     expect(filterRaidItems(entries, 'open', 7, 'assigned child', 'All').map((entry) => entry.id)).toEqual([10, 12, 11])
+  })
+
+  it('collapses subtasks under their parent until the parent is expanded', () => {
+    const entries = sortRaidItems([
+      item({ id: 10, title: 'Parent task' }),
+      item({ id: 11, parentItemId: 10, parentTitle: 'Parent task', title: 'First child' }),
+      item({ id: 12, parentItemId: 10, parentTitle: 'Parent task', title: 'Second child' }),
+      item({ id: 20, title: 'Other task', priority: 'Low' }),
+    ])
+
+    expect(raidItemsForDisplay(entries, new Set()).map((entry) => entry.id)).toEqual([10, 20])
+    expect(raidItemsForDisplay(entries, new Set([10])).map((entry) => entry.id)).toEqual([10, 11, 12, 20])
+    expect(raidItemsForDisplay(entries, new Set(), true).map((entry) => entry.id)).toEqual([10, 11, 12, 20])
   })
 })

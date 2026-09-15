@@ -52,6 +52,16 @@ export function filterRaidItems(
   return sorted.filter((item) => familyIds.has(item.id) || (item.parentItemId !== null && familyIds.has(item.parentItemId)))
 }
 
+export function raidItemsForDisplay(
+  items: RaidLogItem[],
+  expandedItemIds: ReadonlySet<number>,
+  revealSubtasks = false,
+) {
+  return items.filter((item) => item.parentItemId === null
+    || revealSubtasks
+    || expandedItemIds.has(item.parentItemId))
+}
+
 export function raidCounts(items: RaidLogItem[], now = new Date()) {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
   return {
