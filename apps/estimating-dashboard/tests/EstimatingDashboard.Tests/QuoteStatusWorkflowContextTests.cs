@@ -7,6 +7,22 @@ namespace EstimatingDashboard.Tests;
 public sealed class QuoteStatusWorkflowContextTests
 {
     [Fact]
+    public async Task Detail_passes_source_identity_to_link_resolver_and_exposes_result()
+    {
+        var links = new CapturingQuoteLinks();
+        await using var f = await CreateAsync(links);
+
+        var detail = await f.Quotes.DetailAsync(f.QuoteId(), Editor, default);
+
+        Assert.Equal("test-4445", links.SourceId);
+        Assert.Equal(4445, links.QuoteNumber);
+        Assert.Equal("https://tenant.fulcrumpro.us/quotes/test-4445", detail.FulcrumQuoteUrl);
+        var json = System.Text.Json.JsonSerializer.Serialize(detail,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.Contains("\"fulcrumQuoteUrl\":\"https://tenant.fulcrumpro.us/quotes/test-4445\"", json);
+    }
+
+    [Fact]
     public async Task Quote_details_use_sales_person_from_source_instead_of_estimating_rep()
     {
         await using var f = await CreateAsync();
@@ -102,5 +118,18 @@ public sealed class QuoteStatusWorkflowContextTests
         var completeQuote = await f.Quotes.DetailAsync(f.QuoteId(4451), Editor, default);
         Assert.Equal(4451, completeQuote.Workflow.QuoteNumber);
         Assert.Equal(completeQuote.Quote.QuoteHistoryId, completeQuote.Workflow.Id);
+    }
+
+    private sealed class CapturingQuoteLinks : IQuoteSourceLinkResolver
+    {
+        public string? SourceId { get; private set; }
+        public int QuoteNumber { get; private set; }
+
+        public Task<string?> ResolveAsync(string sourceId, int quoteNumber, CancellationToken cancellationToken)
+        {
+            SourceId = sourceId;
+            QuoteNumber = quoteNumber;
+            return Task.FromResult<string?>("https://tenant.fulcrumpro.us/quotes/test-4445");
+        }
     }
 }

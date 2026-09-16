@@ -12,6 +12,7 @@ public sealed class FulcrumQuoteSyncOptions
 
     public bool Enabled { get; set; }
     public string BaseUrl { get; set; } = FulcrumApiEndpoint.ItarBaseUrl;
+    public string QuoteUrlTemplate { get; set; } = string.Empty;
     public string TimeZoneId { get; set; } = "Mountain Standard Time";
     public int PageSize { get; set; } = 5000;
     public FulcrumQuoteCustomFieldOptions CustomFields { get; set; } = new();

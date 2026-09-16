@@ -8,7 +8,7 @@ using SonAero.Platform.Security;
 namespace EstimatingDashboard.Api.Services;
 
 public sealed partial class QuoteStatusService(EstimatingAccessDbContext db, TimeProvider clock, VendorQuoteService vendors,
-    EstimatingQuoteWorkflowService workflow)
+    EstimatingQuoteWorkflowService workflow, IQuoteSourceLinkResolver sourceLinks)
 {
     public async Task<QuoteStatusPageDto> ListAsync(EstimatingAccessProfile access, string? search, string? status,
         int? quoteNumber, int page, int pageSize, CancellationToken ct)
@@ -82,7 +82,8 @@ public sealed partial class QuoteStatusService(EstimatingAccessDbContext db, Tim
         var unassigned = await vendors.MessagesAsync(db.Set<VendorQuoteMessage>().Where(x => x.QuoteHistoryId == id && x.RequestId == null), ct);
         return new(summary, events.OrderByDescending(x => x.OccurredAt).ThenByDescending(x => x.Id).ToList(),
             threads.OrderBy(x => x.Request.PartNumber).ThenBy(x => x.Request.VendorName).ToList(), unassigned, workflowDetails,
-            await RemovedEmailsAsync(id, ct), await RemovedNotesAsync(id, ct));
+            await RemovedEmailsAsync(id, ct), await RemovedNotesAsync(id, ct),
+            await sourceLinks.ResolveAsync(quote.SourceId, quote.QuoteNumber, ct));
     }
     public async Task<QuoteStatusDetailDto> UpdateAsync(int id, UpdateQuoteStatusDto dto, EstimatingAccessProfile access, CancellationToken ct)
     {

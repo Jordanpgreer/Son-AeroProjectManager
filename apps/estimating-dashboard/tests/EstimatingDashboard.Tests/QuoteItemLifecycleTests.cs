@@ -178,7 +178,7 @@ public sealed class QuoteItemLifecycleTests
         var messageId = f.Db.Set<VendorQuoteMessage>().Single().Id;
         await using var otherDb = f.AnotherContext();
         var otherVendors = new VendorQuoteService(otherDb, TimeProvider.System);
-        var otherQuotes = new QuoteStatusService(otherDb, TimeProvider.System, otherVendors, new(otherDb, TimeProvider.System));
+        var otherQuotes = new QuoteStatusService(otherDb, TimeProvider.System, otherVendors, new(otherDb, TimeProvider.System), new NoQuoteSourceLinks());
         await otherQuotes.AddNoteAsync(f.QuoteId(), new(0, "Concurrent edit"), Editor, default);
         Assert.Equal(409, (await Assert.ThrowsAsync<VendorQuoteException>(() => f.Quotes.RemoveEmailAsync(f.QuoteId(), messageId, new(0), Remover, default))).StatusCode);
         Assert.Null((await otherDb.Set<VendorQuoteMessage>().AsNoTracking().SingleAsync()).RemovedAt);

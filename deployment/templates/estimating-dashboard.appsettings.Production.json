@@ -11,6 +11,7 @@
   },
   "FulcrumQuoteSync": {
     "BaseUrl": "https://api.fulcrumpro.us/",
+    "QuoteUrlTemplate": "",
     "PageSize": 5000
   },
   "Portal": { "Url": "https://hub.son4l.local" }

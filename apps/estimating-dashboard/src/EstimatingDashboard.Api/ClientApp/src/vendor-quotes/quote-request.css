@@ -12,6 +12,9 @@
 .qs-request-heading .qs-back-to-quotes { margin: 0 0 13px; font-size: 12px !important; }
 .qs-request-title { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .qs-request-title h2 { margin: 0; font-size: 25px; font-weight: 650; line-height: 1.25; letter-spacing: -.035em; }
+.qs-request-title h2 a { display: inline-flex; align-items: center; gap: 4px; color: var(--steel-700); text-decoration: underline; text-underline-offset: 3px; }
+.qs-request-title h2 a:hover { color: var(--ink); }
+.qs-request-title h2 a:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; border-radius: 2px; }
 .qs-request-page .qs-removed-button { min-height: 32px; padding: 5px 9px; background: transparent; border-color: transparent; color: var(--muted); font-size: 11px !important; box-shadow: none; }
 .qs-removed-button > span { border-radius: 4px; padding: 2px 5px; background: var(--surface-3); }
 .qs-request-grid { display: grid; grid-template-columns: minmax(0,2fr) minmax(300px,1fr); align-items: start; gap: 22px; }

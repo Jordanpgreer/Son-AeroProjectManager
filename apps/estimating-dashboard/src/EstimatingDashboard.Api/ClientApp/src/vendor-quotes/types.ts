@@ -109,7 +109,7 @@ export interface QuoteActivity extends Omit<VendorActivity, 'id'> {
 }
 export interface QuoteStatusDetail {
   quote: QuoteStatusSummary; activity: QuoteActivity[]; threads: VendorDetail[]; unassignedMessages: VendorMessage[]; workflow: PersonalQuote
-  removedMessages: RemovedQuoteEmail[]; removedNotes: QuoteActivity[]
+  removedMessages: RemovedQuoteEmail[]; removedNotes: QuoteActivity[]; fulcrumQuoteUrl: string | null
 }
 export interface RemovedQuoteEmail {
   id: number; subject: string; direction: string; fromAddress: string; fromName: string | null; vendorEmail: string

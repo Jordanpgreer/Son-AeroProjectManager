@@ -9,7 +9,8 @@ public sealed record QuoteStatusPageDto(IReadOnlyList<QuoteStatusSummaryDto> Ite
 public sealed record QuoteStatusDetailDto(QuoteStatusSummaryDto Quote,
     IReadOnlyList<QuoteStatusActivityDto> Activity, IReadOnlyList<VendorQuoteDetailDto> Threads,
     IReadOnlyList<VendorQuoteMessageDto> UnassignedMessages, EstimatingPersonalQuoteDto Workflow,
-    IReadOnlyList<RemovedQuoteEmailDto> RemovedMessages, IReadOnlyList<QuoteStatusActivityDto> RemovedNotes);
+    IReadOnlyList<RemovedQuoteEmailDto> RemovedMessages, IReadOnlyList<QuoteStatusActivityDto> RemovedNotes,
+    string? FulcrumQuoteUrl);
 public sealed record QuoteStatusActivityDto(string Id, string Kind, string Text, string? OldValue,
     string? NewValue, DateTimeOffset OccurredAt, string AccountName, string DisplayName,
     int? RequestId, string? VendorName, string? PartNumber, DateTimeOffset? EditedAt = null,

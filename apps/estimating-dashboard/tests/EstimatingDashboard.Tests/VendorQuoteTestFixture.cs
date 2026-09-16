@@ -18,13 +18,13 @@ internal sealed class VendorQuoteTestFixture : IAsyncDisposable
     public static readonly DateTimeOffset Now = DateTimeOffset.Parse("2026-09-10T16:00:00Z");
     public static EstimatingAccessProfile Editor => new(1, "SONAERO\\casey", "Casey Lee", EstimatingRoles.Editor, true);
     public static EstimatingAccessProfile Admin => new(2, "SONAERO\\admin", "Admin User", EstimatingRoles.Admin, true);
-    private VendorQuoteTestFixture(SqliteConnection conn, EstimatingAccessDbContext db)
+    private VendorQuoteTestFixture(SqliteConnection conn, EstimatingAccessDbContext db, IQuoteSourceLinkResolver? sourceLinks)
     {
         connection = conn; Db = db;
         var clock = new FrozenClock();
-        Vendors = new(db, clock); Workflow = new(db, clock); Quotes = new(db, clock, Vendors, Workflow);
+        Vendors = new(db, clock); Workflow = new(db, clock); Quotes = new(db, clock, Vendors, Workflow, sourceLinks ?? new NoQuoteSourceLinks());
     }
-    public static async Task<VendorQuoteTestFixture> CreateAsync()
+    public static async Task<VendorQuoteTestFixture> CreateAsync(IQuoteSourceLinkResolver? sourceLinks = null)
     {
         var conn = new SqliteConnection("Data Source=:memory:");
         await conn.OpenAsync();
@@ -32,7 +32,7 @@ internal sealed class VendorQuoteTestFixture : IAsyncDisposable
         await db.Database.EnsureCreatedAsync();
         db.QuoteHistory.AddRange(Record(4445, "Casey Lee"), Record(44450, "Someone Else"), Record(4451, "Casey Lee", true));
         await db.SaveChangesAsync();
-        return new(conn, db);
+        return new(conn, db, sourceLinks);
     }
     public static EstimatingQuoteHistoryRecord Record(int number, string estimator, bool complete = false) => new()
     {
@@ -48,4 +48,9 @@ internal sealed class VendorQuoteTestFixture : IAsyncDisposable
             ["casey@company.example"], "quotes@vendor.example", "Silicone Prime", Now, Now, "Pricing attached.", [], "conversation-1");
     public async ValueTask DisposeAsync() { await Db.DisposeAsync(); await connection.DisposeAsync(); }
     private sealed class FrozenClock : TimeProvider { public override DateTimeOffset GetUtcNow() => Now; }
+}
+
+internal sealed class NoQuoteSourceLinks : IQuoteSourceLinkResolver
+{
+    public Task<string?> ResolveAsync(string sourceId, int quoteNumber, CancellationToken cancellationToken) => Task.FromResult<string?>(null);
 }

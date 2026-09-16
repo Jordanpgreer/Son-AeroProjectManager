@@ -135,7 +135,9 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   return <section className="vq-detail qs-request-record" aria-label={`Quote ${quote.quoteNumber} details`}>
     <header className="qs-request-heading">
       <button className="qs-back-to-quotes vq-button" onClick={onBack}><ArrowLeft size={15} />Back to Quotes</button>
-      <div className="qs-request-title"><h2>Quote {quote.quoteNumber}</h2>
+      <div className="qs-request-title"><h2>Quote {detail.fulcrumQuoteUrl
+        ? <a href={detail.fulcrumQuoteUrl} target="_blank" rel="noopener noreferrer" aria-label={`Open Fulcrum quote ${quote.quoteNumber} in a new tab`}>{quote.quoteNumber}<ArrowUpRight size={17} aria-hidden="true" /></a>
+        : quote.quoteNumber}</h2>
         <button className="vq-button qs-removed-button" onClick={() => setRemovedOpen(true)}><Trash2 size={14} />Removed items{removedCount > 0 && <span>{removedCount}</span>}</button>
       </div>
     </header>
