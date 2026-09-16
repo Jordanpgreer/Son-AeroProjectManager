@@ -44,6 +44,7 @@ public sealed class VendorQuoteMessage
     public DateTimeOffset ImportedAt { get; set; }
     public string ImportedBy { get; set; } = "";
     public string BodyText { get; set; } = "";
+    public bool IsRateRequest { get; set; }
     public DateTimeOffset? RemovedAt { get; set; }
     public string? RemovedBy { get; set; }
     public DateTimeOffset? MovedAt { get; set; }
@@ -95,8 +96,21 @@ public sealed class VendorQuoteSyncState
 
 public static class VendorQuoteStatuses
 {
-    public static readonly IReadOnlyList<string> All = ["Untouched", "Rates requested", "Waiting on vendor",
-        "Reply received", "Quote received", "Under review", "Accepted", "Declined", "Cancelled"];
+    public const string Untouched = "Untouched";
+    public const string WaitingOnVendor = "Waiting on vendor";
+    public const string QuoteReceived = "Quote received";
+
+    public static readonly IReadOnlyList<string> All = [Untouched, WaitingOnVendor, QuoteReceived];
+
+    // Legacy RFQ statuses remain stored as recorded. Normalize only the current display/filter;
+    // activity history keeps its original wording, and new writes accept only All above.
+    public static string Normalize(string? value) => value?.Trim().ToLowerInvariant() switch
+    {
+        "waiting on vendor" or "rates requested" or "reply received" => WaitingOnVendor,
+        "quote received" or "under review" or "accepted" => QuoteReceived,
+        "untouched" or "declined" or "cancelled" => Untouched,
+        _ => Untouched
+    };
 }
 
 public sealed class QuoteStatusMetadata

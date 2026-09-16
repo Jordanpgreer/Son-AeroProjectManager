@@ -9,6 +9,8 @@ internal static class QuoteItemLifecycleEndpoints
     internal static void MapItemLifecycle(this RouteGroupBuilder group)
     {
         var routes = group.MapGroup("").RequireAuthorization(EstimatingPolicies.Editor);
+        routes.MapPost("/{id:int}/messages/{messageId:long}/rate-request", async (int id, long messageId, QuoteEmailRateRequestDto dto, HttpContext ctx, QuoteStatusService service, CancellationToken ct) =>
+            Results.Ok(await service.SetEmailRateRequestAsync(id, messageId, dto, Access(ctx), ct)));
         routes.MapPost("/{id:int}/messages/{messageId:long}/remove", async (int id, long messageId, QuoteItemVersionDto dto, HttpContext ctx, QuoteStatusService service, CancellationToken ct) =>
             Results.Ok(await service.RemoveEmailAsync(id, messageId, dto, Access(ctx), ct)))
             .RequireAuthorization(policy => policy.RequireClaim(EstimatingPolicies.PermissionClaim, EstimatingPermissions.DeleteQuotes));

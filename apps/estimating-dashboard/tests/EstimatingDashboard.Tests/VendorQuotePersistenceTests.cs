@@ -88,7 +88,9 @@ public sealed class VendorQuotePersistenceTests
         var app = builder.Build();
         app.MapGroup("/api").MapVendorQuoteEndpoints().MapQuoteStatusEndpoints();
         var routes = ((IEndpointRouteBuilder)app).DataSources.SelectMany(x => x.Endpoints).OfType<RouteEndpoint>().ToList();
-        Assert.Equal(24, routes.Count);
+        Assert.Equal(25, routes.Count);
+        Assert.Contains(routes, route => route.RoutePattern.RawText == "/api/quote-status/{id:int}/messages/{messageId:long}/rate-request"
+            && route.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Contains("POST"));
         Assert.All(routes, route =>
         {
             var auth = route.Metadata.GetOrderedMetadata<IAuthorizeData>();

@@ -25,8 +25,11 @@ internal static class ManualQuoteEmailEndpoints
             int? requestId = null;
             if (!string.IsNullOrWhiteSpace(form["requestId"]))
                 requestId = int.TryParse(form["requestId"], out var parsed) && parsed > 0 ? parsed : throw new VendorQuoteException(400, "Choose a valid thread.");
+            var isRateRequest = false;
+            if (!string.IsNullOrWhiteSpace(form["isRateRequest"]) && !bool.TryParse(form["isRateRequest"], out isRateRequest))
+                throw new VendorQuoteException(400, "Rates requested must be true or false.");
             var result = await service.ImportEmailAsync(id, file.FileName, content,
-                new(version, requestId, form["direction"].ToString(), form["vendorEmail"], form["note"]), access, ct);
+                new(version, requestId, form["direction"].ToString(), form["vendorEmail"], form["note"], isRateRequest), access, ct);
             return Results.Ok(new ManualQuoteEmailImportResultDto(result.Outcome, result.RequestId, result.QuoteNumber!.Value,
                 result.Message, await quotes.DetailAsync(id, access, ct)));
         }).RequireAuthorization(EstimatingPolicies.Editor);

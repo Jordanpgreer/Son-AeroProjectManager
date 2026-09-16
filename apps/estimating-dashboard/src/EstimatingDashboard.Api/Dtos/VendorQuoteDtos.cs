@@ -22,7 +22,8 @@ public sealed record VendorQuoteActivityDto(
 public sealed record VendorQuoteMessageDto(
     long Id, string Direction, string Subject, string FromAddress, string? FromName,
     IReadOnlyList<string> ToAddresses, DateTimeOffset SentAt, DateTimeOffset? ReceivedAt,
-    DateTimeOffset ImportedAt, string BodyText, IReadOnlyList<VendorQuoteAttachmentDto> Attachments, string VendorEmail);
+    DateTimeOffset ImportedAt, string BodyText, IReadOnlyList<VendorQuoteAttachmentDto> Attachments, string VendorEmail,
+    bool IsRateRequest = false);
 
 public sealed record VendorQuoteAttachmentDto(long Id, string FileName, string ContentType, int SizeBytes);
 public sealed record VendorQuoteOptionDto(int Id, int QuoteNumber, string Customer, string EstimatingRep);

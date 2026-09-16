@@ -22,6 +22,9 @@
 .qs-email-review select,.qs-email-review textarea { width: 100%; min-width: 0; padding: 10px 12px; min-height: 43px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--ink); font: inherit; font-size: 14px; font-weight: 400; }
 .qs-email-review textarea { resize: vertical; line-height: 1.7; }
 .qs-email-review small { color: var(--muted); font-size: 11px; font-weight: 400; line-height: 1.65; }
+.qs-email-review .qs-rate-request-choice { display: flex; align-items: flex-start; gap: 10px; padding: 14px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface-2); cursor: pointer; }
+.qs-rate-request-choice input { flex-shrink: 0; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--steel-action); }
+.qs-rate-request-choice > span { display: grid; gap: 5px; }
 .qs-email-direction { display: flex; gap: 11px; margin: 0; padding: 0; border: 0; }
 .qs-email-direction legend { margin-bottom: 10px; color: var(--ink-2); font-size: 13px; font-weight: 600; }
 .qs-email-direction label { display: flex; align-items: center; justify-content: center; flex: 1; gap: 8px; min-height: 47px; padding: 10px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--muted); font-size: 13px; cursor: pointer; }

@@ -66,6 +66,8 @@ public sealed partial class VendorQuoteService
         var from = Email(dto.FromAddress);
         var direction = Required(dto.Direction, "Direction", 16).ToLowerInvariant();
         if (direction is not ("incoming" or "outgoing")) throw new VendorQuoteException(400, "Direction must be incoming or outgoing.");
+        if (manual?.IsRateRequest == true && (direction != "outgoing" || explicitThread is null))
+            throw new VendorQuoteException(400, "Rates requested requires a sent email assigned to an RFQ.");
         if (dto.ToAddresses is null || dto.ToAddresses.Count > 100) throw new VendorQuoteException(400, "A message may contain up to 100 recipients.");
         var recipients = dto.ToAddresses.Select(Email).Distinct().ToList();
         if ((direction == "incoming" && vendor != from) || (direction == "outgoing" && !recipients.Contains(vendor)))
@@ -80,7 +82,6 @@ public sealed partial class VendorQuoteService
         var note = Optional(manual?.Note, "Note", 4000);
         var candidates = await db.Set<VendorQuoteRequest>().Where(x => x.QuoteHistoryId == quote.Id && x.VendorEmail == vendor).ToListAsync(ct);
         VendorQuoteRequest? request = explicitThread;
-        var createdThread = false;
         if (manual is null && conversation is not null)
         {
             var related = await db.Set<VendorQuoteMessage>().Where(x => x.QuoteHistoryId == quote.Id && x.VendorEmail == vendor
@@ -94,14 +95,13 @@ public sealed partial class VendorQuoteService
             request = NewRequest(quote, vendor, Optional(dto.VendorName, "Vendor name", 200) ?? vendor,
                 $"Correspondence with {vendor}"[..Math.Min(240, $"Correspondence with {vendor}".Length)], null, access);
             db.Add(request);
-            createdThread = true;
         }
         var message = new VendorQuoteMessage { Request = request, QuoteHistory = quote, QuoteHistoryId = quote.Id,
             VendorEmail = vendor, ConversationId = conversation, DeduplicationKey = dedup, SourceMessageId = sourceId,
             Mailbox = mailbox, Direction = direction, Subject = subject, FromAddress = from, FromName = fromName,
             ToAddressesJson = JsonSerializer.Serialize(recipients), SentAt = dto.SentAt.ToUniversalTime(),
             ReceivedAt = dto.ReceivedAt?.ToUniversalTime(), ImportedAt = clock.GetUtcNow(), ImportedBy = access.AccountName,
-            BodyText = body, Attachments = attachments };
+            BodyText = body, Attachments = attachments, IsRateRequest = manual?.IsRateRequest == true };
         db.Add(message);
         if (request is not null)
         {
@@ -112,8 +112,11 @@ public sealed partial class VendorQuoteService
                 : direction == "incoming" ? fromName ?? from : vendor;
             AddActivity(request, "email", EmailActivity(direction, correspondent, manual is not null), access, null, subject);
             if (note is not null) AddActivity(request, "note", note, access);
-            if (manual is null && direction == "incoming" && (createdThread || eventTime >= request.StatusChangedAt)
-                && request.Status is "Untouched" or "Rates requested" or "Waiting on vendor") SetStatus(request, "Reply received", access);
+            if (message.IsRateRequest)
+            {
+                AddActivity(request, "email-rate-request", "Email marked as Rates requested", access, null, subject);
+                SetStatus(request, VendorQuoteStatuses.WaitingOnVendor, access);
+            }
         }
         else
         {

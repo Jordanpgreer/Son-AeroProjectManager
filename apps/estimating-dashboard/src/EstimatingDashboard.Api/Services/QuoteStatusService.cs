@@ -55,7 +55,7 @@ public sealed partial class QuoteStatusService(EstimatingAccessDbContext db, Tim
                     .Concat(workflowUpdates.Where(x => x.QuoteHistoryId == q.Id).Select(x => x.ChangedAt)).Append(q.UpdatedAt).Max(),
                 emailRows.Select(x => (DateTimeOffset?)(x.ReceivedAt ?? x.SentAt)).DefaultIfEmpty().Max(),
                 threadRows.Count, emailRows.Count, emailRows.Count(x => x.RequestId is null), q.Version,
-                !access.IsPreview && VendorQuoteService.Has(access, EstimatingPermissions.ManageQuotes), CanRemove(access));
+                !access.IsPreview && VendorQuoteService.Has(access, EstimatingPermissions.ManageQuotes), CanRemove(access), q.SalesPerson);
         }).ToList();
     }
     public async Task<QuoteStatusDetailDto> DetailAsync(int id, EstimatingAccessProfile access, CancellationToken ct)

@@ -1,0 +1,56 @@
+.qs-request-page .qs-activity-timeline { margin: 0; padding: 0; list-style: none; }
+.qs-request-page .qs-timeline-pagination { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.qs-request-page .qs-timeline-pagination > span { color: var(--muted); font-size: 11px; }
+.qs-request-page .qs-timeline-entry { position: relative; display: grid; grid-template-columns: 30px minmax(0,1fr) 30px; align-items: start; gap: 12px; padding-bottom: 20px; }
+.qs-request-page .qs-timeline-entry:last-child { padding-bottom: 0; }
+.qs-request-page .qs-timeline-entry:not(:last-child)::before { position: absolute; content: ''; top: 30px; left: 14px; bottom: 0; width: 1px; background: var(--line-2); }
+.qs-request-page .qs-timeline-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; color: var(--steel-700); background: var(--steel-tint); }
+.qs-request-page .qs-timeline-icon.is-email { background: color-mix(in srgb,var(--steel-tint) 55%,var(--surface)); }
+.qs-request-page .qs-timeline-open { display: grid; min-width: 0; gap: 4px; padding: 3px 2px 0 0; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font: inherit; text-align: left; cursor: pointer; }
+.qs-request-page .qs-timeline-open:hover .qs-timeline-summary { color: var(--steel-700); }
+.qs-request-page .qs-timeline-open:focus-visible { outline: 2px solid var(--steel); outline-offset: 4px; }
+.qs-request-page .qs-timeline-summary { font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.qs-request-page .qs-timeline-summary strong { color: var(--ink-2); font-weight: 600; }
+.qs-request-page .qs-timeline-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.qs-request-page .qs-timeline-meta > span { display: inline-flex; align-items: center; gap: 3px; }
+.qs-request-page .qs-timeline-pointer { margin-top: 2px; color: var(--muted); }
+.qs-request-page .qs-timeline-open:hover .qs-timeline-pointer { color: var(--steel-700); }
+.qs-request-page .qs-timeline-delete { width: 30px; height: 30px; min-width: 30px; min-height: 30px; border: 0; color: var(--muted); background: transparent; }
+.qs-request-page .qs-timeline-delete:hover { color: var(--warn-700); background: var(--warn-tint); }
+.qs-request-page .qs-timeline-empty { display: flex; align-items: center; gap: 14px; padding: 12px 0 22px; color: var(--muted); }
+.qs-request-page .qs-timeline-empty strong { color: var(--ink-2); font-size: 13px; font-weight: 600; }
+.qs-request-page .qs-timeline-empty p { margin: 5px 0 0; font-size: 12px; }
+.qs-request-page .qs-entry-composer { padding: 20px 0 0; margin-top: 22px; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; }
+.qs-request-page .qs-entry-composer > header { margin: 0 0 17px; }
+.qs-request-page .qs-entry-composer h3 { margin: 0; font-size: 14px; color: var(--ink-2); }
+.qs-request-page .qs-entry-composer .qs-entry-status { max-width: 340px; }
+.qs-request-page .qs-entry-composer input,.qs-request-page .qs-entry-composer select,.qs-request-page .qs-entry-composer textarea { min-height: 37px; padding: 8px 11px; font-size: 12px; background: var(--surface-2); }
+.qs-request-page .qs-entry-composer textarea { width: 100%; min-height: 92px; line-height: 1.7; }
+.qs-request-page .qs-entry-composer label { font-size: 11px; }
+.qs-request-page .qs-entry-composer .vq-note-label { margin-top: 15px; }
+.qs-request-page .qs-entry-composer .vq-note-label span { font-weight: 400; color: var(--muted); }
+.qs-request-page .qs-entry-options { margin-top: 10px; color: var(--muted); font-size: 11px; }
+.qs-request-page .qs-entry-options > summary { width: fit-content; cursor: pointer; }
+.qs-request-page .qs-entry-options > label { max-width: 220px; margin-top: 12px; }
+.qs-request-page .qs-entry-composer > footer { margin-top: 17px; }
+.qs-request-page .qs-entry-composer .vq-composer-hint { max-width: none; font-size: 10px; }
+.qs-request-page .qs-entry-details { min-width: 0; }
+.qs-request-page .qs-entry-author { display: grid; gap: 5px; color: var(--ink-2); font-size: 13px; }
+.qs-request-page .qs-entry-author > span { color: var(--muted); font-size: 11px; }
+.qs-request-page .qs-entry-note { margin: 18px 0; color: var(--ink-2); font-size: 14px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
+.qs-request-page .qs-entry-note a,.qs-request-page .qs-note-history a { color: var(--steel-700); text-decoration: underline; text-underline-offset: 3px; }
+.qs-request-page .qs-entry-thread { display: flex; align-items: center; gap: 7px; width: fit-content; margin: 0 0 18px; padding: 7px 10px; border: 1px solid var(--line-2); border-radius: 5px; background: var(--surface-2); color: var(--steel-700); font: inherit; font-size: 12px; }
+.qs-request-page .qs-entry-details .vq-emails { margin: 0; }
+.qs-request-page .qs-rate-request-badge { display: inline-flex; align-items: center; gap: 4px; width: fit-content; padding: 2px 6px; border: 1px solid color-mix(in srgb,var(--steel) 20%,var(--line)); border-radius: 4px; color: var(--steel-700); background: var(--steel-tint); font-size: 10px; font-weight: 600; line-height: 1.5; }
+.qs-request-page .qs-email-rate-request { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin: 15px 0; padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); }
+.qs-request-page .qs-email-rate-request p,.qs-request-page .qs-rate-request-hint { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.7; }
+.qs-request-page .qs-rate-request-hint { margin: 12px 0; }
+.qs-request-page .qs-email-rate-request .vq-button { font-size: 11px; min-height: 32px; }
+@media (max-width: 620px) {
+  .qs-request-page .qs-timeline-entry { grid-template-columns: 28px minmax(0,1fr) 28px; gap: 9px; }
+  .qs-request-page .qs-timeline-icon { width: 28px; height: 28px; }
+  .qs-request-page .qs-timeline-entry:not(:last-child)::before { left: 13px; top: 28px; }
+  .qs-request-page .qs-entry-composer .qs-entry-status { max-width: none; }
+  .qs-request-page .qs-entry-composer input,.qs-request-page .qs-entry-composer select,.qs-request-page .qs-entry-composer textarea { font-size: 16px; }
+  .qs-request-page .qs-entry-composer > footer { align-items: center; flex-wrap: wrap; }
+}

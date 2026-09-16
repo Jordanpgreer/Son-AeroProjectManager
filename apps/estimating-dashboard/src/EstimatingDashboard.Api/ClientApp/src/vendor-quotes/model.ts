@@ -1,12 +1,21 @@
 import type { QuoteStatusUpdate, VendorMessage, VendorSync } from './types.ts'
 
-export const VENDOR_STATUSES = ['Untouched', 'Rates requested', 'Waiting on vendor', 'Reply received', 'Quote received', 'Under review', 'Accepted', 'Declined', 'Cancelled']
+export const VENDOR_STATUSES = ['Untouched', 'Waiting on vendor', 'Quote received']
+export const LEGACY_VENDOR_STATUSES = ['Rates requested', 'Reply received', 'Under review', 'Accepted', 'Declined', 'Cancelled']
 export const QUOTE_STATUSES = ['Untouched', 'In progress', 'RFQ Sent', 'Ready for Review', 'Complete', 'On Hold']
-export const CLOSED_STATUSES = new Set(['Accepted', 'Declined', 'Cancelled', 'Complete'])
+export const CLOSED_STATUSES = new Set(['Quote received', 'Accepted', 'Declined', 'Cancelled', 'Complete'])
+
+export function canonicalVendorStatus(status: string | null | undefined): string {
+  switch (status?.trim().toLowerCase()) {
+    case 'rates requested': case 'waiting on vendor': case 'reply received': return 'Waiting on vendor'
+    case 'quote received': case 'under review': case 'accepted': return 'Quote received'
+    default: return 'Untouched'
+  }
+}
 
 export function statusTone(status: string) {
-  if (status === 'Accepted' || status === 'Complete') return 'success'
-  if (['Quote received', 'Reply received', 'In progress', 'Ready for Review'].includes(status)) return 'blue'
+  if (['Quote received', 'Accepted', 'Complete'].includes(status)) return 'success'
+  if (['Reply received', 'Under review', 'In progress', 'Ready for Review'].includes(status)) return 'blue'
   if (['Waiting on vendor', 'Rates requested', 'RFQ Sent', 'On Hold'].includes(status)) return 'amber'
   return 'neutral'
 }
@@ -72,10 +81,10 @@ export function makeUpdate(draft: UpdateDraft, version: number): QuoteStatusUpda
   return { expectedVersion: version, status: draft.status, followUpDate: draft.followUpDate || null, note: draft.note.trim() || null }
 }
 
-/** Refresh server fields without losing a separately drafted note or follow-up. */
-export function synchronizeActivityDraft(draft: UpdateDraft, previous: Pick<UpdateDraft, 'status' | 'followUpDate'>, next: Pick<UpdateDraft, 'status' | 'followUpDate'>, isOverallQuote: boolean): UpdateDraft {
+/** Refresh server fields without losing a separately drafted status, note, or follow-up. */
+export function synchronizeActivityDraft(draft: UpdateDraft, previous: Pick<UpdateDraft, 'status' | 'followUpDate'>, next: Pick<UpdateDraft, 'status' | 'followUpDate'>, _isOverallQuote: boolean): UpdateDraft {
   return {
-    status: isOverallQuote || draft.status === previous.status ? next.status : draft.status,
+    status: draft.status === previous.status ? next.status : draft.status,
     followUpDate: draft.followUpDate === previous.followUpDate ? next.followUpDate : draft.followUpDate,
     note: draft.note,
   }

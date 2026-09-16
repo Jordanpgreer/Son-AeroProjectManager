@@ -11,7 +11,7 @@ export default function RemoveRecordDialog({ kind, label, onClose, onRemove, onC
   const [error, setError] = useState<string | null>(null)
   return <Modal title={`Remove ${kind} from Arda?`} subtitle="You can undo this immediately or restore it later from Removed items." onClose={() => { if (!saving) onClose() }}>
     <div className="qs-remove-context">{label}</div>
-    <p className="qs-lifecycle-copy">{kind === 'email' ? 'The original email stays in Outlook. Arda will remember this removal so sync does not add it again.' : 'The note will leave the active timeline. The removal and original note remain in the record.'}</p>
+    <p className="qs-lifecycle-copy">{kind === 'email' ? 'The original email stays in Outlook. Arda will remember this removal so sync does not add it again.' : 'The note will leave the active timeline. Status changes stay in the record. You can restore the note from Removed items.'}</p>
     {error && <p className="vq-error" role="alert">{error}</p>}
     <footer className="vq-modal-footer"><button className="vq-button" disabled={saving} onClick={onClose}>Keep {kind}</button><button className="vq-button qs-remove-button" disabled={saving} onClick={async () => {
       setSaving(true); onBusy(true); setError(null)

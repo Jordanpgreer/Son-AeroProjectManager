@@ -10,6 +10,7 @@ async function change(quoteId: number, path: string, body: unknown, method: 'POS
 }
 export const removeEmail = (quoteId: number, id: number, expectedVersion: number) => change(quoteId, `messages/${id}/remove`, { expectedVersion })
 export const restoreEmail = (quoteId: number, id: number, expectedVersion: number) => change(quoteId, `messages/${id}/restore`, { expectedVersion })
+export const setEmailRateRequest = (quoteId: number, id: number, expectedVersion: number, isRateRequest: boolean) => change(quoteId, `messages/${id}/rate-request`, { expectedVersion, isRateRequest })
 export const removeNote = (quoteId: number, id: string, expectedVersion: number) => change(quoteId, `notes/${encodeURIComponent(id)}/remove`, { expectedVersion })
 export const restoreNote = (quoteId: number, id: string, expectedVersion: number) => change(quoteId, `notes/${encodeURIComponent(id)}/restore`, { expectedVersion })
 export const editNote = (quoteId: number, id: string, expectedVersion: number, text: string) => change(quoteId, `notes/${encodeURIComponent(id)}`, { expectedVersion, text }, 'PUT')

@@ -3,7 +3,8 @@ namespace EstimatingDashboard.Api.Dtos;
 public sealed record QuoteStatusSummaryDto(int QuoteHistoryId, int QuoteNumber, string Customer,
     string EstimatingRep, string Status, DateTimeOffset? StatusChangedAt, string? StatusChangedBy,
     DateTime? FollowUpDate, DateTimeOffset UpdatedAt, DateTimeOffset? LastMessageAt,
-    int ThreadCount, int MessageCount, int UnassignedMessageCount, int Version, bool CanEdit, bool CanRemove = false);
+    int ThreadCount, int MessageCount, int UnassignedMessageCount, int Version, bool CanEdit, bool CanRemove = false,
+    string? SalesPerson = null);
 public sealed record QuoteStatusPageDto(IReadOnlyList<QuoteStatusSummaryDto> Items, int TotalCount, int Page, int PageSize);
 public sealed record QuoteStatusDetailDto(QuoteStatusSummaryDto Quote,
     IReadOnlyList<QuoteStatusActivityDto> Activity, IReadOnlyList<VendorQuoteDetailDto> Threads,

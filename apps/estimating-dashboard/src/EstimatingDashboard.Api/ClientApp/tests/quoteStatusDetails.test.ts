@@ -58,6 +58,27 @@ test('saving an activity note advances the pending overview version without chan
   assert.equal(quoteDetailsUpdate(draft, baseline).notes, 'Compare vendor lead times.')
 })
 
+test('an entry status change rebases pending quote details without reverting the saved status', () => {
+  const pending = { ...quoteDetailsDraft(quote), notes: 'Material pricing approved.', dueDate: '2026-09-17' }
+  const afterEntry = { ...quote, version: 8, ardaStatus: 'Ready for Review' as const }
+  const baseline = rebaseQuoteDetailsAfterActivity({ ...quote, ardaStatus: afterEntry.ardaStatus }, afterEntry)
+  const draft = { ...pending, status: afterEntry.ardaStatus }
+  assert.deepEqual(quoteDetailsUpdate(draft, baseline), {
+    ardaStatus: 'Ready for Review', notes: 'Material pricing approved.',
+    estimatingDueDateOverride: '2026-09-17', expectedVersion: 8,
+  })
+})
+
+test('rebasing an entry status still protects concurrent changes to pending quote details', () => {
+  const pending = { ...quoteDetailsDraft(quote), notes: 'Our unsaved summary.' }
+  const afterEntry = { ...quote, version: 9, ardaStatus: 'Ready for Review' as const,
+    ardaStatusNotes: 'A teammate changed the summary after our entry.' }
+  const baseline = rebaseQuoteDetailsAfterActivity({ ...quote, ardaStatus: afterEntry.ardaStatus }, afterEntry)
+  const update = quoteDetailsUpdate({ ...pending, status: afterEntry.ardaStatus }, baseline)
+  assert.equal(update.expectedVersion, 7)
+  assert.equal(update.notes, 'Our unsaved summary.')
+})
+
 test('a conflicting overview refresh retains the original version to prevent overwriting another edit', () => {
   const draft = { ...quoteDetailsDraft(quote), status: 'Ready for Review' as const }
   for (const changed of [
@@ -83,4 +104,11 @@ test('an independent thread status draft remains intact when its parent record r
   const previous = { status: 'Waiting on vendor', followUpDate: '' }
   const draft = { ...previous, status: 'Quote received', note: 'Pricing received for SP-2040.' }
   assert.equal(synchronizeActivityDraft(draft, previous, { ...previous, status: 'Reply received' }, false).status, 'Quote received')
+})
+
+test('a drafted quote status survives a background refresh until its entry is saved', () => {
+  const previous = { status: 'RFQ Sent', followUpDate: '' }
+  const draft = { ...previous, status: 'Ready for Review', note: 'All supplier pricing has arrived.' }
+  const next = { status: 'On Hold', followUpDate: '2026-09-22' }
+  assert.deepEqual(synchronizeActivityDraft(draft, previous, next, true), { ...draft, followUpDate: '2026-09-22' })
 })

@@ -3,6 +3,13 @@ import type { ManualEmailPreview, VendorRequest } from './types.ts'
 export type EmailDirection = '' | 'incoming' | 'outgoing'
 export const MAX_EMAIL_FILE_BYTES = 30 * 1024 * 1024
 
+export function validateRateRequestLabel(isRateRequest: boolean, direction: EmailDirection, requestId: number | null) {
+  if (!isRateRequest) return null
+  if (direction !== 'outgoing') return 'Rates requested is only available for sent emails.'
+  if (!Number.isSafeInteger(requestId) || !requestId || requestId < 1) return 'Choose an RFQ before marking this email Rates requested.'
+  return null
+}
+
 export function validateEmailFile(file: { name: string; size: number } | null, count = 1) {
   if (count > 1) return 'Attach one email at a time so you can review where it belongs.'
   if (!file) return 'Outlook did not provide a file. Save the email as an .msg or .eml file, then attach it here.'

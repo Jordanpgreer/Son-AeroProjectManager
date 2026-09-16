@@ -15,12 +15,12 @@ public sealed class VendorQuoteImportTests
         var result = await f.Vendors.ImportAsync(Message(), Editor, default);
         Assert.Equal("imported", result.Outcome);
         var detail = await f.Vendors.DetailAsync(result.RequestId!.Value, Editor, default);
-        Assert.Equal("Reply received", detail.Request.Status);
-        await f.Vendors.UpdateAsync(result.RequestId.Value, new(detail.Request.Version, "Silicone Prime", "Seal pricing", "Accepted", null, "Approved pricing"), Editor, default);
+        Assert.Equal("Untouched", detail.Request.Status);
+        await f.Vendors.UpdateAsync(result.RequestId.Value, new(detail.Request.Version, "Silicone Prime", "Seal pricing", "Quote received", null, "Approved pricing"), Editor, default);
         result = await f.Vendors.ImportAsync(Message() with { Mailbox = "other@company.example" }, Editor, default);
         Assert.Equal("duplicate", result.Outcome);
         detail = await f.Vendors.DetailAsync(result.RequestId!.Value, Editor, default);
-        Assert.Equal("Accepted", detail.Request.Status);
+        Assert.Equal("Quote received", detail.Request.Status);
         Assert.Single(detail.Messages);
         Assert.Contains(detail.Activity, x => x.Text == "Approved pricing");
     }
@@ -72,9 +72,8 @@ public sealed class VendorQuoteImportTests
     }
 
     [Theory]
+    [InlineData("Untouched")]
     [InlineData("Waiting on vendor")]
-    [InlineData("Rates requested")]
-    [InlineData("Accepted")]
     [InlineData("Quote received")]
     public async Task Historical_backfill_preserves_newer_manual_status(string status)
     {
@@ -84,14 +83,17 @@ public sealed class VendorQuoteImportTests
         Assert.Equal(status, (await f.Vendors.DetailAsync(created.Request.Id, Editor, default)).Request.Status);
     }
 
-    [Fact]
-    public async Task Newer_reply_only_advances_eligible_thread_and_never_overall_status()
+    [Theory]
+    [InlineData("Untouched")]
+    [InlineData("Waiting on vendor")]
+    [InlineData("Quote received")]
+    public async Task Ordinary_newer_reply_preserves_thread_and_overall_status(string status)
     {
         await using var f = await CreateAsync();
-        var thread = await f.ThreadAsync(status: "Waiting on vendor");
+        var thread = await f.ThreadAsync(status: status);
         await f.Quotes.UpdateAsync(f.QuoteId(), new(0, "Ready for Review"), Editor, default);
         await f.Vendors.ImportAsync(Message(), Editor, default);
-        Assert.Equal("Reply received", (await f.Vendors.DetailAsync(thread.Request.Id, Editor, default)).Request.Status);
+        Assert.Equal(status, (await f.Vendors.DetailAsync(thread.Request.Id, Editor, default)).Request.Status);
         Assert.Equal("Ready for Review", (await f.Quotes.DetailAsync(f.QuoteId(), Editor, default)).Quote.Status);
     }
 

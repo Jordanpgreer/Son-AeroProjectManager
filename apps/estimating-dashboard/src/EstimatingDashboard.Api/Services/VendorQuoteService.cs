@@ -56,7 +56,7 @@ public sealed partial class VendorQuoteService(EstimatingAccessDbContext db, Tim
         var query = db.Set<VendorQuoteRequest>().AsNoTracking().Include(x => x.QuoteHistory).Where(x => ids.Contains(x.QuoteHistoryId));
         var rows = await query.ToListAsync(ct);
         rows = rows.Where(x => (!quoteNumber.HasValue || x.QuoteHistory.QuoteNumber == quoteNumber)
-            && (string.IsNullOrWhiteSpace(status) || x.Status.Equals(status, StringComparison.OrdinalIgnoreCase))
+            && (string.IsNullOrWhiteSpace(status) || VendorQuoteStatuses.Normalize(x.Status).Equals(status.Trim(), StringComparison.OrdinalIgnoreCase))
             && (string.IsNullOrWhiteSpace(search) || $"{x.QuoteHistory.QuoteNumber} {x.QuoteHistory.Customer} {x.VendorName} {x.VendorEmail} {x.Title} {x.PartNumber}".Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)))
             .OrderByDescending(x => x.UpdatedAt).ToList();
         page = Math.Clamp(page, 1, 1000000); pageSize = Math.Clamp(pageSize, 1, 100);
@@ -81,7 +81,7 @@ public sealed partial class VendorQuoteService(EstimatingAccessDbContext db, Tim
         // Project attachment metadata only: opening a thread never loads every attachment BLOB.
         var messages = await query.AsNoTracking().Select(x => new VendorQuoteMessageDto(x.Id, x.Direction,
             x.Subject, x.FromAddress, x.FromName, Array.Empty<string>(), x.SentAt, x.ReceivedAt, x.ImportedAt,
-            x.BodyText, x.Attachments.Select(a => new VendorQuoteAttachmentDto(a.Id, a.FileName, a.ContentType, a.SizeBytes)).ToList(), x.VendorEmail)).ToListAsync(ct);
+            x.BodyText, x.Attachments.Select(a => new VendorQuoteAttachmentDto(a.Id, a.FileName, a.ContentType, a.SizeBytes)).ToList(), x.VendorEmail, x.IsRateRequest)).ToListAsync(ct);
         var recipients = await query.AsNoTracking().Select(x => new { x.Id, x.ToAddressesJson }).ToDictionaryAsync(x => x.Id, x => x.ToAddressesJson, ct);
         return messages.Select(x => x with { ToAddresses = JsonSerializer.Deserialize<string[]>(recipients[x.Id]) ?? [] })
             .OrderByDescending(x => x.SentAt).ThenByDescending(x => x.Id).ToList();
@@ -168,7 +168,7 @@ public sealed partial class VendorQuoteService(EstimatingAccessDbContext db, Tim
     internal static string Hash(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
     private void SetStatus(VendorQuoteRequest request, string status, EstimatingAccessProfile access)
     {
-        if (request.Status == status) return;
+        if (VendorQuoteStatuses.Normalize(request.Status) == status) return;
         AddActivity(request, "status", "Status updated", access, request.Status, status);
         request.Status = status; request.StatusChangedAt = clock.GetUtcNow(); request.StatusChangedBy = access.DisplayName;
     }
@@ -204,10 +204,10 @@ public sealed partial class VendorQuoteService(EstimatingAccessDbContext db, Tim
         if (value.HasValue && (value.Value.Year < 2000 || value.Value.Year > 2200)) throw new VendorQuoteException(400, "Follow-up date must be between 2000 and 2200.");
         return value?.Date;
     }
-    private static string Status(string? value) => VendorQuoteStatuses.All.FirstOrDefault(x => x.Equals(value?.Trim(), StringComparison.OrdinalIgnoreCase)) ?? throw new VendorQuoteException(400, "Choose an available thread status.");
+    private static string Status(string? value) => VendorQuoteStatuses.All.FirstOrDefault(x => x.Equals(value?.Trim(), StringComparison.OrdinalIgnoreCase)) ?? throw new VendorQuoteException(400, "Choose Untouched, Waiting on vendor, or Quote received.");
     private static VendorQuoteSummaryDto Summary(VendorQuoteRequest x, EstimatingAccessProfile access, int messages, int notes) =>
         new(x.Id, x.QuoteHistoryId, x.QuoteHistory.QuoteNumber, x.QuoteHistory.Customer, x.QuoteHistory.EstimatingRep,
-            x.VendorName, x.VendorEmail, x.Title, x.Status, x.StatusChangedAt, x.StatusChangedBy, x.FollowUpDate,
+            x.VendorName, x.VendorEmail, x.Title, VendorQuoteStatuses.Normalize(x.Status), x.StatusChangedAt, x.StatusChangedBy, x.FollowUpDate,
             x.CreatedAt, x.UpdatedAt, x.LastMessageAt, messages, notes, x.Version,
             !access.IsPreview && Has(access, EstimatingPermissions.ManageQuotes), x.PartNumber);
 }

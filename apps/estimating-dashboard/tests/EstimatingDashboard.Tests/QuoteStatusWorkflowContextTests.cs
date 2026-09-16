@@ -7,6 +7,24 @@ namespace EstimatingDashboard.Tests;
 public sealed class QuoteStatusWorkflowContextTests
 {
     [Fact]
+    public async Task Quote_details_use_sales_person_from_source_instead_of_estimating_rep()
+    {
+        await using var f = await CreateAsync();
+        var quoteId = f.QuoteId();
+        f.Db.QuoteHistory.Single(x => x.Id == quoteId).SalesPerson = "Morgan Sales";
+        await f.Db.SaveChangesAsync();
+
+        var detail = await f.Quotes.DetailAsync(quoteId, Editor, default);
+        var page = await f.Quotes.ListAsync(Editor, null, null, 4445, 1, 50, default);
+        Assert.Equal("Morgan Sales", detail.Quote.SalesPerson);
+        Assert.Equal("Casey Lee", detail.Quote.EstimatingRep);
+        Assert.Equal("Morgan Sales", page.Items.Single().SalesPerson);
+        var json = System.Text.Json.JsonSerializer.Serialize(detail,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.Contains("\"salesPerson\":\"Morgan Sales\"", json);
+    }
+
+    [Fact]
     public async Task Detail_exposes_existing_notes_without_audit_and_uses_canonical_legacy_status_dates_and_author()
     {
         await using var f = await CreateAsync();

@@ -56,7 +56,7 @@ public sealed class VendorQuoteServiceTests
         await using var f = await CreateAsync();
         var first = await f.ThreadAsync("P-100");
         var second = await f.ThreadAsync("P-200");
-        await f.Vendors.UpdateAsync(first.Request.Id, new(first.Request.Version, "Silicone Prime", "Rates for seals", "Rates requested", null, "RFQ sent to Silicone Prime"), Editor, default);
+        await f.Vendors.UpdateAsync(first.Request.Id, new(first.Request.Version, "Silicone Prime", "Rates for seals", "Waiting on vendor", null, "RFQ sent to Silicone Prime"), Editor, default);
         var detail = await f.Quotes.DetailAsync(f.QuoteId(), Editor, default);
         Assert.Equal(2, detail.Threads.Count);
         Assert.Contains(detail.Activity, x => x.Text == "RFQ sent to Silicone Prime" && x.PartNumber == "P-100" && x.RequestId == first.Request.Id);
@@ -78,8 +78,8 @@ public sealed class VendorQuoteServiceTests
     public async Task Quote_search_includes_accessible_part_and_vendor_and_creation_captures_initial_status()
     {
         await using var f = await CreateAsync();
-        var thread = await f.ThreadAsync("SPECIAL-PART", status: "Rates requested");
-        Assert.Equal("Rates requested", thread.Activity.Single(x => x.Kind == "created").NewValue);
+        var thread = await f.ThreadAsync("SPECIAL-PART", status: "Waiting on vendor");
+        Assert.Equal("Waiting on vendor", thread.Activity.Single(x => x.Kind == "created").NewValue);
         Assert.Equal(4445, (await f.Quotes.ListAsync(Editor, "special-part", null, null, 1, 50, default)).Items.Single().QuoteNumber);
         Assert.Equal(4445, (await f.Quotes.ListAsync(Editor, "silicone prime", null, null, 1, 50, default)).Items.Single().QuoteNumber);
     }
@@ -89,7 +89,7 @@ public sealed class VendorQuoteServiceTests
     {
         await using var f = await CreateAsync();
         var created = await f.ThreadAsync();
-        var updated = await f.Vendors.UpdateAsync(created.Request.Id, new(0, "Silicone Prime", "Rates", "Rates requested", null, null, "P-101", "sales@vendor.example"), Editor, default);
+        var updated = await f.Vendors.UpdateAsync(created.Request.Id, new(0, "Silicone Prime", "Rates", "Waiting on vendor", null, null, "P-101", "sales@vendor.example"), Editor, default);
         Assert.Equal("P-101", updated.Request.PartNumber);
         Assert.Equal("sales@vendor.example", updated.Request.VendorEmail);
         Assert.Contains(updated.Activity, x => x.Text == "Part number updated" && x.NewValue == "P-101");

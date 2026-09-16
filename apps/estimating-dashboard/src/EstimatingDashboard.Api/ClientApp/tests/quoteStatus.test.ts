@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { canAssignMessageToContact, isOverdue, isUpdateDirty, makeUpdate, mailtoVendor, quoteFromHash, syncState } from '../src/vendor-quotes/model.ts'
+import { canAssignMessageToContact, canonicalVendorStatus, isOverdue, isUpdateDirty, makeUpdate, mailtoVendor, quoteFromHash, statusTone, syncState, VENDOR_STATUSES } from '../src/vendor-quotes/model.ts'
 import type { VendorSync } from '../src/vendor-quotes/types.ts'
 
 test('quote links match an entire positive numeric quote identifier', () => {
@@ -19,6 +19,7 @@ test('a due date is overdue only after its local calendar day and while open', (
   assert.equal(isOverdue('2026-09-09', 'Waiting on vendor', today), true)
   assert.equal(isOverdue('2026-09-09', 'Complete', today), false)
   assert.equal(isOverdue('2026-09-09', 'Accepted', today), false)
+  assert.equal(isOverdue('2026-09-09', 'Quote received', today), false)
   assert.equal(isOverdue(null, 'In progress', today), false)
   assert.equal(isOverdue('invalid', 'In progress', today), false)
 })
@@ -31,10 +32,22 @@ test('status-only and follow-up-only changes are protected as unsaved updates', 
 })
 
 test('an internal update keeps the concurrency version, status and trimmed note together', () => {
-  assert.deepEqual(makeUpdate({ status: 'Rates requested', followUpDate: '2026-09-11', note: ' RFQ sent to SiliconePrime\nAwaiting pricing. ' }, 7), {
-    expectedVersion: 7, status: 'Rates requested', followUpDate: '2026-09-11', note: 'RFQ sent to SiliconePrime\nAwaiting pricing.',
+  assert.deepEqual(makeUpdate({ status: 'Waiting on vendor', followUpDate: '2026-09-11', note: ' RFQ sent to SiliconePrime\nAwaiting pricing. ' }, 7), {
+    expectedVersion: 7, status: 'Waiting on vendor', followUpDate: '2026-09-11', note: 'RFQ sent to SiliconePrime\nAwaiting pricing.',
   })
   assert.deepEqual(makeUpdate({ status: 'Untouched', followUpDate: '', note: '  ' }, 0), { expectedVersion: 0, status: 'Untouched', followUpDate: null, note: null })
+})
+
+test('RFQs offer three statuses and normalize legacy state without treating every reply as pricing', () => {
+  assert.deepEqual(VENDOR_STATUSES, ['Untouched', 'Waiting on vendor', 'Quote received'])
+  for (const status of VENDOR_STATUSES) assert.equal(canonicalVendorStatus(status), status)
+  for (const status of ['Rates requested', 'Reply received', ' waiting ON vendor ']) assert.equal(canonicalVendorStatus(status), 'Waiting on vendor')
+  for (const status of ['Under review', 'Accepted', 'QUOTE RECEIVED']) assert.equal(canonicalVendorStatus(status), 'Quote received')
+  for (const status of ['Declined', 'Cancelled', 'not-a-status', '', null, undefined]) assert.equal(canonicalVendorStatus(status), 'Untouched')
+  assert.equal(statusTone('Quote received'), 'success')
+  assert.equal(statusTone('Rates requested'), 'amber')
+  assert.equal(statusTone('Reply received'), 'blue')
+  assert.equal(statusTone('Accepted'), 'success')
 })
 
 test('Outlook compose uses the canonical subject and never includes an internal note', () => {

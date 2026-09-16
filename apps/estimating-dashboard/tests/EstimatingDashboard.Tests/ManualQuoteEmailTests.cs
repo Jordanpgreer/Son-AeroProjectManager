@@ -25,14 +25,14 @@ public sealed class ManualQuoteEmailTests
     public async Task Manual_import_keeps_original_subject_status_and_scope_and_idempotent_note()
     {
         await using var f = await CreateAsync();
-        var thread = await f.ThreadAsync("PART-A", status: "Rates requested");
+        var thread = await f.ThreadAsync("PART-A", status: "Waiting on vendor");
         var file = ManualEmailFixtures.Eml("Quote 999999");
         var options = new ManualQuoteEmailImportOptions(0, thread.Request.Id, "incoming", null, "Original email manually filed");
         var result = await f.Vendors.ImportEmailAsync(f.QuoteId(), "email.eml", file, options, Editor, default);
         Assert.Equal("imported", result.Outcome);
         var detail = await f.Vendors.DetailAsync(thread.Request.Id, Editor, default);
         Assert.Equal("Quote 999999", detail.Messages.Single().Subject);
-        Assert.Equal("Rates requested", detail.Request.Status);
+        Assert.Equal("Waiting on vendor", detail.Request.Status);
         Assert.Contains(detail.Activity, x => x.Text == "Email received from Silicone Prime (imported manually)" && x.AccountName == Editor.AccountName && x.OccurredAt == Now);
         Assert.Equal("Untouched", (await f.Quotes.DetailAsync(f.QuoteId(), Editor, default)).Quote.Status);
         var retry = await f.Vendors.ImportEmailAsync(f.QuoteId(), "email.eml", file, options, Editor, default);

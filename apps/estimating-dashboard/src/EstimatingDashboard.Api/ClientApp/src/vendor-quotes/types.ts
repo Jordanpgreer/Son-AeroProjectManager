@@ -49,6 +49,7 @@ export interface VendorMessage {
   receivedAt: string | null
   importedAt: string
   bodyText: string
+  isRateRequest?: boolean
   attachments: { id: number; fileName: string; contentType: string; sizeBytes: number }[]
 }
 
@@ -96,7 +97,7 @@ export interface NewVendorRequest {
 }
 
 export interface QuoteStatusSummary {
-  quoteHistoryId: number; quoteNumber: number; customer: string; estimatingRep: string
+  quoteHistoryId: number; quoteNumber: number; customer: string; estimatingRep: string; salesPerson?: string | null
   status: string; statusChangedAt: string | null; statusChangedBy: string | null
   followUpDate: string | null; updatedAt: string; lastMessageAt: string | null
   threadCount: number; messageCount: number; unassignedMessageCount: number; version: number; canEdit: boolean
