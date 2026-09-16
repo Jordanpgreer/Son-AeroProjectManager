@@ -11,7 +11,7 @@
   },
   "FulcrumQuoteSync": {
     "BaseUrl": "https://api.fulcrumpro.us/",
-    "QuoteUrlTemplate": "",
+    "QuoteUrlTemplate": "https://son-aero.fulcrumpro.com/ui/quotes/{id}/details",
     "PageSize": 5000
   },
   "Portal": { "Url": "https://hub.son4l.local" }

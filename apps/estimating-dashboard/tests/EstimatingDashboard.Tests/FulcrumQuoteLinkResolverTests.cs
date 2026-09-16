@@ -8,7 +8,7 @@ namespace EstimatingDashboard.Tests;
 
 public sealed class FulcrumQuoteLinkResolverTests
 {
-    private const string Template = "https://tenant.fulcrumpro.us/#/quotes/{id}";
+    private const string Template = "https://son-aero.fulcrumpro.com/ui/quotes/{id}/details";
 
     [Fact]
     public async Task Exact_Fulcrum_ID_and_quote_number_returns_browser_link()
@@ -19,7 +19,7 @@ public sealed class FulcrumQuoteLinkResolverTests
 
         var url = await resolver.ResolveAsync("fulcrum-4445", 4445, default);
 
-        Assert.Equal("https://tenant.fulcrumpro.us/#/quotes/fulcrum-4445", url);
+        Assert.Equal("https://son-aero.fulcrumpro.com/ui/quotes/fulcrum-4445/details", url);
         Assert.Equal("/api/quotes/fulcrum-4445", handler.Path);
         Assert.Equal("Bearer test-token", handler.Authorization);
         Assert.Equal("api.fulcrumpro.us", handler.Host);
@@ -67,6 +67,8 @@ public sealed class FulcrumQuoteLinkResolverTests
     [Fact]
     public void Browser_URL_encodes_identifiers_and_rejects_non_https_or_embedded_credentials()
     {
+        Assert.Equal("https://son-aero.fulcrumpro.com/ui/quotes/0123456789abcdef01234567/details",
+            FulcrumQuoteLinkResolver.BuildRecordUrl(Template, "0123456789abcdef01234567", 4445));
         Assert.Equal("https://tenant.fulcrumpro.us/quotes/id%2Fwith%20space?number=4445",
             FulcrumQuoteLinkResolver.BuildRecordUrl(
                 "https://tenant.fulcrumpro.us/quotes/{id}?number={quoteNumber}", "id/with space", 4445));

@@ -67,11 +67,10 @@ by the Estimating Log are refreshed together. Existing Excel-imported values are
 corresponding Fulcrum custom field is absent. Custom-field names can be overridden under
 `FulcrumQuoteSync:CustomFields` when tenant labels differ from the defaults in `appsettings.json`.
 
-To enable a direct Fulcrum link from the individual **Quote Status** record, set
-`FulcrumQuoteSync:QuoteUrlTemplate` to the tenant's absolute HTTPS quote-page URL,
-using `{id}` for the Fulcrum quote ID and optionally `{quoteNumber}`. For example,
-`https://<your-tenant-host>/quotes/{id}` illustrates the placeholders, not a verified
-Fulcrum route. Obtain the actual pattern from a quote opened in that tenant's browser.
+The individual **Quote Status** record uses the confirmed Son-Aero browser pattern
+`https://son-aero.fulcrumpro.com/ui/quotes/{id}/details` through
+`FulcrumQuoteSync:QuoteUrlTemplate`; `{id}` is the Fulcrum quote ID. The browser
+page may require VPN access and a Fulcrum login.
 The server makes a read-only `GET /api/quotes/{id}` call and compares its returned
 number with the Arda quote number before returning a link. If the provider is not
 Fulcrum, the quote differs, verification fails, or the URL template is unset, the
