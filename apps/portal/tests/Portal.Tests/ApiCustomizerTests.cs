@@ -448,7 +448,7 @@ public sealed class ApiCustomizerTests
 
     private static ReportDefinition YieldDefinition() => new()
     {
-        Name = "Material Produces Yield", OutputMode = "combined", DetailSheetId = "yield", MaxRecords = 5000,
+        Name = "Material Produces Yield", OutputMode = "combined", DetailSheetId = "yield", MaxRecords = 25000,
         Sheets = [new() { Id = "yield", Name = "Material Yield", SourceId = MaterialYieldReport.SourceId,
             Inputs = new() { ["body.isArchived"] = JsonSerializer.SerializeToElement(false),
                 ["body.latestRevision"] = JsonSerializer.SerializeToElement(true) },
@@ -549,6 +549,29 @@ public sealed class ApiCustomizerTests
         Assert.Empty(Assert.Single(result.Sheets).Rows);
         Assert.Equal(2, result.RequestCount);
         Assert.Contains(result.Warnings, w => w.Contains("without a configured Produces"));
+    }
+
+    [Fact]
+    public async Task Material_yield_accepts_25000_starting_items_without_the_old_request_cap()
+    {
+        await using var fixture = await Fixture.Create();
+        var definition = YieldDefinition();
+        Assert.Equal(25000, MaterialYieldReport.MaxParentItems);
+        Assert.True(MaterialYieldReport.MaxRequests > MaterialYieldReport.MaxParentItems * 3);
+        fixture.Handler.Response = request =>
+        {
+            if (request.RequestUri!.AbsolutePath != "/api/items/list/v2") return "[]";
+            var match = System.Text.RegularExpressions.Regex.Match(request.RequestUri.Query, @"(?i)(?:[?&])skip=(\d+)");
+            var skip = int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            return skip < MaterialYieldReport.MaxParentItems
+                ? JsonSerializer.Serialize(Enumerable.Range(skip, 500).Select(i => new { id = i.ToString("D24"), number = i.ToString("D6") }))
+                : "[]";
+        };
+
+        var result = await fixture.Runner.RunAsync(new(definition), "TEST\\admin", default);
+
+        Assert.Empty(Assert.Single(result.Sheets).Rows);
+        Assert.Equal(25051, result.RequestCount);
     }
 
     [Theory]

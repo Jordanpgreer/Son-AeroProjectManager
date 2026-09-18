@@ -60,7 +60,7 @@ export function materialYieldStarter(catalogue: ApiCatalog): ReportDefinition {
   const sheet = { ...emptySheet('material-yield'), name: 'Material Yield', sourceId: source.id,
     inputs: { ...defaultInputs(source), 'report.itemSearch': '', 'report.searchBy': 'number', 'report.matchMode': 'equal' } }
   const columns = source.fields.slice(0, 22).map(f => columnFor(f, sheet.id))
-  return withColumns({ ...blankReport(), name: 'Material Produces Yield', maxRecords: 5000, sheets: [sheet], detailSheetId: sheet.id }, columns)
+  return withColumns({ ...blankReport(), name: 'Material Produces Yield', maxRecords: 25000, sheets: [sheet], detailSheetId: sheet.id }, columns)
 }
 export function defaultInputs(source: ApiSource): Record<string, unknown> {
   const values: Record<string, unknown> = {}

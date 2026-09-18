@@ -52,7 +52,7 @@ export default function ApiCustomizerPanel() {
   const yieldSheet = definition.sheets.length === 1 && definition.sheets[0].sourceId === materialYieldSourceId ? definition.sheets[0] : null
   const bomSource = catalogue?.sources.find(s => s.id === inventoryBomSourceId)
   const yieldSource = catalogue?.sources.find(s => s.id === materialYieldSourceId)
-  const recordLimit = bomSheet ? 10000 : yieldSheet ? 5000 : 50000
+  const recordLimit = bomSheet ? 10000 : yieldSheet ? 25000 : 50000
   const previewColumns = (currentResult?.columns ?? columns).map((column, index) => ({ column, index }))
     .filter(({ column }) => !bomSheet || showUnmapped || !bomSource?.fields.some(f => f.path === column.path && f.availability === 'unmapped'))
   const openPicker = (next: Picker) => { setPicker(next); setSearch(''); setShowSpecific(false); setCustomKey('') }
@@ -138,11 +138,12 @@ export default function ApiCustomizerPanel() {
         <label className="ac-check"><input type="checkbox" checked={definition.outputSortDescending ?? false} onChange={e => change({ ...definition, outputSortDescending: e.target.checked })} /> Descending</label>
         {(bomSheet || yieldSheet) && <button className="ghost-button" onClick={() => openPicker({ type: 'source', sheetId: (bomSheet || yieldSheet)!.id })}><Link2 size={14} /> Connect Other Fulcrum Records</button>}
         {savedId && <div className="ac-actions"><button className="ghost-button" onClick={() => void save(true)}>Save A Copy</button><button className="ghost-button" onClick={() => setConfirm('delete')}>Delete Saved Report</button></div>}
-        <p>{bomSheet ? 'Inventory BOM can read up to 10,000 starting items and their routing details. ' : yieldSheet ? 'Material yield can read up to 5,000 starting items and their raw-material nestings. ' : 'Arda reads multiple Fulcrum pages up to this total. '}Large related reports can still stop at the API-call, row, time, or response-size safety limits. Column widths and row heights fit automatically.</p>
+        <p>{bomSheet ? 'Inventory BOM can read up to 10,000 starting items and their routing details. ' : yieldSheet ? 'Material yield can read up to 25,000 starting items and their raw-material nestings. ' : 'Arda reads multiple Fulcrum pages up to this total. '}Large related reports can still stop at the API-call, row, time, or response-size safety limits. Column widths and row heights fit automatically.</p>
       </section>}
       {bomSheet && bomSource && <InventoryBomControls sheet={bomSheet} source={bomSource} columns={columns} change={updateSheet} sorted={definition.outputSortColumn != null}
         customize={() => openPicker({ type: 'columns', sheetId: bomSheet.id })} addFields={() => openPicker({ type: 'fields', sheetId: bomSheet.id })} filters={() => openPicker({ type: 'filters', sheetId: bomSheet.id })} />}
-      {yieldSheet && yieldSource && <MaterialYieldControls sheet={yieldSheet} columns={columns} change={updateSheet}
+      {yieldSheet && yieldSource && <MaterialYieldControls sheet={yieldSheet} columns={columns} maxRecords={definition.maxRecords} change={updateSheet}
+        changeLimit={value => change({ ...definition, maxRecords: value })}
         customize={() => openPicker({ type: 'columns', sheetId: yieldSheet.id })} addFields={() => openPicker({ type: 'fields', sheetId: yieldSheet.id })} filters={() => openPicker({ type: 'filters', sheetId: yieldSheet.id })} />}
       {!bomSheet && !yieldSheet && <section className="ac-step">
         <div className="ac-step-heading"><span>1</span><div><h3>Choose Your Starting Records</h3><p>Start with any available record type, then choose the information you need.</p></div></div>

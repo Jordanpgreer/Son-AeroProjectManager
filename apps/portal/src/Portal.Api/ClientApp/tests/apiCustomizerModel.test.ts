@@ -110,7 +110,7 @@ describe('API customizer workbook model', () => {
     expect(reportColumns(report).map(c => c.path)).toEqual(['fromPartNumber', 'toPartNumber', 'produces', 'producesUom'])
     expect(reportColumns(report)[2].format).toBe('number')
     expect(sourceName(yieldSource)).toBe('Material Produces Yield')
-    expect(report.maxRecords).toBe(5000)
+    expect(report.maxRecords).toBe(25000)
   })
   it('formats duration values as elapsed hours without wrapping at midnight', () => {
     expect(displayCell(15 / 1440, 'duration')).toBe('0:15:00')

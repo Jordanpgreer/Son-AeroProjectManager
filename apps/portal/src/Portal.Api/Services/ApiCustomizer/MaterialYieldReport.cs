@@ -9,10 +9,10 @@ public static class MaterialYieldReport
     public const string Operations = InventoryBomReport.Operations;
     public const string Materials = "POST /api/items/{itemId}/routing/input-materials/list";
     public const string Components = InventoryBomReport.Components;
-    public const int MaxParentItems = 5000;
+    public const int MaxParentItems = 25000;
     public const int MaxRows = 100000;
-    public const int MaxRequests = 20100;
-    public const int TimeoutMinutes = 30;
+    public const int MaxRequests = 100000;
+    public const int TimeoutMinutes = 90;
 
     private static ApiField Field(string path, string label, string type, string description) => new(path, label, type, description, []);
 

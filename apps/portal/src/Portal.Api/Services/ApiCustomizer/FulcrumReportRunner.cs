@@ -163,10 +163,10 @@ public sealed class FulcrumReportRunner(FulcrumReportCatalog catalog, HttpClient
         var hasBom = run.Definition.Sheets.Any(s => s.SourceId == InventoryBomReport.SourceId);
         var hasYield = run.Definition.Sheets.Any(s => s.SourceId == MaterialYieldReport.SourceId);
         var hasComposed = hasBom || hasYield;
-        var rowLimit = hasComposed ? InventoryBomReport.MaxRows : MaxRows;
-        var requestLimit = hasComposed ? InventoryBomReport.MaxRequests : MaxRequests;
+        var rowLimit = hasYield ? MaterialYieldReport.MaxRows : hasBom ? InventoryBomReport.MaxRows : MaxRows;
+        var requestLimit = hasYield ? MaterialYieldReport.MaxRequests : hasBom ? InventoryBomReport.MaxRequests : MaxRequests;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromMinutes(hasComposed ? InventoryBomReport.TimeoutMinutes : run.Definition.MaxRecords > 5000 ? 10 : 3));
+        timeout.CancelAfter(TimeSpan.FromMinutes(hasYield ? MaterialYieldReport.TimeoutMinutes : hasBom ? InventoryBomReport.TimeoutMinutes : run.Definition.MaxRecords > 5000 ? 10 : 3));
         var token = "";
         if (!run.Sample)
         {
@@ -333,7 +333,7 @@ public sealed class FulcrumReportRunner(FulcrumReportCatalog catalog, HttpClient
             using var document = JsonDocument.Parse(buffer.ToArray());
             var root = document.RootElement;
             var page = Extract(source, root);
-            if (rows.Count + page.Count > limit) throw new ReportValidationException($"{source.Label} exceeds the selected {limit:N0}-record limit. Increase the limit or narrow the filters; no partial workbook was created.");
+            if (rows.Count + page.Count > limit) throw new ReportValidationException($"{source.Label} exceeds Arda's selected {limit:N0}-record limit. Increase the limit or narrow the filters; no partial workbook was created.");
             var fingerprint = page.Count > 0 ? string.Join("|", page.Select(x => x.GetRawText())) : null;
             if (fingerprint is not null && fingerprint == lastPage) throw new ReportValidationException("Fulcrum repeated a page of records. The report was stopped to avoid duplicate rows.");
             lastPage = fingerprint;
