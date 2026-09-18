@@ -149,7 +149,10 @@ public sealed record EstimatingPersonalQuoteDto(
     string? ArdaStatusNotes,
     DateTimeOffset? ArdaStatusChangedAt,
     string? ArdaStatusChangedBy,
-    int Version);
+    int Version,
+    bool IsCompleted,
+    bool IsOverdue,
+    DateTime? EstimatingCompletionDate);
 
 public sealed record UpdateEstimatingQuoteWorkflowDto(
     string? ArdaStatus,

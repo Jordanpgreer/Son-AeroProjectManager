@@ -249,6 +249,7 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
             "QuoteComplexity" TEXT NULL,
             "NumberOfParts" INTEGER NOT NULL,
             "EstimatingStatus" TEXT NULL,
+            "QuoteFolderPath" TEXT NULL,
             "ArdaStatus" TEXT NULL,
             "ArdaStatusNotes" TEXT NULL,
             "ArdaStatusChangedAt" TEXT NULL,
@@ -344,6 +345,7 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
                 [QuoteComplexity] nvarchar(80) NULL,
                 [NumberOfParts] int NOT NULL,
                 [EstimatingStatus] nvarchar(160) NULL,
+                [QuoteFolderPath] nvarchar(1000) NULL,
                 [ArdaStatus] nvarchar(80) NULL,
                 [ArdaStatusNotes] nvarchar(2000) NULL,
                 [ArdaStatusChangedAt] datetimeoffset NULL,
@@ -407,6 +409,8 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
             ALTER TABLE [EstimatingQuoteHistory] ADD [RfqReferenceNumber] nvarchar(500) NULL;
         IF COL_LENGTH(N'EstimatingQuoteHistory', N'QuoteOnTrack') IS NULL
             ALTER TABLE [EstimatingQuoteHistory] ADD [QuoteOnTrack] nvarchar(40) NULL;
+        IF COL_LENGTH(N'EstimatingQuoteHistory', N'QuoteFolderPath') IS NULL
+            ALTER TABLE [EstimatingQuoteHistory] ADD [QuoteFolderPath] nvarchar(1000) NULL;
         IF COL_LENGTH(N'EstimatingQuoteHistory', N'ArdaStatus') IS NULL
             ALTER TABLE [EstimatingQuoteHistory] ADD [ArdaStatus] nvarchar(80) NULL;
         IF COL_LENGTH(N'EstimatingQuoteHistory', N'ArdaStatusNotes') IS NULL
@@ -486,6 +490,8 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
                 await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"RfqReferenceNumber\" TEXT NULL", cancellationToken);
             if (!columns.Contains("QuoteOnTrack"))
                 await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"QuoteOnTrack\" TEXT NULL", cancellationToken);
+            if (!columns.Contains("QuoteFolderPath"))
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"QuoteFolderPath\" TEXT NULL", cancellationToken);
             if (!columns.Contains("ArdaStatus"))
                 await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"ArdaStatus\" TEXT NULL", cancellationToken);
             if (!columns.Contains("ArdaStatusNotes"))

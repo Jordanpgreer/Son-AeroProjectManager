@@ -24,8 +24,8 @@ export const createVendorRequest = (body: NewVendorRequest) => request<VendorDet
 export const updateVendorRequest = (id: number, body: VendorUpdate) => request<VendorDetail>(`/${id}`, { method: 'PUT', body: JSON.stringify(body) })
 export const addVendorNote = (id: number, expectedVersion: number, text: string) => request<VendorDetail>(`/${id}/notes`, { method: 'POST', body: JSON.stringify({ expectedVersion, text }) })
 
-export function loadQuoteStatuses(search: string, status: string, quote: number | null, page: number, signal?: AbortSignal) {
-  const query = new URLSearchParams({ search, status, page: String(page), pageSize: '30' })
+export function loadQuoteStatuses(search: string, status: string, quote: number | null, page: number, scope: 'mine-active' | 'all', signal?: AbortSignal) {
+  const query = new URLSearchParams({ search, status, scope, page: String(page), pageSize: '30' })
   if (quote) query.set('quoteNumber', String(quote))
   return request<QuoteStatusPage>(`?${query}`, { signal }, '/api/quote-status')
 }

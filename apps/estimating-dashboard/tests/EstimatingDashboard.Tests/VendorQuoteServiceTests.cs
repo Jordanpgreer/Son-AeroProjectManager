@@ -33,6 +33,56 @@ public sealed class VendorQuoteServiceTests
     }
 
     [Fact]
+    public async Task Mine_active_scope_excludes_completed_quotes_and_sorts_by_effective_due_date()
+    {
+        await using var f = await CreateAsync();
+        var later = f.Db.QuoteHistory.Single(quote => quote.QuoteNumber == 4445);
+        later.RfqDueDate = new DateTime(2026, 9, 15);
+        var earlier = Record(4446, "Casey Lee");
+        earlier.RfqDueDate = new DateTime(2026, 9, 11);
+        var overridden = Record(4447, "Casey Lee");
+        overridden.RfqDueDate = new DateTime(2026, 9, 20);
+        overridden.EstimatingDueDateOverride = new DateTime(2026, 9, 9);
+        f.Db.QuoteHistory.AddRange(earlier, overridden);
+        await f.Db.SaveChangesAsync();
+
+        var page = await f.Quotes.ListAsync(
+            Editor,
+            null,
+            null,
+            null,
+            1,
+            50,
+            default,
+            QuoteStatusScopes.MineActive);
+
+        Assert.Equal([4447, 4446, 4445], page.Items.Select(quote => quote.QuoteNumber));
+        Assert.DoesNotContain(page.Items, quote => quote.QuoteNumber == 4451);
+        Assert.Equal(new DateTime(2026, 9, 9), page.Items[0].EstimatingDueDate);
+        Assert.Equal(new DateTime(2026, 9, 10), page.Items[1].EstimatingDueDate);
+    }
+
+    [Fact]
+    public async Task All_scope_restores_completed_and_cross_estimator_quotes_for_a_manager()
+    {
+        await using var f = await CreateAsync();
+
+        var page = await f.Quotes.ListAsync(
+            Admin,
+            null,
+            null,
+            null,
+            1,
+            50,
+            default,
+            QuoteStatusScopes.All);
+
+        Assert.Equal(3, page.TotalCount);
+        Assert.Contains(page.Items, quote => quote.QuoteNumber == 4451);
+        Assert.Contains(page.Items, quote => quote.QuoteNumber == 44450);
+    }
+
+    [Fact]
     public async Task Quote_notes_and_status_are_persistent_append_only_and_share_dashboard_version()
     {
         await using var f = await CreateAsync();

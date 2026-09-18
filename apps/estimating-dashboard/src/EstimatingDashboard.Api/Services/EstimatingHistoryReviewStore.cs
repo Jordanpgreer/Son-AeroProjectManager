@@ -78,7 +78,9 @@ internal sealed record EstimatingHistoryImportRow(
     bool IsCompleted,
     int? CompletedWeekOfYear,
     bool IsOnTime,
-    decimal? OnTimeRatio);
+    decimal? OnTimeRatio,
+    string? QuoteFolderPath = null,
+    bool UpdateQuoteFolderPath = false);
 
 public sealed class EstimatingHistoryReviewNotFoundException : Exception
 {

@@ -14,21 +14,27 @@ public static class EstimatingQuoteWorkflowEndpoints
         workflow.MapGet("/mine", async (
             HttpContext context,
             EstimatingQuoteWorkflowService service,
-            CancellationToken cancellationToken) => Results.Ok(await service.GetMineAsync(
+            bool includeCompleted = false,
+            CancellationToken cancellationToken = default) => Results.Ok(await service.GetMineAsync(
                 Access(context),
-                cancellationToken)));
+                cancellationToken,
+                includeCompleted)));
 
         workflow.MapPost("/refresh", async (
             HttpContext context,
             EnterpriseQuoteSyncService sync,
             EstimatingQuoteWorkflowService workflowService,
-            CancellationToken cancellationToken) =>
+            bool includeCompleted = false,
+            CancellationToken cancellationToken = default) =>
         {
             try
             {
                 var access = Access(context);
                 await sync.RunPersonalAsync(access, cancellationToken);
-                return Results.Ok(await workflowService.GetMineAsync(access, cancellationToken));
+                return Results.Ok(await workflowService.GetMineAsync(
+                    access,
+                    cancellationToken,
+                    includeCompleted));
             }
             catch (EnterpriseQuoteSyncAlreadyRunningException exception)
             {

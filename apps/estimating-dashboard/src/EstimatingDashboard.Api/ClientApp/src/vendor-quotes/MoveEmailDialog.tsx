@@ -27,7 +27,7 @@ export default function MoveEmailDialog({ detail, message, onClose, onChanged, o
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       setSearching(true)
-      void loadQuoteStatuses(search, '', null, 1, controller.signal).then(page => { if (!controller.signal.aborted) setOptions(page.items.filter(quote => quote.canEdit)) }).catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Quotes could not be searched.') }).finally(() => { if (!controller.signal.aborted) setSearching(false) })
+      void loadQuoteStatuses(search, '', null, 1, 'all', controller.signal).then(page => { if (!controller.signal.aborted) setOptions(page.items.filter(quote => quote.canEdit)) }).catch(reason => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Quotes could not be searched.') }).finally(() => { if (!controller.signal.aborted) setSearching(false) })
     }, 220)
     return () => { clearTimeout(timer); controller.abort() }
   }, [search])

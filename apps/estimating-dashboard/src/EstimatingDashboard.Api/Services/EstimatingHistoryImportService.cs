@@ -382,7 +382,9 @@ public sealed class EstimatingHistoryImportService(
         string? quoteComplexity,
         int numberOfParts,
         string? estimatingStatus,
-        DateTime? estimatingCompletionDate)
+        DateTime? estimatingCompletionDate,
+        string? quoteFolderPath = null,
+        bool updateQuoteFolderPath = false)
     {
         var metrics = Metrics(rfqDueDate, dateToEstimating, estimatingCompletionDate);
         return new EstimatingHistoryImportRow(
@@ -414,7 +416,9 @@ public sealed class EstimatingHistoryImportService(
             metrics.IsCompleted,
             metrics.CompletedWeekOfYear,
             metrics.IsOnTime,
-            metrics.OnTimeRatio);
+            metrics.OnTimeRatio,
+            quoteFolderPath,
+            updateQuoteFolderPath);
     }
 
     private static IReadOnlyList<EstimatingHistoryImportRow> Parse(
@@ -832,6 +836,8 @@ public sealed class EstimatingHistoryImportService(
         record.QuoteComplexity = row.QuoteComplexity;
         record.NumberOfParts = row.NumberOfParts;
         record.EstimatingStatus = row.EstimatingStatus;
+        if (row.UpdateQuoteFolderPath)
+            record.QuoteFolderPath = row.QuoteFolderPath;
         record.EstimatingCompletionDate = row.EstimatingCompletionDate;
         record.OnTimeStatus = row.OnTimeStatus;
         record.DaysLate = row.DaysLate;
@@ -880,6 +886,8 @@ public sealed class EstimatingHistoryImportService(
             record.NumberOfParts.ToString(CultureInfo.InvariantCulture),
             row.NumberOfParts.ToString(CultureInfo.InvariantCulture));
         AddChange(changes, "Estimating status", record.EstimatingStatus, row.EstimatingStatus);
+        if (row.UpdateQuoteFolderPath)
+            AddChange(changes, "Quote folder path", record.QuoteFolderPath, row.QuoteFolderPath);
         AddChange(
             changes,
             "Estimating completion date",

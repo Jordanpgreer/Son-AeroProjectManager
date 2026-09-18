@@ -6,6 +6,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+$protocolModule = Join-Path $PSScriptRoot 'ControlledFolder.Protocol.psm1'
+Import-Module $protocolModule -Force -ErrorAction Stop
+
 function Show-OpenFolderError([string]$message) {
     try {
         Add-Type -AssemblyName PresentationFramework -ErrorAction Stop
@@ -22,32 +25,17 @@ function Show-OpenFolderError([string]$message) {
 }
 
 try {
-    $requestUri = [System.Uri]$Uri
-    if ($requestUri.Scheme -ne 'sonaero-folder') {
-        throw 'The folder request did not use the SON-AERO protocol.'
-    }
-
-    $pathMatch = [regex]::Match($requestUri.Query, '(?:^\?|&)path=([^&]+)')
-    if (-not $pathMatch.Success) {
-        throw 'The folder request did not contain a controlled path.'
-    }
-
-    $folderPath = [System.Uri]::UnescapeDataString($pathMatch.Groups[1].Value)
-    if (-not [System.IO.Path]::IsPathRooted($folderPath)) {
-        throw 'The controlled folder path must be an absolute Windows or network-share path.'
-    }
-
-    $resolvedPath = [System.IO.Path]::GetFullPath($folderPath)
-    if (-not (Test-Path -LiteralPath $resolvedPath -PathType Container)) {
-        throw "The controlled folder is unavailable: $resolvedPath"
-    }
+    $resolvedPath = Resolve-SonAeroControlledPath -Uri $Uri
+    $openTarget = Get-SonAeroControlledOpenTarget -ResolvedPath $resolvedPath
 
     if ($ValidateOnly) {
-        Write-Output $resolvedPath
+        Write-Output $openTarget.TargetPath
         exit 0
     }
 
-    Start-Process -FilePath "$env:SystemRoot\explorer.exe" -ArgumentList @("`"$resolvedPath`"")
+    Start-Process `
+        -FilePath "$env:SystemRoot\explorer.exe" `
+        -ArgumentList @($openTarget.ExplorerArguments)
 }
 catch {
     Show-OpenFolderError $_.Exception.Message

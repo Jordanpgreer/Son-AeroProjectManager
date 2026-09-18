@@ -11,9 +11,23 @@ public sealed partial class QuoteStatusService(EstimatingAccessDbContext db, Tim
     EstimatingQuoteWorkflowService workflow, IQuoteSourceLinkResolver sourceLinks)
 {
     public async Task<QuoteStatusPageDto> ListAsync(EstimatingAccessProfile access, string? search, string? status,
-        int? quoteNumber, int page, int pageSize, CancellationToken ct)
+        int? quoteNumber, int page, int pageSize, CancellationToken ct, string? scope = null)
     {
         var accessible = await vendors.AccessibleQuotesAsync(access, ct);
+        var normalizedScope = string.IsNullOrWhiteSpace(scope)
+            ? QuoteStatusScopes.All
+            : QuoteStatusScopes.Normalize(scope);
+        if (normalizedScope == QuoteStatusScopes.MineActive)
+        {
+            var knownEstimators = accessible.Select(quote => quote.EstimatingRep).Distinct();
+            accessible = accessible
+                .Where(quote => !quote.IsCompleted
+                    && EstimatingEstimatorIdentity.MatchesUnambiguously(
+                        quote.EstimatingRep,
+                        knownEstimators,
+                        access))
+                .ToList();
+        }
         var searchThreadQuoteIds = new HashSet<int>();
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -23,11 +37,16 @@ public sealed partial class QuoteStatusService(EstimatingAccessDbContext db, Tim
             searchThreadQuoteIds = branches.Where(x => $"{x.Title} {x.VendorName} {x.VendorEmail} {x.PartNumber}".Contains(search.Trim(), StringComparison.OrdinalIgnoreCase))
                 .Select(x => x.QuoteHistoryId).ToHashSet();
         }
-        var rows = accessible.Where(x =>
+        var filtered = accessible.Where(x =>
             (!quoteNumber.HasValue || x.QuoteNumber == quoteNumber)
             && (string.IsNullOrWhiteSpace(status) || DisplayStatus(x).Equals(status, StringComparison.OrdinalIgnoreCase))
-            && (string.IsNullOrWhiteSpace(search) || searchThreadQuoteIds.Contains(x.Id) || $"{x.QuoteNumber} {x.Customer} {x.EstimatingRep}".Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)))
-            .OrderByDescending(x => x.QuoteNumber).ToList();
+            && (string.IsNullOrWhiteSpace(search) || searchThreadQuoteIds.Contains(x.Id) || $"{x.QuoteNumber} {x.Customer} {x.EstimatingRep}".Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)));
+        var rows = normalizedScope == QuoteStatusScopes.MineActive
+            ? filtered
+                .OrderBy(quote => EffectiveDueDate(quote) ?? DateTime.MaxValue)
+                .ThenByDescending(quote => quote.QuoteNumber)
+                .ToList()
+            : filtered.OrderByDescending(quote => quote.QuoteNumber).ToList();
         page = Math.Clamp(page, 1, 1000000); pageSize = Math.Clamp(pageSize, 1, 100);
         var selected = rows.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         return new(await SummariesAsync(selected, access, ct), rows.Count, page, pageSize);
@@ -55,9 +74,14 @@ public sealed partial class QuoteStatusService(EstimatingAccessDbContext db, Tim
                     .Concat(workflowUpdates.Where(x => x.QuoteHistoryId == q.Id).Select(x => x.ChangedAt)).Append(q.UpdatedAt).Max(),
                 emailRows.Select(x => (DateTimeOffset?)(x.ReceivedAt ?? x.SentAt)).DefaultIfEmpty().Max(),
                 threadRows.Count, emailRows.Count, emailRows.Count(x => x.RequestId is null), q.Version,
-                !access.IsPreview && VendorQuoteService.Has(access, EstimatingPermissions.ManageQuotes), CanRemove(access), q.SalesPerson);
+                !access.IsPreview && VendorQuoteService.Has(access, EstimatingPermissions.ManageQuotes), CanRemove(access),
+                q.SalesPerson, EffectiveDueDate(q));
         }).ToList();
     }
+
+    private static DateTime? EffectiveDueDate(EstimatingQuoteHistoryRecord quote) =>
+        quote.EstimatingDueDateOverride
+        ?? EstimatingDueDates.AutomaticFromRfq(quote.RfqDueDate);
     public async Task<QuoteStatusDetailDto> DetailAsync(int id, EstimatingAccessProfile access, CancellationToken ct)
     {
         var quote = await vendors.QuoteAsync(id, access, false, ct);
@@ -83,7 +107,7 @@ public sealed partial class QuoteStatusService(EstimatingAccessDbContext db, Tim
         return new(summary, events.OrderByDescending(x => x.OccurredAt).ThenByDescending(x => x.Id).ToList(),
             threads.OrderBy(x => x.Request.PartNumber).ThenBy(x => x.Request.VendorName).ToList(), unassigned, workflowDetails,
             await RemovedEmailsAsync(id, ct), await RemovedNotesAsync(id, ct),
-            await sourceLinks.ResolveAsync(quote.SourceId, quote.QuoteNumber, ct));
+            await sourceLinks.ResolveAsync(quote.SourceId, quote.QuoteNumber, ct), quote.QuoteFolderPath);
     }
     public async Task<QuoteStatusDetailDto> UpdateAsync(int id, UpdateQuoteStatusDto dto, EstimatingAccessProfile access, CancellationToken ct)
     {

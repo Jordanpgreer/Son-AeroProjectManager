@@ -99,7 +99,7 @@ export interface NewVendorRequest {
 export interface QuoteStatusSummary {
   quoteHistoryId: number; quoteNumber: number; customer: string; estimatingRep: string; salesPerson?: string | null
   status: string; statusChangedAt: string | null; statusChangedBy: string | null
-  followUpDate: string | null; updatedAt: string; lastMessageAt: string | null
+  followUpDate: string | null; estimatingDueDate: string | null; updatedAt: string; lastMessageAt: string | null
   threadCount: number; messageCount: number; unassignedMessageCount: number; version: number; canEdit: boolean
   canRemove: boolean
 }
@@ -109,7 +109,7 @@ export interface QuoteActivity extends Omit<VendorActivity, 'id'> {
 }
 export interface QuoteStatusDetail {
   quote: QuoteStatusSummary; activity: QuoteActivity[]; threads: VendorDetail[]; unassignedMessages: VendorMessage[]; workflow: PersonalQuote
-  removedMessages: RemovedQuoteEmail[]; removedNotes: QuoteActivity[]; fulcrumQuoteUrl: string | null
+  removedMessages: RemovedQuoteEmail[]; removedNotes: QuoteActivity[]; fulcrumQuoteUrl: string | null; quoteFolderPath: string | null
 }
 export interface RemovedQuoteEmail {
   id: number; subject: string; direction: string; fromAddress: string; fromName: string | null; vendorEmail: string

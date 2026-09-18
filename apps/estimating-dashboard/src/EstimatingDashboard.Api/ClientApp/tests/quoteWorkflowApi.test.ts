@@ -4,7 +4,7 @@ import test from 'node:test'
 import {
   ARDA_STATUS_OPTIONS,
   refreshPersonalQuoteAssignments,
-  statusAgeLabel,
+  statusSetLabel,
 } from '../src/quoteWorkflowApi.ts'
 
 test('Arda workflow status options stay distinct from Fulcrum statuses', () => {
@@ -18,12 +18,10 @@ test('Arda workflow status options stay distinct from Fulcrum statuses', () => {
   ])
 })
 
-test('status age is calculated from the server status-change timestamp', () => {
-  const now = new Date('2026-09-03T18:00:00.000Z')
-  assert.equal(statusAgeLabel(null, now), 'Not set')
-  assert.equal(statusAgeLabel('2026-09-03T12:00:00.000Z', now), 'Set today')
-  assert.equal(statusAgeLabel('2026-09-02T12:00:00.000Z', now), 'Set 1 day ago')
-  assert.equal(statusAgeLabel('2026-08-29T12:00:00.000Z', now), 'Set 5 days ago')
+test('status set label shows the exact server date and time', () => {
+  assert.equal(statusSetLabel(null, 'UTC'), 'Not set')
+  assert.equal(statusSetLabel('2026-09-03T12:15:00.000Z', 'UTC'), 'Sep 3, 2026, 12:15 PM')
+  assert.equal(statusSetLabel('not-a-date', 'UTC'), 'Unknown')
 })
 
 test('dashboard refresh performs a server-side assignment refresh', async () => {
@@ -40,7 +38,7 @@ test('dashboard refresh performs a server-side assignment refresh', async () => 
   try {
     assert.deepEqual(await refreshPersonalQuoteAssignments(), [])
     assert.deepEqual(request, {
-      url: '/api/quote-workflow/refresh',
+      url: '/api/quote-workflow/refresh?includeCompleted=true',
       method: 'POST',
     })
   } finally {

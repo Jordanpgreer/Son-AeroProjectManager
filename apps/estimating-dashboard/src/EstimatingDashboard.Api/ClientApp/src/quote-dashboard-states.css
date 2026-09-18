@@ -1,0 +1,167 @@
+.quote-status.status-draft {
+  color: var(--warn-700);
+  background: var(--warn-tint);
+}
+
+.quote-status.status-current,
+.quote-status.arda-status {
+  color: var(--steel-700);
+  background: var(--steel-tint);
+}
+
+.quote-status.status-past,
+.quote-status.fulcrum-status {
+  color: var(--muted);
+  background: var(--surface-3);
+}
+
+.quote-status.arda-status.unset {
+  color: var(--muted);
+  background: var(--surface-2);
+  border-style: dashed;
+}
+
+.quote-due-date,
+.quote-status-age {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-2);
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.quote-due-date svg,
+.quote-status-age svg {
+  flex: 0 0 auto;
+  color: var(--steel);
+}
+
+.quote-due-date.is-overdue,
+.quote-due-date.is-overdue svg {
+  color: var(--risk-700);
+}
+
+.quote-due-date small {
+  padding: 2px 5px;
+  color: var(--risk-700);
+  background: var(--risk-tint);
+  border-radius: var(--r-pill);
+  font-size: 8.5px;
+  letter-spacing: .045em;
+  text-transform: uppercase;
+}
+
+.quote-read-only-label {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.quote-row-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.quote-row-actions button {
+  min-height: 34px;
+  padding: 5px 9px;
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border: 1px solid color-mix(in srgb, var(--steel) 30%, var(--line));
+  border-radius: var(--r-xs);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.quote-row-actions .danger-link {
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border-color: color-mix(in srgb, var(--steel) 30%, var(--line));
+}
+
+.quote-empty-state {
+  display: grid;
+  place-items: center;
+  gap: 7px;
+  min-height: 250px;
+  padding: 28px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.quote-empty-state svg {
+  color: var(--steel);
+}
+
+.quote-empty-state strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.quote-empty-state.compact {
+  min-height: 168px;
+}
+
+.is-spinning {
+  animation: quote-spin .9s linear infinite;
+}
+
+@keyframes quote-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 900px) {
+  .quote-kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .quote-list-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .quote-search {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 680px) {
+  .quote-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .quote-kpi-grid > button {
+    grid-template-columns: 1fr auto;
+    min-height: 88px;
+  }
+
+  .quote-kpi-grid strong {
+    grid-row: 1 / span 2;
+    grid-column: 2;
+    align-self: center;
+    margin: 0;
+  }
+
+  .quote-list-toolbar {
+    padding: 16px;
+  }
+
+  .personal-quote-view-tabs,
+  .quote-filter-tabs {
+    padding-inline: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-spinning {
+    animation: none;
+  }
+
+  .personal-quote-open-icon,
+  .quote-kpi-grid > button,
+  .quote-refresh-button {
+    transition: none;
+  }
+}

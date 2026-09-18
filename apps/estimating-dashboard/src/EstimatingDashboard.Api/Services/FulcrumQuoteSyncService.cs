@@ -306,7 +306,9 @@ internal static class FulcrumQuoteMapper
                 TextField(quote, current?.QuoteComplexity, options.CustomFields.QuoteComplexity, "Complexity").Value,
                 numberOfParts,
                 TextField(quote, current?.EstimatingStatus, options.CustomFields.EstimatingStatus).Value,
-                completionDate));
+                completionDate,
+                FulcrumQuoteFolderPath.Extract(ScalarText(quote.InternalNotes)),
+                updateQuoteFolderPath: quote.InternalNotes.ValueKind != JsonValueKind.Undefined));
         }
         return new FulcrumQuoteMappingResult(rows, warnings);
     }

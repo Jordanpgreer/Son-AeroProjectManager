@@ -64,6 +64,8 @@ public sealed class FulcrumQuoteSyncTests
         Assert.Equal("quote-id", snapshot.Quote.Id);
         Assert.Equal("Acme Aerospace", snapshot.Report?.CustomerName);
         Assert.True(snapshot.Quote.CustomFields?.ContainsKey("Estimating Rep"));
+        Assert.Equal("Folder path: Estimating\\Quotes\\Acme\\Q4395", snapshot.Quote.InternalNotes.GetString());
+        // Reporting + bulk quote list only; folder discovery must not add a request per quote.
         Assert.Equal(2, handler.Requests.Count);
         Assert.All(handler.Requests, request => Assert.Equal("Bearer secret-token", request.Authorization));
         Assert.All(handler.Requests, request => Assert.Equal("api.fulcrumpro.us", request.Host));
@@ -170,7 +172,9 @@ public sealed class FulcrumQuoteSyncTests
                 "needsApproval",
                 1200m,
                 customFields,
-                null),
+                null,
+                JsonSerializer.Deserialize<JsonElement>(
+                    "\"Folder path: Estimating\\\\Quotes\\\\Acme Aerospace\\\\Quote 4395\"")),
             new FulcrumQuoteReportDto(
                 "quote-id",
                 4395,
@@ -191,6 +195,8 @@ public sealed class FulcrumQuoteSyncTests
         Assert.Equal(1250m, row.TotalValue);
         Assert.Equal(new DateTime(2026, 9, 10), row.RfqDueDate);
         Assert.Equal(new DateTime(2026, 9, 4), row.EstimatingCompletionDate);
+        Assert.Equal(@"S:\Estimating\Quotes\Acme Aerospace\Quote 4395", row.QuoteFolderPath);
+        Assert.True(row.UpdateQuoteFolderPath);
 
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -216,6 +222,7 @@ public sealed class FulcrumQuoteSyncTests
         Assert.Null(record.ArdaStatusChangedBy);
         Assert.NotNull(record.ArdaStatusChangedAt);
         Assert.Null(record.EstimatingDueDateOverride);
+        Assert.Equal(@"S:\Estimating\Quotes\Acme Aerospace\Quote 4395", record.QuoteFolderPath);
         Assert.Equal(2, await db.QuoteHistoryImportBatches.CountAsync());
         Assert.Single(await db.QuoteHistoryAudits.ToListAsync());
 
@@ -251,6 +258,35 @@ public sealed class FulcrumQuoteSyncTests
         Assert.Equal(ardaChangedAt, refreshed.ArdaStatusChangedAt);
         Assert.Equal("SON4L\\bethany", refreshed.ArdaStatusChangedBy);
         Assert.Equal(new DateTime(2026, 9, 12), refreshed.EstimatingDueDateOverride);
+
+        var omittedFolderField = changedFulcrumRow with
+        {
+            QuoteStatus = "Approved",
+            QuoteFolderPath = null,
+            UpdateQuoteFolderPath = false
+        };
+        await importer.ApplyAutomatedAsync(
+            [omittedFolderField],
+            "Fulcrum API test",
+            "FULCRUM_API_SCHEDULE",
+            default);
+        db.ChangeTracker.Clear();
+        Assert.Equal(
+            @"S:\Estimating\Quotes\Acme Aerospace\Quote 4395",
+            (await db.QuoteHistory.SingleAsync()).QuoteFolderPath);
+
+        var explicitlyClearedFolder = omittedFolderField with
+        {
+            QuoteFolderPath = null,
+            UpdateQuoteFolderPath = true
+        };
+        await importer.ApplyAutomatedAsync(
+            [explicitlyClearedFolder],
+            "Fulcrum API test",
+            "FULCRUM_API_SCHEDULE",
+            default);
+        db.ChangeTracker.Clear();
+        Assert.Null((await db.QuoteHistory.SingleAsync()).QuoteFolderPath);
     }
 
     [Fact]
@@ -382,6 +418,7 @@ public sealed class FulcrumQuoteSyncTests
                       "customerId": "customer-id",
                       "status": "needsApproval",
                       "totalInPrimaryCurrency": 1250,
+                      "internalNotes": "Folder path: Estimating\\Quotes\\Acme\\Q4395",
                       "customFields": { "Estimating Rep": "Bethany" },
                       "externalReferences": null
                     }]

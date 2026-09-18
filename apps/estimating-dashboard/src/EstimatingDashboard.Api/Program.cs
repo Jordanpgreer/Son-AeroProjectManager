@@ -16,6 +16,7 @@ builder.Services.AddScoped<EstimatingUserService>();
 builder.Services.AddScoped<EstimatingAccessPreviewService>();
 builder.Services.AddScoped<IEstimatingAccessStore, EstimatingAccessStore>();
 builder.Services.AddScoped<EstimatingHistorySchemaInitializer>();
+builder.Services.AddScoped<DevelopmentQuoteFolderDemoSeeder>();
 builder.Services.AddScoped<VendorQuoteSchemaInitializer>();
 builder.Services.AddScoped<VendorQuoteService>();
 builder.Services.AddScoped<QuoteStatusService>();
@@ -29,6 +30,8 @@ builder.Services.AddScoped<EstimatorSummaryReportService>();
 builder.Services.AddSingleton<EstimatingHistoryReviewStore>();
 builder.Services.Configure<FulcrumQuoteSyncOptions>(
     builder.Configuration.GetSection(FulcrumQuoteSyncOptions.SectionName));
+builder.Services.Configure<DevelopmentQuoteFolderDemoOptions>(
+    builder.Configuration.GetSection(DevelopmentQuoteFolderDemoOptions.SectionName));
 builder.Services.AddOptions<EnterpriseQuoteSyncScheduleOptions>()
     .Configure<IConfiguration>((settings, configuration) => settings.BindConfiguration(configuration));
 builder.Services.AddSingleton<SonAero.Platform.Security.IIntegrationSecretProtector,
@@ -172,6 +175,10 @@ await using (var scope = app.Services.CreateAsyncScope())
     await scope.ServiceProvider
         .GetRequiredService<EstimatingHistorySchemaInitializer>()
         .InitializeAsync();
+    if (app.Environment.IsDevelopment())
+        await scope.ServiceProvider
+            .GetRequiredService<DevelopmentQuoteFolderDemoSeeder>()
+            .SeedAsync();
     await scope.ServiceProvider.GetRequiredService<VendorQuoteSchemaInitializer>().InitializeAsync();
 }
 

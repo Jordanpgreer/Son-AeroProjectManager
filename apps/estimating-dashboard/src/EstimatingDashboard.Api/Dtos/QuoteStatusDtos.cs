@@ -4,13 +4,13 @@ public sealed record QuoteStatusSummaryDto(int QuoteHistoryId, int QuoteNumber, 
     string EstimatingRep, string Status, DateTimeOffset? StatusChangedAt, string? StatusChangedBy,
     DateTime? FollowUpDate, DateTimeOffset UpdatedAt, DateTimeOffset? LastMessageAt,
     int ThreadCount, int MessageCount, int UnassignedMessageCount, int Version, bool CanEdit, bool CanRemove = false,
-    string? SalesPerson = null);
+    string? SalesPerson = null, DateTime? EstimatingDueDate = null);
 public sealed record QuoteStatusPageDto(IReadOnlyList<QuoteStatusSummaryDto> Items, int TotalCount, int Page, int PageSize);
 public sealed record QuoteStatusDetailDto(QuoteStatusSummaryDto Quote,
     IReadOnlyList<QuoteStatusActivityDto> Activity, IReadOnlyList<VendorQuoteDetailDto> Threads,
     IReadOnlyList<VendorQuoteMessageDto> UnassignedMessages, EstimatingPersonalQuoteDto Workflow,
     IReadOnlyList<RemovedQuoteEmailDto> RemovedMessages, IReadOnlyList<QuoteStatusActivityDto> RemovedNotes,
-    string? FulcrumQuoteUrl);
+    string? FulcrumQuoteUrl, string? QuoteFolderPath = null);
 public sealed record QuoteStatusActivityDto(string Id, string Kind, string Text, string? OldValue,
     string? NewValue, DateTimeOffset OccurredAt, string AccountName, string DisplayName,
     int? RequestId, string? VendorName, string? PartNumber, DateTimeOffset? EditedAt = null,
@@ -25,3 +25,12 @@ public sealed record MoveQuoteEmailDto(int ExpectedVersion, int TargetQuoteHisto
 public sealed record RemovedQuoteEmailDto(long Id, string Subject, string Direction, string FromAddress,
     string? FromName, string VendorEmail, DateTimeOffset SentAt, DateTimeOffset RemovedAt, string? RemovedBy,
     int? RequestId, string? VendorName, string? PartNumber);
+
+public static class QuoteStatusScopes
+{
+    public const string MineActive = "mine-active";
+    public const string All = "all";
+
+    public static string Normalize(string? value) =>
+        string.Equals(value?.Trim(), All, StringComparison.OrdinalIgnoreCase) ? All : MineActive;
+}

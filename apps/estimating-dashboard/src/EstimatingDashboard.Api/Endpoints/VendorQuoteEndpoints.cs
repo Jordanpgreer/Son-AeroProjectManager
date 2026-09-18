@@ -57,9 +57,17 @@ public static class VendorQuoteEndpoints
         group.AddEndpointFilter(ErrorFilter);
         group.MapManualEmails();
         group.MapItemLifecycle();
-        group.MapGet("", async (HttpContext ctx, QuoteStatusService service, string? search, string? status,
+        group.MapGet("", async (HttpContext ctx, QuoteStatusService service, string? search, string? status, string? scope,
             int? quoteNumber, int page = 1, int pageSize = 50, CancellationToken cancellationToken = default) =>
-            Results.Ok(await service.ListAsync(Access(ctx), search, status, quoteNumber, page, pageSize, cancellationToken)));
+            Results.Ok(await service.ListAsync(
+                Access(ctx),
+                search,
+                status,
+                quoteNumber,
+                page,
+                pageSize,
+                cancellationToken,
+                QuoteStatusScopes.Normalize(scope))));
         group.MapGet("/options", (HttpContext ctx) =>
         {
             VendorQuoteService.Guard(Access(ctx));

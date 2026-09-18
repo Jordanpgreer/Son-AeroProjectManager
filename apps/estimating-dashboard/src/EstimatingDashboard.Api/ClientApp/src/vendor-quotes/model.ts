@@ -1,9 +1,28 @@
-import type { QuoteStatusUpdate, VendorMessage, VendorSync } from './types.ts'
+import type { QuoteStatusSummary, QuoteStatusUpdate, VendorMessage, VendorSync } from './types.ts'
 
 export const VENDOR_STATUSES = ['Untouched', 'Waiting on vendor', 'Quote received']
 export const LEGACY_VENDOR_STATUSES = ['Rates requested', 'Reply received', 'Under review', 'Accepted', 'Declined', 'Cancelled']
 export const QUOTE_STATUSES = ['Untouched', 'In progress', 'RFQ Sent', 'Ready for Review', 'Complete', 'On Hold']
 export const CLOSED_STATUSES = new Set(['Quote received', 'Accepted', 'Declined', 'Cancelled', 'Complete'])
+export type QuoteStatusScope = 'mine-active' | 'all'
+export const DEFAULT_QUOTE_STATUS_SCOPE: QuoteStatusScope = 'mine-active'
+
+export function quoteStatusRequestScope(scope: QuoteStatusScope, quoteNumber: number | null): QuoteStatusScope {
+  return quoteNumber === null ? scope : 'all'
+}
+
+function sortableDate(value: string | null | undefined) {
+  if (!value) return Number.POSITIVE_INFINITY
+  const timestamp = new Date(value).getTime()
+  return Number.isFinite(timestamp) ? timestamp : Number.POSITIVE_INFINITY
+}
+
+export function sortQuoteStatusesByDueDate(items: readonly QuoteStatusSummary[]) {
+  return [...items].sort((left, right) => {
+    const dueDifference = sortableDate(left.estimatingDueDate) - sortableDate(right.estimatingDueDate)
+    return Number.isNaN(dueDifference) || dueDifference === 0 ? right.quoteNumber - left.quoteNumber : dueDifference
+  })
+}
 
 export function canonicalVendorStatus(status: string | null | undefined): string {
   switch (status?.trim().toLowerCase()) {
@@ -65,8 +84,24 @@ export function syncState(sync: VendorSync[], now = new Date()) {
     : { tone: 'neutral', label: 'Outlook sync paused' }
 }
 
+export function shouldShowConnectOutlook(syncLoaded: boolean, syncError: string | null, sync: readonly VendorSync[]) {
+  return syncLoaded && !syncError && sync.length === 0
+}
+
 export function mailtoVendor(email: string, quoteNumber: number) {
   return `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(`Quote ${quoteNumber}`)}`
+}
+
+export function quoteFolderHref(path: string | null | undefined) {
+  const normalized = path?.trim()
+  return normalized ? `sonaero-folder://open?path=${encodeURIComponent(normalized)}` : null
+}
+
+interface ClipboardWriter { writeText(value: string): Promise<void> }
+export async function copyQuoteFolderPath(path: string, clipboard?: ClipboardWriter | null) {
+  const target = clipboard ?? (typeof navigator === 'undefined' ? null : navigator.clipboard)
+  if (!target) throw new Error('Clipboard access is unavailable.')
+  await target.writeText(path)
 }
 
 export function attachmentSize(bytes: number) {

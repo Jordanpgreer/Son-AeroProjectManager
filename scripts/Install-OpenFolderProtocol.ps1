@@ -8,6 +8,10 @@ $handlerScript = Join-Path $PSScriptRoot 'Open-ControlledFolder.ps1'
 if (-not (Test-Path -LiteralPath $handlerScript)) {
     throw "Controlled-folder handler not found: $handlerScript"
 }
+$handlerModule = Join-Path $PSScriptRoot 'ControlledFolder.Protocol.psm1'
+if (-not (Test-Path -LiteralPath $handlerModule)) {
+    throw "Controlled-folder validation module not found: $handlerModule"
+}
 
 $powerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $protocolRoot = 'HKCU:\Software\Classes\sonaero-folder'

@@ -19,6 +19,7 @@ public sealed class EstimatingQuoteHistoryRecord
     public string? QuoteComplexity { get; set; }
     public int NumberOfParts { get; set; }
     public string? EstimatingStatus { get; set; }
+    public string? QuoteFolderPath { get; set; }
     public string? ArdaStatus { get; set; }
     public string? ArdaStatusNotes { get; set; }
     public DateTimeOffset? ArdaStatusChangedAt { get; set; }

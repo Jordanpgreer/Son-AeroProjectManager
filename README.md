@@ -68,7 +68,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Start-Hub.ps1
 `Start-Hub.ps1`:
 
 1. Resolves the repo root reliably (paths with spaces supported).
-2. Refreshes the per-user `sonaero-folder` handler used by Engineering **Open folder** actions.
+2. Refreshes the per-user `sonaero-folder` handler used by controlled **Open folder** actions.
+   The handler maps drive-less Fulcrum paths onto `S:\`, rejects other drives, UNC paths,
+   traversal, and nested URI schemes, and opens only an existing folder or a file's containing folder.
 3. Locates the .NET 8 SDK and Node.js/npm.
 4. Rebuilds each frontend only when its source changed.
 5. Starts Project Tracker on **5135**, Engineering Hub on **5150**, Estimating Dashboard on **5160**, Quality Assurance on **5170**, and the Portal on **5140** (skips any already running).

@@ -52,6 +52,7 @@ public sealed class QuoteStatusWorkflowContextTests
         quote.ArdaStatusChangedBy = "SONAERO\\casey";
         quote.RfqDueDate = new DateTime(2026, 9, 14);
         quote.QuoteStatus = "Needs Approval";
+        quote.QuoteFolderPath = @"S:\Estimating\Quotes\Customer 4445";
         quote.TotalValue = 12500m;
         f.Db.Users.Add(new EstimatingUserRecord { AccountName = "SONAERO\\casey", DisplayName = "Casey Lee", IsActive = true });
         await f.Db.SaveChangesAsync();
@@ -69,10 +70,12 @@ public sealed class QuoteStatusWorkflowContextTests
         Assert.Equal(new DateTime(2026, 9, 10), detail.Workflow.AutomaticEstimatingDueDate);
         Assert.Equal(12500m, detail.Workflow.TotalValue);
         Assert.Equal("Needs Approval", detail.Workflow.FulcrumQuoteStatus);
+        Assert.Equal(@"S:\Estimating\Quotes\Customer 4445", detail.QuoteFolderPath);
         Assert.Empty(detail.Activity);
         var json = System.Text.Json.JsonSerializer.Serialize(detail, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
         Assert.Contains("\"workflow\":", json);
         Assert.Contains("\"ardaStatusNotes\":\"Legacy current-status note retained without audit\"", json);
+        Assert.Contains("\"quoteFolderPath\":\"S:\\\\Estimating\\\\Quotes\\\\Customer 4445\"", json);
     }
 
     [Fact]

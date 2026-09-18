@@ -1,6 +1,6 @@
 import { CalendarDays, Check, CircleDot, Clock3, FileText, LoaderCircle, RotateCcw, Save, UserRound, Users } from 'lucide-react'
 import { StatusBadge } from './ActivityTimeline'
-import { dateOnly, dateTime, isOverdue, relativeTime } from './model'
+import { dateOnly, dateTime, isOverdue } from './model'
 import { setQuoteDueDate, useAutomaticQuoteDate, type QuoteDetailsDraft } from './quoteDetailsModel'
 import type { QuoteStatusDetail } from './types'
 
@@ -21,7 +21,7 @@ export default function QuoteOverview({ detail, canEdit, draft, dirty, saving, b
         <div className="qs-fact-helper"><small className={dueOverdue ? 'vq-overdue-text' : ''}>{draft.dueDateIsOverride ? 'Custom date' : 'Automatic date'}{dueOverdue ? ' · Overdue' : ''}</small>{canEdit && draft.dueDateIsOverride && <button className="qs-text-button" type="button" disabled={saving || busy} onClick={() => onChange(useAutomaticQuoteDate(draft, workflow.automaticEstimatingDueDate))}><RotateCcw size={11} />Use automatic</button>}</div>
       </div></div>
       <div className="qs-request-fact"><span className="qs-fact-icon"><FileText size={17} /></span><div><span>RFQ due date</span><strong>{workflow.rfqDueDate ? dateOnly(workflow.rfqDueDate) : 'Not provided'}</strong></div></div>
-      <div className="qs-request-fact"><span className="qs-fact-icon"><Clock3 size={17} /></span><div><span>Last Updated</span><strong><time dateTime={quote.updatedAt} title={dateTime(quote.updatedAt)}>{relativeTime(quote.updatedAt)}</time></strong></div></div>
+      <div className="qs-request-fact"><span className="qs-fact-icon"><Clock3 size={17} /></span><div><span>Status set</span><strong><time dateTime={quote.statusChangedAt ?? undefined}>{dateTime(quote.statusChangedAt)}</time></strong>{quote.statusChangedBy && <small className="qs-status-author">by {quote.statusChangedBy}</small>}</div></div>
       <div className="qs-request-fact qs-quote-status-fact"><span className="qs-fact-icon"><CircleDot size={17} /></span><div><span>Status</span><StatusBadge status={quote.status} /></div></div>
     </div>
     <details className="qs-summary-disclosure"><summary>Current status notes{workflow.ardaStatusNotes ? ' · Summary available' : ''}</summary>

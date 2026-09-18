@@ -7,7 +7,8 @@ import { makeUpdate, synchronizeActivityDraft } from '../src/vendor-quotes/model
 const quote: PersonalQuote = {
   id: 17, quoteNumber: 4445, customer: 'Example Aerospace', fulcrumQuoteStatus: 'Open', estimatingRep: 'Jordan Greer', totalValue: 45000,
   rfqDueDate: '2026-09-18T00:00:00', automaticEstimatingDueDate: '2026-09-16T00:00:00', estimatingDueDate: '2026-09-15T00:00:00',
-  estimatingDueDateIsOverride: true, ardaStatus: 'RFQ Sent', ardaStatusNotes: 'Waiting for SiliconePrime pricing.',
+  estimatingDueDateIsOverride: true, estimatingCompletionDate: null, isCompleted: false, isOverdue: false,
+  ardaStatus: 'RFQ Sent', ardaStatusNotes: 'Waiting for SiliconePrime pricing.',
   ardaStatusChangedAt: '2026-09-10T15:00:00Z', ardaStatusChangedBy: 'Jordan Greer', version: 7,
 }
 

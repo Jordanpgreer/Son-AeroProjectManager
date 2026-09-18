@@ -14,24 +14,51 @@ public sealed class EstimatingQuoteWorkflowService(
 {
     public async Task<IReadOnlyList<EstimatingPersonalQuoteDto>> GetMineAsync(
         EstimatingAccessProfile access,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool includeCompleted = false)
     {
-        var assigned = await db.QuoteHistory
+        var query = db.QuoteHistory.AsNoTracking();
+        if (!includeCompleted)
+            query = query.Where(record => !record.IsCompleted);
+
+        var assigned = await query.ToListAsync(cancellationToken);
+        var knownEstimators = await db.QuoteHistory
             .AsNoTracking()
-            .Where(record => !record.IsCompleted)
+            .Select(record => record.EstimatingRep)
+            .Distinct()
             .ToListAsync(cancellationToken);
         var displayNames = await DisplayNamesAsync(cancellationToken);
-
-        return assigned
+        var today = timeProvider.GetLocalNow().Date;
+        var matched = assigned
             .Where(record => EstimatingEstimatorIdentity.MatchesUnambiguously(
                 record.EstimatingRep,
-                assigned.Select(candidate => candidate.EstimatingRep),
+                knownEstimators,
                 access))
+            .ToList();
+        var active = matched
+            .Where(record => !record.IsCompleted)
             .OrderBy(record => record.EstimatingDueDateOverride
                 ?? EstimatingDueDates.AutomaticFromRfq(record.RfqDueDate)
                 ?? DateTime.MaxValue)
             .ThenByDescending(record => record.QuoteNumber)
-            .Select(record => ToDto(record, DisplayNameFor(record.ArdaStatusChangedBy, displayNames)))
+            .Select(record => ToDto(
+                record,
+                DisplayNameFor(record.ArdaStatusChangedBy, displayNames),
+                today));
+        IEnumerable<EstimatingPersonalQuoteDto> completed = includeCompleted
+            ? matched
+                .Where(record => record.IsCompleted)
+                .OrderByDescending(record => record.EstimatingCompletionDate
+                    ?? record.UpdatedAt.LocalDateTime)
+                .ThenByDescending(record => record.QuoteNumber)
+                .Select(record => ToDto(
+                    record,
+                    DisplayNameFor(record.ArdaStatusChangedBy, displayNames),
+                    today))
+            : [];
+
+        return active
+            .Concat(completed)
             .ToList();
     }
 
@@ -98,7 +125,10 @@ public sealed class EstimatingQuoteWorkflowService(
             AuditDate(dueDateOverride));
 
         if (changes.Count == 0)
-            return ToDto(record, DisplayNameFor(record.ArdaStatusChangedBy, await DisplayNamesAsync(cancellationToken)));
+            return ToDto(
+                record,
+                DisplayNameFor(record.ArdaStatusChangedBy, await DisplayNamesAsync(cancellationToken)),
+                timeProvider.GetLocalNow().Date);
 
         record.ArdaStatus = normalizedStatus;
         record.ArdaStatusNotes = notes;
@@ -135,9 +165,12 @@ public sealed class EstimatingQuoteWorkflowService(
             throw new EstimatingQuoteWorkflowConflictException();
         }
 
-        return ToDto(record, statusChanged ? access.DisplayName : DisplayNameFor(
-            record.ArdaStatusChangedBy,
-            await DisplayNamesAsync(cancellationToken)));
+        return ToDto(
+            record,
+            statusChanged ? access.DisplayName : DisplayNameFor(
+                record.ArdaStatusChangedBy,
+                await DisplayNamesAsync(cancellationToken)),
+            timeProvider.GetLocalNow().Date);
     }
 
     private async Task<IReadOnlyDictionary<string, string>> DisplayNamesAsync(
@@ -164,14 +197,18 @@ public sealed class EstimatingQuoteWorkflowService(
 
     internal async Task<EstimatingPersonalQuoteDto> DescribeAsync(
         EstimatingQuoteHistoryRecord record,
-        CancellationToken cancellationToken) => ToDto(record, DisplayNameFor(
-            record.ArdaStatusChangedBy, await DisplayNamesAsync(cancellationToken)));
+        CancellationToken cancellationToken) => ToDto(
+            record,
+            DisplayNameFor(record.ArdaStatusChangedBy, await DisplayNamesAsync(cancellationToken)),
+            timeProvider.GetLocalNow().Date);
 
     private static EstimatingPersonalQuoteDto ToDto(
         EstimatingQuoteHistoryRecord record,
-        string? changedByDisplayName)
+        string? changedByDisplayName,
+        DateTime today)
     {
         var automaticDueDate = EstimatingDueDates.AutomaticFromRfq(record.RfqDueDate);
+        var effectiveDueDate = record.EstimatingDueDateOverride ?? automaticDueDate;
         var ardaStatus = DisplayStatus(record.ArdaStatus);
         return new EstimatingPersonalQuoteDto(
             record.Id,
@@ -182,7 +219,7 @@ public sealed class EstimatingQuoteWorkflowService(
             record.TotalValue,
             record.RfqDueDate,
             automaticDueDate,
-            record.EstimatingDueDateOverride ?? automaticDueDate,
+            effectiveDueDate,
             record.EstimatingDueDateOverride.HasValue,
             ardaStatus,
             record.ArdaStatusNotes,
@@ -190,7 +227,10 @@ public sealed class EstimatingQuoteWorkflowService(
                 ? record.FirstImportedAt
                 : null),
             changedByDisplayName,
-            record.Version);
+            record.Version,
+            record.IsCompleted,
+            !record.IsCompleted && effectiveDueDate.HasValue && effectiveDueDate.Value.Date < today,
+            record.EstimatingCompletionDate);
     }
 
     internal static string DisplayStatus(string? status)

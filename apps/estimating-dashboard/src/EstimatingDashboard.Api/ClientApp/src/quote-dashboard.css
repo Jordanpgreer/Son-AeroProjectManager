@@ -1,32 +1,43 @@
 .quote-dashboard-page {
   display: grid;
-  gap: 18px;
+  gap: 16px;
 }
 
 .quote-list-card {
+  min-width: 0;
+  overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--line-2);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-1);
+  border-radius: 9px;
 }
 
-.quote-dashboard-page-actions {
+.quote-list-toolbar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
 }
 
 .quote-list-toolbar h2 {
   margin: 0;
   color: var(--ink);
-  font-size: 20px;
+  font-size: 19px;
+  letter-spacing: -.015em;
+}
+
+.quote-list-toolbar h2:focus-visible {
+  outline: 2px solid var(--steel);
+  outline-offset: 4px;
 }
 
 .quote-section-description {
   max-width: 720px;
   margin: 5px 0 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 11.5px;
+  line-height: 1.55;
 }
 
 .primary-action-button,
@@ -54,32 +65,41 @@
   border-color: var(--steel-action-hover);
 }
 
-.quote-storage-notice {
+.quote-storage-notice,
+.quote-storage-error {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 10px 13px;
-  color: var(--steel-700);
-  background: var(--steel-tint);
-  border: 1px solid color-mix(in srgb, var(--steel) 28%, var(--line));
-  border-radius: var(--r-sm);
-  font-size: 11.5px;
-  font-weight: 600;
-}
-
-.quote-storage-error {
   margin: 0;
   padding: 11px 14px;
-  color: var(--risk-700);
-  background: var(--risk-tint);
-  border: 1px solid color-mix(in srgb, var(--risk) 34%, var(--line));
   border-radius: var(--r-sm);
   font-size: 11.5px;
   font-weight: 650;
 }
 
+.quote-storage-notice {
+  color: var(--steel-700);
+  background: var(--steel-tint);
+  border: 1px solid color-mix(in srgb, var(--steel) 28%, var(--line));
+}
+
+.quote-storage-error {
+  color: var(--risk-700);
+  background: var(--risk-tint);
+  border: 1px solid color-mix(in srgb, var(--risk) 34%, var(--line));
+}
+
 .personal-quote-card {
-  border-top: 3px solid var(--steel);
+  position: relative;
+}
+
+.personal-quote-card::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 1;
+  width: 3px;
+  background: var(--steel);
+  content: '';
 }
 
 .quote-refresh-button {
@@ -87,15 +107,21 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 36px;
-  padding: 6px 10px;
+  min-height: 38px;
+  padding: 7px 11px;
   color: var(--steel-700);
   background: var(--steel-tint);
   border: 1px solid color-mix(in srgb, var(--steel) 30%, var(--line));
   border-radius: var(--r-xs);
   font: inherit;
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 750;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.quote-refresh-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--steel-tint) 70%, var(--surface));
+  border-color: var(--steel);
 }
 
 .quote-refresh-button:disabled {
@@ -116,27 +142,60 @@
 
 .quote-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
 }
 
-.quote-kpi-grid > * {
+.quote-kpi-grid > button {
+  position: relative;
   display: grid;
   gap: 7px;
-  min-height: 132px;
-  padding: 16px 18px;
+  min-height: 116px;
+  padding: 15px 17px;
+  overflow: hidden;
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--line-2);
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-1);
+  border-radius: 8px;
   font: inherit;
   text-align: left;
+  transition: background 160ms ease, border-color 160ms ease;
 }
 
-.quote-kpi-grid > button:hover {
-  border-color: var(--steel);
-  background: color-mix(in srgb, var(--steel-tint) 40%, var(--surface));
+.quote-kpi-grid > button::after {
+  position: absolute;
+  inset: auto 0 0;
+  height: 3px;
+  background: transparent;
+  content: '';
+}
+
+.quote-kpi-grid > button:hover,
+.quote-kpi-grid > button.is-selected {
+  background: color-mix(in srgb, var(--steel-tint) 48%, var(--surface));
+  border-color: color-mix(in srgb, var(--steel) 55%, var(--line));
+}
+
+.quote-kpi-grid > button.is-selected::after {
+  background: var(--steel);
+}
+
+.quote-kpi-grid > button.is-overdue:hover,
+.quote-kpi-grid > button.is-overdue.is-selected {
+  background: color-mix(in srgb, var(--risk-tint) 55%, var(--surface));
+  border-color: color-mix(in srgb, var(--risk) 48%, var(--line));
+}
+
+.quote-kpi-grid > button.is-overdue.is-selected::after {
+  background: var(--risk);
+}
+
+.quote-kpi-grid > button:focus-visible,
+.personal-quote-view-tabs button:focus-visible,
+.quote-filter-tabs button:focus-visible,
+.quote-refresh-button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--steel) 42%, transparent);
+  outline-offset: 2px;
 }
 
 .quote-kpi-grid span {
@@ -144,19 +203,24 @@
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: .065em;
   text-transform: uppercase;
-  letter-spacing: .06em;
 }
 
 .quote-kpi-grid span svg {
   color: var(--steel);
 }
 
+.quote-kpi-grid .is-overdue span svg {
+  color: var(--risk-700);
+}
+
 .quote-kpi-grid strong {
   margin-top: auto;
-  font-size: 28px;
+  color: var(--ink);
+  font-size: 29px;
   line-height: 1;
 }
 
@@ -165,18 +229,50 @@
   font-size: 10.5px;
 }
 
-.quote-list-card {
-  min-width: 0;
-  overflow: hidden;
+.personal-quote-view-tabs,
+.quote-filter-tabs {
+  display: flex;
+  gap: 5px;
+  padding: 9px 18px;
+  overflow-x: auto;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
 }
 
-.quote-list-toolbar {
-  display: flex;
+.personal-quote-view-tabs button,
+.quote-filter-tabs button {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 16px 18px;
-  border-bottom: 1px solid var(--line);
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 6px 11px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.personal-quote-view-tabs button span {
+  min-width: 20px;
+  padding: 2px 6px;
+  color: inherit;
+  background: var(--surface-3);
+  border-radius: var(--r-pill);
+  font-size: 9px;
+  text-align: center;
+}
+
+.personal-quote-view-tabs button.active,
+.quote-filter-tabs button.active {
+  color: var(--steel-700);
+  background: var(--surface);
+  border-color: var(--line-2);
 }
 
 .quote-search {
@@ -188,7 +284,7 @@
   color: var(--muted);
   background: var(--surface-2);
   border: 1px solid var(--line-2);
-  border-radius: var(--r-sm);
+  border-radius: 6px;
 }
 
 .quote-search:focus-within {
@@ -206,34 +302,6 @@
   font: inherit;
 }
 
-.quote-filter-tabs {
-  display: flex;
-  gap: 6px;
-  padding: 10px 18px;
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--line);
-}
-
-.quote-filter-tabs button {
-  min-height: 36px;
-  padding: 7px 12px;
-  color: var(--muted);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--r-sm);
-  font: inherit;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: capitalize;
-}
-
-.quote-filter-tabs button.active {
-  color: var(--steel-700);
-  background: var(--surface);
-  border-color: var(--line-2);
-  box-shadow: var(--shadow-1);
-}
-
 .quote-table {
   width: 100%;
   min-width: 1020px;
@@ -242,7 +310,37 @@
 }
 
 .personal-quote-table {
-  min-width: 920px;
+  min-width: 820px;
+}
+
+.quote-table th,
+.quote-table td {
+  padding: 12px 14px;
+  color: var(--ink-2);
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--line);
+}
+
+.quote-table thead th {
+  color: var(--muted);
+  background: var(--surface-2);
+  font-size: 9.5px;
+  font-weight: 750;
+  letter-spacing: .065em;
+  text-transform: uppercase;
+}
+
+.quote-table tbody th {
+  color: var(--ink);
+}
+
+.quote-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.quote-table tbody tr:hover {
+  background: color-mix(in srgb, var(--steel-tint) 44%, transparent);
 }
 
 .personal-quote-heading {
@@ -269,8 +367,12 @@
   outline-offset: -3px;
 }
 
-.personal-quote-row.is-actionable:hover {
-  background: color-mix(in srgb, var(--steel-tint) 60%, var(--surface));
+.personal-quote-row.is-overdue {
+  background: color-mix(in srgb, var(--risk-tint) 38%, transparent);
+}
+
+.personal-quote-row.is-overdue:hover {
+  background: color-mix(in srgb, var(--risk-tint) 60%, var(--surface));
 }
 
 .personal-quote-row:hover .personal-quote-open-icon {
@@ -309,26 +411,6 @@
   white-space: nowrap;
 }
 
-.quote-table th,
-.quote-table td {
-  padding: 11px 12px;
-  color: var(--ink-2);
-  text-align: left;
-  border-bottom: 1px solid var(--line);
-}
-
-.quote-table thead th {
-  color: var(--muted);
-  background: var(--surface-2);
-  font-size: 9.5px;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-}
-
-.quote-table tbody th {
-  color: var(--ink);
-}
-
 .quote-revision-cell {
   color: var(--ink);
   font-weight: 750;
@@ -342,10 +424,6 @@
   font-weight: 650;
 }
 
-.quote-table tbody tr:hover {
-  background: color-mix(in srgb, var(--steel-tint) 42%, transparent);
-}
-
 .quote-status {
   display: inline-flex;
   align-items: center;
@@ -354,141 +432,6 @@
   border-radius: var(--r-pill);
   font-size: 9.5px;
   font-weight: 800;
+  letter-spacing: .015em;
   text-transform: uppercase;
-}
-
-.quote-status.status-draft {
-  color: var(--warn-700);
-  background: var(--warn-tint);
-}
-
-.quote-status.status-current {
-  color: var(--steel-700);
-  background: var(--steel-tint);
-}
-
-.quote-status.status-past {
-  color: var(--muted);
-  background: var(--surface-3);
-}
-
-.quote-status.fulcrum-status {
-  color: var(--muted);
-  background: var(--surface-3);
-}
-
-.quote-status.arda-status {
-  color: var(--steel-700);
-  background: var(--steel-tint);
-}
-
-.quote-status.arda-status.unset {
-  color: var(--muted);
-  background: var(--surface-2);
-  border-style: dashed;
-}
-
-.quote-due-date,
-.quote-status-age {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--ink-2);
-  font-size: 10.5px;
-  font-weight: 700;
-}
-
-.quote-due-date svg,
-.quote-status-age svg {
-  color: var(--steel);
-}
-
-.quote-read-only-label {
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.quote-row-actions {
-  display: flex;
-  gap: 6px;
-}
-
-.quote-row-actions button {
-  min-height: 34px;
-  padding: 5px 9px;
-  color: var(--steel-700);
-  background: var(--steel-tint);
-  border: 1px solid color-mix(in srgb, var(--steel) 30%, var(--line));
-  border-radius: var(--r-xs);
-  font: inherit;
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.quote-row-actions .danger-link {
-  color: var(--steel-700);
-  background: var(--steel-tint);
-  border-color: color-mix(in srgb, var(--steel) 30%, var(--line));
-}
-
-.quote-empty-state {
-  display: grid;
-  place-items: center;
-  gap: 7px;
-  min-height: 260px;
-  padding: 28px;
-  color: var(--muted);
-  text-align: center;
-}
-
-.quote-empty-state svg {
-  color: var(--steel);
-}
-
-.quote-empty-state strong {
-  color: var(--ink);
-  font-size: 15px;
-}
-
-.quote-empty-state.compact {
-  min-height: 170px;
-}
-
-.is-spinning {
-  animation: quote-spin .9s linear infinite;
-}
-
-@keyframes quote-spin {
-  to { transform: rotate(360deg); }
-}
-
-@media (max-width: 900px) {
-  .quote-kpi-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .quote-list-toolbar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .quote-search {
-    grid-template-columns: 20px minmax(0, 1fr);
-  }
-
-}
-
-@media (max-width: 560px) {
-  .quote-dashboard-page-actions .primary-action-button {
-    width: 100%;
-  }
-
-  .quote-kpi-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .quote-filter-tabs {
-    overflow-x: auto;
-  }
-
 }

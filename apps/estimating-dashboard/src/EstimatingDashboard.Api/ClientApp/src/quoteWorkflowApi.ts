@@ -20,6 +20,9 @@ export interface PersonalQuote {
   automaticEstimatingDueDate: string | null
   estimatingDueDate: string | null
   estimatingDueDateIsOverride: boolean
+  estimatingCompletionDate: string | null
+  isCompleted: boolean
+  isOverdue: boolean
   ardaStatus: ArdaStatus | null
   ardaStatusNotes: string | null
   ardaStatusChangedAt: string | null
@@ -56,11 +59,11 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function loadPersonalQuotes(signal?: AbortSignal) {
-  return api<PersonalQuote[]>('/api/quote-workflow/mine', { signal })
+  return api<PersonalQuote[]>('/api/quote-workflow/mine?includeCompleted=true', { signal })
 }
 
 export function refreshPersonalQuoteAssignments() {
-  return api<PersonalQuote[]>('/api/quote-workflow/refresh', { method: 'POST' })
+  return api<PersonalQuote[]>('/api/quote-workflow/refresh?includeCompleted=true', { method: 'POST' })
 }
 
 export function updatePersonalQuoteWorkflow(id: number, request: QuoteWorkflowUpdate) {
@@ -70,12 +73,13 @@ export function updatePersonalQuoteWorkflow(id: number, request: QuoteWorkflowUp
   })
 }
 
-export function statusAgeLabel(changedAt: string | null, now = new Date()) {
+export function statusSetLabel(changedAt: string | null, timeZone?: string) {
   if (!changedAt) return 'Not set'
   const changed = new Date(changedAt)
   if (Number.isNaN(changed.getTime())) return 'Unknown'
-  const days = Math.max(0, Math.floor((now.getTime() - changed.getTime()) / 86_400_000))
-  if (days === 0) return 'Set today'
-  if (days === 1) return 'Set 1 day ago'
-  return `Set ${days} days ago`
+  return new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    ...(timeZone ? { timeZone } : {}),
+  }).format(changed)
 }

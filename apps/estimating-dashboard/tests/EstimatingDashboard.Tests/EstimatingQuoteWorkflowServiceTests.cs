@@ -41,6 +41,42 @@ public sealed class EstimatingQuoteWorkflowServiceTests
         Assert.Equal(fixture.Db.QuoteHistory.Single(record => record.QuoteNumber == 1001).FirstImportedAt, quote.ArdaStatusChangedAt);
     }
 
+    [Fact]
+    public async Task Mine_can_include_completed_quotes_after_due_date_sorted_active_quotes()
+    {
+        var now = new DateTimeOffset(2026, 9, 10, 16, 45, 32, TimeSpan.Zero);
+        await using var fixture = await Fixture.CreateAsync(now);
+        var overdue = Quote(1101, "Casey Lee");
+        overdue.RfqDueDate = new DateTime(2026, 9, 10); // automatic estimating due date: September 9
+        overdue.ArdaStatus = EstimatingArdaStatuses.InProgress;
+        overdue.ArdaStatusChangedAt = now.AddMinutes(-37);
+        var dueToday = Quote(1102, "Casey Lee");
+        dueToday.RfqDueDate = new DateTime(2026, 9, 11);
+        var completedEarlier = Quote(1103, "Casey Lee", completed: true);
+        completedEarlier.QuoteStatus = "Sent";
+        completedEarlier.EstimatingCompletionDate = new DateTime(2026, 9, 8);
+        var completedLatest = Quote(1104, "Casey Lee", completed: true);
+        completedLatest.QuoteStatus = "Won";
+        completedLatest.EstimatingCompletionDate = new DateTime(2026, 9, 9);
+        fixture.Db.QuoteHistory.AddRange(overdue, dueToday, completedEarlier, completedLatest);
+        await fixture.Db.SaveChangesAsync();
+
+        var result = await fixture.Service.GetMineAsync(
+            Editor("Casey Lee"),
+            default,
+            includeCompleted: true);
+
+        Assert.Equal([1101, 1102, 1104, 1103], result.Select(quote => quote.QuoteNumber));
+        Assert.True(result[0].IsOverdue);
+        Assert.False(result[1].IsOverdue);
+        Assert.False(result[2].IsOverdue);
+        Assert.False(result[0].IsCompleted);
+        Assert.True(result[2].IsCompleted);
+        Assert.Equal("Won", result[2].FulcrumQuoteStatus);
+        Assert.Equal(new DateTime(2026, 9, 9), result[2].EstimatingCompletionDate);
+        Assert.Equal(now.AddMinutes(-37), result[0].ArdaStatusChangedAt);
+    }
+
     [Theory]
     [InlineData("2026-09-07", "2026-09-03")]
     [InlineData("2026-09-08", "2026-09-07")]
@@ -329,6 +365,7 @@ public sealed class EstimatingQuoteWorkflowServiceTests
         Assert.Contains("ArdaStatusChangedAt", columns);
         Assert.Contains("ArdaStatusChangedBy", columns);
         Assert.Contains("EstimatingDueDateOverride", columns);
+        Assert.Contains("QuoteFolderPath", columns);
 
         await reader.DisposeAsync();
         await using var migratedValue = connection.CreateCommand();

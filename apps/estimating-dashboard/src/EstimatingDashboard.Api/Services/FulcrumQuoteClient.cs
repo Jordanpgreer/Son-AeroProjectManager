@@ -166,7 +166,8 @@ internal sealed record FulcrumQuoteDto(
     string Status,
     decimal? TotalInPrimaryCurrency,
     Dictionary<string, JsonElement>? CustomFields,
-    Dictionary<string, FulcrumExternalReferenceDto>? ExternalReferences);
+    Dictionary<string, FulcrumExternalReferenceDto>? ExternalReferences,
+    JsonElement InternalNotes = default);
 
 internal sealed record FulcrumExternalReferenceDto(
     string? Type,
