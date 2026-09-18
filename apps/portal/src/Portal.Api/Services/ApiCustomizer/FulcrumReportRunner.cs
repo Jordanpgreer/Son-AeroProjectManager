@@ -33,6 +33,9 @@ public sealed class FulcrumReportRunner(FulcrumReportCatalog catalog, HttpClient
         if (definition.Sheets.Any(sheet => sheet?.SourceId == InventoryBomReport.SourceId)
             && definition.MaxRecords > InventoryBomReport.MaxParentItems)
             throw new ReportValidationException($"Inventory BOM supports up to {InventoryBomReport.MaxParentItems:N0} starting items per report because each item requires related routing reads.");
+        if (definition.Sheets.Any(sheet => sheet?.SourceId == MaterialYieldReport.SourceId)
+            && definition.MaxRecords > MaterialYieldReport.MaxParentItems)
+            throw new ReportValidationException($"Material yield supports up to {MaterialYieldReport.MaxParentItems:N0} starting items per report because each item requires related routing reads.");
         if (!Regex.IsMatch(definition.HeaderColor ?? "", "^[0-9A-Fa-f]{6}$"))
             throw new ReportValidationException("Select a valid header color.");
         if (definition.OutputMode is not ("combined" or "separate") || definition.OutputColumns is null)
@@ -158,10 +161,12 @@ public sealed class FulcrumReportRunner(FulcrumReportCatalog catalog, HttpClient
     {
         Validate(run.Definition);
         var hasBom = run.Definition.Sheets.Any(s => s.SourceId == InventoryBomReport.SourceId);
-        var rowLimit = hasBom ? InventoryBomReport.MaxRows : MaxRows;
-        var requestLimit = hasBom ? InventoryBomReport.MaxRequests : MaxRequests;
+        var hasYield = run.Definition.Sheets.Any(s => s.SourceId == MaterialYieldReport.SourceId);
+        var hasComposed = hasBom || hasYield;
+        var rowLimit = hasComposed ? InventoryBomReport.MaxRows : MaxRows;
+        var requestLimit = hasComposed ? InventoryBomReport.MaxRequests : MaxRequests;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromMinutes(hasBom ? InventoryBomReport.TimeoutMinutes : run.Definition.MaxRecords > 5000 ? 10 : 3));
+        timeout.CancelAfter(TimeSpan.FromMinutes(hasComposed ? InventoryBomReport.TimeoutMinutes : run.Definition.MaxRecords > 5000 ? 10 : 3));
         var token = "";
         if (!run.Sample)
         {
@@ -213,6 +218,9 @@ public sealed class FulcrumReportRunner(FulcrumReportCatalog catalog, HttpClient
                 var rows = emptyParent ? [] : source.Id == InventoryBomReport.SourceId
                     ? await InventoryBomReport.ReadAsync(inputs, run.Sample,
                         (id, filters) => FetchAsync(catalog.Source(id), filters, token, run.Definition.MaxRecords, CountRequest, timeout.Token), warnings, timeout.Token)
+                    : source.Id == MaterialYieldReport.SourceId
+                    ? await MaterialYieldReport.ReadAsync(inputs, run.Sample,
+                        (id, filters) => FetchAsync(catalog.Source(id), filters, token, run.Definition.MaxRecords, CountRequest, timeout.Token), warnings, timeout.Token)
                     : run.Sample ? Sample(source, sheet.ParentSheetId is null ? 3 : 2)
                     : await FetchAsync(source, inputs, token, run.Definition.MaxRecords, CountRequest, timeout.Token);
                 if (rows.Count == 0 && sheet.ParentSheetId is not null && sheet.IncludeEmptyParents)
@@ -252,7 +260,7 @@ public sealed class FulcrumReportRunner(FulcrumReportCatalog catalog, HttpClient
         }
         results = results.Select(result => ReportPresentation.Size(result, run.Definition.AutoSize)).ToList();
         if (run.Sample) warnings.Add("SAMPLE DATA: invented records for layout testing. Filters are illustrated, not applied to Fulcrum.");
-        if (!hasBom) warnings.Add(run.Definition.OutputMode == "combined"
+        if (!hasComposed) warnings.Add(run.Definition.OutputMode == "combined"
             ? "Related records outside the chosen row type are listed together in their cells, not multiplied or summed."
             : "Each table contains one row per source record. Related lists stay together in their cells.");
         var now = DateTimeOffset.UtcNow;

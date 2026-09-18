@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, Check, ChevronDown, Download, Filter, History, Link2, Plus, Save, Search, Settings2, Table2, X } from 'lucide-react'
 import { portalApi, toErrorMessage } from './api'
-import { addSource, blankReport, columnFor, displayCell, fieldHeading, inventoryBomSourceId, inventoryBomStarter, loadLayout, relatedSources, removeSource, reportColumns, sourceName, withColumns } from './apiCustomizerModel'
+import { addSource, blankReport, columnFor, displayCell, fieldHeading, inventoryBomSourceId, inventoryBomStarter, loadLayout, materialYieldSourceId, materialYieldStarter, relatedSources, removeSource, reportColumns, sourceName, withColumns } from './apiCustomizerModel'
 import type { ApiCatalog, ReportColumn, ReportDefinition, ReportRun, ReportSheet, SavedReport } from './apiCustomizerModel'
 import { BuilderDialog, FilterEditor } from './ApiCustomizerControls'
 import InventoryBomControls from './InventoryBomControls'
+import MaterialYieldControls from './MaterialYieldControls'
 import './api-customizer.css'
 
 const root = '/api/admin/api-customizer'
@@ -48,8 +49,10 @@ export default function ApiCustomizerPanel() {
   const selectedSource = catalogue?.sources.find(s => s.id === selectedSheet?.sourceId)
   const rowType = definition.sheets.find(s => s.id === definition.detailSheetId) ?? definition.sheets[0]
   const bomSheet = definition.sheets.length === 1 && definition.sheets[0].sourceId === inventoryBomSourceId ? definition.sheets[0] : null
+  const yieldSheet = definition.sheets.length === 1 && definition.sheets[0].sourceId === materialYieldSourceId ? definition.sheets[0] : null
   const bomSource = catalogue?.sources.find(s => s.id === inventoryBomSourceId)
-  const recordLimit = bomSheet ? 10000 : 50000
+  const yieldSource = catalogue?.sources.find(s => s.id === materialYieldSourceId)
+  const recordLimit = bomSheet ? 10000 : yieldSheet ? 5000 : 50000
   const previewColumns = (currentResult?.columns ?? columns).map((column, index) => ({ column, index }))
     .filter(({ column }) => !bomSheet || showUnmapped || !bomSource?.fields.some(f => f.path === column.path && f.availability === 'unmapped'))
   const openPicker = (next: Picker) => { setPicker(next); setSearch(''); setShowSpecific(false); setCustomKey('') }
@@ -109,7 +112,7 @@ export default function ApiCustomizerPanel() {
 
   const sources = picker?.type === 'source'
     ? selectedSheet ? relatedSources(catalogue, definition, selectedSheet).map(r => r.source)
-      : catalogue.sources.filter(source => source.id !== inventoryBomSourceId && (showSpecific || !source.inputs.some(i => i.required && i.key.startsWith('path.'))))
+      : catalogue.sources.filter(source => source.id !== inventoryBomSourceId && source.id !== materialYieldSourceId && (showSpecific || !source.inputs.some(i => i.required && i.key.startsWith('path.'))))
     : []
   const matches = sources.filter(source => `${sourceName(source)} ${source.category} ${source.description}`.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => sourceName(a).localeCompare(sourceName(b)))
@@ -129,23 +132,26 @@ export default function ApiCustomizerPanel() {
       {options && <section className="ac-options" aria-label="Report options">
         <label><span>Report Type</span><select value={definition.outputMode ?? 'separate'} onChange={e => change({ ...definition, outputMode: e.target.value as 'combined' | 'separate' })}>
           <option value="combined">One Combined Table</option><option value="separate">Separate Tables In Excel</option></select></label>
-        <label><span>{bomSheet ? 'Maximum Starting Items' : 'Maximum Records Per Data Source'}</span><input type="number" min={1} max={recordLimit} value={definition.maxRecords} onChange={e => change({ ...definition, maxRecords: Number(e.target.value) })} /></label>
+        <label><span>{bomSheet || yieldSheet ? 'Maximum Starting Items' : 'Maximum Records Per Data Source'}</span><input type="number" min={1} max={recordLimit} value={definition.maxRecords} onChange={e => change({ ...definition, maxRecords: Number(e.target.value) })} /></label>
         <label><span>Sort By</span><select value={definition.outputSortColumn ?? ''} onChange={e => change({ ...definition, outputSortColumn: e.target.value === '' ? null : Number(e.target.value) })}>
           <option value="">Source Order</option>{columns.map((c, i) => <option value={i} key={i}>{c.header}</option>)}</select></label>
         <label className="ac-check"><input type="checkbox" checked={definition.outputSortDescending ?? false} onChange={e => change({ ...definition, outputSortDescending: e.target.checked })} /> Descending</label>
-        {bomSheet && <button className="ghost-button" onClick={() => openPicker({ type: 'source', sheetId: bomSheet.id })}><Link2 size={14} /> Connect Other Fulcrum Records</button>}
+        {(bomSheet || yieldSheet) && <button className="ghost-button" onClick={() => openPicker({ type: 'source', sheetId: (bomSheet || yieldSheet)!.id })}><Link2 size={14} /> Connect Other Fulcrum Records</button>}
         {savedId && <div className="ac-actions"><button className="ghost-button" onClick={() => void save(true)}>Save A Copy</button><button className="ghost-button" onClick={() => setConfirm('delete')}>Delete Saved Report</button></div>}
-        <p>{bomSheet ? 'Inventory BOM can read up to 10,000 starting items and their routing details. ' : 'Arda reads multiple Fulcrum pages up to this total. '}Large related reports can still stop at the API-call, row, time, or response-size safety limits. Column widths and row heights fit automatically.</p>
+        <p>{bomSheet ? 'Inventory BOM can read up to 10,000 starting items and their routing details. ' : yieldSheet ? 'Material yield can read up to 5,000 starting items and their raw-material nestings. ' : 'Arda reads multiple Fulcrum pages up to this total. '}Large related reports can still stop at the API-call, row, time, or response-size safety limits. Column widths and row heights fit automatically.</p>
       </section>}
       {bomSheet && bomSource && <InventoryBomControls sheet={bomSheet} source={bomSource} columns={columns} change={updateSheet} sorted={definition.outputSortColumn != null}
         customize={() => openPicker({ type: 'columns', sheetId: bomSheet.id })} addFields={() => openPicker({ type: 'fields', sheetId: bomSheet.id })} filters={() => openPicker({ type: 'filters', sheetId: bomSheet.id })} />}
-      {!bomSheet && <section className="ac-step">
+      {yieldSheet && yieldSource && <MaterialYieldControls sheet={yieldSheet} columns={columns} change={updateSheet}
+        customize={() => openPicker({ type: 'columns', sheetId: yieldSheet.id })} addFields={() => openPicker({ type: 'fields', sheetId: yieldSheet.id })} filters={() => openPicker({ type: 'filters', sheetId: yieldSheet.id })} />}
+      {!bomSheet && !yieldSheet && <section className="ac-step">
         <div className="ac-step-heading"><span>1</span><div><h3>Choose Your Starting Records</h3><p>Start with any available record type, then choose the information you need.</p></div></div>
         {!definition.sheets.length ? <div className="ac-start-options">{bomSource && <button className="ac-start ac-template-start" onClick={() => { change(inventoryBomStarter(catalogue)); setSavedId(''); setSavedVersion(0) }}><Table2 size={22} /><span>Inventory BOM<small>Start With Your Workbook Layout</small><small>Revisions, routing, operation times and required materials. All 32 columns are ready to customize.</small></span><ArrowRight size={18} /></button>}
+          {yieldSource && <button className="ac-start ac-template-start" onClick={() => { change(materialYieldStarter(catalogue)); setSavedId(''); setSavedVersion(0) }}><Table2 size={22} /><span>Material Produces Yield<small>From P/N To P/N</small><small>Configured Produces quantity, routing operation, material, UOM, and exact source identifiers.</small></span><ArrowRight size={18} /></button>}
           <button className="ac-start" onClick={() => openPicker({ type: 'source' })}><Search size={19} /><span>Build A Different Report<small>Choose any available Fulcrum records and fields</small></span><ArrowRight size={18} /></button></div>
           : <div className="ac-start-summary"><Table2 size={20} /><strong>{definition.sheets[0].name}</strong><span>{Object.values(definition.sheets[0].inputs).filter(v => v != null).length} Filters Applied</span><button className="ghost-button" onClick={() => openPicker({ type: 'filters', sheetId: definition.sheets[0].id })}><Filter size={14} /> Filter Records</button><button className="ghost-button" onClick={() => setConfirm('new')}>Start Over</button></div>}
       </section>}
-      {definition.sheets.length > 0 && !bomSheet && <>
+      {definition.sheets.length > 0 && !bomSheet && !yieldSheet && <>
         <section className="ac-step">
           <div className="ac-step-heading"><span>2</span><div><h3>Choose Fields And Related Information</h3><p>Select the fields to include. Related records connect automatically using their IDs.</p></div></div>
           <div className="ac-records">{definition.sheets.map(sheet => <article className={`ac-record ${sheet.parentSheetId ? 'ac-related' : ''}`} key={sheet.id}>

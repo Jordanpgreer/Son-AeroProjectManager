@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addSource, ancestors, blankReport, displayCell, emptySheet, inventoryBomSourceId, inventoryBomStarter, loadLayout, moveColumn, partsStarter, relatedSources, removeSource, reportColumns, sourceName, suggestedBindings, withColumns } from '../src/admin/apiCustomizerModel'
+import { addSource, ancestors, blankReport, displayCell, emptySheet, inventoryBomSourceId, inventoryBomStarter, loadLayout, materialYieldSourceId, materialYieldStarter, moveColumn, partsStarter, relatedSources, removeSource, reportColumns, sourceName, suggestedBindings, withColumns } from '../src/admin/apiCustomizerModel'
 import type { ApiCatalog, ApiSource } from '../src/admin/apiCustomizerModel'
 
 const source = (path: string, paths: string[]): ApiSource => ({ id: `POST ${path}`, path, label: path, category: 'Test', description: '', method: 'POST', inputs: [], permissions: [], fields: paths.map(path => ({ path, label: path, type: 'string', description: '', choices: [] })) })
@@ -99,6 +99,18 @@ describe('API customizer workbook model', () => {
     expect(sourceName(bom)).toBe('Inventory BOM')
     const renamed = withColumns(report, reportColumns(report).map((c, i) => i === 0 ? { ...c, header: 'My BOM', path: 'item.customFields.BOM' } : c))
     expect(loadLayout(renamed).outputColumns![0]).toMatchObject({ header: 'My BOM', path: 'item.customFields.BOM' })
+  })
+  it('starts material yield as a ready report with configured Produces and item filters', () => {
+    const yieldSource = { ...source('/arda/reports/material-yield', ['fromPartNumber', 'toPartNumber', 'produces', 'producesUom']), id: materialYieldSourceId }
+    yieldSource.fields[2] = { ...yieldSource.fields[2], type: 'integer' }
+    yieldSource.inputs = ['body.isArchived', 'body.latestRevision'].map(key => ({ key, type: 'boolean', label: key, description: '', required: false, choices: [], children: [], format: null }))
+    const report = materialYieldStarter({ ...catalogue, sources: [...catalogue.sources, yieldSource] })
+    expect(report.sheets[0].sourceId).toBe(materialYieldSourceId)
+    expect(report.sheets[0].inputs).toMatchObject({ 'body.isArchived': false, 'body.latestRevision': true, 'report.itemSearch': '' })
+    expect(reportColumns(report).map(c => c.path)).toEqual(['fromPartNumber', 'toPartNumber', 'produces', 'producesUom'])
+    expect(reportColumns(report)[2].format).toBe('number')
+    expect(sourceName(yieldSource)).toBe('Material Produces Yield')
+    expect(report.maxRecords).toBe(5000)
   })
   it('formats duration values as elapsed hours without wrapping at midnight', () => {
     expect(displayCell(15 / 1440, 'duration')).toBe('0:15:00')

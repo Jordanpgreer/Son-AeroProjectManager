@@ -38,12 +38,14 @@ export function blankReport(): ReportDefinition {
 }
 export function sourceName(source: ApiSource): string {
   if (source.id === inventoryBomSourceId) return 'Inventory BOM'
+  if (source.id === materialYieldSourceId) return 'Material Produces Yield'
   const path = source.path.replace(/\/list(?:\/v\d+)?$/, '')
   const tail = path.split(/\{[^}]+\}\//).at(-1)!.replace(/^\/api\//, '').replace(/\/\{[^}]+\}$/, '')
   const labels: Record<string, string> = { items: 'Items', 'routing/operations': 'Routing Steps', 'routing/input-items': 'BOM Components', 'routing/input-materials': 'BOM Materials', routing: 'Routing Settings', 'input-items': 'BOM Components', 'input-materials': 'BOM Materials' }
   return labels[tail] ?? tail.split('/').map(part => part.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())).join(' / ')
 }
 export const inventoryBomSourceId = 'ARDA inventory-bom'
+export const materialYieldSourceId = 'ARDA material-yield'
 export function inventoryBomStarter(catalogue: ApiCatalog): ReportDefinition {
   const source = catalogue.sources.find(s => s.id === inventoryBomSourceId)
   if (!source) throw new Error('The Inventory BOM report is unavailable. Refresh the page after updating the server.')
@@ -51,6 +53,14 @@ export function inventoryBomStarter(catalogue: ApiCatalog): ReportDefinition {
     inputs: { ...defaultInputs(source), 'report.repeatOperations': false, 'report.itemSearch': '', 'report.searchBy': 'number', 'report.matchMode': 'equal' } }
   const columns = source.fields.slice(0, 32).map(f => columnFor(f, sheet.id))
   return withColumns({ ...blankReport(), name: 'Inventory BOM', maxRecords: 5000, sheets: [sheet], detailSheetId: sheet.id }, columns)
+}
+export function materialYieldStarter(catalogue: ApiCatalog): ReportDefinition {
+  const source = catalogue.sources.find(s => s.id === materialYieldSourceId)
+  if (!source) throw new Error('The material yield report is unavailable. Refresh the page after updating the server.')
+  const sheet = { ...emptySheet('material-yield'), name: 'Material Yield', sourceId: source.id,
+    inputs: { ...defaultInputs(source), 'report.itemSearch': '', 'report.searchBy': 'number', 'report.matchMode': 'equal' } }
+  const columns = source.fields.slice(0, 22).map(f => columnFor(f, sheet.id))
+  return withColumns({ ...blankReport(), name: 'Material Produces Yield', maxRecords: 5000, sheets: [sheet], detailSheetId: sheet.id }, columns)
 }
 export function defaultInputs(source: ApiSource): Record<string, unknown> {
   const values: Record<string, unknown> = {}

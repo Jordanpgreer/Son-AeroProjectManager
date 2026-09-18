@@ -27,8 +27,9 @@ public sealed class ApiCustomizerTests
     {
         Assert.Contains(Catalog.Catalog.Sources, s => s.Path == "/api/items/list/v2");
         Assert.DoesNotContain(Catalog.Catalog.Sources, s => s.Path == "/api/items/list");
-        Assert.Equal(InventoryBomReport.SourceId, Assert.Single(Catalog.Catalog.Sources.Where(s => s.Method == "COMPOSE")).Id);
-        Assert.All(Catalog.Catalog.Sources.Where(s => s.Id != InventoryBomReport.SourceId), s => Assert.True(s.Method == "GET"
+        Assert.Equal(new[] { InventoryBomReport.SourceId, MaterialYieldReport.SourceId },
+            Catalog.Catalog.Sources.Where(s => s.Method == "COMPOSE").Select(s => s.Id));
+        Assert.All(Catalog.Catalog.Sources.Where(s => s.Method != "COMPOSE"), s => Assert.True(s.Method == "GET"
             || s.Method == "POST" && System.Text.RegularExpressions.Regex.IsMatch(s.Path, @"/list(?:/v\d+)?$")));
         var parts = Catalog.Source("POST /api/items/list/v2");
         Assert.Contains(parts.Fields, f => f.Path == "number");
@@ -37,6 +38,7 @@ public sealed class ApiCustomizerTests
         Assert.Contains(parts.Inputs, i => i.Key == "body.numbers" && i.Children[0].Type == "object");
         Assert.Equal("paged", Catalog.Source("POST /api/reporting/quote/list").Shape);
         Assert.Contains(Catalog.Source("POST /api/items/{itemId}/routing/input-materials/list").Fields, f => f.Path == "materialName");
+        Assert.Contains(Catalog.Source("POST /api/items/{itemId}/routing/input-materials/list").Fields, f => f.Path == "nestings[].produces");
     }
 
     [Fact]
@@ -442,6 +444,111 @@ public sealed class ApiCustomizerTests
         Assert.Contains(warnings, w => w.Contains("missing routing step"));
         Assert.Throws<ReportValidationException>(() => InventoryBomReport.Assemble(item, [steps[0], steps[0]], [], false, []));
         Assert.Single(InventoryBomReport.Assemble(item, [], [], false, []));
+    }
+
+    private static ReportDefinition YieldDefinition() => new()
+    {
+        Name = "Material Produces Yield", OutputMode = "combined", DetailSheetId = "yield", MaxRecords = 5000,
+        Sheets = [new() { Id = "yield", Name = "Material Yield", SourceId = MaterialYieldReport.SourceId,
+            Inputs = new() { ["body.isArchived"] = JsonSerializer.SerializeToElement(false),
+                ["body.latestRevision"] = JsonSerializer.SerializeToElement(true) },
+            Columns = MaterialYieldReport.TemplateFields.Select(f => new ReportColumn("yield", f.Path, f.Label,
+                f.Type is "number" or "integer" ? "number" : f.Type == "boolean" ? "boolean" : "text")).ToList() }]
+    };
+
+    [Fact]
+    public async Task Material_yield_sample_has_one_row_per_nesting_and_exports_numbers_and_text_PNs()
+    {
+        await using var fixture = await Fixture.Create(false);
+        var result = await fixture.Runner.RunAsync(new(YieldDefinition(), true), "TEST\\admin", default);
+        Assert.Empty(fixture.Handler.Requests);
+        var rows = Assert.Single(result.Sheets).Rows;
+        Assert.Equal(2, rows.Count);
+        Assert.Equal("DEMO-SHEET-001", rows[0][0]);
+        Assert.Equal("DEMO-PART-001", rows[0][1]);
+        Assert.Equal(4m, rows[0][2]);
+        Assert.Equal(8m, rows[1][2]);
+        Assert.Equal("Piece", rows[0][3]);
+        Assert.Equal("10 - Cut", rows[0][4]);
+        Assert.Equal(10m, rows[0][6]);
+        Assert.Equal("Matched", rows[0][15]);
+        using var book = new XLWorkbook(new MemoryStream(ReportWorkbook.Create(fixture.Cache.Get<ReportSnapshot>("customizer-run:" + result.Id)!)));
+        var sheet = book.Worksheet("Report");
+        Assert.Equal("From P/N", sheet.Cell("A1").GetString());
+        Assert.Equal("DEMO-SHEET-001", sheet.Cell("A2").GetString());
+        Assert.Equal(XLDataType.Text, sheet.Cell("A2").DataType);
+        Assert.Equal(4d, sheet.Cell("C2").GetDouble());
+        Assert.Equal(XLDataType.Number, sheet.Cell("C2").DataType);
+        Assert.Equal("nest-2", sheet.Cell("T3").GetString());
+    }
+
+    [Fact]
+    public async Task Material_yield_live_joins_material_items_by_exact_material_and_step_without_guessing()
+    {
+        await using var fixture = await Fixture.Create();
+        var itemCalls = 0;
+        fixture.Handler.Response = request => request.RequestUri!.AbsolutePath switch
+        {
+            "/api/items/list/v2" when ++itemCalls == 1 => """[{"id":"parent-1","number":"000123","revision":{"revision":"A"},"unitOfMeasureName":"Piece"}]""",
+            "/api/items/list/v2" => """[{"id":"source-1","number":"000045","revision":{"revision":"NC"},"unitOfMeasureName":"Sheet","materialDetails":{"materialId":"mat-a"}},{"id":"source-2","number":"999999","materialDetails":{"materialId":"mat-b"}}]""",
+            var path when path.EndsWith("input-materials/list") => """[{"id":"mat-line","materialId":"mat-a","materialName":"Steel","routingStepId":"step-a","nestings":[{"id":"nest-a","d2":12,"d3":8,"produces":3,"useForEstimatedCosting":true}]}]""",
+            var path when path.EndsWith("operations/list") => """[{"id":"step-a","order":20,"name":"Laser Cut","systemOperationId":"sys-cut"}]""",
+            var path when path.EndsWith("input-items/list") => """[{"id":"input-a","itemId":"source-1","number":"000045","routingStepId":"step-a","isMaterialLine":true},{"id":"input-b","itemId":"source-2","number":"999999","routingStepId":"step-a","isMaterialLine":true}]""",
+            _ => throw new Exception("Unexpected Fulcrum request")
+        };
+        var definition = YieldDefinition();
+        definition.Sheets[0].Inputs["report.itemSearch"] = JsonSerializer.SerializeToElement("000123");
+        var result = await fixture.Runner.RunAsync(new(definition), "TEST\\admin", default);
+        Assert.Equal(5, result.RequestCount);
+        Assert.All(fixture.Handler.Requests, request => Assert.StartsWith("https://api.fulcrumpro.us/api/items", request.Uri));
+        Assert.Contains("\"numbers\"", fixture.Handler.Requests[0].Body);
+        Assert.Contains("\"itemIds\"", fixture.Handler.Requests[^1].Body);
+        var row = Assert.Single(Assert.Single(result.Sheets).Rows);
+        Assert.Equal("000045", row[0]);
+        Assert.Equal("000123", row[1]);
+        Assert.Equal(3m, row[2]);
+        Assert.Equal("Laser Cut", row[5]);
+        Assert.Equal("mat-a", row[8]);
+        Assert.Equal("nest-a", row[19]);
+        Assert.Equal("source-1", row[21]);
+    }
+
+    [Fact]
+    public void Material_yield_does_not_invent_source_PNs_for_ambiguous_materials_or_missing_steps()
+    {
+        var item = JsonSerializer.SerializeToElement(new { id = "parent", number = "TO-1" });
+        var materials = JsonSerializer.Deserialize<List<JsonElement>>("""[{"id":"line-1","materialId":"mat-a","materialName":"Steel","routingStepId":"missing","nestings":[{"id":"nest-1","produces":2}]}]""")!;
+        var components = JsonSerializer.Deserialize<List<JsonElement>>("""[{"itemId":"source-1","routingStepId":"missing","isMaterialLine":true},{"itemId":"source-2","routingStepId":"missing","isMaterialLine":true}]""")!;
+        var sources = JsonSerializer.Deserialize<List<JsonElement>>("""[{"id":"source-1","number":"FROM-1","materialDetails":{"materialId":"mat-a"}},{"id":"source-2","number":"FROM-2","materialDetails":{"materialId":"mat-a"}}]""")!
+            .ToDictionary(x => x.GetProperty("id").GetString()!);
+        var row = Assert.Single(MaterialYieldReport.Assemble(item, [], materials, components, sources, []));
+        Assert.Null(FulcrumReportRunner.Read(row, "fromPartNumber"));
+        Assert.Equal("Ambiguous source items", FulcrumReportRunner.Read(row, "fromMatchStatus"));
+        Assert.Null(FulcrumReportRunner.Read(row, "operationNumber"));
+        Assert.Equal("missing", FulcrumReportRunner.Read(row, "routingStepId"));
+        Assert.Equal("mat-a", FulcrumReportRunner.Read(row, "materialId"));
+        materials = JsonSerializer.Deserialize<List<JsonElement>>("""[{"id":"line-1","materialId":"mat-a","nestings":[{"id":"nest-1"}]}]""")!;
+        Assert.Throws<ReportValidationException>(() => MaterialYieldReport.Assemble(item, [], materials, [], sources, []));
+    }
+
+    [Fact]
+    public async Task Material_yield_skips_unconfigured_materials_and_rejects_oversized_scope()
+    {
+        await using var fixture = await Fixture.Create();
+        var definition = YieldDefinition();
+        definition.MaxRecords = MaterialYieldReport.MaxParentItems + 1;
+        Assert.Throws<ReportValidationException>(() => fixture.Runner.Validate(definition));
+        definition.MaxRecords = 10;
+        fixture.Handler.Response = request => request.RequestUri!.AbsolutePath switch
+        {
+            "/api/items/list/v2" => """[{"id":"parent-1","number":"TO-1"}]""",
+            var path when path.EndsWith("input-materials/list") => """[{"id":"line-1","materialId":"mat-a","nestings":[]}]""",
+            _ => throw new Exception("No routing lookup is needed without a Produces nesting")
+        };
+        var result = await fixture.Runner.RunAsync(new(definition), "TEST\\admin", default);
+        Assert.Empty(Assert.Single(result.Sheets).Rows);
+        Assert.Equal(2, result.RequestCount);
+        Assert.Contains(result.Warnings, w => w.Contains("without a configured Produces"));
     }
 
     [Theory]
