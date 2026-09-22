@@ -36,6 +36,12 @@ public sealed class FulcrumReportRunner(FulcrumReportCatalog catalog, HttpClient
         if (definition.Sheets.Any(sheet => sheet?.SourceId == MaterialYieldReport.SourceId)
             && definition.MaxRecords > MaterialYieldReport.MaxParentItems)
             throw new ReportValidationException($"Material yield supports up to {MaterialYieldReport.MaxParentItems:N0} starting items per report because each item requires related routing reads.");
+        if (definition.Sheets.Any(sheet => sheet?.SourceId == PurchaseOrderVendorNotesReport.SourceId)
+            && definition.MaxRecords > PurchaseOrderVendorNotesReport.MaxParentOrders)
+            throw new ReportValidationException($"PO vendor notes supports up to {PurchaseOrderVendorNotesReport.MaxParentOrders:N0} purchase orders per report because each order requires a related line-item read.");
+        if (definition.Sheets.Any(sheet => sheet?.SourceId == ItemBomYieldReport.SourceId)
+            && definition.MaxRecords > ItemBomYieldReport.MaxParentItems)
+            throw new ReportValidationException($"Item BOM yield supports up to {ItemBomYieldReport.MaxParentItems:N0} starting items per report because each item requires related routing reads.");
         if (!Regex.IsMatch(definition.HeaderColor ?? "", "^[0-9A-Fa-f]{6}$"))
             throw new ReportValidationException("Select a valid header color.");
         if (definition.OutputMode is not ("combined" or "separate") || definition.OutputColumns is null)
@@ -162,11 +168,16 @@ public sealed class FulcrumReportRunner(FulcrumReportCatalog catalog, HttpClient
         Validate(run.Definition);
         var hasBom = run.Definition.Sheets.Any(s => s.SourceId == InventoryBomReport.SourceId);
         var hasYield = run.Definition.Sheets.Any(s => s.SourceId == MaterialYieldReport.SourceId);
-        var hasComposed = hasBom || hasYield;
-        var rowLimit = hasYield ? MaterialYieldReport.MaxRows : hasBom ? InventoryBomReport.MaxRows : MaxRows;
-        var requestLimit = hasYield ? MaterialYieldReport.MaxRequests : hasBom ? InventoryBomReport.MaxRequests : MaxRequests;
+        var hasPoNotes = run.Definition.Sheets.Any(s => s.SourceId == PurchaseOrderVendorNotesReport.SourceId);
+        var hasItemYield = run.Definition.Sheets.Any(s => s.SourceId == ItemBomYieldReport.SourceId);
+        var hasComposed = hasBom || hasYield || hasPoNotes || hasItemYield;
+        var rowLimit = hasYield ? MaterialYieldReport.MaxRows : hasBom ? InventoryBomReport.MaxRows
+            : hasPoNotes ? PurchaseOrderVendorNotesReport.MaxRows : hasItemYield ? ItemBomYieldReport.MaxRows : MaxRows;
+        var requestLimit = hasYield ? MaterialYieldReport.MaxRequests : hasBom ? InventoryBomReport.MaxRequests
+            : hasPoNotes ? PurchaseOrderVendorNotesReport.MaxRequests : hasItemYield ? ItemBomYieldReport.MaxRequests : MaxRequests;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromMinutes(hasYield ? MaterialYieldReport.TimeoutMinutes : hasBom ? InventoryBomReport.TimeoutMinutes : run.Definition.MaxRecords > 5000 ? 10 : 3));
+        timeout.CancelAfter(TimeSpan.FromMinutes(hasYield ? MaterialYieldReport.TimeoutMinutes : hasBom ? InventoryBomReport.TimeoutMinutes
+            : hasPoNotes ? PurchaseOrderVendorNotesReport.TimeoutMinutes : hasItemYield ? ItemBomYieldReport.TimeoutMinutes : run.Definition.MaxRecords > 5000 ? 10 : 3));
         var token = "";
         if (!run.Sample)
         {
@@ -220,6 +231,12 @@ public sealed class FulcrumReportRunner(FulcrumReportCatalog catalog, HttpClient
                         (id, filters) => FetchAsync(catalog.Source(id), filters, token, run.Definition.MaxRecords, CountRequest, timeout.Token), warnings, timeout.Token)
                     : source.Id == MaterialYieldReport.SourceId
                     ? await MaterialYieldReport.ReadAsync(inputs, run.Sample,
+                        (id, filters) => FetchAsync(catalog.Source(id), filters, token, run.Definition.MaxRecords, CountRequest, timeout.Token), warnings, timeout.Token)
+                    : source.Id == PurchaseOrderVendorNotesReport.SourceId
+                    ? await PurchaseOrderVendorNotesReport.ReadAsync(inputs, run.Sample,
+                        (id, filters) => FetchAsync(catalog.Source(id), filters, token, run.Definition.MaxRecords, CountRequest, timeout.Token), warnings, timeout.Token)
+                    : source.Id == ItemBomYieldReport.SourceId
+                    ? await ItemBomYieldReport.ReadAsync(inputs, run.Sample,
                         (id, filters) => FetchAsync(catalog.Source(id), filters, token, run.Definition.MaxRecords, CountRequest, timeout.Token), warnings, timeout.Token)
                     : run.Sample ? Sample(source, sheet.ParentSheetId is null ? 3 : 2)
                     : await FetchAsync(source, inputs, token, run.Definition.MaxRecords, CountRequest, timeout.Token);

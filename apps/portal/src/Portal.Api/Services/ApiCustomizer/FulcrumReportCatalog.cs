@@ -11,7 +11,8 @@ public sealed class FulcrumReportCatalog
         using var stream = typeof(FulcrumReportCatalog).Assembly.GetManifestResourceStream("Portal.FulcrumSchema.json")
             ?? throw new InvalidOperationException("The bundled Fulcrum catalogue is missing.");
         var parsed = Parse(JsonNode.Parse(stream)!.AsObject());
-        Catalog = parsed with { Sources = [InventoryBomReport.CreateSource(parsed), MaterialYieldReport.CreateSource(parsed), .. parsed.Sources] };
+        Catalog = parsed with { Sources = [InventoryBomReport.CreateSource(parsed), MaterialYieldReport.CreateSource(parsed),
+            PurchaseOrderVendorNotesReport.CreateSource(parsed), ItemBomYieldReport.CreateSource(parsed), .. parsed.Sources] };
     }
 
     public static ApiCatalog Parse(JsonObject document)

@@ -27,7 +27,8 @@ public sealed class ApiCustomizerTests
     {
         Assert.Contains(Catalog.Catalog.Sources, s => s.Path == "/api/items/list/v2");
         Assert.DoesNotContain(Catalog.Catalog.Sources, s => s.Path == "/api/items/list");
-        Assert.Equal(new[] { InventoryBomReport.SourceId, MaterialYieldReport.SourceId },
+        Assert.Equal(new[] { InventoryBomReport.SourceId, MaterialYieldReport.SourceId,
+                PurchaseOrderVendorNotesReport.SourceId, ItemBomYieldReport.SourceId },
             Catalog.Catalog.Sources.Where(s => s.Method == "COMPOSE").Select(s => s.Id));
         Assert.All(Catalog.Catalog.Sources.Where(s => s.Method != "COMPOSE"), s => Assert.True(s.Method == "GET"
             || s.Method == "POST" && System.Text.RegularExpressions.Regex.IsMatch(s.Path, @"/list(?:/v\d+)?$")));
@@ -39,6 +40,8 @@ public sealed class ApiCustomizerTests
         Assert.Equal("paged", Catalog.Source("POST /api/reporting/quote/list").Shape);
         Assert.Contains(Catalog.Source("POST /api/items/{itemId}/routing/input-materials/list").Fields, f => f.Path == "materialName");
         Assert.Contains(Catalog.Source("POST /api/items/{itemId}/routing/input-materials/list").Fields, f => f.Path == "nestings[].produces");
+        Assert.Contains(Catalog.Source("POST /api/purchase-orders/{purchaseOrderId}/part-line-items/list").Fields, f => f.Path == "vendorNote");
+        Assert.Contains(Catalog.Source("POST /api/items/{itemId}/routing/input-items/list").Fields, f => f.Path == "valueTypeUnits");
     }
 
     [Fact]
@@ -572,6 +575,124 @@ public sealed class ApiCustomizerTests
 
         Assert.Empty(Assert.Single(result.Sheets).Rows);
         Assert.Equal(25051, result.RequestCount);
+    }
+
+    private static ReportDefinition PurchaseOrderVendorNotesDefinition() => new()
+    {
+        Name = "PO Vendor Notes By Line Item", OutputMode = "combined", DetailSheetId = "po-notes", MaxRecords = 10000,
+        Sheets = [new() { Id = "po-notes", Name = "PO Vendor Notes", SourceId = PurchaseOrderVendorNotesReport.SourceId,
+            Columns = PurchaseOrderVendorNotesReport.TemplateFields.Select(f => new ReportColumn("po-notes", f.Path, f.Label,
+                f.Path == "createdDate" ? "date" : f.Type is "number" or "integer" ? "number" : "text")).ToList() }]
+    };
+
+    [Fact]
+    public async Task Purchase_order_vendor_notes_sample_uses_line_notes_and_parent_creation_date()
+    {
+        await using var fixture = await Fixture.Create(false);
+        var result = await fixture.Runner.RunAsync(new(PurchaseOrderVendorNotesDefinition(), true), "TEST\\admin", default);
+
+        Assert.Empty(fixture.Handler.Requests);
+        var rows = Assert.Single(result.Sheets).Rows;
+        Assert.Equal(2, rows.Count);
+        Assert.Equal("1042", rows[0][0]);
+        Assert.Equal(1m, rows[0][1]);
+        Assert.Equal(25m, rows[0][2]);
+        Assert.Equal("2026-09-18T14:30:00Z", rows[0][3]);
+        Assert.Equal("Include material certifications with shipment.", rows[0][4]);
+        using var book = new XLWorkbook(new MemoryStream(ReportWorkbook.Create(fixture.Cache.Get<ReportSnapshot>("customizer-run:" + result.Id)!)));
+        Assert.Equal(new DateTime(2026, 9, 18), book.Worksheet("Report").Cell("D2").GetDateTime().Date);
+        Assert.Equal("yyyy-mm-dd", book.Worksheet("Report").Cell("D2").Style.NumberFormat.Format);
+    }
+
+    [Fact]
+    public async Task Purchase_order_vendor_notes_live_filters_PO_numbers_and_reads_each_part_line_once()
+    {
+        await using var fixture = await Fixture.Create();
+        fixture.Handler.Response = request => request.RequestUri!.AbsolutePath switch
+        {
+            "/api/purchase-orders/list" => """[{"id":"po-1","number":77,"issueDate":"2026-08-01T00:00:00Z"}]""",
+            "/api/purchase-orders/po-1/part-line-items/list" => """[{"id":"line-2","number":2,"quantity":3.5,"vendorNote":"Certs required"},{"id":"line-1","number":1,"quantity":2,"vendorNote":null}]""",
+            _ => throw new Exception("Unexpected Fulcrum request")
+        };
+        var definition = PurchaseOrderVendorNotesDefinition();
+        definition.Sheets[0].Inputs["report.poNumbers"] = JsonSerializer.SerializeToElement("77");
+
+        var result = await fixture.Runner.RunAsync(new(definition), "TEST\\admin", default);
+
+        Assert.Equal(2, result.RequestCount);
+        Assert.Contains("\"numbers\":[77]", fixture.Handler.Requests[0].Body);
+        Assert.DoesNotContain("report.", fixture.Handler.Requests[0].Body);
+        Assert.Equal("/api/purchase-orders/po-1/part-line-items/list", new Uri(fixture.Handler.Requests[1].Uri).AbsolutePath);
+        var rows = Assert.Single(result.Sheets).Rows;
+        Assert.Equal(1m, rows[0][1]);
+        Assert.Null(rows[0][4]);
+        Assert.Equal("Certs required", rows[1][4]);
+    }
+
+    private static ReportDefinition ItemBomYieldDefinition() => new()
+    {
+        Name = "Item BOM Yield Report", OutputMode = "combined", DetailSheetId = "item-yield", MaxRecords = 10000,
+        Sheets = [new() { Id = "item-yield", Name = "Item BOM Yield", SourceId = ItemBomYieldReport.SourceId,
+            Inputs = new() { ["body.isArchived"] = JsonSerializer.SerializeToElement(false),
+                ["body.latestRevision"] = JsonSerializer.SerializeToElement(true) },
+            Columns = ItemBomYieldReport.TemplateFields.Select(f => new ReportColumn("item-yield", f.Path, f.Label,
+                f.Type is "number" or "integer" ? "number" : "text")).ToList() }]
+    };
+
+    [Fact]
+    public async Task Item_BOM_yield_sample_includes_only_creates_basis_children()
+    {
+        await using var fixture = await Fixture.Create(false);
+        var result = await fixture.Runner.RunAsync(new(ItemBomYieldDefinition(), true), "TEST\\admin", default);
+
+        Assert.Empty(fixture.Handler.Requests);
+        var row = Assert.Single(Assert.Single(result.Sheets).Rows);
+        Assert.Equal("ASSY-100", row[0]);
+        Assert.Equal("PART-101", row[1]);
+        Assert.Equal("A", row[2]);
+        Assert.Equal("Machine Components", row[3]);
+        Assert.Equal(20m, row[4]);
+        Assert.Equal(4m, row[5]);
+    }
+
+    [Fact]
+    public async Task Item_BOM_yield_live_matches_creates_lines_to_their_routing_operations()
+    {
+        await using var fixture = await Fixture.Create();
+        fixture.Handler.Response = request => request.RequestUri!.AbsolutePath switch
+        {
+            "/api/items/list/v2" => """[{"id":"parent-1","number":"ASSY-1"}]""",
+            var path when path.EndsWith("operations/list") => """[{"id":"op-1","order":40,"name":"Form"}]""",
+            var path when path.EndsWith("input-items/list") => """[{"id":"child-1","number":"CHILD-1","revision":"B","routingStepId":"op-1","valueType":"creates","valueTypeUnits":6},{"id":"child-2","number":"PURCHASED-1","revision":"NC","routingStepId":"op-1","valueType":"requires","valueTypeUnits":2}]""",
+            _ => throw new Exception("Unexpected Fulcrum request")
+        };
+        var definition = ItemBomYieldDefinition();
+        definition.Sheets[0].Inputs["report.itemSearch"] = JsonSerializer.SerializeToElement("ASSY-1");
+
+        var result = await fixture.Runner.RunAsync(new(definition), "TEST\\admin", default);
+
+        Assert.Equal(3, result.RequestCount);
+        Assert.Contains("\"numbers\"", fixture.Handler.Requests[0].Body);
+        var row = Assert.Single(Assert.Single(result.Sheets).Rows);
+        Assert.Equal("CHILD-1", row[1]);
+        Assert.Equal("B", row[2]);
+        Assert.Equal("Form", row[3]);
+        Assert.Equal(40m, row[4]);
+        Assert.Equal(6m, row[5]);
+    }
+
+    [Fact]
+    public void Item_BOM_yield_retains_orphan_creates_lines_without_inventing_an_operation()
+    {
+        var item = JsonSerializer.SerializeToElement(new { number = "ASSY-1" });
+        var components = JsonSerializer.Deserialize<List<JsonElement>>("""[{"number":"CHILD-1","revision":"A","routingStepId":"missing","valueType":"creates","valueTypeUnits":2}]""")!;
+        var warnings = new List<string>();
+
+        var row = Assert.Single(ItemBomYieldReport.Assemble(item, [], components, warnings));
+
+        Assert.Null(FulcrumReportRunner.Read(row, "operationName"));
+        Assert.Null(FulcrumReportRunner.Read(row, "operationNumber"));
+        Assert.Contains(warnings, warning => warning.Contains("were not returned"));
     }
 
     [Theory]

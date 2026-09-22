@@ -39,6 +39,8 @@ export function blankReport(): ReportDefinition {
 export function sourceName(source: ApiSource): string {
   if (source.id === inventoryBomSourceId) return 'Inventory BOM'
   if (source.id === materialYieldSourceId) return 'Material Produces Yield'
+  if (source.id === purchaseOrderVendorNotesSourceId) return 'PO Vendor Notes By Line Item'
+  if (source.id === itemBomYieldSourceId) return 'Item BOM Yield Report'
   const path = source.path.replace(/\/list(?:\/v\d+)?$/, '')
   const tail = path.split(/\{[^}]+\}\//).at(-1)!.replace(/^\/api\//, '').replace(/\/\{[^}]+\}$/, '')
   const labels: Record<string, string> = { items: 'Items', 'routing/operations': 'Routing Steps', 'routing/input-items': 'BOM Components', 'routing/input-materials': 'BOM Materials', routing: 'Routing Settings', 'input-items': 'BOM Components', 'input-materials': 'BOM Materials' }
@@ -46,6 +48,9 @@ export function sourceName(source: ApiSource): string {
 }
 export const inventoryBomSourceId = 'ARDA inventory-bom'
 export const materialYieldSourceId = 'ARDA material-yield'
+export const purchaseOrderVendorNotesSourceId = 'ARDA purchase-order-vendor-notes'
+export const itemBomYieldSourceId = 'ARDA item-bom-yield'
+export const readyReportSourceIds = [inventoryBomSourceId, materialYieldSourceId, purchaseOrderVendorNotesSourceId, itemBomYieldSourceId]
 export function inventoryBomStarter(catalogue: ApiCatalog): ReportDefinition {
   const source = catalogue.sources.find(s => s.id === inventoryBomSourceId)
   if (!source) throw new Error('The Inventory BOM report is unavailable. Refresh the page after updating the server.')
@@ -61,6 +66,23 @@ export function materialYieldStarter(catalogue: ApiCatalog): ReportDefinition {
     inputs: { ...defaultInputs(source), 'report.itemSearch': '', 'report.searchBy': 'number', 'report.matchMode': 'equal' } }
   const columns = source.fields.slice(0, 22).map(f => columnFor(f, sheet.id))
   return withColumns({ ...blankReport(), name: 'Material Produces Yield', maxRecords: 25000, sheets: [sheet], detailSheetId: sheet.id }, columns)
+}
+export function purchaseOrderVendorNotesStarter(catalogue: ApiCatalog): ReportDefinition {
+  const source = catalogue.sources.find(s => s.id === purchaseOrderVendorNotesSourceId)
+  if (!source) throw new Error('The PO vendor notes report is unavailable. Refresh the page after updating the server.')
+  const sheet = { ...emptySheet('po-vendor-notes'), name: 'PO Vendor Notes', sourceId: source.id,
+    inputs: { ...defaultInputs(source), 'report.poNumbers': '' } }
+  const columns = source.fields.slice(0, 5).map(f => columnFor(f, sheet.id))
+  columns[3] = { ...columns[3], format: 'date' }
+  return withColumns({ ...blankReport(), name: 'PO Vendor Notes By Line Item', maxRecords: 10000, sheets: [sheet], detailSheetId: sheet.id }, columns)
+}
+export function itemBomYieldStarter(catalogue: ApiCatalog): ReportDefinition {
+  const source = catalogue.sources.find(s => s.id === itemBomYieldSourceId)
+  if (!source) throw new Error('The Item BOM Yield report is unavailable. Refresh the page after updating the server.')
+  const sheet = { ...emptySheet('item-bom-yield'), name: 'Item BOM Yield', sourceId: source.id,
+    inputs: { ...defaultInputs(source), 'report.itemSearch': '', 'report.searchBy': 'number', 'report.matchMode': 'equal' } }
+  const columns = source.fields.slice(0, 6).map(f => columnFor(f, sheet.id))
+  return withColumns({ ...blankReport(), name: 'Item BOM Yield Report', maxRecords: 10000, sheets: [sheet], detailSheetId: sheet.id }, columns)
 }
 export function defaultInputs(source: ApiSource): Record<string, unknown> {
   const values: Record<string, unknown> = {}

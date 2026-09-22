@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addSource, ancestors, blankReport, displayCell, emptySheet, inventoryBomSourceId, inventoryBomStarter, loadLayout, materialYieldSourceId, materialYieldStarter, moveColumn, partsStarter, relatedSources, removeSource, reportColumns, sourceName, suggestedBindings, withColumns } from '../src/admin/apiCustomizerModel'
+import { addSource, ancestors, blankReport, displayCell, emptySheet, inventoryBomSourceId, inventoryBomStarter, itemBomYieldSourceId, itemBomYieldStarter, loadLayout, materialYieldSourceId, materialYieldStarter, moveColumn, partsStarter, purchaseOrderVendorNotesSourceId, purchaseOrderVendorNotesStarter, relatedSources, removeSource, reportColumns, sourceName, suggestedBindings, withColumns } from '../src/admin/apiCustomizerModel'
 import type { ApiCatalog, ApiSource } from '../src/admin/apiCustomizerModel'
 
 const source = (path: string, paths: string[]): ApiSource => ({ id: `POST ${path}`, path, label: path, category: 'Test', description: '', method: 'POST', inputs: [], permissions: [], fields: paths.map(path => ({ path, label: path, type: 'string', description: '', choices: [] })) })
@@ -111,6 +111,31 @@ describe('API customizer workbook model', () => {
     expect(reportColumns(report)[2].format).toBe('number')
     expect(sourceName(yieldSource)).toBe('Material Produces Yield')
     expect(report.maxRecords).toBe(25000)
+  })
+  it('starts PO vendor notes with the five requested columns and date formatting', () => {
+    const poNotes = { ...source('/arda/reports/purchase-order-vendor-notes', ['purchaseOrderNumber', 'lineItemNumber', 'quantity', 'createdDate', 'vendorNote']), id: purchaseOrderVendorNotesSourceId }
+    poNotes.fields[1] = { ...poNotes.fields[1], type: 'integer' }
+    poNotes.fields[2] = { ...poNotes.fields[2], type: 'number' }
+    const report = purchaseOrderVendorNotesStarter({ ...catalogue, sources: [...catalogue.sources, poNotes] })
+    expect(report.sheets[0].sourceId).toBe(purchaseOrderVendorNotesSourceId)
+    expect(reportColumns(report).map(c => c.header)).toEqual(['purchaseOrderNumber', 'lineItemNumber', 'quantity', 'createdDate', 'vendorNote'])
+    expect(reportColumns(report)[3].format).toBe('date')
+    expect(report.sheets[0].inputs['report.poNumbers']).toBe('')
+    expect(report.maxRecords).toBe(10000)
+    expect(sourceName(poNotes)).toBe('PO Vendor Notes By Line Item')
+  })
+  it('starts Item BOM Yield with the six requested creates-basis columns', () => {
+    const itemYield = { ...source('/arda/reports/item-bom-yield', ['parentItemNumber', 'childNumber', 'revision', 'operationName', 'operationNumber', 'createsQuantity']), id: itemBomYieldSourceId }
+    itemYield.fields[4] = { ...itemYield.fields[4], type: 'integer' }
+    itemYield.fields[5] = { ...itemYield.fields[5], type: 'number' }
+    itemYield.inputs = ['body.isArchived', 'body.latestRevision'].map(key => ({ key, type: 'boolean', label: key, description: '', required: false, choices: [], children: [], format: null }))
+    const report = itemBomYieldStarter({ ...catalogue, sources: [...catalogue.sources, itemYield] })
+    expect(report.sheets[0].sourceId).toBe(itemBomYieldSourceId)
+    expect(reportColumns(report).map(c => c.path)).toEqual(['parentItemNumber', 'childNumber', 'revision', 'operationName', 'operationNumber', 'createsQuantity'])
+    expect(reportColumns(report).slice(4).map(c => c.format)).toEqual(['number', 'number'])
+    expect(report.sheets[0].inputs).toMatchObject({ 'body.isArchived': false, 'body.latestRevision': true, 'report.itemSearch': '' })
+    expect(report.maxRecords).toBe(10000)
+    expect(sourceName(itemYield)).toBe('Item BOM Yield Report')
   })
   it('formats duration values as elapsed hours without wrapping at midnight', () => {
     expect(displayCell(15 / 1440, 'duration')).toBe('0:15:00')
