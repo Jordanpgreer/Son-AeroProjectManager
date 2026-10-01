@@ -20,6 +20,13 @@ public static class EstimatingQuoteWorkflowEndpoints
                 cancellationToken,
                 includeCompleted)));
 
+        workflow.MapGet("/stats", async (
+            HttpContext context,
+            EstimatingQuoteWorkflowService service,
+            CancellationToken cancellationToken) => Results.Ok(await service.GetStatsAsync(
+                Access(context),
+                cancellationToken)));
+
         workflow.MapPost("/refresh", async (
             HttpContext context,
             EnterpriseQuoteSyncService sync,

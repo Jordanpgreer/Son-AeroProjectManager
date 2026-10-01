@@ -32,3 +32,16 @@ export function quoteDetailsUpdate(draft: QuoteDetailsDraft, quote: PersonalQuot
 export function rebaseQuoteDetailsAfterActivity(previous: PersonalQuote, next: PersonalQuote) {
   return quoteDetailsDirty(quoteDetailsDraft(previous), next) ? previous : next
 }
+
+/** Apply a refreshed quote entry while preserving only fields the estimator was already editing. */
+export function synchronizeQuoteDetailsDraft(draft: QuoteDetailsDraft, previous: PersonalQuote, next: PersonalQuote): QuoteDetailsDraft {
+  const before = quoteDetailsDraft(previous)
+  const after = quoteDetailsDraft(next)
+  const dueDateChanged = draft.dueDate !== before.dueDate || draft.dueDateIsOverride !== before.dueDateIsOverride
+  return {
+    status: draft.status === before.status ? after.status : draft.status,
+    notes: draft.notes === before.notes ? after.notes : draft.notes,
+    dueDate: dueDateChanged ? draft.dueDate : after.dueDate,
+    dueDateIsOverride: dueDateChanged ? draft.dueDateIsOverride : after.dueDateIsOverride,
+  }
+}

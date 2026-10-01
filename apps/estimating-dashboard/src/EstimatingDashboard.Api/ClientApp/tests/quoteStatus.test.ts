@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { canAssignMessageToContact, canonicalVendorStatus, copyQuoteFolderPath, dateTime, DEFAULT_QUOTE_STATUS_SCOPE, isOverdue, isUpdateDirty, makeUpdate, mailtoVendor, quoteFolderHref, quoteFromHash, quoteStatusRequestScope, shouldShowConnectOutlook, sortQuoteStatusesByDueDate, statusTone, syncState, VENDOR_STATUSES } from '../src/vendor-quotes/model.ts'
+import { loadQuoteStatuses } from '../src/vendor-quotes/api.ts'
+import { canAssignMessageToContact, canonicalVendorStatus, copyQuoteFolderPath, dateTime, DEFAULT_QUOTE_STATUS_SCOPE, fulcrumStatusLabel, isOverdue, isUpdateDirty, makeUpdate, mailtoVendor, quoteFolderHref, quoteFromHash, quoteStatusRequestScope, shouldShowConnectOutlook, sortQuoteStatusesByDueDate, statusTone, syncState, VENDOR_STATUSES } from '../src/vendor-quotes/model.ts'
 import type { QuoteStatusSummary, VendorSync } from '../src/vendor-quotes/types.ts'
 
 test('quote links match an entire positive numeric quote identifier', () => {
@@ -18,11 +19,37 @@ test('quote status starts with my active quotes but direct links can resolve out
   assert.equal(quoteStatusRequestScope(DEFAULT_QUOTE_STATUS_SCOPE, null), 'mine-active')
   assert.equal(quoteStatusRequestScope('all', null), 'all')
   assert.equal(quoteStatusRequestScope(DEFAULT_QUOTE_STATUS_SCOPE, 4445), 'all')
+  assert.equal(quoteStatusRequestScope(DEFAULT_QUOTE_STATUS_SCOPE, null, 'Complete'), 'mine')
+  assert.equal(quoteStatusRequestScope(DEFAULT_QUOTE_STATUS_SCOPE, null, '', 'Approved'), 'mine')
+  assert.equal(quoteStatusRequestScope(DEFAULT_QUOTE_STATUS_SCOPE, null, '', 'Sent'), 'mine')
+  assert.equal(quoteStatusRequestScope('all', null, 'Complete', 'Won'), 'all')
+})
+
+test('quote status request keeps Arda and Fulcrum filters separate', async () => {
+  const originalFetch = globalThis.fetch
+  let request = ''
+  globalThis.fetch = async (input) => {
+    request = String(input)
+    return new Response('{"items":[],"totalCount":0,"page":1,"pageSize":30}', {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  try {
+    await loadQuoteStatuses('', 'Complete', 'Won', null, 1, 'mine')
+    const query = new URL(request, 'http://arda.local').searchParams
+    assert.equal(query.get('status'), 'Complete')
+    assert.equal(query.get('fulcrumStatus'), 'Won')
+    assert.equal(query.get('scope'), 'mine')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('quote status rows sort by estimating due date and use quote number as a stable tie-breaker', () => {
   const summary = (quoteNumber: number, estimatingDueDate: string | null): QuoteStatusSummary => ({
-    quoteHistoryId: quoteNumber, quoteNumber, customer: 'Client', estimatingRep: 'Estimator', status: 'In progress',
+    quoteHistoryId: quoteNumber, quoteNumber, customer: 'Client', estimatingRep: 'Estimator', status: 'In progress', fulcrumQuoteStatus: 'Needs Approval',
     statusChangedAt: '2026-09-18T14:35:00', statusChangedBy: 'Estimator', followUpDate: null, estimatingDueDate,
     updatedAt: '2026-09-18T14:35:00', lastMessageAt: null, threadCount: 0, messageCount: 0,
     unassignedMessageCount: 0, version: 1, canEdit: true, canRemove: false,
@@ -58,7 +85,7 @@ test('status-only and follow-up-only changes are protected as unsaved updates', 
   assert.equal(isUpdateDirty({ status: 'Untouched', followUpDate: '2026-09-11', note: '  ' }, 'Untouched', '2026-09-11T00:00:00'), false)
 })
 
-test('an internal update keeps the concurrency version, status and trimmed note together', () => {
+test('an internal update keeps the concurrency version and sends a blank quote note intentionally as null', () => {
   assert.deepEqual(makeUpdate({ status: 'Waiting on vendor', followUpDate: '2026-09-11', note: ' RFQ sent to SiliconePrime\nAwaiting pricing. ' }, 7), {
     expectedVersion: 7, status: 'Waiting on vendor', followUpDate: '2026-09-11', note: 'RFQ sent to SiliconePrime\nAwaiting pricing.',
   })
@@ -75,6 +102,14 @@ test('RFQs offer three statuses and normalize legacy state without treating ever
   assert.equal(statusTone('Rates requested'), 'amber')
   assert.equal(statusTone('Reply received'), 'blue')
   assert.equal(statusTone('Accepted'), 'success')
+  assert.equal(statusTone('Approved'), 'blue')
+  assert.equal(statusTone('With Sales'), 'blue')
+  assert.equal(statusTone('Sent'), 'blue')
+  assert.equal(statusTone('Won'), 'success')
+  assert.equal(statusTone('Lost'), 'risk')
+  assert.equal(fulcrumStatusLabel('Approved'), 'With Sales')
+  assert.equal(fulcrumStatusLabel('With Sales'), 'With Sales')
+  assert.equal(fulcrumStatusLabel('Sent'), 'Sent')
 })
 
 test('Outlook compose uses the canonical subject and never includes an internal note', () => {

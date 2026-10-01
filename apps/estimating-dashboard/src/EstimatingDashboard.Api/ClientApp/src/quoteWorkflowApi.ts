@@ -30,6 +30,13 @@ export interface PersonalQuote {
   version: number
 }
 
+export interface PersonalQuoteStats {
+  averageCompletionWorkdays: number | null
+  completionSampleSize: number
+  wonCount: number
+  lostCount: number
+}
+
 export interface QuoteWorkflowUpdate {
   ardaStatus: ArdaStatus | null
   notes: string | null
@@ -60,6 +67,10 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 
 export function loadPersonalQuotes(signal?: AbortSignal) {
   return api<PersonalQuote[]>('/api/quote-workflow/mine?includeCompleted=true', { signal })
+}
+
+export function loadPersonalQuoteStats(signal?: AbortSignal) {
+  return api<PersonalQuoteStats>('/api/quote-workflow/stats', { signal })
 }
 
 export function refreshPersonalQuoteAssignments() {

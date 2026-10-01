@@ -62,6 +62,30 @@ public sealed class EstimatingQuoteWorkflowService(
             .ToList();
     }
 
+    public async Task<EstimatingQuoteWorkflowStatsDto> GetStatsAsync(
+        EstimatingAccessProfile access,
+        CancellationToken cancellationToken)
+    {
+        var records = await db.QuoteHistory.AsNoTracking().ToListAsync(cancellationToken);
+        var knownEstimators = records.Select(record => record.EstimatingRep).Distinct().ToList();
+        var mine = records.Where(record => EstimatingEstimatorIdentity.MatchesUnambiguously(
+            record.EstimatingRep,
+            knownEstimators,
+            access)).ToList();
+        var completionWorkdays = mine
+            .Where(record => record.IsCompleted && record.Workdays is >= 0)
+            .Select(record => (decimal)record.Workdays!.Value)
+            .ToList();
+
+        return new EstimatingQuoteWorkflowStatsDto(
+            completionWorkdays.Count == 0
+                ? null
+                : Math.Round(completionWorkdays.Average(), 1),
+            completionWorkdays.Count,
+            mine.Count(record => FulcrumQuoteStatuses.Normalize(record.QuoteStatus) == FulcrumQuoteStatuses.Won),
+            mine.Count(record => FulcrumQuoteStatuses.Normalize(record.QuoteStatus) == FulcrumQuoteStatuses.Lost));
+    }
+
     public async Task<EstimatingPersonalQuoteDto> UpdateAsync(
         int quoteHistoryId,
         UpdateEstimatingQuoteWorkflowDto request,

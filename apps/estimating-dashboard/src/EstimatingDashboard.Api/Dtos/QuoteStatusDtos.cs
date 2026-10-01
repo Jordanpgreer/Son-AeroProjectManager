@@ -4,7 +4,7 @@ public sealed record QuoteStatusSummaryDto(int QuoteHistoryId, int QuoteNumber, 
     string EstimatingRep, string Status, DateTimeOffset? StatusChangedAt, string? StatusChangedBy,
     DateTime? FollowUpDate, DateTimeOffset UpdatedAt, DateTimeOffset? LastMessageAt,
     int ThreadCount, int MessageCount, int UnassignedMessageCount, int Version, bool CanEdit, bool CanRemove = false,
-    string? SalesPerson = null, DateTime? EstimatingDueDate = null);
+    string? SalesPerson = null, DateTime? EstimatingDueDate = null, string FulcrumQuoteStatus = "");
 public sealed record QuoteStatusPageDto(IReadOnlyList<QuoteStatusSummaryDto> Items, int TotalCount, int Page, int PageSize);
 public sealed record QuoteStatusDetailDto(QuoteStatusSummaryDto Quote,
     IReadOnlyList<QuoteStatusActivityDto> Activity, IReadOnlyList<VendorQuoteDetailDto> Threads,
@@ -18,7 +18,8 @@ public sealed record QuoteStatusActivityDto(string Id, string Kind, string Text,
 public sealed record UpdateQuoteStatusDto(int ExpectedVersion, string Status, DateTime? FollowUpDate = null, string? Note = null);
 public sealed record AddQuoteStatusNoteDto(int ExpectedVersion, string Text);
 public sealed record AssignQuoteMessageDto(int ExpectedVersion, int RequestId);
-public sealed record QuoteStatusOptionsDto(IReadOnlyList<string> Statuses, IReadOnlyList<string> ThreadStatuses);
+public sealed record QuoteStatusOptionsDto(IReadOnlyList<string> Statuses, IReadOnlyList<string> ThreadStatuses,
+    IReadOnlyList<string> FulcrumStatuses);
 public sealed record QuoteItemVersionDto(int ExpectedVersion);
 public sealed record EditQuoteNoteDto(int ExpectedVersion, string Text);
 public sealed record MoveQuoteEmailDto(int ExpectedVersion, int TargetQuoteHistoryId, int TargetExpectedVersion, int? RequestId = null);
@@ -29,8 +30,14 @@ public sealed record RemovedQuoteEmailDto(long Id, string Subject, string Direct
 public static class QuoteStatusScopes
 {
     public const string MineActive = "mine-active";
+    public const string Mine = "mine";
     public const string All = "all";
 
-    public static string Normalize(string? value) =>
-        string.Equals(value?.Trim(), All, StringComparison.OrdinalIgnoreCase) ? All : MineActive;
+    public static string Normalize(string? value)
+    {
+        var clean = value?.Trim();
+        if (string.Equals(clean, All, StringComparison.OrdinalIgnoreCase)) return All;
+        if (string.Equals(clean, Mine, StringComparison.OrdinalIgnoreCase)) return Mine;
+        return MineActive;
+    }
 }

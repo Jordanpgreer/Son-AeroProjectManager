@@ -15,6 +15,22 @@ namespace EstimatingDashboard.Tests;
 
 public sealed class FulcrumQuoteSyncTests
 {
+    [Theory]
+    [InlineData("needsApproval", FulcrumQuoteStatuses.NeedsApproval, false)]
+    [InlineData("Approved", FulcrumQuoteStatuses.Approved, true)]
+    [InlineData("with_sales", FulcrumQuoteStatuses.WithSales, true)]
+    [InlineData("Sent", FulcrumQuoteStatuses.Sent, true)]
+    [InlineData("WON", FulcrumQuoteStatuses.Won, true)]
+    [InlineData("lost", FulcrumQuoteStatuses.Lost, true)]
+    public void Fulcrum_statuses_have_shared_normalization_and_terminal_semantics(
+        string value,
+        string expected,
+        bool postEstimating)
+    {
+        Assert.Equal(expected, FulcrumQuoteStatuses.Normalize(value));
+        Assert.Equal(postEstimating, FulcrumQuoteStatuses.IsPostEstimating(value));
+    }
+
     [Fact]
     public async Task Acumatica_quote_slot_fails_safely_until_mapping_is_configured()
     {
@@ -217,14 +233,16 @@ public sealed class FulcrumQuoteSyncTests
         var record = Assert.Single(await db.QuoteHistory.ToListAsync());
         Assert.Equal("quote-id", record.SourceId);
         Assert.Equal("Bethany", record.EstimatingRep);
-        Assert.Equal(EstimatingArdaStatuses.Untouched, record.ArdaStatus);
+        Assert.Equal(EstimatingArdaStatuses.Complete, record.ArdaStatus);
         Assert.Null(record.ArdaStatusNotes);
-        Assert.Null(record.ArdaStatusChangedBy);
+        Assert.Equal("FULCRUM_API_SCHEDULE", record.ArdaStatusChangedBy);
         Assert.NotNull(record.ArdaStatusChangedAt);
         Assert.Null(record.EstimatingDueDateOverride);
         Assert.Equal(@"S:\Estimating\Quotes\Acme Aerospace\Quote 4395", record.QuoteFolderPath);
         Assert.Equal(2, await db.QuoteHistoryImportBatches.CountAsync());
-        Assert.Single(await db.QuoteHistoryAudits.ToListAsync());
+        Assert.Equal(2, await db.QuoteHistoryAudits.CountAsync());
+        Assert.Single(await db.QuoteHistoryAudits.Where(audit =>
+            audit.Action == EstimatingQuoteAuditActions.WorkflowUpdated).ToListAsync());
 
         var ardaChangedAt = new DateTimeOffset(2026, 9, 2, 16, 30, 0, TimeSpan.Zero);
         record.ArdaStatus = EstimatingArdaStatuses.InProgress;
@@ -253,10 +271,10 @@ public sealed class FulcrumQuoteSyncTests
         Assert.Equal("Open", refreshed.QuoteStatus);
         Assert.Equal("Bethany R.", refreshed.EstimatingRep);
         Assert.Equal(new DateTime(2026, 9, 11), refreshed.RfqDueDate);
-        Assert.Equal(EstimatingArdaStatuses.InProgress, refreshed.ArdaStatus);
+        Assert.Equal(EstimatingArdaStatuses.Complete, refreshed.ArdaStatus);
         Assert.Equal("Internal pricing follow-up", refreshed.ArdaStatusNotes);
-        Assert.Equal(ardaChangedAt, refreshed.ArdaStatusChangedAt);
-        Assert.Equal("SON4L\\bethany", refreshed.ArdaStatusChangedBy);
+        Assert.NotEqual(ardaChangedAt, refreshed.ArdaStatusChangedAt);
+        Assert.Equal("FULCRUM_API_SCHEDULE", refreshed.ArdaStatusChangedBy);
         Assert.Equal(new DateTime(2026, 9, 12), refreshed.EstimatingDueDateOverride);
 
         var omittedFolderField = changedFulcrumRow with
@@ -287,6 +305,72 @@ public sealed class FulcrumQuoteSyncTests
             default);
         db.ChangeTracker.Clear();
         Assert.Null((await db.QuoteHistory.SingleAsync()).QuoteFolderPath);
+    }
+
+    [Fact]
+    public async Task Terminal_sync_repairs_stale_Arda_status_once_even_when_provider_fields_are_equivalent()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<EstimatingAccessDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new EstimatingAccessDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        var importer = new EstimatingHistoryImportService(db, new EstimatingHistoryReviewStore());
+        var row = EstimatingHistoryImportService.CreateRow(
+            2, "terminal-id", 4499, "Terminal Customer", null, "Sales One", "Approved", null,
+            "Bethany", 500m, null, new DateTime(2026, 9, 1), null, null, null, 1, null, null);
+
+        await importer.ApplyAutomatedAsync([row], "Fulcrum API test", "FULCRUM_API_SCHEDULE", default);
+        var record = await db.QuoteHistory.SingleAsync();
+        Assert.Equal(EstimatingArdaStatuses.Complete, record.ArdaStatus);
+        Assert.True(record.IsCompleted);
+        Assert.Null(record.Workdays);
+        Assert.Single(await db.QuoteHistoryAudits.Where(audit =>
+            audit.Action == EstimatingQuoteAuditActions.WorkflowUpdated).ToListAsync());
+
+        record.ArdaStatus = EstimatingArdaStatuses.InProgress;
+        record.ArdaStatusNotes = "Preserve this note";
+        record.EstimatingDueDateOverride = new DateTime(2026, 9, 5);
+        record.ArdaStatusChangedAt = DateTimeOffset.Parse("2026-09-02T12:00:00Z");
+        record.ArdaStatusChangedBy = "SON4L\\bethany";
+        record.Version++;
+        await db.SaveChangesAsync();
+
+        var repaired = await importer.ApplyAutomatedAsync(
+            [row], "Fulcrum API test", "FULCRUM_API_SCHEDULE", default);
+        db.ChangeTracker.Clear();
+        record = await db.QuoteHistory.SingleAsync();
+
+        Assert.Equal(1, repaired.UpdatedRecords);
+        Assert.Equal(0, repaired.UnchangedRecords);
+        Assert.Equal(EstimatingArdaStatuses.Complete, record.ArdaStatus);
+        Assert.Equal("Preserve this note", record.ArdaStatusNotes);
+        Assert.Equal(new DateTime(2026, 9, 5), record.EstimatingDueDateOverride);
+        Assert.Equal("FULCRUM_API_SCHEDULE", record.ArdaStatusChangedBy);
+        Assert.Equal(2, await db.QuoteHistoryAudits.CountAsync(audit =>
+            audit.Action == EstimatingQuoteAuditActions.WorkflowUpdated));
+
+        var idempotent = await importer.ApplyAutomatedAsync(
+            [row], "Fulcrum API test", "FULCRUM_API_SCHEDULE", default);
+        Assert.Equal(1, idempotent.UnchangedRecords);
+        Assert.Equal(2, await db.QuoteHistoryAudits.CountAsync(audit =>
+            audit.Action == EstimatingQuoteAuditActions.WorkflowUpdated));
+
+        db.ChangeTracker.Clear();
+        record = await db.QuoteHistory.SingleAsync();
+        record.IsCompleted = false;
+        record.Version++;
+        await db.SaveChangesAsync();
+
+        var queueFlagRepair = await importer.ApplyAutomatedAsync(
+            [row], "Fulcrum API test", "FULCRUM_API_SCHEDULE", default);
+        db.ChangeTracker.Clear();
+        Assert.Equal(1, queueFlagRepair.UpdatedRecords);
+        Assert.True((await db.QuoteHistory.SingleAsync()).IsCompleted);
+        Assert.Equal(2, await db.QuoteHistoryAudits.CountAsync(audit =>
+            audit.Action == EstimatingQuoteAuditActions.WorkflowUpdated));
     }
 
     [Fact]

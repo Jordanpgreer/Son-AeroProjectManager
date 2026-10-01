@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildActivityTimeline, timelineSummary } from '../src/vendor-quotes/activityTimelineModel.ts'
+import { buildActivityTimeline, timelineInlineContent, timelineSummary } from '../src/vendor-quotes/activityTimelineModel.ts'
 import { rateRequestThread } from '../src/vendor-quotes/rateRequestModel.ts'
 import type { QuoteActivity, VendorDetail, VendorMessage } from '../src/vendor-quotes/types.ts'
 
@@ -65,6 +65,15 @@ test('notes and status changes remain independently reviewable even when recorde
   assert.equal(entries.length, 2)
   assert.equal(timelineSummary(note), 'Added a note.')
   assert.equal(timelineSummary(status), 'Status set to Ready for Review.')
+  assert.equal(timelineInlineContent(note), 'Received supplier pricing.')
+  assert.equal(timelineInlineContent(status), '')
+})
+
+test('note edits and current-note workflow changes expose their updated content inline', () => {
+  const edited = activity('quote-1', { kind: 'note-edited', text: 'Internal note edited', newValue: 'Supplier confirmed a two-week lead time.' })
+  const current = activity('audit-2', { kind: 'details', text: 'Arda status notes updated', newValue: 'Ready for sales review.' })
+  assert.equal(timelineInlineContent(edited), 'Supplier confirmed a two-week lead time.')
+  assert.equal(timelineInlineContent(current), 'Ready for sales review.')
 })
 
 test('outgoing messages use their sent timestamp and carry their RFQ context', () => {
@@ -74,6 +83,16 @@ test('outgoing messages use their sent timestamp and carry their RFQ context', (
   assert.equal(entries[0].requestId, 8)
   assert.equal(entries[0].threadName, 'Vendor')
   assert.equal(entries[0].partNumber, 'PART-1')
+})
+
+test('email entries retain only their corresponding attachment metadata for Entry Details', () => {
+  const firstAttachments = [{ id: 10, fileName: 'supplier-quote.pdf', contentType: 'application/pdf', sizeBytes: 12500 }]
+  const secondAttachments = [{ id: 11, fileName: 'pricing.xlsx', contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', sizeBytes: 8200 }]
+  const entries = buildActivityTimeline([], [message(1, { attachments: firstAttachments }), message(2, { attachments: secondAttachments })])
+  const first = entries.find(entry => entry.key === 'email-1')
+  const second = entries.find(entry => entry.key === 'email-2')
+  assert.deepEqual(first?.type === 'email' ? first.message.attachments : null, firstAttachments)
+  assert.deepEqual(second?.type === 'email' ? second.message.attachments : null, secondAttachments)
 })
 
 test('rate labels are offered only for sent messages belonging to an RFQ', () => {

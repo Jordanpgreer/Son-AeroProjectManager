@@ -139,6 +139,70 @@ public static class EstimatingArdaStatuses
     }
 }
 
+public static class FulcrumQuoteStatuses
+{
+    public const string Draft = "Draft";
+    public const string Open = "Open";
+    public const string NeedsApproval = "Needs Approval";
+    public const string Approved = "Approved";
+    public const string WithSales = "With Sales";
+    public const string Sent = "Sent";
+    public const string Won = "Won";
+    public const string Lost = "Lost";
+
+    public static readonly IReadOnlyList<string> All =
+    [
+        Draft,
+        Open,
+        NeedsApproval,
+        Approved,
+        WithSales,
+        Sent,
+        Won,
+        Lost
+    ];
+
+    public static readonly IReadOnlyList<string> FilterOptions =
+    [
+        Draft,
+        Open,
+        NeedsApproval,
+        Approved,
+        Sent,
+        Won,
+        Lost
+    ];
+
+    public static string Normalize(string? value)
+    {
+        var clean = string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+        return string.Concat(clean.ToLowerInvariant().Where(char.IsLetterOrDigit)) switch
+        {
+            "draft" => Draft,
+            "open" => Open,
+            "needsapproval" => NeedsApproval,
+            "approved" => Approved,
+            "withsales" => WithSales,
+            "sent" => Sent,
+            "won" => Won,
+            "lost" => Lost,
+            _ => clean
+        };
+    }
+
+    public static bool IsPostEstimating(string? value) => Normalize(value) is
+        Approved or WithSales or Sent or Won or Lost;
+
+    public static bool MatchesFilter(string? value, string? filter)
+    {
+        var normalizedValue = Normalize(value);
+        var normalizedFilter = Normalize(filter);
+        return normalizedFilter is Approved or WithSales
+            ? normalizedValue is Approved or WithSales
+            : normalizedValue.Equals(normalizedFilter, StringComparison.OrdinalIgnoreCase);
+    }
+}
+
 public static class EstimatingDueDates
 {
     public static DateTime? AutomaticFromRfq(DateTime? rfqDueDate)

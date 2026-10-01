@@ -15,7 +15,7 @@
 .vq-browse .vq-list-toolbar { grid-template-columns: minmax(210px,.7fr) minmax(420px,1.3fr); align-items: center; gap: 18px 28px; padding: 25px 27px 20px; background: color-mix(in srgb,var(--surface-2) 42%,var(--surface)); }
 .vq-list-heading { display: grid; gap: 5px; min-width: 0; }
 .vq-list-heading > p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.vq-list-filters { display: grid; grid-template-columns: minmax(240px,1fr) auto; align-items: center; gap: 12px; min-width: 0; }
+.vq-list-filters { display: grid; grid-template-columns: minmax(220px,1fr) auto auto; align-items: center; gap: 12px; min-width: 0; }
 .vq-active-filters { grid-column: 1/-1; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 28px; }
 .vq-filter-restore { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 30px; padding: 4px 9px; border: 1px dashed var(--line-3); border-radius: 6px; color: var(--steel-700); background: transparent; font-size: 12px !important; font-weight: 600 !important; }
 .vq-filter-restore:hover { border-style: solid; background: var(--steel-tint); }
@@ -28,13 +28,14 @@
 .vq-status-filter select { min-height: 34px; padding: 6px 9px; font-size: 12px; }
 .vq-quote-row { gap: 11px; padding: 21px 19px; }
 .vq-browse .vq-list-items { display: grid; overflow: visible; }
-.vq-browse .vq-quote-row { grid-template-columns: minmax(190px,1.35fr) minmax(120px,.75fr) minmax(138px,.8fr) minmax(175px,1fr) minmax(105px,.65fr) 20px; grid-template-areas: 'identity status due status-set activity open'; align-items: center; gap: 18px; padding: 19px 27px; border-left: 0; }
+.vq-browse .vq-quote-row { grid-template-columns: minmax(170px,1.25fr) minmax(110px,.65fr) minmax(130px,.75fr) minmax(130px,.75fr) minmax(155px,.9fr) minmax(95px,.55fr) 20px; grid-template-areas: 'identity status fulcrum-status due status-set activity open'; align-items: center; gap: 16px; padding: 19px 27px; border-left: 0; }
 .vq-browse .vq-quote-row:hover { background: color-mix(in srgb,var(--steel-tint) 38%,var(--surface)); }
 .vq-row-identity { grid-area: identity; display: grid; gap: 4px; min-width: 0; }
 .vq-row-identity > strong { color: var(--ink); font-size: 15px; font-weight: 650; }
 .vq-row-identity > small { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .vq-row-status { grid-area: status; display: grid; justify-items: start; gap: 6px; min-width: 0; }
-.vq-row-status > small,.vq-row-date > small,.vq-row-activity > small { color: var(--muted); font-size: 10px; font-weight: 650; letter-spacing: .045em; text-transform: uppercase; }
+.vq-row-fulcrum-status { grid-area: fulcrum-status; display: grid; justify-items: start; gap: 6px; min-width: 0; }
+.vq-row-status > small,.vq-row-fulcrum-status > small,.vq-row-date > small,.vq-row-activity > small { color: var(--muted); font-size: 10px; font-weight: 650; letter-spacing: .045em; text-transform: uppercase; }
 .vq-row-date { display: grid; gap: 6px; min-width: 0; color: var(--ink-2); }
 .vq-row-due { grid-area: due; }
 .vq-row-status-set { grid-area: status-set; }
@@ -201,14 +202,16 @@
 .qs-inline-savebar > span { color: var(--steel-700); font-size: 12px; }
 .qs-inline-savebar > div { display: flex; gap: 9px; }
 .qs-inline-saved { display: flex; align-items: center; gap: 6px; margin: 15px 0 0; font-size: 12px; color: var(--ok-700); }
-@media (max-width: 1080px) {
-  .vq-browse .vq-quote-row { grid-template-columns: minmax(190px,1.4fr) minmax(130px,.8fr) minmax(120px,.75fr) 20px; grid-template-areas: 'identity identity status open' 'due status-set activity open'; row-gap: 14px; }
-}
 @media (max-width: 1200px) {
   .vq-workspace:not(.vq-focused) { grid-template-columns: 278px minmax(0,1fr); }
   .vq-workspace:not(.vq-focused) .qs-overview-cards { grid-template-columns: 1fr 1fr; }
   .vq-workspace:not(.vq-focused) .qs-overview-card:first-child { grid-column: 1/-1; flex-direction: row; align-items: center; flex-wrap: wrap; }
   .vq-workspace:not(.vq-focused) .qs-overview-card:first-child .qs-card-caption { margin: 0 0 0 auto; }
+  .vq-browse .vq-list-toolbar { display: flex; flex-direction: column; align-items: stretch; gap: 16px; }
+  .vq-list-filters { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
+  .vq-list-filters .vq-search { grid-column: 1/-1; }
+  .vq-list-heading,.vq-list-filters,.vq-active-filters { grid-column: 1; }
+  .vq-browse .vq-quote-row { grid-template-columns: minmax(190px,1.4fr) minmax(125px,.8fr) minmax(130px,.8fr) 20px; grid-template-areas: 'identity status fulcrum-status open' 'due status-set activity open'; row-gap: 14px; }
   .vq-detail-heading,.vq-detail-body { padding-left: 23px; padding-right: 23px; }
   .vq-detail-tabs { padding-left: 23px; padding-right: 23px; gap: 19px; }
 }
@@ -217,7 +220,8 @@
   .vq-list { position: static; min-height: 500px; max-height: none; }
   .vq-list-items { overflow: visible; }
   .vq-browse .vq-list-toolbar { grid-template-columns: minmax(0,1fr); gap: 16px; padding: 21px; }
-  .vq-list-filters { grid-template-columns: minmax(0,1fr) auto; }
+  .vq-list-filters { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
+  .vq-list-filters .vq-search { grid-column: 1/-1; }
   .vq-active-filters { grid-column: 1; }
   .vq-browse .vq-quote-row { padding-left: 21px; padding-right: 21px; }
   .vq-detail-heading,.vq-detail-body,.vq-focused .vq-detail-heading,.vq-focused .vq-detail-body { padding: 22px; }
@@ -240,8 +244,8 @@
   .vq-list-filters { grid-template-columns: minmax(0,1fr); }
   .vq-list-filters .vq-status-filter { justify-content: flex-start; flex-wrap: wrap; }
   .vq-list-filters .vq-status-filter select { flex: 1; min-width: 0; }
-  .vq-browse .vq-quote-row { grid-template-columns: minmax(0,1fr) 20px; grid-template-areas: 'identity open' 'status status' 'due due' 'status-set status-set' 'activity activity'; gap: 12px; padding: 18px 16px; }
-  .vq-row-status,.vq-row-date,.vq-row-activity { grid-template-columns: 92px minmax(0,1fr); align-items: center; gap: 10px; }
+  .vq-browse .vq-quote-row { grid-template-columns: minmax(0,1fr) 20px; grid-template-areas: 'identity open' 'status status' 'fulcrum-status fulcrum-status' 'due due' 'status-set status-set' 'activity activity'; gap: 12px; padding: 18px 16px; }
+  .vq-row-status,.vq-row-fulcrum-status,.vq-row-date,.vq-row-activity { grid-template-columns: 92px minmax(0,1fr); align-items: center; gap: 10px; }
   .vq-row-activity > em { grid-column: 2; }
   .vq-button { padding: 9px 12px; min-height: 40px; font-size: 12px !important; }
   .vq-detail-heading,.vq-detail-body,.vq-focused .vq-detail-heading,.vq-focused .vq-detail-body { padding: 20px 17px; }

@@ -132,7 +132,8 @@
     grid-template-columns: 1fr;
   }
 
-  .quote-kpi-grid > button {
+  .quote-kpi-grid > button,
+  .quote-kpi-grid > article {
     grid-template-columns: 1fr auto;
     min-height: 88px;
   }
@@ -161,6 +162,7 @@
 
   .personal-quote-open-icon,
   .quote-kpi-grid > button,
+  .quote-kpi-grid > article,
   .quote-refresh-button {
     transition: none;
   }

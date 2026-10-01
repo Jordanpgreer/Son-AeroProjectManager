@@ -11,7 +11,7 @@ import ManualEmailUpload from './ManualEmailUpload'
 import RemovedItems from './RemovedItems'
 import useRecordLifecycle from './useRecordLifecycle'
 import { setEmailRateRequest } from './lifecycleApi'
-import { quoteDetailsDirty, quoteDetailsDraft, quoteDetailsUpdate, rebaseQuoteDetailsAfterActivity } from './quoteDetailsModel'
+import { quoteDetailsDirty, quoteDetailsDraft, quoteDetailsUpdate, rebaseQuoteDetailsAfterActivity, synchronizeQuoteDetailsDraft } from './quoteDetailsModel'
 import UpdateComposer from './UpdateComposer'
 import { assignQuoteMessage, updateQuoteStatus, updateVendorRequest } from './api'
 import { isUpdateDirty, mailtoVendor, makeUpdate, synchronizeActivityDraft, type UpdateDraft } from './model'
@@ -102,8 +102,8 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
         const fresh = thread ? updated.threads.find(item => item.request.id === thread.request.id)?.request : updated.quote
         if (fresh) setDraft({ status: fresh.status, followUpDate: fresh.followUpDate?.slice(0, 10) || '', note: '' })
         if (!thread) {
-          setOverviewDraft(current => ({ ...current, status: updated.workflow.ardaStatus || 'Untouched' }))
-          setOverviewBase(current => rebaseQuoteDetailsAfterActivity({ ...current, ardaStatus: updated.workflow.ardaStatus }, updated.workflow))
+          setOverviewDraft(current => synchronizeQuoteDetailsDraft(current, overviewBase, updated.workflow))
+          setOverviewBase(updated.workflow)
         } else setOverviewBase(current => rebaseQuoteDetailsAfterActivity(current, updated.workflow))
       }
       setSaved(true)

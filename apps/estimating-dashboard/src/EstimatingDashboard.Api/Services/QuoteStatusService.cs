@@ -11,17 +11,18 @@ public sealed partial class QuoteStatusService(EstimatingAccessDbContext db, Tim
     EstimatingQuoteWorkflowService workflow, IQuoteSourceLinkResolver sourceLinks)
 {
     public async Task<QuoteStatusPageDto> ListAsync(EstimatingAccessProfile access, string? search, string? status,
-        int? quoteNumber, int page, int pageSize, CancellationToken ct, string? scope = null)
+        int? quoteNumber, int page, int pageSize, CancellationToken ct, string? scope = null,
+        string? fulcrumStatus = null)
     {
         var accessible = await vendors.AccessibleQuotesAsync(access, ct);
         var normalizedScope = string.IsNullOrWhiteSpace(scope)
             ? QuoteStatusScopes.All
             : QuoteStatusScopes.Normalize(scope);
-        if (normalizedScope == QuoteStatusScopes.MineActive)
+        if (normalizedScope is QuoteStatusScopes.MineActive or QuoteStatusScopes.Mine)
         {
             var knownEstimators = accessible.Select(quote => quote.EstimatingRep).Distinct();
             accessible = accessible
-                .Where(quote => !quote.IsCompleted
+                .Where(quote => (normalizedScope != QuoteStatusScopes.MineActive || !quote.IsCompleted)
                     && EstimatingEstimatorIdentity.MatchesUnambiguously(
                         quote.EstimatingRep,
                         knownEstimators,
@@ -40,6 +41,8 @@ public sealed partial class QuoteStatusService(EstimatingAccessDbContext db, Tim
         var filtered = accessible.Where(x =>
             (!quoteNumber.HasValue || x.QuoteNumber == quoteNumber)
             && (string.IsNullOrWhiteSpace(status) || DisplayStatus(x).Equals(status, StringComparison.OrdinalIgnoreCase))
+            && (string.IsNullOrWhiteSpace(fulcrumStatus)
+                || FulcrumQuoteStatuses.MatchesFilter(x.QuoteStatus, fulcrumStatus))
             && (string.IsNullOrWhiteSpace(search) || searchThreadQuoteIds.Contains(x.Id) || $"{x.QuoteNumber} {x.Customer} {x.EstimatingRep}".Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)));
         var rows = normalizedScope == QuoteStatusScopes.MineActive
             ? filtered
@@ -75,7 +78,7 @@ public sealed partial class QuoteStatusService(EstimatingAccessDbContext db, Tim
                 emailRows.Select(x => (DateTimeOffset?)(x.ReceivedAt ?? x.SentAt)).DefaultIfEmpty().Max(),
                 threadRows.Count, emailRows.Count, emailRows.Count(x => x.RequestId is null), q.Version,
                 !access.IsPreview && VendorQuoteService.Has(access, EstimatingPermissions.ManageQuotes), CanRemove(access),
-                q.SalesPerson, EffectiveDueDate(q));
+                q.SalesPerson, EffectiveDueDate(q), FulcrumQuoteStatuses.Normalize(q.QuoteStatus));
         }).ToList();
     }
 
@@ -116,7 +119,7 @@ public sealed partial class QuoteStatusService(EstimatingAccessDbContext db, Tim
         var status = EstimatingArdaStatuses.All.FirstOrDefault(x => x.Equals(dto.Status?.Trim(), StringComparison.OrdinalIgnoreCase))
             ?? throw new VendorQuoteException(400, "Choose an available overall quote status.");
         var followUp = VendorQuoteService.Date(dto.FollowUpDate);
-        var note = VendorQuoteService.Optional(dto.Note, "Note", 4000);
+        var note = VendorQuoteService.Optional(dto.Note, "Note", 2000);
         var metadata = await db.Set<QuoteStatusMetadata>().SingleOrDefaultAsync(x => x.QuoteHistoryId == id, ct);
         if (metadata is null) { metadata = new() { QuoteHistory = quote }; db.Add(metadata); }
         if (DisplayStatus(quote) != status)
@@ -130,6 +133,7 @@ public sealed partial class QuoteStatusService(EstimatingAccessDbContext db, Tim
             metadata.FollowUpDate?.ToString("yyyy-MM-dd"), followUp?.ToString("yyyy-MM-dd"));
         metadata.FollowUpDate = followUp;
         if (note is not null) Activity(quote, "note", note, access);
+        quote.ArdaStatusNotes = note;
         Touch(quote, access);
         await vendors.SaveAsync(ct);
         return await DetailAsync(id, access, ct);

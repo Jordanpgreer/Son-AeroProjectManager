@@ -112,9 +112,10 @@ public sealed class EstimatingHistoryImportTests
         var auditHistory = await fixture.Queries.GetAuditHistoryAsync(records[0].Id, default);
         Assert.NotNull(auditHistory);
         Assert.Equal(1001, auditHistory.QuoteNumber);
-        Assert.Equal(2, auditHistory.Events.Count);
-        Assert.Equal(EstimatingQuoteAuditActions.Updated, auditHistory.Events[0].Action);
-        Assert.Equal(EstimatingQuoteAuditActions.Created, auditHistory.Events[1].Action);
+        Assert.Equal(3, auditHistory.Events.Count);
+        Assert.Contains(auditHistory.Events, audit => audit.Action == EstimatingQuoteAuditActions.Updated);
+        Assert.Contains(auditHistory.Events, audit => audit.Action == EstimatingQuoteAuditActions.WorkflowUpdated);
+        Assert.Contains(auditHistory.Events, audit => audit.Action == EstimatingQuoteAuditActions.Created);
 
         await using var unchanged = Workbook([
             ["replacement-source", 1001, "Customer One", "Sales", 950m, "Sent", null, new DateTime(2026, 8, 20), "None", "C (Low)", 1, "Reviewed Quote", "Darlene", null]

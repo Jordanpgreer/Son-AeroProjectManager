@@ -292,7 +292,7 @@ internal static class FulcrumQuoteMapper
                 FirstText(snapshot.Report?.CustomerName, current?.Customer, "Unknown customer"),
                 customerContact.Value,
                 FirstText(snapshot.Report?.SalesPersonName, current?.SalesPerson, "Unassigned"),
-                DisplayStatus(FirstText(snapshot.Report?.Status, quote.Status, current?.QuoteStatus, "Unknown")),
+                FulcrumQuoteStatuses.Normalize(FirstText(snapshot.Report?.Status, quote.Status, current?.QuoteStatus, "Unknown")),
                 rfqReference.Found ? rfqReference.Value : current?.RfqReferenceNumber,
                 FirstText(estimator.Value, current?.EstimatingRep, "Unassigned"),
                 snapshot.Report?.TotalInPrimaryCurrency
@@ -423,18 +423,6 @@ internal static class FulcrumQuoteMapper
                 return Clean(value.GetRawText());
         }
     }
-
-    private static string DisplayStatus(string value) => value.Trim().ToLowerInvariant() switch
-    {
-        "needsapproval" or "needs approval" => "Needs Approval",
-        "draft" => "Draft",
-        "open" => "Open",
-        "approved" => "Approved",
-        "sent" => "Sent",
-        "won" => "Won",
-        "lost" => "Lost",
-        _ => value.Trim()
-    };
 
     private static string FirstText(params string?[] values) =>
         values.Select(Clean).FirstOrDefault(value => value is not null) ?? string.Empty;

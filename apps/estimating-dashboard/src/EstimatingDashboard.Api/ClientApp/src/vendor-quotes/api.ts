@@ -1,4 +1,4 @@
-import type { NewVendorRequest, QuoteStatusDetail, QuoteStatusPage, QuoteStatusUpdate, VendorDetail, VendorOptions, VendorPage, VendorSync, VendorUpdate } from './types'
+import type { NewVendorRequest, QuoteStatusDetail, QuoteStatusOptions, QuoteStatusPage, QuoteStatusUpdate, VendorDetail, VendorOptions, VendorPage, VendorSync, VendorUpdate } from './types'
 
 async function request<T>(path: string, init?: RequestInit, base = '/api/vendor-quotes'): Promise<T> {
   const response = await fetch(`${base}${path}`, {
@@ -24,12 +24,12 @@ export const createVendorRequest = (body: NewVendorRequest) => request<VendorDet
 export const updateVendorRequest = (id: number, body: VendorUpdate) => request<VendorDetail>(`/${id}`, { method: 'PUT', body: JSON.stringify(body) })
 export const addVendorNote = (id: number, expectedVersion: number, text: string) => request<VendorDetail>(`/${id}/notes`, { method: 'POST', body: JSON.stringify({ expectedVersion, text }) })
 
-export function loadQuoteStatuses(search: string, status: string, quote: number | null, page: number, scope: 'mine-active' | 'all', signal?: AbortSignal) {
-  const query = new URLSearchParams({ search, status, scope, page: String(page), pageSize: '30' })
+export function loadQuoteStatuses(search: string, status: string, fulcrumStatus: string, quote: number | null, page: number, scope: 'mine-active' | 'mine' | 'all', signal?: AbortSignal) {
+  const query = new URLSearchParams({ search, status, fulcrumStatus, scope, page: String(page), pageSize: '30' })
   if (quote) query.set('quoteNumber', String(quote))
   return request<QuoteStatusPage>(`?${query}`, { signal }, '/api/quote-status')
 }
 export const loadQuoteStatusDetail = (id: number, signal?: AbortSignal) => request<QuoteStatusDetail>(`/${id}`, { signal }, '/api/quote-status')
-export const loadQuoteStatusOptions = (signal?: AbortSignal) => request<{ statuses: string[]; threadStatuses: string[] }>('/options', { signal }, '/api/quote-status')
+export const loadQuoteStatusOptions = (signal?: AbortSignal) => request<QuoteStatusOptions>('/options', { signal }, '/api/quote-status')
 export const updateQuoteStatus = (id: number, body: QuoteStatusUpdate) => request<QuoteStatusDetail>(`/${id}`, { method: 'PUT', body: JSON.stringify(body) }, '/api/quote-status')
 export const assignQuoteMessage = (id: number, messageId: number, expectedVersion: number, requestId: number) => request<QuoteStatusDetail>(`/${id}/messages/${messageId}/assign`, { method: 'POST', body: JSON.stringify({ expectedVersion, requestId }) }, '/api/quote-status')

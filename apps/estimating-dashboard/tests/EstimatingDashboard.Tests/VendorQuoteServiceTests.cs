@@ -83,6 +83,34 @@ public sealed class VendorQuoteServiceTests
     }
 
     [Fact]
+    public async Task Mine_scope_includes_completed_quotes_and_filters_Fulcrum_status_independently()
+    {
+        await using var f = await CreateAsync();
+        f.Db.QuoteHistory.Single(quote => quote.QuoteNumber == 4445).QuoteStatus = FulcrumQuoteStatuses.Approved;
+        f.Db.QuoteHistory.Single(quote => quote.QuoteNumber == 4451).QuoteStatus = "WON";
+        var providerWithSales = Record(4448, "Casey Lee");
+        providerWithSales.QuoteStatus = FulcrumQuoteStatuses.WithSales;
+        providerWithSales.IsCompleted = true;
+        f.Db.QuoteHistory.Add(providerWithSales);
+        await f.Db.SaveChangesAsync();
+
+        var mine = await f.Quotes.ListAsync(
+            Editor, null, null, null, 1, 50, default, QuoteStatusScopes.Mine);
+        var won = await f.Quotes.ListAsync(
+            Editor, null, null, null, 1, 50, default, QuoteStatusScopes.Mine, "won");
+        var withSales = await f.Quotes.ListAsync(
+            Editor, null, null, null, 1, 50, default, QuoteStatusScopes.Mine, "approved");
+
+        Assert.Equal(3, mine.TotalCount);
+        Assert.Contains(mine.Items, quote => quote.QuoteNumber == 4445
+            && quote.FulcrumQuoteStatus == FulcrumQuoteStatuses.Approved);
+        Assert.Contains(mine.Items, quote => quote.QuoteNumber == 4451
+            && quote.FulcrumQuoteStatus == FulcrumQuoteStatuses.Won);
+        Assert.Equal(4451, Assert.Single(won.Items).QuoteNumber);
+        Assert.Equal([4445, 4448], withSales.Items.Select(quote => quote.QuoteNumber).Order());
+    }
+
+    [Fact]
     public async Task Quote_notes_and_status_are_persistent_append_only_and_share_dashboard_version()
     {
         await using var f = await CreateAsync();
@@ -98,6 +126,37 @@ public sealed class VendorQuoteServiceTests
         var conflict = await Assert.ThrowsAsync<VendorQuoteException>(() => f.Quotes.AddNoteAsync(f.QuoteId(), new(1, "stale"), Editor, default));
         Assert.Equal(409, conflict.StatusCode);
         Assert.Equal(2, await f.Db.Set<QuoteStatusActivity>().CountAsync(x => x.Kind == "note"));
+    }
+
+    [Fact]
+    public async Task Quote_entry_replaces_current_status_notes_and_blank_entry_clears_them_without_removing_history()
+    {
+        await using var f = await CreateAsync();
+        var quoteId = f.QuoteId();
+        f.Db.QuoteHistory.Single(quote => quote.Id == quoteId).ArdaStatusNotes = "Older summary";
+        await f.Db.SaveChangesAsync();
+
+        var entered = await f.Quotes.UpdateAsync(
+            quoteId,
+            new(0, EstimatingArdaStatuses.InProgress, null, "Latest estimating update"),
+            Editor,
+            default);
+
+        Assert.Equal("Latest estimating update", entered.Workflow.ArdaStatusNotes);
+        Assert.Contains(entered.Activity, activity =>
+            activity.Kind == "note" && activity.Text == "Latest estimating update");
+
+        var cleared = await f.Quotes.UpdateAsync(
+            quoteId,
+            new(entered.Quote.Version, EstimatingArdaStatuses.InProgress, Now.Date.AddDays(2), null),
+            Editor,
+            default);
+
+        Assert.Null(cleared.Workflow.ArdaStatusNotes);
+        Assert.Contains(cleared.Activity, activity =>
+            activity.Kind == "note" && activity.Text == "Latest estimating update");
+        Assert.Single(cleared.Activity, activity => activity.Kind == "note"
+            && activity.Text == "Latest estimating update");
     }
 
     [Fact]

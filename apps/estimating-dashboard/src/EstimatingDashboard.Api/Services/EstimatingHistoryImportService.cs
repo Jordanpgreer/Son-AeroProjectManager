@@ -207,6 +207,7 @@ public sealed class EstimatingHistoryImportService(
                 Apply(record, row, batchId, actor, now);
                 db.QuoteHistory.Add(record);
                 db.QuoteHistoryAudits.Add(CreatedAudit(record, row, batchId, actor, now));
+                ReconcileArdaCompletion(record, row, batchId, actor, now);
                 existing[row.QuoteNumber] = record;
                 added++;
             }
@@ -219,6 +220,7 @@ public sealed class EstimatingHistoryImportService(
                 foreach (var change in ChangedFields(record, row))
                     db.QuoteHistoryAudits.Add(UpdatedAudit(record, row, change, batchId, actor, now));
                 Apply(record, row, batchId, actor, now);
+                ReconcileArdaCompletion(record, row, batchId, actor, now);
                 record.Version++;
                 updated++;
             }
@@ -317,6 +319,7 @@ public sealed class EstimatingHistoryImportService(
                     actor,
                     now,
                     $"Quote created from scheduled {sourceName}"));
+                ReconcileArdaCompletion(record, row, batchId, actor, now);
                 existing[row.QuoteNumber] = record;
                 added++;
             }
@@ -329,6 +332,7 @@ public sealed class EstimatingHistoryImportService(
                 foreach (var change in ChangedFields(record, row))
                     db.QuoteHistoryAudits.Add(UpdatedAudit(record, row, change, batchId, actor, now));
                 Apply(record, row, batchId, actor, now);
+                ReconcileArdaCompletion(record, row, batchId, actor, now);
                 record.Version++;
                 updated++;
             }
@@ -386,7 +390,7 @@ public sealed class EstimatingHistoryImportService(
         string? quoteFolderPath = null,
         bool updateQuoteFolderPath = false)
     {
-        var metrics = Metrics(rfqDueDate, dateToEstimating, estimatingCompletionDate);
+        var metrics = Metrics(rfqDueDate, dateToEstimating, estimatingCompletionDate, quoteStatus);
         return new EstimatingHistoryImportRow(
             rowNumber,
             sourceId,
@@ -514,7 +518,7 @@ public sealed class EstimatingHistoryImportService(
                 var quoteOnTrack = OptionalText(sheet, rowNumber, columns, "Quote On Track?", 40, rowErrors);
                 var complexity = Text(sheet, rowNumber, columns, "Quote Complexity", 80, rowErrors);
                 var estimatingStatus = Text(sheet, rowNumber, columns, "Estimating Status", 160, rowErrors);
-                var metrics = Metrics(dueDate, assignedDate, completionDate);
+                var metrics = Metrics(dueDate, assignedDate, completionDate, quoteStatus);
                 rows.Add(new EstimatingHistoryImportRow(
                     rowNumber,
                     sourceId ?? string.Empty,
@@ -768,14 +772,19 @@ public sealed class EstimatingHistoryImportService(
         ImportHeaders.FirstOrDefault(header => columns.TryGetValue(NormalizeHeader(header), out var number) && number == column)
         ?? $"Column {XLHelper.GetColumnLetterFromNumber(column)}";
 
-    private static QuoteMetrics Metrics(DateTime? dueDate, DateTime? assignedDate, DateTime? completionDate)
+    private static QuoteMetrics Metrics(
+        DateTime? dueDate,
+        DateTime? assignedDate,
+        DateTime? completionDate,
+        string quoteStatus)
     {
-        var completed = completionDate.HasValue;
-        var onTime = completed && dueDate.HasValue && completionDate!.Value.Date <= dueDate.Value.Date;
-        var late = completed && dueDate.HasValue && completionDate!.Value.Date > dueDate.Value.Date;
+        var hasCompletionDate = completionDate.HasValue;
+        var completed = hasCompletionDate || FulcrumQuoteStatuses.IsPostEstimating(quoteStatus);
+        var onTime = hasCompletionDate && dueDate.HasValue && completionDate!.Value.Date <= dueDate.Value.Date;
+        var late = hasCompletionDate && dueDate.HasValue && completionDate!.Value.Date > dueDate.Value.Date;
         var status = onTime ? EstimatingOnTimeStatuses.OnTime : late ? EstimatingOnTimeStatuses.Late : EstimatingOnTimeStatuses.NoData;
         var daysLate = late ? BusinessDays(dueDate!.Value.Date.AddDays(1), completionDate!.Value.Date) : 0;
-        int? workdays = completed && assignedDate.HasValue && completionDate!.Value.Date >= assignedDate.Value.Date
+        int? workdays = hasCompletionDate && assignedDate.HasValue && completionDate!.Value.Date >= assignedDate.Value.Date
             ? BusinessDays(assignedDate.Value.Date, completionDate.Value.Date)
             : null;
         var completion = completionDate?.Date;
@@ -791,7 +800,7 @@ public sealed class EstimatingHistoryImportService(
             completed,
             completion.HasValue ? WeekOfYear(completion.Value) : null,
             onTime,
-            completed && dueDate.HasValue ? (onTime ? 1m : 0m) : null);
+            hasCompletionDate && dueDate.HasValue ? (onTime ? 1m : 0m) : null);
     }
 
     private static int BusinessDays(DateTime start, DateTime end)
@@ -816,10 +825,9 @@ public sealed class EstimatingHistoryImportService(
         string actor,
         DateTimeOffset now)
     {
-        // This is the enterprise-owned projection. ArdaStatus, ArdaStatusNotes,
-        // ArdaStatusChangedAt, ArdaStatusChangedBy, and EstimatingDueDateOverride
-        // must never be assigned here; scheduled Fulcrum refreshes preserve that
-        // internal workflow while the automatic due date follows RfqDueDate.
+        // This is the enterprise-owned projection. Arda workflow fields and the
+        // due-date override are preserved here. The narrow, one-way completion
+        // reconciliation is applied separately after the provider projection.
         record.SourceId = row.SourceId;
         record.QuoteNumber = row.QuoteNumber;
         record.Customer = row.Customer;
@@ -856,7 +864,40 @@ public sealed class EstimatingHistoryImportService(
     }
 
     private static bool Equivalent(EstimatingQuoteHistoryRecord record, EstimatingHistoryImportRow row) =>
-        ChangedFields(record, row).Count == 0;
+        ChangedFields(record, row).Count == 0 && !NeedsArdaCompletion(record, row);
+
+    private static bool NeedsArdaCompletion(
+        EstimatingQuoteHistoryRecord record,
+        EstimatingHistoryImportRow row) =>
+        (row.IsCompleted || FulcrumQuoteStatuses.IsPostEstimating(row.QuoteStatus))
+        && EstimatingArdaStatuses.Normalize(record.ArdaStatus) != EstimatingArdaStatuses.Complete;
+
+    private void ReconcileArdaCompletion(
+        EstimatingQuoteHistoryRecord record,
+        EstimatingHistoryImportRow row,
+        Guid batchId,
+        string actor,
+        DateTimeOffset now)
+    {
+        if (!NeedsArdaCompletion(record, row)) return;
+
+        var oldStatus = record.ArdaStatus;
+        record.ArdaStatus = EstimatingArdaStatuses.Complete;
+        record.ArdaStatusChangedAt = now;
+        record.ArdaStatusChangedBy = actor;
+        db.QuoteHistoryAudits.Add(new EstimatingQuoteHistoryAuditRecord
+        {
+            QuoteHistory = record,
+            QuoteNumber = row.QuoteNumber,
+            ImportBatchId = batchId,
+            Action = EstimatingQuoteAuditActions.WorkflowUpdated,
+            FieldName = "Arda status",
+            OldValue = oldStatus,
+            NewValue = EstimatingArdaStatuses.Complete,
+            ChangedBy = actor,
+            ChangedAt = now
+        });
+    }
 
     private static IReadOnlyList<QuoteFieldChange> ChangedFields(
         EstimatingQuoteHistoryRecord record,
@@ -893,6 +934,11 @@ public sealed class EstimatingHistoryImportService(
             "Estimating completion date",
             AuditDate(record.EstimatingCompletionDate),
             AuditDate(row.EstimatingCompletionDate));
+        AddChange(
+            changes,
+            "Completed",
+            record.IsCompleted.ToString(CultureInfo.InvariantCulture),
+            row.IsCompleted.ToString(CultureInfo.InvariantCulture));
         return changes;
     }
 

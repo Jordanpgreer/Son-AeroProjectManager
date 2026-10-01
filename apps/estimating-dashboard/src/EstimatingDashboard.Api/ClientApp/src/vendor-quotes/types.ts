@@ -98,7 +98,7 @@ export interface NewVendorRequest {
 
 export interface QuoteStatusSummary {
   quoteHistoryId: number; quoteNumber: number; customer: string; estimatingRep: string; salesPerson?: string | null
-  status: string; statusChangedAt: string | null; statusChangedBy: string | null
+  status: string; fulcrumQuoteStatus: string; statusChangedAt: string | null; statusChangedBy: string | null
   followUpDate: string | null; estimatingDueDate: string | null; updatedAt: string; lastMessageAt: string | null
   threadCount: number; messageCount: number; unassignedMessageCount: number; version: number; canEdit: boolean
   canRemove: boolean
@@ -116,6 +116,7 @@ export interface RemovedQuoteEmail {
   sentAt: string; removedAt: string; removedBy: string | null; requestId: number | null; vendorName: string | null; partNumber: string | null
 }
 export interface QuoteStatusPage { items: QuoteStatusSummary[]; totalCount: number; page: number; pageSize: number }
+export interface QuoteStatusOptions { statuses: string[]; fulcrumStatuses: string[]; threadStatuses: string[] }
 export interface QuoteStatusUpdate { expectedVersion: number; status: string; followUpDate: string | null; note: string | null }
 
 export interface ManualEmailPreview {

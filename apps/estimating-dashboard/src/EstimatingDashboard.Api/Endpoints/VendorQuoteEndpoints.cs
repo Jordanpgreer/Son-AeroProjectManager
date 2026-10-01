@@ -57,7 +57,8 @@ public static class VendorQuoteEndpoints
         group.AddEndpointFilter(ErrorFilter);
         group.MapManualEmails();
         group.MapItemLifecycle();
-        group.MapGet("", async (HttpContext ctx, QuoteStatusService service, string? search, string? status, string? scope,
+        group.MapGet("", async (HttpContext ctx, QuoteStatusService service, string? search, string? status,
+            string? fulcrumStatus, string? scope,
             int? quoteNumber, int page = 1, int pageSize = 50, CancellationToken cancellationToken = default) =>
             Results.Ok(await service.ListAsync(
                 Access(ctx),
@@ -67,11 +68,15 @@ public static class VendorQuoteEndpoints
                 page,
                 pageSize,
                 cancellationToken,
-                QuoteStatusScopes.Normalize(scope))));
+                QuoteStatusScopes.Normalize(scope),
+                fulcrumStatus)));
         group.MapGet("/options", (HttpContext ctx) =>
         {
             VendorQuoteService.Guard(Access(ctx));
-            return Results.Ok(new QuoteStatusOptionsDto(EstimatingArdaStatuses.All, VendorQuoteStatuses.All));
+            return Results.Ok(new QuoteStatusOptionsDto(
+                EstimatingArdaStatuses.All,
+                VendorQuoteStatuses.All,
+                FulcrumQuoteStatuses.FilterOptions));
         });
         group.MapGet("/{id:int}", async (int id, HttpContext ctx, QuoteStatusService service, CancellationToken ct) =>
             Results.Ok(await service.DetailAsync(id, Access(ctx), ct)));

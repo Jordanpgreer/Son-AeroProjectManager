@@ -53,6 +53,7 @@
 .vq-status-blue { color: var(--steel-700); background: var(--steel-tint); border-color: color-mix(in srgb,var(--steel) 24%,var(--line)); }
 .vq-status-amber { color: var(--warn-700); background: var(--warn-tint); border-color: color-mix(in srgb,var(--warn) 24%,var(--line)); }
 .vq-status-success { color: var(--ok-700); background: var(--ok-tint); border-color: color-mix(in srgb,var(--ok) 24%,var(--line)); }
+.vq-status-risk { color: var(--risk-700); background: var(--risk-tint); border-color: color-mix(in srgb,var(--risk) 24%,var(--line)); }
 .vq-overdue-text { color: var(--warn-700) !important; }
 .vq-unassigned-label { color: var(--steel-700); font-size: 11px; }
 .vq-pagination { display: flex; justify-content: space-between; align-items: center; padding: 7px 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }

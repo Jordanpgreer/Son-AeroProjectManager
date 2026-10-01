@@ -77,6 +77,48 @@ public sealed class EstimatingQuoteWorkflowServiceTests
         Assert.Equal(now.AddMinutes(-37), result[0].ArdaStatusChangedAt);
     }
 
+    [Fact]
+    public async Task Stats_are_scoped_to_the_current_estimator_and_use_completed_workdays()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var won = Quote(1201, "Casey Lee", completed: true);
+        won.QuoteStatus = "WON";
+        won.Workdays = 3;
+        var lost = Quote(1202, "Casey Lee", completed: true);
+        lost.QuoteStatus = "lost";
+        lost.Workdays = 4;
+        var completedWithoutDuration = Quote(1203, "Casey Lee", completed: true);
+        completedWithoutDuration.QuoteStatus = "Sent";
+        var someoneElsesWin = Quote(1204, "Someone Else", completed: true);
+        someoneElsesWin.QuoteStatus = "Won";
+        someoneElsesWin.Workdays = 1;
+        fixture.Db.QuoteHistory.AddRange(won, lost, completedWithoutDuration, someoneElsesWin);
+        await fixture.Db.SaveChangesAsync();
+
+        var stats = await fixture.Service.GetStatsAsync(Editor("Casey Lee"), default);
+
+        Assert.Equal(3.5m, stats.AverageCompletionWorkdays);
+        Assert.Equal(2, stats.CompletionSampleSize);
+        Assert.Equal(1, stats.WonCount);
+        Assert.Equal(1, stats.LostCount);
+    }
+
+    [Fact]
+    public async Task Stats_return_no_average_when_completed_quotes_have_no_duration()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var completed = Quote(1205, "Casey Lee", completed: true);
+        completed.QuoteStatus = "Won";
+        fixture.Db.QuoteHistory.Add(completed);
+        await fixture.Db.SaveChangesAsync();
+
+        var stats = await fixture.Service.GetStatsAsync(Editor("Casey Lee"), default);
+
+        Assert.Null(stats.AverageCompletionWorkdays);
+        Assert.Equal(0, stats.CompletionSampleSize);
+        Assert.Equal(1, stats.WonCount);
+    }
+
     [Theory]
     [InlineData("2026-09-07", "2026-09-03")]
     [InlineData("2026-09-08", "2026-09-07")]

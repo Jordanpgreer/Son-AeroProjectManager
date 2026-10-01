@@ -28,15 +28,18 @@ import {
 import { formatQuoteRevision } from './quoteRevision'
 import {
   loadPersonalQuotes,
+  loadPersonalQuoteStats,
   refreshPersonalQuoteAssignments,
   statusSetLabel,
   type PersonalQuote,
+  type PersonalQuoteStats,
 } from './quoteWorkflowApi'
 import './quote-dashboard.css'
 import './quote-dashboard-states.css'
 import GenerateQuoteDialog from './GenerateQuoteDialog'
 import { quoteStatusUrl } from './estimatingNavigation'
 import { currency, quoteTitle, quoteValue, formatDate, formatOptionalDate, linkedSourceFromHash } from './quoteDashboardFormatting'
+import { fulcrumStatusLabel } from './vendor-quotes/model'
 export default function QuotesDashboardPage({
   ownerAccountName,
   canManageQuotes,
@@ -53,6 +56,7 @@ export default function QuotesDashboardPage({
   const [filter, setFilter] = useState<QuoteDashboardFilter>('all')
   const [actionError, setActionError] = useState<string | null>(null)
   const [personalQuotes, setPersonalQuotes] = useState<PersonalQuote[]>([])
+  const [personalStats, setPersonalStats] = useState<PersonalQuoteStats | null>(null)
   const [personalLoading, setPersonalLoading] = useState(true)
   const [personalError, setPersonalError] = useState<string | null>(null)
   const [personalView, setPersonalView] = useState<PersonalQuoteView>('active')
@@ -122,15 +126,25 @@ export default function QuotesDashboardPage({
   const refreshPersonalQuotes = useCallback(async (pullFromFulcrum = false) => {
     setPersonalLoading(true)
     setPersonalError(null)
+    setPersonalStats(null)
+    let quotesLoaded = false
     try {
-      setPersonalQuotes(await (pullFromFulcrum
-        ? refreshPersonalQuoteAssignments()
-        : loadPersonalQuotes()))
+      const nextQuotes = pullFromFulcrum
+        ? await refreshPersonalQuoteAssignments()
+        : await loadPersonalQuotes()
+      setPersonalQuotes(nextQuotes)
+      quotesLoaded = true
     } catch (error) {
       setPersonalError(error instanceof Error ? error.message : 'Your assigned quotes could not be loaded.')
-    } finally {
-      setPersonalLoading(false)
     }
+    if (!pullFromFulcrum || quotesLoaded) {
+      try {
+        setPersonalStats(await loadPersonalQuoteStats())
+      } catch {
+        setPersonalStats(null)
+      }
+    }
+    setPersonalLoading(false)
   }, [])
 
   useEffect(() => {
@@ -166,6 +180,21 @@ export default function QuotesDashboardPage({
           <strong>{personalLoading ? '—' : completedPersonalQuotes.length}</strong>
           <small>View my Fulcrum outcomes</small>
         </button>
+        <article className="quote-kpi-static">
+          <span><Clock3 size={18} aria-hidden="true" /> Avg. completion</span>
+          <strong>{personalLoading ? '—' : personalStats?.averageCompletionWorkdays == null ? '—' : `${personalStats.averageCompletionWorkdays}d`}</strong>
+          <small>Assignment to completion · business days{personalStats?.completionSampleSize ? ` · ${personalStats.completionSampleSize} quotes` : ''}</small>
+        </article>
+        <article className="quote-kpi-static is-won">
+          <span><CheckCircle2 size={18} aria-hidden="true" /> Won</span>
+          <strong>{personalLoading ? '—' : personalStats?.wonCount ?? 0}</strong>
+          <small>All-time Fulcrum outcomes</small>
+        </article>
+        <article className="quote-kpi-static is-lost">
+          <span><AlertTriangle size={18} aria-hidden="true" /> Lost</span>
+          <strong>{personalLoading ? '—' : personalStats?.lostCount ?? 0}</strong>
+          <small>All-time Fulcrum outcomes</small>
+        </article>
       </section>
 
       <section className="quote-list-card personal-quote-card" aria-labelledby="personal-quotes-heading">
@@ -268,7 +297,7 @@ export default function QuotesDashboardPage({
                       <td>{quote.customer}</td>
                       {personalView === 'completed' ? <>
                         <td>
-                          <span className="quote-status fulcrum-status">{quote.fulcrumQuoteStatus || 'Completed'}</span>
+                          <span className="quote-status fulcrum-status">{fulcrumStatusLabel(quote.fulcrumQuoteStatus || 'Completed')}</span>
                         </td>
                         <td>
                           <span className="quote-due-date"><CheckCircle2 size={13} aria-hidden="true" />{formatOptionalDate(quote.estimatingCompletionDate)}</span>

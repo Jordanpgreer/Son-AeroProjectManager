@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { PersonalQuote } from '../src/quoteWorkflowApi.ts'
-import { quoteDetailsDirty, quoteDetailsDraft, quoteDetailsUpdate, rebaseQuoteDetailsAfterActivity, setQuoteDueDate, useAutomaticQuoteDate } from '../src/vendor-quotes/quoteDetailsModel.ts'
+import { quoteDetailsDirty, quoteDetailsDraft, quoteDetailsUpdate, rebaseQuoteDetailsAfterActivity, setQuoteDueDate, synchronizeQuoteDetailsDraft, useAutomaticQuoteDate } from '../src/vendor-quotes/quoteDetailsModel.ts'
 import { makeUpdate, synchronizeActivityDraft } from '../src/vendor-quotes/model.ts'
 
 const quote: PersonalQuote = {
@@ -57,6 +57,25 @@ test('saving an activity note advances the pending overview version without chan
   const baseline = rebaseQuoteDetailsAfterActivity(quote, afterActivity)
   assert.equal(quoteDetailsUpdate(draft, baseline).expectedVersion, 8)
   assert.equal(quoteDetailsUpdate(draft, baseline).notes, 'Compare vendor lead times.')
+})
+
+test('a quote entry refreshes the visible current note and status from the saved workflow', () => {
+  const draft = quoteDetailsDraft(quote)
+  const afterEntry = { ...quote, version: 8, ardaStatus: 'Ready for Review' as const, ardaStatusNotes: 'All vendor pricing received.' }
+  assert.deepEqual(synchronizeQuoteDetailsDraft(draft, quote, afterEntry), quoteDetailsDraft(afterEntry))
+})
+
+test('a blank quote entry refreshes the visible current note to none', () => {
+  const afterEntry = { ...quote, version: 8, ardaStatusNotes: null }
+  assert.equal(synchronizeQuoteDetailsDraft(quoteDetailsDraft(quote), quote, afterEntry).notes, '')
+})
+
+test('a quote entry does not overwrite separately drafted request details', () => {
+  const draft = { ...quoteDetailsDraft(quote), notes: 'My pending summary.', dueDate: '2026-09-20' }
+  const afterEntry = { ...quote, version: 8, ardaStatus: 'Ready for Review' as const, ardaStatusNotes: null }
+  assert.deepEqual(synchronizeQuoteDetailsDraft(draft, quote, afterEntry), {
+    status: 'Ready for Review', notes: 'My pending summary.', dueDate: '2026-09-20', dueDateIsOverride: true,
+  })
 })
 
 test('an entry status change rebases pending quote details without reverting the saved status', () => {

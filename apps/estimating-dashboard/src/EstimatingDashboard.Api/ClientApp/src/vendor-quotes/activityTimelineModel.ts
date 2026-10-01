@@ -17,6 +17,13 @@ export function timelineSummary(item: TimelineActivity) {
   return activityDescription(item)
 }
 
+/** Content worth reading in the timeline itself, separate from the action summary. */
+export function timelineInlineContent(item: TimelineActivity) {
+  if (item.kind === 'note') return activityDescription(item)
+  if ((item.kind.includes('note') || /\bnotes?\b/i.test(item.text)) && item.newValue) return item.newValue
+  return ''
+}
+
 /** A message replaces only its matching import event; assignment/removal history stays visible. */
 export function buildActivityTimeline(activity: TimelineActivity[], messages: VendorMessage[] = [], threads: VendorDetail[] = []): TimelineEntry[] {
   const threadByMessage = new Map(threads.flatMap(thread => thread.messages.map(message => [message.id, thread.request] as const)))

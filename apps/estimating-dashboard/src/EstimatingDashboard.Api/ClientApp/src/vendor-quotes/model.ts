@@ -3,12 +3,25 @@ import type { QuoteStatusSummary, QuoteStatusUpdate, VendorMessage, VendorSync }
 export const VENDOR_STATUSES = ['Untouched', 'Waiting on vendor', 'Quote received']
 export const LEGACY_VENDOR_STATUSES = ['Rates requested', 'Reply received', 'Under review', 'Accepted', 'Declined', 'Cancelled']
 export const QUOTE_STATUSES = ['Untouched', 'In progress', 'RFQ Sent', 'Ready for Review', 'Complete', 'On Hold']
+export const FULCRUM_STATUSES = ['Draft', 'Open', 'Needs Approval', 'Approved', 'Sent', 'Won', 'Lost']
 export const CLOSED_STATUSES = new Set(['Quote received', 'Accepted', 'Declined', 'Cancelled', 'Complete'])
-export type QuoteStatusScope = 'mine-active' | 'all'
+export const DOWNSTREAM_FULCRUM_STATUSES = new Set(['Approved', 'With Sales', 'Sent', 'Won', 'Lost'])
+export type QuoteStatusScope = 'mine-active' | 'mine' | 'all'
 export const DEFAULT_QUOTE_STATUS_SCOPE: QuoteStatusScope = 'mine-active'
 
-export function quoteStatusRequestScope(scope: QuoteStatusScope, quoteNumber: number | null): QuoteStatusScope {
-  return quoteNumber === null ? scope : 'all'
+export function quoteStatusRequestScope(
+  scope: QuoteStatusScope,
+  quoteNumber: number | null,
+  ardaStatus = '',
+  fulcrumStatus = '',
+): QuoteStatusScope {
+  if (quoteNumber !== null) return 'all'
+  if (scope === 'mine-active' && (ardaStatus === 'Complete' || DOWNSTREAM_FULCRUM_STATUSES.has(fulcrumStatus))) return 'mine'
+  return scope
+}
+
+export function fulcrumStatusLabel(status: string) {
+  return ['approved', 'with sales'].includes(status.trim().toLowerCase()) ? 'With Sales' : status
 }
 
 function sortableDate(value: string | null | undefined) {
@@ -33,8 +46,9 @@ export function canonicalVendorStatus(status: string | null | undefined): string
 }
 
 export function statusTone(status: string) {
-  if (['Quote received', 'Accepted', 'Complete'].includes(status)) return 'success'
-  if (['Reply received', 'Under review', 'In progress', 'Ready for Review'].includes(status)) return 'blue'
+  if (['Quote received', 'Accepted', 'Complete', 'Won'].includes(status)) return 'success'
+  if (['Reply received', 'Under review', 'In progress', 'Ready for Review', 'Approved', 'With Sales', 'Sent'].includes(status)) return 'blue'
+  if (status === 'Lost') return 'risk'
   if (['Waiting on vendor', 'Rates requested', 'RFQ Sent', 'On Hold'].includes(status)) return 'amber'
   return 'neutral'
 }

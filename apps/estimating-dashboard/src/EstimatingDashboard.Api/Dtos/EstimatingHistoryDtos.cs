@@ -154,6 +154,12 @@ public sealed record EstimatingPersonalQuoteDto(
     bool IsOverdue,
     DateTime? EstimatingCompletionDate);
 
+public sealed record EstimatingQuoteWorkflowStatsDto(
+    decimal? AverageCompletionWorkdays,
+    int CompletionSampleSize,
+    int WonCount,
+    int LostCount);
+
 public sealed record UpdateEstimatingQuoteWorkflowDto(
     string? ArdaStatus,
     string? Notes,

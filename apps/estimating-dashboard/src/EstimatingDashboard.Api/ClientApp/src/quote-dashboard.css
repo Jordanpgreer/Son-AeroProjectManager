@@ -146,7 +146,8 @@
   gap: 10px;
 }
 
-.quote-kpi-grid > button {
+.quote-kpi-grid > button,
+.quote-kpi-grid > article {
   position: relative;
   display: grid;
   gap: 7px;
@@ -160,6 +161,10 @@
   font: inherit;
   text-align: left;
   transition: background 160ms ease, border-color 160ms ease;
+}
+
+.quote-kpi-grid > article {
+  margin: 0;
 }
 
 .quote-kpi-grid > button::after {
@@ -214,6 +219,14 @@
 }
 
 .quote-kpi-grid .is-overdue span svg {
+  color: var(--risk-700);
+}
+
+.quote-kpi-grid .is-won span svg {
+  color: var(--ok-700);
+}
+
+.quote-kpi-grid .is-lost span svg {
   color: var(--risk-700);
 }
 

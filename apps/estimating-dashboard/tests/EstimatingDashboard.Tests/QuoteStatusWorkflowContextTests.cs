@@ -110,6 +110,18 @@ public sealed class QuoteStatusWorkflowContextTests
         Assert.Equal(restored.Workflow.AutomaticEstimatingDueDate, restored.Workflow.EstimatingDueDate);
         Assert.Equal("Engineering review in progress", restored.Workflow.ArdaStatusNotes);
         Assert.Contains(restored.Activity, x => x.Text == "Estimating due date override updated" && x.OldValue == "2026-09-09" && x.NewValue is null);
+
+        await f.Workflow.UpdateAsync(
+            quoteId,
+            new("In progress", null, null, restored.Workflow.Version),
+            Editor,
+            default);
+        var notesCleared = await f.Quotes.DetailAsync(quoteId, Editor, default);
+        Assert.Null(notesCleared.Workflow.ArdaStatusNotes);
+        Assert.Contains(notesCleared.Activity, x => x.Text == "Arda status notes updated"
+            && x.OldValue == "Engineering review in progress"
+            && x.NewValue is null);
+
         await Assert.ThrowsAsync<EstimatingQuoteWorkflowConflictException>(() => f.Workflow.UpdateAsync(quoteId, new("Complete", "Stale editor", null, edited.Workflow.Version), Editor, default));
     }
 
