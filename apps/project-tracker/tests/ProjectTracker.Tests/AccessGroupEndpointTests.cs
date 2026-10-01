@@ -196,6 +196,33 @@ public sealed class AccessGroupEndpointTests
     }
 
     [Fact]
+    public async Task CreateGroup_SubcontractingDocumentAccessAddsModuleAndVendorPrerequisites()
+    {
+        await using var fixture = await DatabaseFixture.CreateAsync();
+
+        var created = await UserEndpoints.CreateGroupAsync(
+            new AccessGroupUpsertDto(
+                "Subcontracting document coordinators",
+                "Maintains vendor compliance documents",
+                false,
+                [SmallBusinessSubcontractingPermissions.DocumentsManage]),
+            fixture.Db,
+            CancellationToken.None);
+
+        Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Created<AccessGroupDto>>(created);
+        var permissions = (await fixture.Db.GroupPermissions
+                .Select(permission => permission.PermissionKey)
+                .ToListAsync())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(3, permissions.Count);
+        Assert.Contains(SmallBusinessSubcontractingPermissions.ModuleView, permissions);
+        Assert.Contains(SmallBusinessSubcontractingPermissions.VendorsView, permissions);
+        Assert.Contains(SmallBusinessSubcontractingPermissions.DocumentsManage, permissions);
+        Assert.DoesNotContain(SmallBusinessSubcontractingPermissions.DashboardView, permissions);
+        Assert.DoesNotContain(SmallBusinessSubcontractingPermissions.ComplianceManage, permissions);
+    }
+
+    [Fact]
     public async Task EstimatingHistoryImportUpdate_ChangesOnlyImportAndPreservesCurrentPermissions()
     {
         await using var fixture = await DatabaseFixture.CreateAsync();

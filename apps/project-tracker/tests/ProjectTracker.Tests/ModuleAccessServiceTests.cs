@@ -45,10 +45,11 @@ public sealed class ModuleAccessServiceTests
         AssertAssignment(fixture.Db, administrator.Id, ApplicationModules.Engineering, ApplicationRoles.Admin);
         AssertAssignment(fixture.Db, administrator.Id, ApplicationModules.Estimating, ApplicationRoles.Admin);
         AssertAssignment(fixture.Db, administrator.Id, ApplicationModules.QualityAssurance, ApplicationRoles.Admin);
+        AssertAssignment(fixture.Db, administrator.Id, ApplicationModules.SmallBusinessSubcontracting, ApplicationRoles.Admin);
         Assert.DoesNotContain(
             fixture.Db.UserModuleAccess.Local,
             access => access.AppUserId == editor.Id || access.AppUserId == viewer.Id);
-        Assert.Equal(3, await fixture.Db.UserModuleAccess.CountAsync());
+        Assert.Equal(4, await fixture.Db.UserModuleAccess.CountAsync());
     }
 
     [Fact]
@@ -79,7 +80,8 @@ public sealed class ModuleAccessServiceTests
         AssertAssignment(fixture.Db, administrator.Id, ApplicationModules.Engineering, null);
         AssertAssignment(fixture.Db, administrator.Id, ApplicationModules.Estimating, ApplicationRoles.Viewer);
         AssertAssignment(fixture.Db, administrator.Id, ApplicationModules.QualityAssurance, ApplicationRoles.Admin);
-        Assert.Equal(3, await fixture.Db.UserModuleAccess.CountAsync());
+        AssertAssignment(fixture.Db, administrator.Id, ApplicationModules.SmallBusinessSubcontracting, ApplicationRoles.Admin);
+        Assert.Equal(4, await fixture.Db.UserModuleAccess.CountAsync());
     }
 
     [Fact]
@@ -97,7 +99,7 @@ public sealed class ModuleAccessServiceTests
             fixture.Db,
             ["DOMAIN\\configured"]);
 
-        Assert.Equal(3, await fixture.Db.UserModuleAccess.CountAsync());
+        Assert.Equal(4, await fixture.Db.UserModuleAccess.CountAsync());
         Assert.DoesNotContain(
             fixture.Db.UserModuleAccess.Local,
             access => access.AppUserId == laterAdministrator.Id);

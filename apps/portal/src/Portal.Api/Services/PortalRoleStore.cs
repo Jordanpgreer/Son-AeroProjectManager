@@ -97,7 +97,12 @@ public sealed class PortalRoleStore(PortalRoleDbContext db, ILogger<PortalRoleSt
 
             var engineeringRole = EngineeringPermissions.RoleFor(user.Permissions);
             if (engineeringRole is not null) roles[ApplicationModules.Engineering] = engineeringRole;
-            foreach (var moduleKey in new[] { ApplicationModules.Estimating, ApplicationModules.QualityAssurance })
+            foreach (var moduleKey in new[]
+                     {
+                         ApplicationModules.Estimating,
+                         ApplicationModules.QualityAssurance,
+                         ApplicationModules.SmallBusinessSubcontracting
+                     })
             {
                 var role = RoleForGrantedModulePermissions(moduleKey, user.Permissions);
                 if (role is not null) roles[moduleKey] = role;
@@ -170,9 +175,12 @@ public sealed class PortalRoleStore(PortalRoleDbContext db, ILogger<PortalRoleSt
     {
         var role = ApplicationModuleCatalog.RoleForPermissions(moduleKey, permissions);
         if (role is not null) return role;
-        var entryPermission = moduleKey == ApplicationModules.QualityAssurance
-            ? QualityAssurancePermissions.ModuleView
-            : "estimating.view";
+        var entryPermission = moduleKey switch
+        {
+            ApplicationModules.QualityAssurance => QualityAssurancePermissions.ModuleView,
+            ApplicationModules.SmallBusinessSubcontracting => SmallBusinessSubcontractingPermissions.ModuleView,
+            _ => "estimating.view"
+        };
         return permissions.Contains(entryPermission, StringComparer.OrdinalIgnoreCase)
             ? ApplicationRoles.Viewer
             : null;

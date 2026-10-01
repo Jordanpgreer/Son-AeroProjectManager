@@ -20,6 +20,7 @@ public sealed class AccessControlSeeder
     private const string ProjectNotificationScopingPermissionsVersion = "project-notification-scoping-permissions-v1";
     private const string EstimatingHistoryImportPermissionVersion = "estimating-history-import-permission-v1";
     private const string PageViewPermissionsVersion = "module-page-view-permissions-v1";
+    private const string SmallBusinessSubcontractingPermissionsVersion = "small-business-subcontracting-permissions-v1";
     private const string LegacyEstimatingEditorCompatibilityGroup = "Estimating Editor Access";
 
     public async Task SeedAsync(
@@ -36,6 +37,15 @@ public sealed class AccessControlSeeder
             db,
             migrateSharedModuleAccess,
             cancellationToken);
+        if (!await HasVersionAsync(db, SmallBusinessSubcontractingPermissionsVersion, cancellationToken))
+        {
+            await AddPermissionsToGroupAsync(
+                db,
+                groupIds[ApplicationGroups.Administrators],
+                SmallBusinessSubcontractingPermissions.All.Select(permission => permission.Key).ToArray(),
+                cancellationToken);
+            await RecordVersionAsync(db, SmallBusinessSubcontractingPermissionsVersion, cancellationToken);
+        }
         if (!await HasVersionAsync(db, QualityShipperGroupVersion, cancellationToken))
         {
             await EnsureQualityShipperGroupAsync(db, cancellationToken);
@@ -312,6 +322,9 @@ public sealed class AccessControlSeeder
             .Select(permission => permission.Key)
             .ToArray();
         var qualityAdministratorPermissions = QualityAssurancePermissions.AdministratorDefaults;
+        var subcontractingAdministratorPermissions = SmallBusinessSubcontractingPermissions.All
+            .Select(permission => permission.Key)
+            .ToArray();
         var definitions = new (string Name, string Description, IReadOnlyList<string> Permissions)[]
         {
             (ApplicationGroups.Administrators, "Full administrative access across SON-AERO modules.", [
@@ -319,7 +332,8 @@ public sealed class AccessControlSeeder
                 .. ProjectTrackerPermissions.DefaultsForGroup(ApplicationGroups.Administrators),
                 .. EngineeringPermissions.DefaultsForGroup(ApplicationGroups.Administrators),
                 .. estimatingPermissions,
-                .. qualityAdministratorPermissions
+                .. qualityAdministratorPermissions,
+                .. subcontractingAdministratorPermissions
             ]),
             (ApplicationGroups.Managers, "Management, review, and project-control access across modules.", [
                 .. ApplicationPermissions.DefaultManagerPermissions,
@@ -547,7 +561,8 @@ public sealed class AccessControlSeeder
     private static bool IsModulePermission(string permission) =>
         permission.StartsWith("engineering.", StringComparison.OrdinalIgnoreCase)
         || permission.StartsWith("estimating.", StringComparison.OrdinalIgnoreCase)
-        || permission.StartsWith("quality-assurance.", StringComparison.OrdinalIgnoreCase);
+        || permission.StartsWith("quality-assurance.", StringComparison.OrdinalIgnoreCase)
+        || permission.StartsWith("small-business-subcontracting.", StringComparison.OrdinalIgnoreCase);
 
     private static async Task EnsureVersionTableAsync(
         ProjectTrackerDbContext db,

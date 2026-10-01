@@ -5,15 +5,17 @@ public static class ApplicationModules
     public const string Engineering = "engineering";
     public const string Estimating = "estimating";
     public const string QualityAssurance = "quality-assurance";
+    public const string SmallBusinessSubcontracting = "small-business-subcontracting";
 
     public static readonly IReadOnlyList<string> All =
-        [Engineering, Estimating, QualityAssurance];
+        [Engineering, Estimating, QualityAssurance, SmallBusinessSubcontracting];
 
     public static string? Normalize(string? moduleKey) => moduleKey?.Trim().ToLowerInvariant() switch
     {
         Engineering => Engineering,
         Estimating => Estimating,
         QualityAssurance => QualityAssurance,
+        SmallBusinessSubcontracting => SmallBusinessSubcontracting,
         _ => null
     };
 }
@@ -69,7 +71,8 @@ public static class ApplicationModuleCatalog
     [
         CreateEngineeringModule(),
         CreateEstimatingModule(),
-        CreateQualityAssuranceModule()
+        CreateQualityAssuranceModule(),
+        CreateSmallBusinessSubcontractingModule()
     ];
 
     public static ApplicationModuleDefinition? Find(string? moduleKey)
@@ -257,6 +260,27 @@ public static class ApplicationModuleCatalog
                     ApplicationRoles.Admin,
                     QualityAssurancePermissions.All.Where(permission =>
                         QualityAssurancePermissions.AdministratorDefaults.Contains(permission.Key)).ToArray())
+            ]);
+    }
+
+    private static ApplicationModuleDefinition CreateSmallBusinessSubcontractingModule()
+    {
+        const string category = "Small Business Subcontracting";
+        return new ApplicationModuleDefinition(
+            ApplicationModules.SmallBusinessSubcontracting,
+            category,
+            [
+                new ApplicationModuleRoleDefinition(
+                    ApplicationRoles.Viewer,
+                    SmallBusinessSubcontractingPermissions.All.Where(permission =>
+                        SmallBusinessSubcontractingPermissions.ViewerDefaults.Contains(permission.Key)).ToArray()),
+                new ApplicationModuleRoleDefinition(
+                    ApplicationRoles.Editor,
+                    SmallBusinessSubcontractingPermissions.All.Where(permission =>
+                        SmallBusinessSubcontractingPermissions.EditorDefaults.Contains(permission.Key)).ToArray()),
+                new ApplicationModuleRoleDefinition(
+                    ApplicationRoles.Admin,
+                    SmallBusinessSubcontractingPermissions.All)
             ]);
     }
 }

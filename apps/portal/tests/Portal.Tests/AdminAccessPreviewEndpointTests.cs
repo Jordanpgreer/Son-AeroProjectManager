@@ -112,6 +112,7 @@ public sealed class AdminAccessPreviewEndpointTests
     [InlineData(EngineeringPermissions.ModuleView, AccessPreviewApplications.Engineering)]
     [InlineData("estimating.view", AccessPreviewApplications.Estimating)]
     [InlineData(QualityAssurancePermissions.ModuleView, AccessPreviewApplications.QualityAssurance)]
+    [InlineData(SmallBusinessSubcontractingPermissions.ModuleView, AccessPreviewApplications.SmallBusinessSubcontracting)]
     public void Preview_uses_module_entry_permissions_for_granular_groups(
         string permission,
         string expectedApplicationId)
@@ -253,6 +254,7 @@ public sealed class AdminAccessPreviewEndpointTests
               { "Id": "engineering-hub", "Name": "Engineering Hub", "Order": 20, "Status": "Active", "AllowedRoles": [] },
               { "Id": "estimating-dashboard", "Name": "Estimating Dashboard", "Order": 30, "Status": "Active", "AllowedRoles": [] },
               { "Id": "quality-assurance", "Name": "Quality Assurance", "Order": 40, "Status": "Active", "AllowedRoles": [] },
+              { "Id": "small-business-subcontracting", "Name": "Small Business Subcontracting", "Order": 45, "Status": "Active", "AllowedRoles": [] },
               { "Id": "admin-console", "Name": "Admin Console", "Order": 50, "Status": "Active", "AllowedRoles": ["Admin"] }
             ]
           }

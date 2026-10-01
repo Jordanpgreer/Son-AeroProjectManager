@@ -65,6 +65,7 @@ public sealed class ApplicationRegistry
             "engineering-hub" => SonAero.Platform.Security.ApplicationModules.Engineering,
             "estimating-dashboard" => SonAero.Platform.Security.ApplicationModules.Estimating,
             "quality-assurance" => SonAero.Platform.Security.ApplicationModules.QualityAssurance,
+            "small-business-subcontracting" => SonAero.Platform.Security.ApplicationModules.SmallBusinessSubcontracting,
             _ => null
         };
         return moduleKey is null

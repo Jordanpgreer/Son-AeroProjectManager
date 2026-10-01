@@ -27,6 +27,7 @@ public static class AccessPreviewApplications
     public const string Engineering = "engineering-hub";
     public const string Estimating = "estimating-dashboard";
     public const string QualityAssurance = "quality-assurance";
+    public const string SmallBusinessSubcontracting = "small-business-subcontracting";
 }
 
 public static class AccessPreviewTargetKinds

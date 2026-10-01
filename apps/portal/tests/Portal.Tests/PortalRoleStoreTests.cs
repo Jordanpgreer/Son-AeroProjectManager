@@ -164,6 +164,48 @@ public sealed class PortalRoleStoreTests
     }
 
     [Fact]
+    public async Task FindAccountAsync_SubcontractingEntryPermissionEnablesCatalogVisibility()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<PortalRoleDbContext>().UseSqlite(connection).Options;
+        await using var db = new PortalRoleDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+        db.Users.Add(new PortalRoleRecord
+        {
+            AccountName = "SONAERO\\Compliance.One",
+            DisplayName = "Compliance One",
+            Role = ApplicationRoles.Viewer,
+            IsActive = true,
+            ProjectTrackerGroupMemberships =
+            [
+                new PortalProjectTrackerMembershipRecord
+                {
+                    Group = new PortalProjectTrackerGroupRecord
+                    {
+                        Name = "Subcontracting Access",
+                        Permissions =
+                        [
+                            new PortalProjectTrackerPermissionRecord
+                            {
+                                PermissionKey = SmallBusinessSubcontractingPermissions.ModuleView
+                            }
+                        ]
+                    }
+                }
+            ]
+        });
+        await db.SaveChangesAsync();
+
+        var store = new PortalRoleStore(db, NullLogger<PortalRoleStore>.Instance);
+        var account = await store.FindAccountAsync("sonaero/compliance.one");
+
+        Assert.Equal(
+            ApplicationRoles.Viewer,
+            account.ModuleRoles[ApplicationModules.SmallBusinessSubcontracting]);
+    }
+
+    [Fact]
     public async Task FindAccountAsync_PreservesInactiveState()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

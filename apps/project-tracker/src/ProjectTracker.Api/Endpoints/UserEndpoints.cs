@@ -584,7 +584,9 @@ public static class UserEndpoints
             || ApplicationModuleCatalog.RoleForPermissions(ApplicationModules.Estimating, permissions) is not null
             || permissions.Contains(EstimatingViewPermission)
             || ApplicationModuleCatalog.RoleForPermissions(ApplicationModules.QualityAssurance, permissions) is not null
-            || permissions.Contains(QualityAssurancePermissions.ModuleView))
+            || permissions.Contains(QualityAssurancePermissions.ModuleView)
+            || ApplicationModuleCatalog.RoleForPermissions(ApplicationModules.SmallBusinessSubcontracting, permissions) is not null
+            || permissions.Contains(SmallBusinessSubcontractingPermissions.ModuleView))
             return false;
 
         return true;
@@ -710,6 +712,8 @@ public static class UserEndpoints
             normalized.Where(permission => permission.StartsWith("engineering.", StringComparison.OrdinalIgnoreCase))));
         normalized.UnionWith(QualityAssurancePermissions.Expand(
             normalized.Where(permission => permission.StartsWith("quality-assurance.", StringComparison.OrdinalIgnoreCase))));
+        normalized.UnionWith(SmallBusinessSubcontractingPermissions.Expand(
+            normalized.Where(permission => permission.StartsWith("small-business-subcontracting.", StringComparison.OrdinalIgnoreCase))));
 
         var estimating = normalized
             .Where(permission => permission.StartsWith("estimating.", StringComparison.OrdinalIgnoreCase))
@@ -755,7 +759,12 @@ public static class UserEndpoints
             ApplicationModules.Engineering,
             "Engineering")));
 
-        foreach (var moduleKey in new[] { ApplicationModules.Estimating, ApplicationModules.QualityAssurance })
+        foreach (var moduleKey in new[]
+                 {
+                     ApplicationModules.Estimating,
+                     ApplicationModules.QualityAssurance,
+                     ApplicationModules.SmallBusinessSubcontracting
+                 })
         {
             var module = ApplicationModuleCatalog.Find(moduleKey)!;
             definitions.AddRange(ApplicationModuleCatalog.PermissionsForModule(moduleKey).Select(permission =>

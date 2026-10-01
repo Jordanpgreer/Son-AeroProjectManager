@@ -3,7 +3,8 @@
 
     Starts Project Tracker (http://localhost:5135), Engineering Hub (http://localhost:5150),
     Estimating Dashboard (http://localhost:5160), Quality Assurance
-    (http://localhost:5170), and the Portal (http://localhost:5140),
+    (http://localhost:5170), Small Business Subcontracting
+    (http://localhost:5180), and the Portal (http://localhost:5140),
     rebuilding each frontend only when its source changed, waits for each to become healthy,
     then opens the portal homepage. Startup
     problems are shown in a dialog (not a blank
@@ -89,6 +90,14 @@ $apps = @(
         ApiRoot    = Join-Path $repoRoot 'apps\quality-assurance\src\QualityAssurance.Api'
         Url        = 'http://localhost:5170'
         Port       = 5170
+        HealthPath = '/api/health'
+    },
+    [pscustomobject]@{
+        Name       = 'Small Business Subcontracting'
+        Key        = 'small-business-subcontracting'
+        ApiRoot    = Join-Path $repoRoot 'apps\small-business-subcontracting\src\SmallBusinessSubcontracting.Api'
+        Url        = 'http://localhost:5180'
+        Port       = 5180
         HealthPath = '/api/health'
     },
     [pscustomobject]@{

@@ -5,6 +5,7 @@ import {
   AppWindow,
   ArrowUpRight,
   Bell,
+  Building2,
   Boxes,
   Calculator,
   ClipboardCheck,
@@ -74,6 +75,7 @@ const ICONS: Record<string, typeof AppWindow> = {
   database: Database,
   calculator: Calculator,
   'clipboard-check': ClipboardCheck,
+  'building-2': Building2,
 }
 
 const CAPABILITIES: Record<string, string[]> = {
@@ -81,6 +83,7 @@ const CAPABILITIES: Record<string, string[]> = {
   'engineering-hub': ['Drawing control', 'Tooling', 'Technical records'],
   'estimating-dashboard': ['Quoting', 'Cost roll-ups', 'Bid tracking'],
   'quality-assurance': ['Shipping status', 'Queue routing', 'Audit history'],
+  'small-business-subcontracting': ['Vendor records', 'Business-size compliance', 'Excel reporting'],
   'admin-console': ['Application catalog', 'Access control', 'Configuration'],
 }
 

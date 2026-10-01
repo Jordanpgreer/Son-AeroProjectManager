@@ -62,6 +62,12 @@ public sealed class ModuleAccessService
                 user.Id,
                 ApplicationModules.QualityAssurance,
                 ApplicationRoles.Admin);
+            AddIfMissing(
+                db,
+                existingKeys,
+                user.Id,
+                ApplicationModules.SmallBusinessSubcontracting,
+                ApplicationRoles.Admin);
         }
 
         await db.SaveChangesAsync(cancellationToken);

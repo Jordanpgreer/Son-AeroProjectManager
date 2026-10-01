@@ -145,6 +145,47 @@ public sealed class ApplicationRegistryTests
         Assert.Single(registry.GetVisibleFor("Admin", qualityAccess));
     }
 
+    [Fact]
+    public void GetVisibleFor_SmallBusinessSubcontracting_RequiresModuleAssignment()
+    {
+        const string json = """
+        {
+          "Portal": {
+            "Applications": [
+              { "Id": "small-business-subcontracting", "Name": "Small Business Subcontracting", "Order": 1, "Status": "Active", "AllowedRoles": [] }
+            ]
+          }
+        }
+        """;
+        var registry = new ApplicationRegistry(BuildConfiguration(json));
+        var assigned = new HashSet<string>(
+            [ApplicationModules.SmallBusinessSubcontracting],
+            StringComparer.OrdinalIgnoreCase);
+
+        Assert.Single(registry.GetVisibleFor(ApplicationRoles.Viewer, assigned));
+        Assert.Empty(registry.GetVisibleFor(ApplicationRoles.Admin, new HashSet<string>()));
+    }
+
+    [Fact]
+    public void SmallBusinessSubcontracting_roles_have_expected_permission_boundaries()
+    {
+        var viewer = ApplicationModuleCatalog.PermissionsFor(
+            ApplicationModules.SmallBusinessSubcontracting,
+            ApplicationRoles.Viewer);
+        var editor = ApplicationModuleCatalog.PermissionsFor(
+            ApplicationModules.SmallBusinessSubcontracting,
+            ApplicationRoles.Editor);
+        var administrator = ApplicationModuleCatalog.PermissionsFor(
+            ApplicationModules.SmallBusinessSubcontracting,
+            ApplicationRoles.Admin);
+
+        Assert.Contains(viewer, permission => permission.Key == SmallBusinessSubcontractingPermissions.Export);
+        Assert.DoesNotContain(viewer, permission => permission.Key == SmallBusinessSubcontractingPermissions.ComplianceManage);
+        Assert.Contains(editor, permission => permission.Key == SmallBusinessSubcontractingPermissions.DocumentsManage);
+        Assert.DoesNotContain(editor, permission => permission.Key == SmallBusinessSubcontractingPermissions.FulcrumSync);
+        Assert.Contains(administrator, permission => permission.Key == SmallBusinessSubcontractingPermissions.FulcrumSync);
+    }
+
     [Theory]
     [InlineData(PortalAccountStatus.PendingSetup)]
     [InlineData(PortalAccountStatus.Inactive)]

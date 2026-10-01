@@ -273,6 +273,7 @@ public static class AdminAccessPreviewEndpoints
             || permissions.Contains(EngineeringPermissions.ModuleView)
             || permissions.Contains("estimating.view")
             || permissions.Contains(QualityAssurancePermissions.ModuleView)
+            || permissions.Contains(SmallBusinessSubcontractingPermissions.ModuleView)
             || assignedModules.Count > 0;
         var role = configured
             ? ApplicationRoles.Normalize(user.Role) ?? ApplicationRoles.Viewer
@@ -355,6 +356,9 @@ public static class AdminAccessPreviewEndpoints
         if (permissions.Contains(QualityAssurancePermissions.ModuleView)
             || assignedModules?.Contains(ApplicationModules.QualityAssurance) == true)
             visibleIds.Add(AccessPreviewApplications.QualityAssurance);
+        if (permissions.Contains(SmallBusinessSubcontractingPermissions.ModuleView)
+            || assignedModules?.Contains(ApplicationModules.SmallBusinessSubcontracting) == true)
+            visibleIds.Add(AccessPreviewApplications.SmallBusinessSubcontracting);
         if (IsAdmin(role ?? string.Empty))
             visibleIds.Add(ApplicationRegistry.AdminConsoleApplicationId);
 
