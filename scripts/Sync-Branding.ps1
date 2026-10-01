@@ -30,7 +30,8 @@ $clientApps = @(
     (Join-Path $repoRoot 'apps\portal\src\Portal.Api\ClientApp'),
     (Join-Path $repoRoot 'apps\estimating-dashboard\src\EstimatingDashboard.Api\ClientApp'),
     (Join-Path $repoRoot 'apps\engineering-hub\src\EngineeringHub.Api\ClientApp'),
-    (Join-Path $repoRoot 'apps\quality-assurance\src\QualityAssurance.Api\ClientApp')
+    (Join-Path $repoRoot 'apps\quality-assurance\src\QualityAssurance.Api\ClientApp'),
+    (Join-Path $repoRoot 'apps\small-business-subcontracting\src\SmallBusinessSubcontracting.Api\ClientApp')
 )
 
 foreach ($clientApp in $clientApps) {

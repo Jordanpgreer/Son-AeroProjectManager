@@ -1,0 +1,158 @@
+/*
+ * Arda application design tokens — canonical source of truth.
+ *
+ * The shared design tokens (typography, color, lines, radii, elevation) for every
+ * Arda internal application. This file is the single source; each frontend imports
+ * a synced copy (scripts/Sync-Branding.ps1 -> <app>/src/brand-tokens.css, pulled in from
+ * that app's index.css). Only tokens that are identical across every app live here — an
+ * app keeps any app-specific or intentionally-divergent tokens (e.g. --shadow-pop,
+ * --font-id, spacing scale) in its own index.css :root.
+ *
+ * Update tokens HERE, then run scripts/Sync-Branding.ps1 to propagate.
+ */
+:root {
+  color-scheme: light;
+  /* ---- Type ------------------------------------------------------------ */
+  --font-display: 'Archivo', 'IBM Plex Sans', system-ui, sans-serif;
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  /* ---- Canvas & surfaces ---------------------------------------------- */
+  --bg: #dde8f0;
+  --bg-deep: #d3e0e9;
+  --surface: #eaf1f6;
+  --surface-2: #e3edf4;
+  --surface-3: #dde8f0;
+
+  /* ---- Ink ------------------------------------------------------------- */
+  --ink: #101822;
+  --ink-2: #3a4654;
+  --muted: #5f6b78;
+  --faint: #98a3af;
+  --faint-text: #536271;
+
+  /* ---- Lines ----------------------------------------------------------- */
+  --line: #d1dde6;
+  --line-2: #c6d5e1;
+  --line-3: #a8bdcc;
+  --control-line: #718da4;
+
+  /* ---- Legacy accent aliases (Arda blue) ------------------------------ */
+  --red: #2f6195;
+  --red-600: #28567f;
+  --red-700: #1f486f;
+  --red-action: #2f6195;
+  --red-action-hover: #1f486f;
+  --red-tint: #e8eff6;
+  --red-tint-2: #a7c2d7;
+
+  /* ---- Steel (secondary accent / data) -------------------------------- */
+  --steel: #2f6195;
+  --steel-700: #1f486f;
+  --steel-tint: #e8eff6;
+  --steel-tint-2: #a7c2d7;
+  --steel-action: #2f6195;
+  --steel-action-hover: #1f486f;
+
+  /* ---- Status ---------------------------------------------------------- */
+  --ok: #68a986;
+  --ok-700: #326b4d;
+  --ok-action: #326b4d;
+  --ok-action-hover: #28563f;
+  --ok-tint: #edf7f1;
+  --warn: #b5731a;
+  --warn-700: #8a560f;
+  --warn-tint: #fbf1de;
+  --risk: #b5731a;
+  --risk-700: #8a560f;
+  --risk-tint: #fbf1de;
+  --done: #1f7a4d;
+  --done-700: #155c39;
+  --done-tint: #e5f2ea;
+  --idle: #7d8893;
+  --idle-tint: #edf0f3;
+
+  /* ---- Dark navigation rail (navy / graphite) ------------------------- */
+  --nav-1: #0d1218;
+  --nav-2: #141d26;
+  --nav-3: #0a0e13;
+  --nav-text: #c9d2db;
+  --nav-strong: #ffffff;
+  --nav-muted: #79868f;
+  --nav-line: rgba(255, 255, 255, 0.08);
+
+  /* ---- Radii ----------------------------------------------------------- */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 11px;
+  --r-pill: 999px;
+
+  /* ---- Elevation ------------------------------------------------------- */
+  --shadow-1: 0 1px 1px rgba(16, 24, 33, 0.04), 0 1px 2px rgba(16, 24, 33, 0.05);
+  --shadow-2: 0 1px 2px rgba(16, 24, 33, 0.05), 0 10px 22px -14px rgba(16, 24, 33, 0.30);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #0f151c;
+  --bg-deep: #151d27;
+  --surface: #18212b;
+  --surface-2: #1f2a36;
+  --surface-3: #293746;
+
+  --ink: #edf2f7;
+  --ink-2: #c7d1dc;
+  --muted: #96a4b3;
+  --faint: #738190;
+  --faint-text: #96a4b3;
+
+  --line: #253240;
+  --line-2: #324354;
+  --line-3: #445769;
+  --control-line: #617f98;
+
+  --red: #69a4d6;
+  --red-600: #3c75aa;
+  --red-700: #acd0ef;
+  --red-action: #2f6195;
+  --red-action-hover: #3c75aa;
+  --red-tint: #1b2a39;
+  --red-tint-2: #2b4d68;
+
+  --steel: #69a4d6;
+  --steel-700: #acd0ef;
+  --steel-tint: #1b2a39;
+  --steel-tint-2: #2b4d68;
+  --steel-action: #2f6195;
+  --steel-action-hover: #3c75aa;
+
+  --ok: #78c59d;
+  --ok-700: #bce7cf;
+  --ok-action: #326b4d;
+  --ok-action-hover: #28563f;
+  --ok-tint: #1a2d25;
+  --warn: #d3a354;
+  --warn-700: #f0cc8a;
+  --warn-tint: #332818;
+  --risk: #d3a354;
+  --risk-700: #f0cc8a;
+  --risk-tint: #332818;
+  --done: #4fbb7f;
+  --done-700: #abe0c2;
+  --done-tint: #193024;
+  --idle: #8c98a5;
+  --idle-tint: #1d2731;
+
+  --nav-1: #0a0f14;
+  --nav-2: #101821;
+  --nav-3: #070b10;
+  --nav-text: #d4dde7;
+  --nav-strong: #ffffff;
+  --nav-muted: #85929e;
+  --nav-line: rgba(255, 255, 255, 0.10);
+
+  --shadow-1: 0 1px 1px rgba(0, 0, 0, 0.32), 0 1px 2px rgba(0, 0, 0, 0.34);
+  --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.34), 0 18px 32px -18px rgba(0, 0, 0, 0.55);
+}

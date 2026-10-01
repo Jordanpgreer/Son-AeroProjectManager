@@ -1,15 +1,19 @@
-import { useDeferredValue, useEffect, useState } from 'react'
+import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import {
   ArrowDownToLine,
   Building2,
   CalendarDays,
+  CircleCheckBig,
   FilePlus2,
+  Files,
   Mail,
   Phone,
   RefreshCw,
   Search,
   Tag,
+  Tags,
   Upload,
+  UsersRound,
   X,
 } from 'lucide-react'
 import { api, queryString } from './api'
@@ -43,7 +47,10 @@ export default function VendorsPage({
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
   const [detail, setDetail] = useState<VendorDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState<string | null>(null)
+  const [detailRequestKey, setDetailRequestKey] = useState(0)
   const [refreshKey, setRefreshKey] = useState(0)
+  const drawerRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     let active = true
@@ -63,16 +70,53 @@ export default function VendorsPage({
   useEffect(() => {
     if (selectedVendorId === null) {
       setDetail(null)
+      setDetailError(null)
       return
     }
     let active = true
     setDetailLoading(true)
+    setDetailError(null)
     api<VendorDetail>(`/api/vendors/${selectedVendorId}`)
       .then((result) => { if (active) setDetail(result) })
-      .catch((error: Error) => { if (active) onError(error.message) })
+      .catch((error: Error) => { if (active) setDetailError(error.message) })
       .finally(() => { if (active) setDetailLoading(false) })
     return () => { active = false }
-  }, [onError, selectedVendorId])
+  }, [detailRequestKey, selectedVendorId])
+
+  useEffect(() => {
+    if (selectedVendorId === null) return
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const frame = window.requestAnimationFrame(() => drawerRef.current?.focus())
+    return () => {
+      window.cancelAnimationFrame(frame)
+      document.body.style.overflow = previousOverflow
+      previousFocus?.focus()
+    }
+  }, [selectedVendorId])
+
+  function handleDrawerKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      onCloseVendor()
+      return
+    }
+    if (event.key !== 'Tab' || !drawerRef.current) return
+    const focusable = Array.from(drawerRef.current.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ))
+    if (focusable.length === 0) return
+    const first = focusable[0]
+    const last = focusable.at(-1)!
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
 
   async function synchronize() {
     setSyncing(true)
@@ -87,6 +131,10 @@ export default function VendorsPage({
       setSyncing(false)
     }
   }
+
+  const activeVendors = vendors.filter((vendor) => vendor.active).length
+  const classifiedVendors = vendors.filter((vendor) => vendor.businessSizes.length > 0).length
+  const documentCount = vendors.reduce((total, vendor) => total + vendor.documentCount, 0)
 
   return (
     <>
@@ -110,9 +158,16 @@ export default function VendorsPage({
         </div>
       )}
 
-      <section className="registry-panel">
+      <section className="summary-strip vendor-summary" aria-label="Vendor registry summary" aria-busy={loading}>
+        <div><span className="metric-icon"><UsersRound size={17} aria-hidden="true" /></span><span>Visible vendors</span><strong>{vendors.length}</strong><small>{query ? 'Matching this search' : 'Current register'}</small></div>
+        <div><span className="metric-icon metric-icon--success"><CircleCheckBig size={17} aria-hidden="true" /></span><span>Active</span><strong>{activeVendors}</strong><small>Active in Fulcrum</small></div>
+        <div><span className="metric-icon"><Tags size={17} aria-hidden="true" /></span><span>Classified</span><strong>{classifiedVendors}</strong><small>Business size assigned</small></div>
+        <div><span className="metric-icon"><Files size={17} aria-hidden="true" /></span><span>Documents</span><strong>{documentCount}</strong><small>Associated evidence</small></div>
+      </section>
+
+      <section className="registry-panel" aria-busy={loading}>
         <div className="registry-toolbar">
-          <label className="search-field">
+          <label className="search-field"><span className="sr-only">Search vendors</span>
             <Search size={17} />
             <input
               value={query}
@@ -145,44 +200,45 @@ export default function VendorsPage({
                     key={vendor.id}
                     className="clickable-row"
                     onClick={() => onOpenVendor(vendor.id)}
-                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') onOpenVendor(vendor.id) }}
-                    tabIndex={0}
                   >
-                    <td>
-                      <strong>{highlight(vendor.name, deferredQuery)}</strong>
+                    <td data-label="Vendor">
+                      <button className="row-link" type="button" onClick={() => onOpenVendor(vendor.id)} aria-label={`Open ${vendor.name}`}>
+                        {highlight(vendor.name, deferredQuery)}
+                      </button>
                       <span className="cell-secondary">{vendor.vendorCode ? highlight(vendor.vendorCode, deferredQuery) : 'No vendor code'}</span>
                     </td>
-                    <td>
+                    <td data-label="Primary contact">
                       {contact ? <>
                         <span>{highlight(contact.name, deferredQuery)}</span>
                         <span className="cell-secondary">{contact.email ? highlight(contact.email, deferredQuery) : contact.phone ?? 'No contact details'}</span>
                       </> : <span className="muted">No Fulcrum contact</span>}
                     </td>
-                    <td>
+                    <td data-label="Business size">
                       <div className="tag-list">
                         {vendor.businessSizes.length
                           ? vendor.businessSizes.map((tag) => <span className="tag-pill" key={tag.id}>{highlight(tag.name, deferredQuery)}</span>)
                           : <span className="muted">Not classified</span>}
                       </div>
                     </td>
-                    <td>{formatDate(vendor.lastCertificationDate)}</td>
-                    <td><span className="document-count">{vendor.documentCount}</span></td>
-                    <td><span className={`status-pill ${vendor.active ? 'active' : 'inactive'}`}>{vendor.active ? 'Active' : 'Inactive'}</span></td>
+                    <td data-label="Last certification">{formatDate(vendor.lastCertificationDate)}</td>
+                    <td data-label="Documents"><span className="document-count">{vendor.documentCount}</span></td>
+                    <td data-label="Status"><span className={`status-pill ${vendor.active ? 'active' : 'inactive'}`}><i aria-hidden="true" />{vendor.active ? 'Active' : 'Inactive'}</span></td>
                   </tr>
                 )
               })}
-              {loading && <tr><td colSpan={6}><div className="table-state">Loading vendor records...</div></td></tr>}
-              {!loading && vendors.length === 0 && <tr><td colSpan={6}><div className="table-state">No vendors match this search.</div></td></tr>}
+              {loading && <tr className="state-row"><td colSpan={6}><div className="table-state" role="status"><RefreshCw className="spin" size={22} aria-hidden="true" /><strong>Loading vendor records</strong><span>Checking the current Arda register…</span></div></td></tr>}
+              {!loading && vendors.length === 0 && <tr className="state-row"><td colSpan={6}><div className="table-state"><Building2 size={25} aria-hidden="true" /><strong>{query ? 'No matching vendors' : 'No vendors have been synchronized yet'}</strong><span>{query ? 'Try a broader vendor, contact, code, or classification search.' : 'Bring the Fulcrum vendor directory into Arda to begin managing compliance.'}</span>{!query && user.permissions.includes(syncPermission) && <button className="secondary-button" type="button" onClick={synchronize} disabled={syncing}><RefreshCw size={15} className={syncing ? 'spin' : ''} />{syncing ? 'Syncing vendors' : 'Sync Fulcrum vendors'}</button>}</div></td></tr>}
             </tbody>
           </table>
         </div>
       </section>
 
       {selectedVendorId !== null && (
-        <div className="drawer-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseVendor() }}>
-          <aside className="record-drawer" aria-label="Vendor record">
+        <div className="drawer-scrim" onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseVendor() }} onKeyDown={handleDrawerKeyDown}>
+          <aside ref={drawerRef} className="record-drawer" role="dialog" aria-modal="true" aria-labelledby={detail ? 'vendor-record-title' : undefined} aria-label={detail ? undefined : 'Vendor record'} tabIndex={-1}>
             <button className="drawer-close" type="button" onClick={onCloseVendor} aria-label="Close vendor record"><X size={19} /></button>
             {detailLoading && <div className="drawer-state">Loading vendor record...</div>}
+            {!detailLoading && detailError && <div className="drawer-state" role="alert"><strong>Vendor record unavailable</strong><span>{detailError}</span><button className="secondary-button" type="button" onClick={() => setDetailRequestKey((value) => value + 1)}><RefreshCw size={15} />Try again</button></div>}
             {!detailLoading && detail && (
               <VendorRecord
                 detail={detail}
@@ -220,10 +276,12 @@ function VendorRecord({
   const [certificationDate, setCertificationDate] = useState(detail.vendor.lastCertificationDate ?? '')
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; message: string } | null>(null)
 
   useEffect(() => {
     setTagNames(detail.vendor.businessSizes.map((tag) => tag.name))
     setCertificationDate(detail.vendor.lastCertificationDate ?? '')
+    setFeedback(null)
   }, [detail])
 
   function addTag(name: string) {
@@ -235,6 +293,7 @@ function VendorRecord({
 
   async function saveCompliance() {
     setSaving(true)
+    setFeedback(null)
     try {
       const updated = await api<VendorDetail>(`/api/vendors/${detail.vendor.id}/compliance`, {
         method: 'PUT',
@@ -245,8 +304,11 @@ function VendorRecord({
         }),
       })
       onUpdated(updated)
+      setFeedback({ kind: 'success', message: 'Compliance details saved.' })
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'The compliance record could not be saved.')
+      const message = error instanceof Error ? error.message : 'The compliance record could not be saved.'
+      setFeedback({ kind: 'error', message })
+      onError(message)
     } finally {
       setSaving(false)
     }
@@ -257,6 +319,7 @@ function VendorRecord({
     const form = event.currentTarget
     const data = new FormData(form)
     setUploading(true)
+    setFeedback(null)
     try {
       const updated = await api<VendorDetail>(`/api/vendors/${detail.vendor.id}/documents`, {
         method: 'POST',
@@ -264,8 +327,11 @@ function VendorRecord({
       })
       form.reset()
       onUpdated(updated)
+      setFeedback({ kind: 'success', message: 'Document attached to this vendor.' })
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'The document could not be uploaded.')
+      const message = error instanceof Error ? error.message : 'The document could not be uploaded.'
+      setFeedback({ kind: 'error', message })
+      onError(message)
     } finally {
       setUploading(false)
     }
@@ -274,11 +340,12 @@ function VendorRecord({
   const primary = detail.vendor.contacts[0]
   return (
     <div className="record-content">
+      {feedback && <div className={`drawer-feedback ${feedback.kind}`} role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.message}</div>}
       <header className="record-header">
         <div className="record-icon"><Building2 size={22} /></div>
         <div>
           <p className="eyebrow">Vendor Record</p>
-          <h2>{detail.vendor.name}</h2>
+          <h2 id="vendor-record-title">{detail.vendor.name}</h2>
           <p>{detail.vendor.vendorCode ?? 'No vendor code'} · <span className={detail.vendor.active ? 'text-active' : 'muted'}>{detail.vendor.active ? 'Active in Fulcrum' : 'Inactive in Fulcrum'}</span></p>
         </div>
       </header>

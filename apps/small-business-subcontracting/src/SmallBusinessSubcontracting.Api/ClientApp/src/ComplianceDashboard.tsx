@@ -1,15 +1,17 @@
 import { useDeferredValue, useEffect, useState } from 'react'
-import { ArrowDown, ArrowUp, CalendarCheck2, Download, FileWarning, Search, Tags, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Building2, CalendarCheck2, Download, Files, RefreshCw, Search, Tags, X } from 'lucide-react'
 import { api, queryString } from './api'
 import { highlight } from './highlight'
 import type { DashboardData } from './types'
 
 interface ComplianceDashboardProps {
+  canOpenVendors: boolean
+  canExport: boolean
   onOpenVendor: (id: number) => void
   onError: (message: string) => void
 }
 
-export default function ComplianceDashboard({ onOpenVendor, onError }: ComplianceDashboardProps) {
+export default function ComplianceDashboard({ canOpenVendors, canExport, onOpenVendor, onError }: ComplianceDashboardProps) {
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const [businessSize, setBusinessSize] = useState('')
@@ -65,19 +67,19 @@ export default function ComplianceDashboard({ onOpenVendor, onError }: Complianc
           <h1>Small business certification register</h1>
           <p className="page-intro">Find vendors by name or classification, review certification dates, and export exactly what is shown.</p>
         </div>
-        <a className="primary-button" href={exportUrl}><Download size={16} /> Export visible results</a>
+        {canExport && <a className="primary-button" href={exportUrl}><Download size={16} /> Export visible results</a>}
       </section>
 
-      <section className="summary-strip">
-        <div><span>Matching Vendors</span><strong>{data.vendors.length}</strong><small>{loading ? 'Updating results' : 'Current view'}</small></div>
-        <div><span>Classified</span><strong>{classified}</strong><small><Tags size={13} /> Business size assigned</small></div>
-        <div><span>Certifications Recorded</span><strong>{certified}</strong><small><CalendarCheck2 size={13} /> Date on file</small></div>
-        <div><span>Associated Files</span><strong>{documents}</strong><small><FileWarning size={13} /> Across current results</small></div>
+      <section className="summary-strip" aria-label="Compliance summary" aria-busy={loading}>
+        <div><span className="metric-icon"><Building2 size={17} aria-hidden="true" /></span><span>Matching vendors</span><strong>{data.vendors.length}</strong><small>{loading ? 'Updating results' : 'Current view'}</small></div>
+        <div><span className="metric-icon"><Tags size={17} aria-hidden="true" /></span><span>Classified</span><strong>{classified}</strong><small>Business size assigned</small></div>
+        <div><span className="metric-icon metric-icon--success"><CalendarCheck2 size={17} aria-hidden="true" /></span><span>Certifications recorded</span><strong>{certified}</strong><small>Date on file</small></div>
+        <div><span className="metric-icon"><Files size={17} aria-hidden="true" /></span><span>Associated files</span><strong>{documents}</strong><small>Across current results</small></div>
       </section>
 
-      <section className="registry-panel dashboard-panel">
+      <section className="registry-panel dashboard-panel" aria-busy={loading}>
         <div className="dashboard-controls">
-          <label className="search-field wide">
+          <label className="search-field wide"><span className="sr-only">Search compliance records</span>
             <Search size={17} />
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Live search vendor name or business size" aria-label="Search compliance records" />
             {query && <button type="button" onClick={() => setQuery('')} aria-label="Clear search"><X size={15} /></button>}
@@ -101,17 +103,17 @@ export default function ComplianceDashboard({ onOpenVendor, onError }: Complianc
             </thead>
             <tbody>
               {!loading && data.vendors.map((vendor) => (
-                <tr key={vendor.id} className="clickable-row" onClick={() => onOpenVendor(vendor.id)} tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') onOpenVendor(vendor.id) }}>
-                  <td><strong>{highlight(vendor.name, deferredQuery)}</strong><span className={`cell-secondary ${vendor.active ? '' : 'text-warning'}`}>{vendor.active ? 'Active' : 'Inactive'} in Fulcrum</span></td>
-                  <td>{vendor.vendorCode ?? <span className="muted">Not set</span>}</td>
-                  <td><div className="tag-list">{vendor.businessSizes.length ? vendor.businessSizes.map((tag) => <span className="tag-pill" key={tag.id}>{highlight(tag.name, deferredQuery)}</span>) : <span className="muted">Not classified</span>}</div></td>
-                  <td>{formatDate(vendor.lastCertificationDate)}</td>
-                  <td>{vendor.contacts[0] ? <><span>{vendor.contacts[0].name}</span><span className="cell-secondary">{vendor.contacts[0].email ?? vendor.contacts[0].phone ?? 'No details'}</span></> : <span className="muted">No contact</span>}</td>
-                  <td><span className="document-count">{vendor.documentCount}</span></td>
+                <tr key={vendor.id} className={canOpenVendors ? 'clickable-row' : undefined} onClick={canOpenVendors ? () => onOpenVendor(vendor.id) : undefined}>
+                  <td data-label="Vendor name">{canOpenVendors ? <button className="row-link" type="button" onClick={() => onOpenVendor(vendor.id)} aria-label={`Open ${vendor.name}`}>{highlight(vendor.name, deferredQuery)}</button> : <strong>{highlight(vendor.name, deferredQuery)}</strong>}<span className={`cell-secondary ${vendor.active ? '' : 'text-warning'}`}>{vendor.active ? 'Active' : 'Inactive'} in Fulcrum</span></td>
+                  <td data-label="Vendor code">{vendor.vendorCode ?? <span className="muted">Not set</span>}</td>
+                  <td data-label="Business size"><div className="tag-list">{vendor.businessSizes.length ? vendor.businessSizes.map((tag) => <span className="tag-pill" key={tag.id}>{highlight(tag.name, deferredQuery)}</span>) : <span className="muted">Not classified</span>}</div></td>
+                  <td data-label="Last certification">{formatDate(vendor.lastCertificationDate)}</td>
+                  <td data-label="Contact">{vendor.contacts[0] ? <><span>{vendor.contacts[0].name}</span><span className="cell-secondary">{vendor.contacts[0].email ?? vendor.contacts[0].phone ?? 'No details'}</span></> : <span className="muted">No contact</span>}</td>
+                  <td data-label="Documents"><span className="document-count">{vendor.documentCount}</span></td>
                 </tr>
               ))}
-              {loading && <tr><td colSpan={6}><div className="table-state">Updating compliance results...</div></td></tr>}
-              {!loading && data.vendors.length === 0 && <tr><td colSpan={6}><div className="table-state">No compliance records match these filters.</div></td></tr>}
+              {loading && <tr className="state-row"><td colSpan={6}><div className="table-state" role="status"><RefreshCw className="spin" size={22} aria-hidden="true" /><strong>Updating compliance results</strong><span>Applying the current filters…</span></div></td></tr>}
+              {!loading && data.vendors.length === 0 && <tr className="state-row"><td colSpan={6}><div className="table-state"><Building2 size={25} aria-hidden="true" /><strong>No compliance records found</strong><span>{query || businessSize || from || to ? 'Adjust the filters to broaden this view.' : 'Vendor records will appear after the Fulcrum directory has been synchronized.'}</span></div></td></tr>}
             </tbody>
           </table>
         </div>
@@ -125,7 +127,8 @@ export default function ComplianceDashboard({ onOpenVendor, onError }: Complianc
 }
 
 function SortableHeader({ label, column, active, direction, onSort }: { label: string; column: string; active: string; direction: string; onSort: (column: string) => void }) {
-  return <th><button className="sort-button" type="button" onClick={() => onSort(column)}>{label}{active === column ? direction === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} /> : null}</button></th>
+  const ariaSort = active === column ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'
+  return <th aria-sort={ariaSort}><button className="sort-button" type="button" onClick={() => onSort(column)}>{label}{active === column ? direction === 'asc' ? <ArrowUp size={13} aria-hidden="true" /> : <ArrowDown size={13} aria-hidden="true" /> : null}</button></th>
 }
 
 function formatDate(value: string | null) {
