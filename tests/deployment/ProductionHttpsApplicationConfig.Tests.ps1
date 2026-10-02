@@ -20,6 +20,7 @@ $expectedApplications = [ordered]@{
     'engineering-hub' = 'https://engineering.hub.son4l.local'
     'estimating-dashboard' = 'https://estimating.hub.son4l.local'
     'quality-assurance' = 'https://quality.hub.son4l.local'
+    'small-business-subcontracting' = 'https://subcontracting.hub.son4l.local'
 }
 
 $portal = Get-Content -LiteralPath (Join-Path $templateRoot 'portal.appsettings.Production.json') -Raw |
@@ -36,7 +37,7 @@ foreach ($entry in $expectedApplications.GetEnumerator()) {
 }
 
 $productionDisabledRole = '__production-disabled__'
-$expectedProductionHiddenIds = @()
+$expectedProductionHiddenIds = @('small-business-subcontracting')
 $actualProductionHiddenIds = @($portal.Portal.Applications |
     Where-Object {
         $roles = @($_.AllowedRoles)
@@ -45,7 +46,11 @@ $actualProductionHiddenIds = @($portal.Portal.Applications |
     ForEach-Object Id |
     Sort-Object)
 if (($actualProductionHiddenIds -join '|') -cne (($expectedProductionHiddenIds | Sort-Object) -join '|')) {
-    throw "Portal production template must not hide any reviewed module with '$productionDisabledRole'; found: $($actualProductionHiddenIds -join ', ')."
+    throw "Only Small Business Subcontracting may be hidden pending first installation; found: $($actualProductionHiddenIds -join ', ')."
+}
+$subcontracting = @($portal.Portal.Applications | Where-Object Id -EQ 'small-business-subcontracting')[0]
+if ($subcontracting.Status -cne 'Maintenance') {
+    throw 'Small Business Subcontracting must stay unavailable until scoped activation succeeds.'
 }
 
 foreach ($applicationId in @('project-tracker', 'engineering-hub', 'estimating-dashboard', 'quality-assurance', 'admin-console')) {

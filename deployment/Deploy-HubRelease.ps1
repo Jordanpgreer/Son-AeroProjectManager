@@ -1,7 +1,8 @@
 <#
     Deploys one immutable SON-AERO Hub release on SON-IIS2.
 
-    The package must contain five published application folders. Development settings are
+    The package must contain all selected application folders (five by default, six with
+    IncludeSmallBusinessSubcontracting after its scoped first installation). Development settings are
     deliberately not copied. Each application's current appsettings.Production.json is
     carried forward before IIS is stopped or changed.
 #>
@@ -18,6 +19,7 @@ param(
     [string]$ExpectedComputerName = 'SON-IIS2',
 
     [switch]$RetainVerifiedQuality,
+    [switch]$IncludeSmallBusinessSubcontracting,
 
     [ValidateRange(30, 600)]
     [int]$HealthTimeoutSeconds = 180
@@ -60,6 +62,10 @@ if (-not (Test-Path -LiteralPath $qualityProductionConfigurationModule -PathType
 }
 Import-Module $qualityProductionConfigurationModule -Force -ErrorAction Stop
 
+if ($IncludeSmallBusinessSubcontracting) {
+    Import-Module (Join-Path $PSScriptRoot 'SubcontractingProductionConfiguration.psm1') -Force -ErrorAction Stop
+}
+
 if ($RetainVerifiedQuality) {
     $retainedQualityModule = Join-Path $PSScriptRoot 'HubReleaseRetainedQuality.psm1'
     if (-not (Test-Path -LiteralPath $retainedQualityModule -PathType Leaf)) {
@@ -100,6 +106,14 @@ $applications = @(
         MainDll = 'QualityAssurance.Api.dll'
     }
 )
+if ($IncludeSmallBusinessSubcontracting) {
+    $applications += [pscustomobject]@{
+        Name = 'SmallBusinessSubcontracting'
+        Folder = 'SmallBusinessSubcontracting'
+        Port = 5180
+        MainDll = 'SmallBusinessSubcontracting.Api.dll'
+    }
+}
 $qualityApplication = @($applications | Where-Object Name -EQ 'QualityAssurance')[0]
 $deploymentApplications = if ($RetainVerifiedQuality) {
     @($applications | Where-Object Name -NE $qualityApplication.Name)
@@ -203,6 +217,9 @@ function Get-HealthResult {
     $uri = "http://localhost:$($Application.Port)/api/health"
     try {
         $response = Invoke-WebRequest -UseBasicParsing -UseDefaultCredentials -Uri $uri -TimeoutSec 10
+        if ($Application.Name -eq 'SmallBusinessSubcontracting' -and $response.StatusCode -eq 200) {
+            Assert-SubcontractingHealthBody -Body ($response.Content | ConvertFrom-Json -ErrorAction Stop)
+        }
         return [pscustomobject]@{
             Healthy = ($response.StatusCode -eq 200)
             Detail = "HTTP $([int]$response.StatusCode) from $uri"
@@ -500,6 +517,14 @@ if ($env:COMPUTERNAME -ine $ExpectedComputerName) {
     throw "This script is for $ExpectedComputerName; the current computer is $env:COMPUTERNAME."
 }
 Assert-DeploymentIdentity
+if ($IncludeSmallBusinessSubcontracting) {
+    foreach ($target in @('Machine', 'Process')) {
+        $variables = [Environment]::GetEnvironmentVariables([EnvironmentVariableTarget]$target)
+        foreach ($name in $variables.Keys) {
+            Assert-SubcontractingEnvironmentVariable -Name ([string]$name) -Value ([string]$variables[$name]) -Label $target
+        }
+    }
+}
 foreach ($blockedOverrideName in $qualityBlockedOverrideNames) {
     if ($null -ne [Environment]::GetEnvironmentVariable(
             $blockedOverrideName, [EnvironmentVariableTarget]::Machine)) {
@@ -564,6 +589,9 @@ if (-not ('Microsoft.Web.Administration.ServerManager' -as [type])) {
 $serverManager = New-Object Microsoft.Web.Administration.ServerManager
 $currentPaths = @{}
 try {
+    if (-not $IncludeSmallBusinessSubcontracting -and $serverManager.Sites['SmallBusinessSubcontracting']) {
+        throw 'SmallBusinessSubcontracting is installed. A full Hub release must specify -IncludeSmallBusinessSubcontracting and supply all six published applications.'
+    }
     foreach ($application in $applications) {
         $sourcePath = Join-Path $packagePath $application.Folder
         if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) {
@@ -590,6 +618,9 @@ try {
             throw "Package application DLL is missing: $sourceMainDll"
         }
         Assert-ValidWebConfig -Path $sourceWebConfig -MainDll $application.MainDll
+        if ($application.Name -eq 'SmallBusinessSubcontracting') {
+            Assert-SubcontractingWebConfig -Path $sourceWebConfig
+        }
 
         $site = $serverManager.Sites[$application.Name]
         if (-not $site) { throw "Required IIS site is missing: $($application.Name)" }
@@ -633,6 +664,38 @@ try {
             throw "Current production settings are missing: $productionSettings"
         }
         Assert-JsonFile -Path $productionSettings
+        if ($application.Name -eq 'SmallBusinessSubcontracting') {
+            [void](Read-SubcontractingProductionConfiguration -Path $productionSettings)
+            Assert-SubcontractingWebConfig -Path (Join-Path $currentPath 'web.config')
+            if ($pool.ProcessModel.IdentityType -ne
+                [Microsoft.Web.Administration.ProcessModelIdentityType]::ApplicationPoolIdentity) {
+                throw 'SmallBusinessSubcontracting must use ApplicationPoolIdentity.'
+            }
+            $subcontractingIisConfig = $serverManager.GetApplicationHostConfiguration()
+            $anonymous = $subcontractingIisConfig.GetSection(
+                'system.webServer/security/authentication/anonymousAuthentication', $application.Name).GetAttributeValue('enabled')
+            $windows = $subcontractingIisConfig.GetSection(
+                'system.webServer/security/authentication/windowsAuthentication', $application.Name).GetAttributeValue('enabled')
+            if ($anonymous -isnot [bool] -or $windows -isnot [bool] -or $anonymous -or -not $windows) {
+                throw 'SmallBusinessSubcontracting must disable anonymous and enable Windows authentication.'
+            }
+            $aspNetCoreSection = $subcontractingIisConfig.GetSection('system.webServer/aspNetCore', $application.Name)
+            $poolsSection = $subcontractingIisConfig.GetSection('system.applicationHost/applicationPools')
+            $poolElement = @($poolsSection.GetCollection() | Where-Object {
+                [string]$_.GetAttributeValue('name') -ieq $application.Name
+            })
+            if ($poolElement.Count -ne 1) { throw 'Subcontracting pool configuration is ambiguous or missing.' }
+            foreach ($collection in @(
+                ,$aspNetCoreSection.GetCollection('environmentVariables')
+                ,$poolElement[0].GetCollection('environmentVariables')
+                ,$poolsSection.GetChildElement('applicationPoolDefaults').GetCollection('environmentVariables')
+            )) {
+                foreach ($variable in $collection) {
+                    Assert-SubcontractingEnvironmentVariable -Name ([string]$variable.GetAttributeValue('name')) `
+                        -Value ([string]$variable.GetAttributeValue('value')) -Label 'Subcontracting effective IIS environment'
+                }
+            }
+        }
         if ($application.Name -eq $qualityApplication.Name) {
             # Full releases carry Production settings forward; they must never perpetuate a
             # partial Quality SQL configuration. Repair is owned by the scoped Quality deploy.
@@ -741,11 +804,12 @@ if ($RetainVerifiedQuality) {
 }
 
 $deploymentAction = if ($RetainVerifiedQuality) {
-    'Create a sanitized immutable release for four applications, retain verified Quality without mutation, switch IIS paths including the Project Tracker gateway, and verify health with rollback on failure'
+    "Create a sanitized immutable release for $($deploymentApplications.Count) applications, retain verified Quality without mutation, switch IIS paths including the Project Tracker gateway, and verify health with rollback on failure"
 }
 else {
     'Create a sanitized immutable release, switch IIS paths including the Project Tracker gateway, and verify health with rollback on failure'
 }
+Write-Host "Selected applications ($($applications.Count)): $($applications.Name -join ', ')"
 if (-not $PSCmdlet.ShouldProcess(
         "$ExpectedComputerName release '$releasePath'",
         $deploymentAction)) {
@@ -754,6 +818,9 @@ if (-not $PSCmdlet.ShouldProcess(
     }
     else {
         Write-Output 'WHATIF_READY'
+    }
+    if ($IncludeSmallBusinessSubcontracting) {
+        Write-Output 'WHATIF_READY_HUB_RELEASE_WITH_SMALL_BUSINESS_SUBCONTRACTING'
     }
     return
 }
@@ -798,6 +865,10 @@ try {
         Assert-JsonFile -Path $candidateProductionSettings
         if ($application.Name -eq $qualityApplication.Name) {
             [void](Read-QualityProductionConfiguration -Path $candidateProductionSettings)
+        }
+        if ($application.Name -eq 'SmallBusinessSubcontracting') {
+            [void](Read-SubcontractingProductionConfiguration -Path $candidateProductionSettings)
+            Assert-SubcontractingWebConfig -Path $candidateWebConfig
         }
         $developmentSettings = @(Get-ChildItem -LiteralPath $candidatePath -Recurse -File -Force |
             Where-Object Name -Like 'appsettings.Development*.json')
@@ -856,12 +927,16 @@ try {
         ReleaseId = $ReleaseId
         ReleasePath = $releasePath
         PortalUrl = "http://$ExpectedComputerName`:5140"
+        Applications = @($applications.Name)
     }
     if ($RetainVerifiedQuality) {
         $successResult.RetainedQualityPath = $activeQualityPath
     }
     [pscustomobject]$successResult | Format-List
     Write-Output $successStatus
+    if ($IncludeSmallBusinessSubcontracting) {
+        Write-Output 'HUB_RELEASE_DEPLOYED_AND_HEALTHY_WITH_SMALL_BUSINESS_SUBCONTRACTING'
+    }
 }
 catch {
     $deploymentFailure = $_.Exception.Message

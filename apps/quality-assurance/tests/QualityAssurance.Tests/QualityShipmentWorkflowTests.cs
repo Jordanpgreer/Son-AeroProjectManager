@@ -538,7 +538,8 @@ public sealed class QualityShipmentWorkflowTests
     public async Task ManagerDashboardProvidesDollarRiskAndPersonDrilldownStatistics()
     {
         await using var fixture = await WorkflowFixture.CreateAsync();
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var now = DateTimeOffset.UtcNow;
+        var today = DateOnly.FromDateTime(now.UtcDateTime);
         fixture.Db.Shipments.AddRange(
             new QualityShipment
             {
@@ -566,7 +567,7 @@ public sealed class QualityShipmentWorkflowTests
                 DollarValue = 3400,
                 QaArrivalDate = today.AddDays(-5),
                 IsShipped = true,
-                ShippedAt = DateTimeOffset.UtcNow.AddDays(-1),
+                ShippedAt = now,
                 AssignedGroupId = 10,
                 AssignedGroupName = "Quality",
                 AssignedUserId = 1,

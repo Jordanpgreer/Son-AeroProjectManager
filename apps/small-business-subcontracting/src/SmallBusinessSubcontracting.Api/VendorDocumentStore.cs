@@ -18,6 +18,31 @@ public sealed class VendorDocumentStore(IConfiguration configuration, IHostEnvir
 
     public void EnsureConfigured() => ResolveRoot();
 
+    public void VerifyAccessible()
+    {
+        var root = ResolveRoot(createDirectory: false);
+        using var entries = Directory.EnumerateFileSystemEntries(root).GetEnumerator();
+        _ = entries.MoveNext();
+    }
+
+    public async Task VerifyWritableAsync(CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(ResolveRoot(), $".arda-write-probe-{Guid.NewGuid():N}.tmp");
+        // Only our uniquely named probe is touched. DeleteOnClose exercises the same
+        // share/NTFS delete permission used for document cleanup, including on errors.
+        await using (var probe = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite,
+            FileShare.None, 4096, FileOptions.Asynchronous | FileOptions.DeleteOnClose))
+        {
+            await probe.WriteAsync(new byte[] { 0x41 }, cancellationToken);
+            await probe.FlushAsync(cancellationToken);
+            probe.Position = 0;
+            var value = new byte[1];
+            if (await probe.ReadAsync(value, cancellationToken) != 1 || value[0] != 0x41)
+                throw new IOException("The vendor document storage read/write check failed.");
+        }
+        if (File.Exists(path)) throw new IOException("The vendor document storage cleanup check failed.");
+    }
+
     public async Task<StoredVendorDocument> SaveAsync(
         int vendorId,
         IFormFile file,
@@ -54,8 +79,9 @@ public sealed class VendorDocumentStore(IConfiguration configuration, IHostEnvir
                 await input.CopyToAsync(output, cancellationToken);
             }
 
-            await using var hashStream = File.OpenRead(temporary);
-            var hash = Convert.ToHexString(await SHA256.HashDataAsync(hashStream, cancellationToken));
+            string hash;
+            await using (var hashStream = File.OpenRead(temporary))
+                hash = Convert.ToHexString(await SHA256.HashDataAsync(hashStream, cancellationToken));
             File.Move(temporary, destination);
             return new StoredVendorDocument(
                 originalName,
@@ -83,7 +109,7 @@ public sealed class VendorDocumentStore(IConfiguration configuration, IHostEnvir
         if (File.Exists(path)) File.Delete(path);
     }
 
-    private string ResolveRoot()
+    private string ResolveRoot(bool createDirectory = true)
     {
         var configured = configuration["VendorDocumentStorage:RootPath"];
         var root = string.IsNullOrWhiteSpace(configured)
@@ -97,7 +123,7 @@ public sealed class VendorDocumentStore(IConfiguration configuration, IHostEnvir
             && !root.StartsWith("\\\\", StringComparison.Ordinal))
             throw new InvalidOperationException(
                 "VendorDocumentStorage:RootPath must be a UNC network path outside Development.");
-        Directory.CreateDirectory(root);
+        if (createDirectory) Directory.CreateDirectory(root);
         return root;
     }
 

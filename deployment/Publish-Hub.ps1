@@ -3,6 +3,7 @@
 param(
     [string]$OutputRoot = (Join-Path $PSScriptRoot 'artifacts\hub'),
     [string]$ProjectTrackerUrl = '/project-tracker-api',
+    [switch]$IncludeSmallBusinessSubcontracting,
     [ValidateSet('Release', 'Debug')]
     [string]$Configuration = 'Release'
 )
@@ -80,6 +81,12 @@ $applications = @(
     [pscustomobject]@{ Name = 'QualityAssurance'; Project = 'apps\quality-assurance\src\QualityAssurance.Api\QualityAssurance.Api.csproj' },
     [pscustomobject]@{ Name = 'Portal'; Project = 'apps\portal\src\Portal.Api\Portal.Api.csproj' }
 )
+if ($IncludeSmallBusinessSubcontracting) {
+    $applications += [pscustomobject]@{
+        Name = 'SmallBusinessSubcontracting'
+        Project = 'apps\small-business-subcontracting\src\SmallBusinessSubcontracting.Api\SmallBusinessSubcontracting.Api.csproj'
+    }
+}
 
 if (Test-Path -LiteralPath $resolvedOutputRoot) {
     if (-not (Test-Path -LiteralPath $resolvedOutputRoot -PathType Container)) {
@@ -120,4 +127,5 @@ finally {
 
 Write-Host ''
 Write-Host "Hub artifacts are ready at $resolvedOutputRoot"
+Write-Host "Published applications ($($applications.Count)): $($applications.Name -join ', ')"
 Write-Host 'Copy the matching appsettings.Production.json files into each application folder before starting IIS.'

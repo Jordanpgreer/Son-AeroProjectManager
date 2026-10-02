@@ -7,6 +7,9 @@
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
+    # Enables only this module after its scoped first installation has passed health checks.
+    [switch]$SmallBusinessSubcontractingOnly,
+
     [ValidateSet('SON-IIS2')]
     [string]$ExpectedComputerName = 'SON-IIS2',
 
@@ -38,6 +41,10 @@ $requiredVisibleApplicationIds = @(
     'quality-assurance',
     'admin-console'
 )
+if ($SmallBusinessSubcontractingOnly) {
+    $activatedApplicationIds = @('small-business-subcontracting')
+    $requiredVisibleApplicationIds = @('small-business-subcontracting', 'admin-console')
+}
 
 function Assert-InteractiveAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -148,6 +155,11 @@ function Set-VisibleApplicationPolicy {
         else {
             $application | Add-Member -MemberType NoteProperty -Name AllowedRoles -Value @()
         }
+        if ($id -eq 'small-business-subcontracting') {
+            foreach ($setting in @{ Url = 'https://subcontracting.hub.son4l.local'; Status = 'Active' }.GetEnumerator()) {
+                $application | Add-Member -MemberType NoteProperty -Name $setting.Key -Value $setting.Value -Force
+            }
+        }
     }
 }
 
@@ -161,6 +173,10 @@ function Test-VisibleApplicationPolicy {
     foreach ($id in $ApplicationIds) {
         if (-not $map.ContainsKey($id)) { return $false }
         if (@(Get-NormalizedAllowedRoles -Application $map[$id] -ApplicationId $id).Count -ne 0) {
+            return $false
+        }
+        if ($id -eq 'small-business-subcontracting' -and
+            ($map[$id].Url -cne 'https://subcontracting.hub.son4l.local' -or $map[$id].Status -cne 'Active')) {
             return $false
         }
     }
@@ -182,7 +198,7 @@ function Assert-PortalCatalogVisibility {
     $visibleIds = @($Applications | ForEach-Object { [string]$_.id })
     $missingRequired = @($RequiredVisibleIds | Where-Object { $visibleIds -notcontains $_ })
     if ($missingRequired.Count -gt 0) {
-        throw "Required Portal cards are missing: $($missingRequired -join ', '). Run this transaction as a Hub administrator whose groups grant Engineering and Quality module access."
+        throw "Required Portal cards are missing: $($missingRequired -join ', '). Run as a Hub administrator whose groups grant the selected module access."
     }
 }
 
@@ -272,10 +288,17 @@ $configurationPath = Join-Path $physicalPath 'appsettings.Production.json'
 if (-not (Test-Path -LiteralPath $configurationPath -PathType Leaf)) {
     throw "Active Portal production configuration was not found: $configurationPath"
 }
-Wait-ForModuleHealth -ModuleName 'Engineering Hub' -Uri $EngineeringHealthUri `
-    -TimeoutSeconds $HealthTimeoutSeconds
-Wait-ForModuleHealth -ModuleName 'Quality Assurance' -Uri $QualityHealthUri `
-    -TimeoutSeconds $HealthTimeoutSeconds
+if ($SmallBusinessSubcontractingOnly) {
+    Wait-ForModuleHealth -ModuleName 'Small Business Subcontracting' `
+        -Uri 'https://subcontracting.hub.son4l.local/api/health' -TimeoutSeconds $HealthTimeoutSeconds
+    Wait-ForModuleHealth -ModuleName 'Small Business Subcontracting access' `
+        -Uri 'https://subcontracting.hub.son4l.local/api/me' -TimeoutSeconds $HealthTimeoutSeconds
+} else {
+    Wait-ForModuleHealth -ModuleName 'Engineering Hub' -Uri $EngineeringHealthUri `
+        -TimeoutSeconds $HealthTimeoutSeconds
+    Wait-ForModuleHealth -ModuleName 'Quality Assurance' -Uri $QualityHealthUri `
+        -TimeoutSeconds $HealthTimeoutSeconds
+}
 
 $originalBytes = [IO.File]::ReadAllBytes($configurationPath)
 $configuration = Read-PortalProductionConfiguration -Path $configurationPath
@@ -302,7 +325,7 @@ $updatedBytes = ConvertTo-Utf8JsonBytes -Configuration $configuration
 
 if (-not $PSCmdlet.ShouldProcess(
         "$ExpectedComputerName/$SiteName",
-        'Activate Engineering Hub and Quality Assurance in the production Portal catalog')) {
+        "Activate $($activatedApplicationIds -join ', ') in the production Portal catalog")) {
     Write-Host 'WHATIF_READY_PORTAL_PRODUCTION_MODULE_VISIBILITY: active configuration and IIS preflight passed; nothing was changed.'
     return
 }
@@ -317,7 +340,7 @@ try {
     $prepared = Read-PortalProductionConfiguration -Path $temporaryPath
     if (-not (Test-VisibleApplicationPolicy -Configuration $prepared `
             -ApplicationIds $activatedApplicationIds)) {
-        throw 'The prepared Portal production configuration did not activate Engineering Hub and Quality Assurance.'
+        throw 'The prepared Portal production configuration did not activate the selected modules.'
     }
     $changeMayHaveOccurred = $true
     # Windows PowerShell 5.1/.NET Framework requires a legal backup path for File.Replace.
@@ -326,7 +349,7 @@ try {
     $written = Read-PortalProductionConfiguration -Path $configurationPath
     if (-not (Test-VisibleApplicationPolicy -Configuration $written `
             -ApplicationIds $activatedApplicationIds)) {
-        throw 'The active Portal production configuration did not activate Engineering Hub and Quality Assurance.'
+        throw 'The active Portal production configuration did not activate the selected modules.'
     }
     Restart-WebAppPool -Name $AppPoolName
     Wait-ForPortalVisibility -Uri $VerificationUri `

@@ -1,0 +1,27 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "subcontracting.hub.son4l.local;SON-IIS2;localhost",
+  "Authentication": { "Mode": "Windows" },
+  "Database": { "Provider": "SqlServer" },
+  "SubcontractingDatabase": { "Provider": "SqlServer" },
+  "ConnectionStrings": {
+    "RoleStore": "Server=tcp:SON-SQL2,1433;Database=ProjectTracker;Integrated Security=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=True",
+    "SubcontractingStore": "Server=tcp:SON-SQL2,1433;Database=SmallBusinessSubcontracting;Integrated Security=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=True"
+  },
+  "Fulcrum": {
+    "BaseUrl": "https://api.fulcrumpro.us/",
+    "PageSize": 500,
+    "MaximumVendors": 20000,
+    "ContactConcurrency": 4
+  },
+  "VendorDocumentStorage": {
+    "RootPath": "\\\\SON-SQL2\\SmallBusinessSubcontracting$\\Documents",
+    "RequireUncPath": true,
+    "MaximumFileBytes": 20971520
+  }
+}

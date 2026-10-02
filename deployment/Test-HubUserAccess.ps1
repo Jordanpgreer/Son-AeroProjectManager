@@ -65,6 +65,11 @@ param(
 
     [string[]]$ExpectedQualityAssurancePermissions,
 
+    [ValidateSet('Viewer', 'Editor', 'Admin', 'NoAccess')]
+    [string]$ExpectedSmallBusinessSubcontractingRole,
+
+    [string[]]$ExpectedSmallBusinessSubcontractingPermissions,
+
     [ValidateRange(2, 60)]
     [int]$TimeoutSeconds = 15
 )
@@ -422,8 +427,8 @@ $report = foreach ($module in $modules) {
             if ($hasAccess -and $PSBoundParameters.ContainsKey('ExpectedPortalModuleRoles')) {
                 $expectedKeys = @($ExpectedPortalModuleRoles.Keys | ForEach-Object { ([string]$_).Trim().ToLowerInvariant() })
                 foreach ($key in $expectedKeys) {
-                    if ($key -notin @('engineering', 'estimating', 'quality-assurance')) {
-                        $failures.Add("Unknown portal module expectation '$key'. Use engineering, estimating, or quality-assurance.")
+                    if ($key -notin @('engineering', 'estimating', 'quality-assurance', 'small-business-subcontracting')) {
+                        $failures.Add("Unknown portal module expectation '$key'. Use engineering, estimating, quality-assurance, or small-business-subcontracting.")
                         continue
                     }
                     $expectedRole = [string]$ExpectedPortalModuleRoles[$key]
@@ -564,4 +569,15 @@ if ($failures.Count -gt 0) {
     throw "Hub access verification failed with $($failures.Count) issue(s)."
 }
 
+if ($PSBoundParameters.ContainsKey('ExpectedSmallBusinessSubcontractingRole')) {
+    $subcontractingAccessArgs = @{
+        ExpectedAccountName = $ExpectedAccountName
+        ExpectedRole = $ExpectedSmallBusinessSubcontractingRole
+        TimeoutSeconds = $TimeoutSeconds
+    }
+    if ($PSBoundParameters.ContainsKey('ExpectedSmallBusinessSubcontractingPermissions')) {
+        $subcontractingAccessArgs.ExpectedPermissions = $ExpectedSmallBusinessSubcontractingPermissions
+    }
+    & (Join-Path $PSScriptRoot 'Test-SmallBusinessSubcontractingAccess.ps1') @subcontractingAccessArgs
+}
 Write-Host 'HUB_USER_ACCESS_VERIFIED'

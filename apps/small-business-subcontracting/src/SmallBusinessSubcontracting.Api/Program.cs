@@ -6,6 +6,7 @@ using SmallBusinessSubcontracting.Api;
 using SonAero.Platform.Security;
 
 var builder = WebApplication.CreateBuilder(args);
+SubcontractingDatabaseConfiguration.Validate(builder.Configuration, builder.Environment);
 
 builder.Services.AddDbContext<SubcontractingDbContext>((services, options) =>
 {
@@ -13,8 +14,7 @@ builder.Services.AddDbContext<SubcontractingDbContext>((services, options) =>
     var provider = configuration["SubcontractingDatabase:Provider"] ?? "SqlServer";
     var connection = configuration.GetConnectionString("SubcontractingStore")
         ?? throw new InvalidOperationException("ConnectionStrings:SubcontractingStore is required.");
-    if (string.Equals(provider, "Sqlite", StringComparison.OrdinalIgnoreCase)) options.UseSqlite(connection);
-    else options.UseSqlServer(connection);
+    SubcontractingDatabaseConfiguration.Configure(options, provider, connection);
 });
 builder.Services.AddDbContext<RoleStoreDbContext>((services, options) =>
 {
@@ -22,8 +22,7 @@ builder.Services.AddDbContext<RoleStoreDbContext>((services, options) =>
     var provider = configuration["Database:Provider"] ?? "SqlServer";
     var connection = configuration.GetConnectionString("RoleStore")
         ?? throw new InvalidOperationException("ConnectionStrings:RoleStore is required.");
-    if (string.Equals(provider, "Sqlite", StringComparison.OrdinalIgnoreCase)) options.UseSqlite(connection);
-    else options.UseSqlServer(connection);
+    SubcontractingDatabaseConfiguration.Configure(options, provider, connection);
 });
 builder.Services.AddSingleton<IIntegrationSecretProtector, MachineIntegrationSecretProtector>();
 builder.Services.AddSingleton(TimeProvider.System);
@@ -68,8 +67,8 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<SubcontractingDbContext>();
-    await db.Database.EnsureCreatedAsync();
-    scope.ServiceProvider.GetRequiredService<VendorDocumentStore>().EnsureConfigured();
+    await SubcontractingDatabaseInitializer.InitializeAsync(db, app.Environment.IsDevelopment());
+    await scope.ServiceProvider.GetRequiredService<VendorDocumentStore>().VerifyWritableAsync(CancellationToken.None);
 }
 
 app.Use(async (context, next) =>
@@ -149,7 +148,7 @@ app.UseAuthorization();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
+app.MapGet("/api/health", SubcontractingReadiness.CheckAsync);
 app.MapGroup("/api")
     .RequireAuthorization(SmallBusinessSubcontractingPermissions.ModuleView)
     .MapVendorEndpoints();

@@ -1,11 +1,13 @@
 <#
-    One-time IIS setup after all five published folders and Production settings are in place.
+    One-time IIS setup after selected published folders and Production settings are in place.
+    Existing production installs must use the scoped module installer for a new module.
     Run from an elevated PowerShell session on SON-IIS2 only.
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
     [string]$ExpectedComputerName = 'SON-IIS2',
     [string]$SiteRoot = 'C:\SonAero\sites',
+    [switch]$IncludeSmallBusinessSubcontracting,
     [ValidateRange(15, 300)]
     [int]$HealthTimeoutSeconds = 120
 )
@@ -29,6 +31,12 @@ $sites = @(
     [pscustomobject]@{ Name = 'EstimatingDashboard'; Port = 5160; Folder = 'EstimatingDashboard' },
     [pscustomobject]@{ Name = 'QualityAssurance'; Port = 5170; Folder = 'QualityAssurance' }
 )
+if ($IncludeSmallBusinessSubcontracting) {
+    $sites += [pscustomobject]@{ Name = 'SmallBusinessSubcontracting'; Port = 5180; Folder = 'SmallBusinessSubcontracting' }
+    Import-Module (Join-Path $PSScriptRoot 'SubcontractingProductionConfiguration.psm1') -Force -ErrorAction Stop
+    [void](Read-SubcontractingProductionConfiguration -Path (
+        Join-Path $SiteRoot 'SmallBusinessSubcontracting\appsettings.Production.json'))
+}
 
 foreach ($site in $sites) {
     $path = Join-Path $SiteRoot $site.Folder
@@ -47,7 +55,7 @@ if (-not $hostingModule) {
 
 if (-not $PSCmdlet.ShouldProcess(
         "$ExpectedComputerName IIS",
-        'Install Windows Authentication/Application Initialization and create five SON-AERO Hub sites')) {
+        "Install Windows Authentication/Application Initialization and create $($sites.Count) SON-AERO Hub sites")) {
     return
 }
 
@@ -168,14 +176,14 @@ if ($firewallRules.Count -gt 1) {
 if ($firewallRules.Count -eq 0) {
     New-NetFirewallRule -DisplayName $firewallName -Direction Inbound -Action Allow `
         -Enabled True -Profile Domain,Private -Protocol TCP `
-        -LocalPort 5135,5140,5150,5160,5170 -RemoteAddress LocalSubnet | Out-Null
+        -LocalPort @($sites.Port) -RemoteAddress LocalSubnet | Out-Null
 }
 else {
     $firewallRule = $firewallRules[0]
     $firewallRule | Set-NetFirewallRule -Direction Inbound -Action Allow -Enabled True `
         -Profile Domain,Private | Out-Null
     $firewallRule | Get-NetFirewallPortFilter | Set-NetFirewallPortFilter `
-        -Protocol TCP -LocalPort 5135,5140,5150,5160,5170 | Out-Null
+        -Protocol TCP -LocalPort @($sites.Port) | Out-Null
     $firewallRule | Get-NetFirewallAddressFilter | Set-NetFirewallAddressFilter `
         -RemoteAddress LocalSubnet | Out-Null
 }

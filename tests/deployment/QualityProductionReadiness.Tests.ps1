@@ -78,7 +78,7 @@ $backupReadiness = Get-Content -LiteralPath `
 foreach ($required in @(
     "N'QualityAssurance'",
     "@('ProjectTracker', 'EngineeringHub', 'QualityAssurance')",
-    'ProjectTracker, EngineeringHub, and QualityAssurance'
+    'Create CHECKSUM backups for $($databaseNames -join '', '')'
 )) {
     if (-not $backupReadiness.Contains($required)) {
         throw "Backup readiness does not include Quality Assurance: $required"

@@ -15,10 +15,49 @@ param(
     [Parameter(Mandatory)]
     [ValidateSet('Daily', 'FourHours', 'PointInTime15Minutes')]
     [string]$RecoveryPointObjective,
-    [string]$DrawingRoot = 'C:\SonAero\Data\EngineeringDrawings'
+    [string]$DrawingRoot = 'C:\SonAero\Data\EngineeringDrawings',
+    [switch]$IncludeSmallBusinessSubcontracting,
+    [string]$SubcontractingDocumentRoot = 'C:\SonAero\Data\SmallBusinessSubcontracting\Documents'
 )
 
 $ErrorActionPreference = 'Stop'
+$databaseNames = @('ProjectTracker', 'EngineeringHub', 'QualityAssurance')
+if ($IncludeSmallBusinessSubcontracting) { $databaseNames += 'SmallBusinessSubcontracting' }
+
+function Measure-SubcontractingBackupDocuments {
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not [IO.Path]::IsPathRooted($Path) -or $Path.StartsWith('\\') -or
+        $Path -match '(^|[\\/])\.{1,2}([\\/]|$)') {
+        throw 'SubcontractingDocumentRoot must be the absolute local path behind the approved SON-SQL2 document share.'
+    }
+    $resolvedPath = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+    if ($resolvedPath -eq [IO.Path]::GetPathRoot($resolvedPath).TrimEnd('\')) {
+        throw 'SubcontractingDocumentRoot cannot be a drive root.'
+    }
+    $ancestor = $resolvedPath
+    while ($ancestor) {
+        $item = Get-Item -LiteralPath $ancestor -Force -ErrorAction Stop
+        if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw 'Subcontracting document root and ancestors must be ordinary directories, not reparse points.'
+        }
+        $ancestor = Split-Path -Parent $ancestor
+    }
+    # Walk explicitly: do not recurse through a link before inspecting it.
+    $pending = New-Object 'System.Collections.Generic.Stack[string]'
+    $pending.Push($resolvedPath)
+    [long]$bytes = 0
+    [long]$count = 0
+    while ($pending.Count -gt 0) {
+        foreach ($entry in @(Get-ChildItem -LiteralPath $pending.Pop() -Force -ErrorAction Stop)) {
+            if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "Subcontracting document storage contains a reparse point: $($entry.FullName)"
+            }
+            if ($entry.PSIsContainer) { $pending.Push($entry.FullName) }
+            else { $bytes += $entry.Length; $count++ }
+        }
+    }
+    return [pscustomobject]@{ Root = $resolvedPath; FileCount = $count; Bytes = $bytes }
+}
 
 function Get-IpAddressKeys {
     param([Parameter(Mandatory)][string]$HostName)
@@ -121,6 +160,10 @@ $drawingItem = Get-Item -LiteralPath $DrawingRoot
 if ($drawingItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
     throw 'The Engineering drawing root cannot be a reparse point.'
 }
+$subcontractingDocuments = $null
+if ($IncludeSmallBusinessSubcontracting) {
+    $subcontractingDocuments = Measure-SubcontractingBackupDocuments -Path $SubcontractingDocumentRoot
+}
 
 $sqlService = Get-CimInstance Win32_Service -Filter "Name='MSSQLSERVER'"
 $agentService = Get-CimInstance Win32_Service -Filter "Name='SQLSERVERAGENT'"
@@ -160,9 +203,12 @@ SELECT d.[name], d.[state_desc], d.[recovery_model_desc],
 FROM sys.databases AS d
 INNER JOIN sys.master_files AS m ON m.[database_id] = d.[database_id]
 WHERE d.[name] IN (N'ProjectTracker', N'EngineeringHub', N'QualityAssurance')
+   OR (@includeSubcontracting = 1 AND d.[name] = N'SmallBusinessSubcontracting')
 GROUP BY d.[name], d.[state_desc], d.[recovery_model_desc]
 ORDER BY d.[name];
 "@
+    [void]$command.Parameters.Add('@includeSubcontracting', [Data.SqlDbType]::Bit)
+    $command.Parameters['@includeSubcontracting'].Value = [bool]$IncludeSmallBusinessSubcontracting
     $reader = $command.ExecuteReader()
     $databases = [System.Collections.Generic.List[object]]::new()
     while ($reader.Read()) {
@@ -182,7 +228,8 @@ finally {
 $drawingFiles = @(Get-ChildItem -LiteralPath $DrawingRoot -File -Recurse)
 $drawingBytes = [long](($drawingFiles | Measure-Object -Property Length -Sum).Sum)
 $databaseBytes = [long](($databases | Measure-Object -Property AllocatedBytes -Sum).Sum)
-$estimatedRecoverySetBytes = [long]($drawingBytes + $databaseBytes)
+$subcontractingBytes = if ($IncludeSmallBusinessSubcontracting) { $subcontractingDocuments.Bytes } else { 0L }
+$estimatedRecoverySetBytes = [long]($drawingBytes + $databaseBytes + $subcontractingBytes)
 
 # Three uncompressed source-size equivalents conservatively cover two complete restore points plus
 # 50% operational headroom. Compression is intentionally not assumed.
@@ -217,7 +264,7 @@ finally {
 }
 
 $failures = [System.Collections.Generic.List[string]]::new()
-foreach ($databaseName in @('ProjectTracker', 'EngineeringHub', 'QualityAssurance')) {
+foreach ($databaseName in $databaseNames) {
     $database = $databases | Where-Object Name -EQ $databaseName | Select-Object -First 1
     if (-not $database) {
         $failures.Add("Database $databaseName was not found.")
@@ -289,7 +336,7 @@ $sqlServiceAclWriteAccessProven = $ntfsWriteAllows.Count -gt 0 -and
     DestinationFreeBytes = [uint64]$destinationDisk.FreeSpace
     EstimatedRecoverySetBytes = $estimatedRecoverySetBytes
     MinimumFreeBytes = $minimumFreeBytes
-    CapacityBasis = '3x uncompressed database allocation plus drawing bytes (two sets + 50% headroom)'
+    CapacityBasis = '3x uncompressed selected database allocation plus drawing and selected document bytes (two sets + 50% headroom)'
     SqlServiceState = $sqlService.State
     SqlServiceLogon = $sqlService.StartName
     SqlNetworkPrincipal = $sqlNetworkPrincipal
@@ -301,6 +348,8 @@ $sqlServiceAclWriteAccessProven = $ntfsWriteAllows.Count -gt 0 -and
     DrawingRoot = $DrawingRoot
     DrawingFileCount = $drawingFiles.Count
     DrawingBytes = $drawingBytes
+    SubcontractingDocumentsIncluded = [bool]$IncludeSmallBusinessSubcontracting
+    SubcontractingDocuments = $subcontractingDocuments
     NtfsDirectEntries = @($matchingNtfsEntries | ForEach-Object {
         '{0} {1} {2}' -f $_.IdentityReference.Value, $_.FileSystemRights, $_.AccessControlType
     })
@@ -310,10 +359,12 @@ $sqlServiceAclWriteAccessProven = $ntfsWriteAllows.Count -gt 0 -and
     RequiredNextActions = @(
         "Retain at least two restore points outside $ExpectedComputerName.",
         "Keep direct NTFS Write and SMB Change/Full grants for '$sqlNetworkPrincipal' on the approved destination.",
-        'Create CHECKSUM backups for ProjectTracker, EngineeringHub, and QualityAssurance and run RESTORE VERIFYONLY WITH CHECKSUM.',
+        "Create CHECKSUM backups for $($databaseNames -join ', ') and run RESTORE VERIFYONLY WITH CHECKSUM.",
         'Back up EngineeringHub and EngineeringDrawings$ as one quiesced recovery set.',
         'Perform a restore drill on a non-production SQL instance before calling backups operational.'
-    )
+    ) + @(if ($IncludeSmallBusinessSubcontracting) {
+        "Back up SmallBusinessSubcontracting and '$SubcontractingDocumentRoot' as one quiesced recovery set; verify the backup job can read the documents and restore both together."
+    })
     Failures = $failures.ToArray()
 }
 

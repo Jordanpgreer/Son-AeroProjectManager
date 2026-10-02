@@ -19,6 +19,8 @@ param(
     # the permanent SNI bindings and DNS records have passed their workstation checks.
     [switch]$PermanentHttps,
 
+    [switch]$IncludeSmallBusinessSubcontracting,
+
     [ValidateRange(1, 65535)]
     [int]$ProjectTrackerHttpsPort = 6135,
 
@@ -52,7 +54,7 @@ function Resolve-WarmStartEndpoint {
     param(
         [Parameter(Mandatory = $true)][ValidateSet(
             'ProjectTracker', 'SonAeroPortal', 'EngineeringHub',
-            'EstimatingDashboard', 'QualityAssurance')][string]$Site,
+            'EstimatingDashboard', 'QualityAssurance', 'SmallBusinessSubcontracting')][string]$Site,
         [Parameter(Mandatory = $true)][ValidateSet('http', 'https')][string]$SelectedScheme,
         [Parameter(Mandatory = $true)][string]$DefaultHostName,
         [Parameter(Mandatory = $true)][int]$HttpPort,
@@ -71,6 +73,7 @@ function Resolve-WarmStartEndpoint {
             EngineeringHub = 'engineering.hub.son4l.local'
             EstimatingDashboard = 'estimating.hub.son4l.local'
             QualityAssurance = 'quality.hub.son4l.local'
+            SmallBusinessSubcontracting = 'subcontracting.hub.son4l.local'
         }
         return [pscustomobject]@{
             Scheme = 'https'
@@ -105,7 +108,8 @@ function New-StartupRecoveryArguments {
         [Parameter(Mandatory = $true)][int]$PortalPort,
         [Parameter(Mandatory = $true)][int]$EngineeringPort,
         [Parameter(Mandatory = $true)][int]$EstimatingPort,
-        [Parameter(Mandatory = $true)][int]$QualityAssurancePort
+        [Parameter(Mandatory = $true)][int]$QualityAssurancePort,
+        [switch]$IncludeSmallBusinessSubcontracting
     )
 
     $argumentParts = @(
@@ -126,6 +130,7 @@ function New-StartupRecoveryArguments {
             ('-QualityAssuranceHttpsPort {0}' -f $QualityAssurancePort)
         )
     }
+    if ($IncludeSmallBusinessSubcontracting) { $argumentParts += '-IncludeSmallBusinessSubcontracting' }
     return $argumentParts -join ' '
 }
 
@@ -322,6 +327,9 @@ if ($PermanentHttps) {
     }
 }
 
+if ($IncludeSmallBusinessSubcontracting -and -not $PermanentHttps) {
+    throw 'Small Business Subcontracting warm start requires -Scheme https -PermanentHttps; no pilot binding is installed.'
+}
 $sites = @(
     [pscustomobject]@{ Name = 'ProjectTracker'; HttpPort = 5135; HttpsPort = $ProjectTrackerHttpsPort },
     [pscustomobject]@{ Name = 'SonAeroPortal'; HttpPort = 5140; HttpsPort = $PortalHttpsPort },
@@ -329,6 +337,9 @@ $sites = @(
     [pscustomobject]@{ Name = 'EstimatingDashboard'; HttpPort = 5160; HttpsPort = $EstimatingHttpsPort },
     [pscustomobject]@{ Name = 'QualityAssurance'; HttpPort = 5170; HttpsPort = $QualityAssuranceHttpsPort }
 )
+if ($IncludeSmallBusinessSubcontracting) {
+    $sites += [pscustomobject]@{ Name = 'SmallBusinessSubcontracting'; HttpPort = 5180; HttpsPort = 443 }
+}
 $gateway = [pscustomobject]@{
     Pool = 'ProjectTrackerAdminGateway'
     Site = 'SonAeroPortal'
@@ -432,7 +443,8 @@ if (-not $StartupRecoveryOnly) {
             -UsePermanentHttps:$PermanentHttps `
             -ProjectTrackerPort $ProjectTrackerHttpsPort -PortalPort $PortalHttpsPort `
             -EngineeringPort $EngineeringHttpsPort -EstimatingPort $EstimatingHttpsPort `
-            -QualityAssurancePort $QualityAssuranceHttpsPort
+            -QualityAssurancePort $QualityAssuranceHttpsPort `
+            -IncludeSmallBusinessSubcontracting:$IncludeSmallBusinessSubcontracting
         $action = New-ScheduledTaskAction -Execute $powerShellPath -Argument $arguments
         $trigger = New-ScheduledTaskTrigger -AtStartup
         $trigger.Delay = 'PT45S'

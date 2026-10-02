@@ -10,7 +10,8 @@ param(
     [string]$IisComputerAccount = 'SON4L\SON-IIS2$',
     [string]$IisServerAddress = '10.50.10.244',
     [string]$DrawingRoot = 'C:\SonAero\Data\EngineeringDrawings',
-    [string]$DrawingShareName = 'EngineeringDrawings$'
+    [string]$DrawingShareName = 'EngineeringDrawings$',
+    [switch]$IncludeSmallBusinessSubcontracting
 )
 
 $ErrorActionPreference = 'Stop'
@@ -148,6 +149,10 @@ IF DB_ID(N'EngineeringHub') IS NULL EXEC(N'CREATE DATABASE [EngineeringHub]');
 IF DB_ID(N'QualityAssurance') IS NULL EXEC(N'CREATE DATABASE [QualityAssurance]');
 SELECT 1;
 "@
+    if ($IncludeSmallBusinessSubcontracting) {
+        $createDatabasesSql = $createDatabasesSql.Replace('SELECT 1;',
+            "IF DB_ID(N'SmallBusinessSubcontracting') IS NULL EXEC(N'CREATE DATABASE [SmallBusinessSubcontracting]');`r`nSELECT 1;")
+    }
     [void](Invoke-HubSql $localSqlServer 'master' $createDatabasesSql $applicationName)
 
     $createLoginSql = @"
@@ -157,7 +162,9 @@ SELECT 1;
 "@
     [void](Invoke-HubSql $localSqlServer 'master' $createLoginSql $applicationName)
 
-    foreach ($databaseName in @('ProjectTracker', 'EngineeringHub', 'QualityAssurance')) {
+    $databaseNames = @('ProjectTracker', 'EngineeringHub', 'QualityAssurance')
+    if ($IncludeSmallBusinessSubcontracting) { $databaseNames += 'SmallBusinessSubcontracting' }
+    foreach ($databaseName in $databaseNames) {
         $grantDatabaseSql = @"
 IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE [name] = N'$escapedAccount')
     CREATE USER [$escapedAccount] FOR LOGIN [$escapedAccount];
@@ -492,5 +499,6 @@ elseif (-not (Get-SmbShareAccess -Name $DrawingShareName |
 
 Write-Host "SQL Server is in normal multi-user service mode and listening externally on TCP $SqlPort."
 Write-Host 'ProjectTracker, EngineeringHub, and QualityAssurance databases are ready.'
+if ($IncludeSmallBusinessSubcontracting) { Write-Host 'SmallBusinessSubcontracting database is ready.' }
 Write-Host "Drawing share is ready at \\$ExpectedComputerName\$DrawingShareName."
 Write-Host "SQL network backup: $backupPath"
