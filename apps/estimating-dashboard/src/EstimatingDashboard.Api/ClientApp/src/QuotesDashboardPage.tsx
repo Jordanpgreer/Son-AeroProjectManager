@@ -288,7 +288,7 @@ export default function QuotesDashboardPage({
                       <th scope="row">
                         <span className="personal-quote-heading">
                           <span>
-                            <a className="personal-quote-number personal-quote-link" href={quoteStatusUrl(quote.quoteNumber)} aria-label={`Open quote ${quote.quoteNumber} status`}>#{quote.quoteNumber}</a>
+                            <a className="personal-quote-number personal-quote-link" href={quoteStatusUrl(quote.quoteNumber)} aria-label={`Open quote ${quote.quoteNumber} status`}>#{quote.quoteNumber}{quote.hasFulcrumWarnings && <span className="quote-production-warning" title="Production review needed"><AlertTriangle size={14} aria-label="Production review needed" /></span>}</a>
                             <small>{currency(quote.totalValue)}</small>
                           </span>
                           <ArrowUpRight className="personal-quote-open-icon" size={16} aria-hidden="true" />

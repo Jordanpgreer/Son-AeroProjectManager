@@ -58,6 +58,7 @@ builder.Services.AddScoped<ModuleAccessService>();
 builder.Services.AddSingleton<ScheduleCalculator>();
 builder.Services.AddScoped<ProjectMetricsService>();
 builder.Services.AddScoped<ProjectRoutingSyncService>();
+builder.Services.AddScoped<ProjectTaskReferenceCleanupService>();
 builder.Services.AddScoped<ProjectReadService>();
 builder.Services.Configure<ProjectQuantitySyncOptions>(
     builder.Configuration.GetSection(ProjectQuantitySyncOptions.SectionName));
@@ -784,7 +785,7 @@ api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectT
     return Results.Ok(ToTaskDto(task));
 }).RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, ProjectTrackerAccessAuthorization.PolicyName);
 
-api.MapDelete("/tasks/{taskId:int}", async (int taskId, long version, long projectVersion, bool? detachDependents, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, CancellationToken cancellationToken) =>
+api.MapDelete("/tasks/{taskId:int}", async (int taskId, long version, long projectVersion, bool? detachDependents, ProjectTrackerDbContext db, ProjectMetricsService metrics, ProjectAuditService audit, ProjectTaskReferenceCleanupService taskReferenceCleanup, CancellationToken cancellationToken) =>
 {
     var task = await db.Tasks
         .Include(task => task.Project).ThenInclude(project => project.Tasks).ThenInclude(projectTask => projectTask.OvertimeDays)
@@ -821,35 +822,49 @@ api.MapDelete("/tasks/{taskId:int}", async (int taskId, long version, long proje
             dependents.Select(candidate => new OperationDependentDto(candidate.Id, candidate.Sequence, candidate.Title)).ToList()));
     }
 
-    var previousSequences = project.Tasks.ToDictionary(candidate => candidate.Id, candidate => candidate.Sequence);
-    var deletedSequence = task.Sequence;
-    var deletedTitle = task.Title;
-    var deletedValues = ProjectAuditService.CaptureTask(task);
-    foreach (var dependent in dependents)
+    await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+    try
     {
-        dependent.DependencyTaskId = null;
-        dependent.Version++;
-        dependent.UpdatedAt = DateTimeOffset.UtcNow;
+        var now = DateTimeOffset.UtcNow;
+        var previousSequences = project.Tasks.ToDictionary(candidate => candidate.Id, candidate => candidate.Sequence);
+        var deletedSequence = task.Sequence;
+        var deletedTitle = task.Title;
+        var deletedValues = ProjectAuditService.CaptureTask(task);
+        await taskReferenceCleanup.PrepareForRemovalAsync([task], now, cancellationToken);
+        project.Tasks.Remove(task);
+        db.Tasks.Remove(task);
+        RenumberTasks(project);
+        BumpSequenceVersions(project.Tasks, previousSequences);
+        project.Version++;
+        project.UpdatedAt = now;
+        await metrics.RefreshProjectAsync(db, project, cancellationToken, recalculateDates: true);
+        audit.Record(
+            db,
+            project,
+            "OperationDeleted",
+            $"Deleted operation {deletedSequence}: {deletedTitle}",
+            deletedValues
+                .Where(field => !string.IsNullOrWhiteSpace(field.Value))
+                .Select(field => new ProjectAuditChange(field.Key, field.Value, null))
+                .ToList(),
+            taskId);
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return Results.NoContent();
     }
-    project.Tasks.Remove(task);
-    db.Tasks.Remove(task);
-    RenumberTasks(project);
-    BumpSequenceVersions(project.Tasks, previousSequences);
-    project.Version++;
-    project.UpdatedAt = DateTimeOffset.UtcNow;
-    await metrics.RefreshProjectAsync(db, project, cancellationToken, recalculateDates: true);
-    audit.Record(
-        db,
-        project,
-        "OperationDeleted",
-        $"Deleted operation {deletedSequence}: {deletedTitle}",
-        deletedValues
-            .Where(field => !string.IsNullOrWhiteSpace(field.Value))
-            .Select(field => new ProjectAuditChange(field.Key, field.Value, null))
-            .ToList(),
-        taskId);
-    await db.SaveChangesAsync(cancellationToken);
-    return Results.NoContent();
+    catch (DbUpdateConcurrencyException)
+    {
+        await transaction.RollbackAsync(cancellationToken);
+        return ConcurrencyConflict("Project", project.Id);
+    }
+    catch (DbUpdateException)
+    {
+        await transaction.RollbackAsync(cancellationToken);
+        return Results.Conflict(new
+        {
+            detail = "The operation could not be deleted because linked project records changed at the same time. Reload the project and try again."
+        });
+    }
 }).RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, "TaskDelete");
 
 api.MapGet("/holidays", async (ProjectTrackerDbContext db, CancellationToken cancellationToken) =>

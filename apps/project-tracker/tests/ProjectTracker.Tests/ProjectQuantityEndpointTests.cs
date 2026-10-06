@@ -23,6 +23,7 @@ public sealed class ProjectQuantityEndpointTests
         builder.Services.AddSingleton<ScheduleCalculator>();
         builder.Services.AddScoped<ProjectMetricsService>();
         builder.Services.AddScoped<ProjectRoutingSyncService>();
+        builder.Services.AddScoped<ProjectTaskReferenceCleanupService>();
         builder.Services.AddScoped<OperationScheduleReminderService>();
         builder.Services.AddScoped<IProjectQuantityProvider, AcumaticaProjectQuantityProvider>();
         builder.Services.AddScoped<IEnterpriseProviderSource, StubProviderSource>();
@@ -53,6 +54,7 @@ public sealed class ProjectQuantityEndpointTests
         builder.Services.AddSingleton<ScheduleCalculator>();
         builder.Services.AddScoped<ProjectMetricsService>();
         builder.Services.AddScoped<ProjectRoutingSyncService>();
+        builder.Services.AddScoped<ProjectTaskReferenceCleanupService>();
         builder.Services.AddScoped<OperationScheduleReminderService>();
         builder.Services.AddScoped<IProjectQuantityProvider, AcumaticaProjectQuantityProvider>();
         builder.Services.AddScoped<IEnterpriseProviderSource, StubProviderSource>();
@@ -80,6 +82,7 @@ public sealed class ProjectQuantityEndpointTests
         builder.Services.AddSingleton<ScheduleCalculator>();
         builder.Services.AddScoped<ProjectMetricsService>();
         builder.Services.AddScoped<ProjectRoutingSyncService>();
+        builder.Services.AddScoped<ProjectTaskReferenceCleanupService>();
         builder.Services.AddScoped<OperationScheduleReminderService>();
         builder.Services.AddScoped<IProjectQuantityProvider, AcumaticaProjectQuantityProvider>();
         builder.Services.AddScoped<IEnterpriseProviderSource, StubProviderSource>();

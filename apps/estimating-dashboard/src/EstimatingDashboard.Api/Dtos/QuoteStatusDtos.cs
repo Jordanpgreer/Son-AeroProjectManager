@@ -4,13 +4,24 @@ public sealed record QuoteStatusSummaryDto(int QuoteHistoryId, int QuoteNumber, 
     string EstimatingRep, string Status, DateTimeOffset? StatusChangedAt, string? StatusChangedBy,
     DateTime? FollowUpDate, DateTimeOffset UpdatedAt, DateTimeOffset? LastMessageAt,
     int ThreadCount, int MessageCount, int UnassignedMessageCount, int Version, bool CanEdit, bool CanRemove = false,
-    string? SalesPerson = null, DateTime? EstimatingDueDate = null, string FulcrumQuoteStatus = "");
+    string? SalesPerson = null, DateTime? EstimatingDueDate = null, string FulcrumQuoteStatus = "",
+    bool HasFulcrumWarnings = false);
 public sealed record QuoteStatusPageDto(IReadOnlyList<QuoteStatusSummaryDto> Items, int TotalCount, int Page, int PageSize);
 public sealed record QuoteStatusDetailDto(QuoteStatusSummaryDto Quote,
     IReadOnlyList<QuoteStatusActivityDto> Activity, IReadOnlyList<VendorQuoteDetailDto> Threads,
     IReadOnlyList<VendorQuoteMessageDto> UnassignedMessages, EstimatingPersonalQuoteDto Workflow,
     IReadOnlyList<RemovedQuoteEmailDto> RemovedMessages, IReadOnlyList<QuoteStatusActivityDto> RemovedNotes,
-    string? FulcrumQuoteUrl, string? QuoteFolderPath = null);
+    string? FulcrumQuoteUrl, string? QuoteFolderPath = null,
+    IReadOnlyList<QuoteFileLocationDto>? FileLocations = null,
+    QuoteProductionWarningsDto? ProductionWarnings = null);
+public sealed record QuoteFileLocationDto(string Path, string Source);
+public sealed record QuoteItemReferenceDto(string ItemId, string PartNumber, string? Revision);
+public sealed record QuoteProductionWarningsDto(
+    IReadOnlyList<QuoteItemReferenceDto> Items,
+    IReadOnlyList<string> OpOperations,
+    int BuyItemCount,
+    int MakeItemCount,
+    DateTimeOffset? InspectedAt);
 public sealed record QuoteStatusActivityDto(string Id, string Kind, string Text, string? OldValue,
     string? NewValue, DateTimeOffset OccurredAt, string AccountName, string DisplayName,
     int? RequestId, string? VendorName, string? PartNumber, DateTimeOffset? EditedAt = null,
@@ -18,6 +29,8 @@ public sealed record QuoteStatusActivityDto(string Id, string Kind, string Text,
 public sealed record UpdateQuoteStatusDto(int ExpectedVersion, string Status, DateTime? FollowUpDate = null, string? Note = null);
 public sealed record AddQuoteStatusNoteDto(int ExpectedVersion, string Text);
 public sealed record AssignQuoteMessageDto(int ExpectedVersion, int RequestId);
+public sealed record UpdateQuoteFileLocationDto(int ExpectedVersion, string Path, string? PreviousPath = null);
+public sealed record RemoveQuoteFileLocationDto(int ExpectedVersion, string Path);
 public sealed record QuoteStatusOptionsDto(IReadOnlyList<string> Statuses, IReadOnlyList<string> ThreadStatuses,
     IReadOnlyList<string> FulcrumStatuses);
 public sealed record QuoteItemVersionDto(int ExpectedVersion);

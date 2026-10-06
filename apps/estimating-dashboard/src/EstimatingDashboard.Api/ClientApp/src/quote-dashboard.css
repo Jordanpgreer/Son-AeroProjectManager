@@ -404,8 +404,15 @@
 }
 
 .personal-quote-number {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   font-weight: 800;
+}
+
+.quote-production-warning {
+  display: inline-flex;
+  color: var(--warn-700);
 }
 
 .personal-quote-table tbody th small,

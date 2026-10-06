@@ -266,7 +266,8 @@ public sealed record ProjectQuantitySyncResultDto(
     int ArdaOnlyOperationsRetained = 0,
     int RoutingOperationsRemoved = 0,
     bool ExistingOperationsPreserved = false,
-    int OperationProgressUpdated = 0);
+    int OperationProgressUpdated = 0,
+    bool RoutingReset = false);
 
 public sealed record TaskUpsertDto(
     int Sequence,

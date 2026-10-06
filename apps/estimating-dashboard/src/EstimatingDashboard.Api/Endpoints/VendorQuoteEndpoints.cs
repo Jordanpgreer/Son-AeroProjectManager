@@ -86,6 +86,33 @@ public static class VendorQuoteEndpoints
             Results.Ok(await service.AddNoteAsync(id, dto, Access(ctx), ct))).RequireAuthorization(EstimatingPolicies.Editor);
         group.MapPost("/{id:int}/messages/{messageId:long}/assign", async (int id, long messageId, HttpContext ctx, QuoteStatusService service, AssignQuoteMessageDto dto, CancellationToken ct) =>
             Results.Ok(await service.AssignMessageAsync(id, messageId, dto, Access(ctx), ct))).RequireAuthorization(EstimatingPolicies.Editor);
+        group.MapPut("/{id:int}/file-locations", async (int id, HttpContext ctx, QuoteStatusService service, UpdateQuoteFileLocationDto dto, CancellationToken ct) =>
+            Results.Ok(await service.UpsertFileLocationAsync(id, dto, Access(ctx), ct))).RequireAuthorization(EstimatingPolicies.Editor);
+        group.MapDelete("/{id:int}/file-locations", async (int id, HttpContext ctx, QuoteStatusService service, [Microsoft.AspNetCore.Mvc.FromBody] RemoveQuoteFileLocationDto dto, CancellationToken ct) =>
+            Results.Ok(await service.RemoveFileLocationAsync(id, dto, Access(ctx), ct))).RequireAuthorization(EstimatingPolicies.Editor);
+        group.MapPost("/{id:int}/file-locations/upload", async (int id, HttpContext ctx, QuoteStatusService service, CancellationToken ct) =>
+        {
+            const long maxRequestBytes = 51L * 1024 * 1024;
+            var feature = ctx.Features.Get<IHttpMaxRequestBodySizeFeature>();
+            if (feature is { IsReadOnly: false }) feature.MaxRequestBodySize = maxRequestBytes;
+            if (ctx.Request.ContentLength > maxRequestBytes) return Results.StatusCode(413);
+            if (!ctx.Request.HasFormContentType)
+                return Results.BadRequest(new ErrorDto("InvalidFileUpload", "Choose a file to copy to the quote location."));
+            var form = await ctx.Request.ReadFormAsync(ct);
+            var file = form.Files.GetFile("file");
+            if (file is null)
+                return Results.BadRequest(new ErrorDto("InvalidFileUpload", "Choose a file to copy to the quote location."));
+            if (!int.TryParse(form["expectedVersion"], out var expectedVersion))
+                return Results.BadRequest(new ErrorDto("InvalidFileUpload", "Refresh the quote before copying this file."));
+            return Results.Ok(await service.CopyFileToLocationAsync(
+                id,
+                expectedVersion,
+                form["path"].ToString(),
+                form["collision"].ToString(),
+                file,
+                Access(ctx),
+                ct));
+        }).RequireAuthorization(EstimatingPolicies.Editor);
         return api;
     }
     private static EstimatingAccessProfile Access(HttpContext context) =>
@@ -94,6 +121,6 @@ public static class VendorQuoteEndpoints
     private static async ValueTask<object?> ErrorFilter(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
         try { return await next(context); }
-        catch (VendorQuoteException ex) { return Results.Json(new ErrorDto("QuoteStatusError", ex.Message), statusCode: ex.StatusCode); }
+        catch (VendorQuoteException ex) { return Results.Json(new ErrorDto(ex.Code, ex.Message), statusCode: ex.StatusCode); }
     }
 }

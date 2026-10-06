@@ -7,27 +7,36 @@ internal static partial class FulcrumQuoteFolderPath
     private static readonly char[] InvalidWindowsPathCharacters = ['<', '>', '"', '|', '?', '*'];
 
     public static string? Extract(string? internalNotes)
+        => ExtractAll(internalNotes).FirstOrDefault();
+
+    public static IReadOnlyList<string> ExtractAll(string? internalNotes)
     {
-        if (string.IsNullOrWhiteSpace(internalNotes)) return null;
+        if (string.IsNullOrWhiteSpace(internalNotes)) return [];
+
+        var paths = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Add(string? candidate)
+        {
+            if (Normalize(candidate) is { } normalized && seen.Add(normalized))
+                paths.Add(normalized);
+        }
 
         // Prefer explicit labels so unrelated note text containing a slash cannot win.
         foreach (Match match in LabeledPathPattern().Matches(internalNotes))
-            if (Normalize(match.Groups["path"].Value) is { } labeled)
-                return labeled;
+            Add(match.Groups["path"].Value);
 
         foreach (var line in Lines(internalNotes))
-            if (StartsWithSDrive(line) && Normalize(line) is { } driven)
-                return driven;
+            if (StartsWithSDrive(line))
+                Add(line);
 
         // Last-resort compatibility for the existing convention where Internal Notes
         // contains only a relative Windows path and intentionally omits "S:".
-        foreach (var line in Lines(internalNotes))
-            if (line.Contains('\\')
-                && !line.Contains(':')
-                && Normalize(line) is { } relative)
-                return relative;
+        if (paths.Count == 0)
+            foreach (var line in Lines(internalNotes))
+                if (line.Contains('\\') && !line.Contains(':'))
+                    Add(line);
 
-        return null;
+        return paths;
     }
 
     internal static string? Normalize(string? candidate)

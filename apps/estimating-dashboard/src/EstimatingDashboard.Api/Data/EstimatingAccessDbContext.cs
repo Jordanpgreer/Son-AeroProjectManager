@@ -110,6 +110,11 @@ public sealed class EstimatingAccessDbContext(
             entity.Property(record => record.QuoteComplexity).HasMaxLength(80);
             entity.Property(record => record.EstimatingStatus).HasMaxLength(160);
             entity.Property(record => record.QuoteFolderPath).HasMaxLength(1000);
+            entity.Property(record => record.FulcrumFilePathsJson);
+            entity.Property(record => record.ArdaFilePathOverridesJson);
+            entity.Property(record => record.ArdaSuppressedFilePathsJson);
+            entity.Property(record => record.FulcrumQuoteItemsJson);
+            entity.Property(record => record.FulcrumOpWarningsJson);
             entity.Property(record => record.ArdaStatus).HasMaxLength(80);
             entity.Property(record => record.ArdaStatusNotes).HasMaxLength(2000);
             entity.Property(record => record.ArdaStatusChangedBy).HasMaxLength(160);

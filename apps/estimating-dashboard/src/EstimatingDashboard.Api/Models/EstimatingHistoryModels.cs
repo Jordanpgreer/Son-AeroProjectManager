@@ -20,6 +20,14 @@ public sealed class EstimatingQuoteHistoryRecord
     public int NumberOfParts { get; set; }
     public string? EstimatingStatus { get; set; }
     public string? QuoteFolderPath { get; set; }
+    public string? FulcrumFilePathsJson { get; set; }
+    public string? ArdaFilePathOverridesJson { get; set; }
+    public string? ArdaSuppressedFilePathsJson { get; set; }
+    public string? FulcrumQuoteItemsJson { get; set; }
+    public string? FulcrumOpWarningsJson { get; set; }
+    public int FulcrumBuyItemCount { get; set; }
+    public int FulcrumMakeItemCount { get; set; }
+    public DateTimeOffset? FulcrumInspectionUpdatedAt { get; set; }
     public string? ArdaStatus { get; set; }
     public string? ArdaStatusNotes { get; set; }
     public DateTimeOffset? ArdaStatusChangedAt { get; set; }

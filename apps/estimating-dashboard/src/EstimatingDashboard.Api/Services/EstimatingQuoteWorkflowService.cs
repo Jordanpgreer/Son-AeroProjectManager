@@ -254,7 +254,10 @@ public sealed class EstimatingQuoteWorkflowService(
             record.Version,
             record.IsCompleted,
             !record.IsCompleted && effectiveDueDate.HasValue && effectiveDueDate.Value.Date < today,
-            record.EstimatingCompletionDate);
+            record.EstimatingCompletionDate,
+            record.FulcrumBuyItemCount > 0
+                || record.FulcrumMakeItemCount > 0
+                || QuoteStatusService.JsonListCount(record.FulcrumOpWarningsJson) > 0);
     }
 
     internal static string DisplayStatus(string? status)

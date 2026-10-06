@@ -388,7 +388,15 @@ public sealed class EstimatingHistoryImportService(
         string? estimatingStatus,
         DateTime? estimatingCompletionDate,
         string? quoteFolderPath = null,
-        bool updateQuoteFolderPath = false)
+        bool updateQuoteFolderPath = false,
+        string? fulcrumFilePathsJson = null,
+        bool updateFulcrumFilePaths = false,
+        string? fulcrumQuoteItemsJson = null,
+        string? fulcrumOpWarningsJson = null,
+        int fulcrumBuyItemCount = 0,
+        int fulcrumMakeItemCount = 0,
+        DateTimeOffset? fulcrumInspectionUpdatedAt = null,
+        bool updateFulcrumInspection = false)
     {
         var metrics = Metrics(rfqDueDate, dateToEstimating, estimatingCompletionDate, quoteStatus);
         return new EstimatingHistoryImportRow(
@@ -422,7 +430,15 @@ public sealed class EstimatingHistoryImportService(
             metrics.IsOnTime,
             metrics.OnTimeRatio,
             quoteFolderPath,
-            updateQuoteFolderPath);
+            updateQuoteFolderPath,
+            fulcrumFilePathsJson,
+            updateFulcrumFilePaths,
+            fulcrumQuoteItemsJson,
+            fulcrumOpWarningsJson,
+            fulcrumBuyItemCount,
+            fulcrumMakeItemCount,
+            fulcrumInspectionUpdatedAt,
+            updateFulcrumInspection);
     }
 
     private static IReadOnlyList<EstimatingHistoryImportRow> Parse(
@@ -846,6 +862,16 @@ public sealed class EstimatingHistoryImportService(
         record.EstimatingStatus = row.EstimatingStatus;
         if (row.UpdateQuoteFolderPath)
             record.QuoteFolderPath = row.QuoteFolderPath;
+        if (row.UpdateFulcrumFilePaths)
+            record.FulcrumFilePathsJson = row.FulcrumFilePathsJson;
+        if (row.UpdateFulcrumInspection)
+        {
+            record.FulcrumQuoteItemsJson = row.FulcrumQuoteItemsJson;
+            record.FulcrumOpWarningsJson = row.FulcrumOpWarningsJson;
+            record.FulcrumBuyItemCount = row.FulcrumBuyItemCount;
+            record.FulcrumMakeItemCount = row.FulcrumMakeItemCount;
+            record.FulcrumInspectionUpdatedAt = row.FulcrumInspectionUpdatedAt;
+        }
         record.EstimatingCompletionDate = row.EstimatingCompletionDate;
         record.OnTimeStatus = row.OnTimeStatus;
         record.DaysLate = row.DaysLate;
@@ -929,6 +955,15 @@ public sealed class EstimatingHistoryImportService(
         AddChange(changes, "Estimating status", record.EstimatingStatus, row.EstimatingStatus);
         if (row.UpdateQuoteFolderPath)
             AddChange(changes, "Quote folder path", record.QuoteFolderPath, row.QuoteFolderPath);
+        if (row.UpdateFulcrumFilePaths)
+            AddChange(changes, "Fulcrum file locations", JsonItemCount(record.FulcrumFilePathsJson), JsonItemCount(row.FulcrumFilePathsJson));
+        if (row.UpdateFulcrumInspection)
+        {
+            AddChange(changes, "Fulcrum quote items", JsonItemCount(record.FulcrumQuoteItemsJson), JsonItemCount(row.FulcrumQuoteItemsJson));
+            AddChange(changes, "Fulcrum OP operations", JsonItemCount(record.FulcrumOpWarningsJson), JsonItemCount(row.FulcrumOpWarningsJson));
+            AddChange(changes, "Fulcrum Buy items", record.FulcrumBuyItemCount.ToString(CultureInfo.InvariantCulture), row.FulcrumBuyItemCount.ToString(CultureInfo.InvariantCulture));
+            AddChange(changes, "Fulcrum Make items", record.FulcrumMakeItemCount.ToString(CultureInfo.InvariantCulture), row.FulcrumMakeItemCount.ToString(CultureInfo.InvariantCulture));
+        }
         AddChange(
             changes,
             "Estimating completion date",
@@ -956,6 +991,22 @@ public sealed class EstimatingHistoryImportService(
 
     private static string? AuditDate(DateTime? value) =>
         value?.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private static string JsonItemCount(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "0";
+        try
+        {
+            using var document = JsonDocument.Parse(value);
+            return document.RootElement.ValueKind == JsonValueKind.Array
+                ? document.RootElement.GetArrayLength().ToString(CultureInfo.InvariantCulture)
+                : "0";
+        }
+        catch (JsonException)
+        {
+            return "0";
+        }
+    }
 
     private static EstimatingQuoteHistoryAuditRecord CreatedAudit(
         EstimatingQuoteHistoryRecord record,

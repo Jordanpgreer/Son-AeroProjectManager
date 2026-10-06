@@ -80,7 +80,15 @@ internal sealed record EstimatingHistoryImportRow(
     bool IsOnTime,
     decimal? OnTimeRatio,
     string? QuoteFolderPath = null,
-    bool UpdateQuoteFolderPath = false);
+    bool UpdateQuoteFolderPath = false,
+    string? FulcrumFilePathsJson = null,
+    bool UpdateFulcrumFilePaths = false,
+    string? FulcrumQuoteItemsJson = null,
+    string? FulcrumOpWarningsJson = null,
+    int FulcrumBuyItemCount = 0,
+    int FulcrumMakeItemCount = 0,
+    DateTimeOffset? FulcrumInspectionUpdatedAt = null,
+    bool UpdateFulcrumInspection = false);
 
 public sealed class EstimatingHistoryReviewNotFoundException : Exception
 {

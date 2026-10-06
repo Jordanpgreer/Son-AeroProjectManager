@@ -21,6 +21,7 @@ export interface PersonalQuote {
   estimatingDueDate: string | null
   estimatingDueDateIsOverride: boolean
   estimatingCompletionDate: string | null
+  hasFulcrumWarnings?: boolean
   isCompleted: boolean
   isOverdue: boolean
   ardaStatus: ArdaStatus | null

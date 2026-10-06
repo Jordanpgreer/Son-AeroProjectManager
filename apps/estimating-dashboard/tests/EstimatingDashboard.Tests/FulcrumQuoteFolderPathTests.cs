@@ -37,4 +37,14 @@ public sealed class FulcrumQuoteFolderPathTests
 
         Assert.Equal(@"S:\Estimating\Quotes\Chosen", FulcrumQuoteFolderPath.Extract(notes));
     }
+
+    [Fact]
+    public void Extract_all_returns_each_distinct_valid_path_from_all_note_comments()
+    {
+        var notes = "File path: S:\\Estimating\\Quotes\\Q4521\r\nMore context\r\nFolder: S:/Estimating/Quotes/Q4521-Support\r\nPath: s:\\estimating\\quotes\\q4521";
+
+        Assert.Equal(
+            [@"S:\Estimating\Quotes\Q4521", @"S:\Estimating\Quotes\Q4521-Support"],
+            FulcrumQuoteFolderPath.ExtractAll(notes));
+    }
 }

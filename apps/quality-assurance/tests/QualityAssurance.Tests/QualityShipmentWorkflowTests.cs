@@ -567,6 +567,8 @@ public sealed class QualityShipmentWorkflowTests
                 DollarValue = 3400,
                 QaArrivalDate = today.AddDays(-5),
                 IsShipped = true,
+                // This fixture asserts current-quarter totals. Yesterday may be
+                // in the previous quarter (or year), especially on October 1.
                 ShippedAt = now,
                 AssignedGroupId = 10,
                 AssignedGroupName = "Quality",

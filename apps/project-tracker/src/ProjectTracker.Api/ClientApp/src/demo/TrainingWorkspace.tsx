@@ -587,10 +587,11 @@ export function TrainingWorkspace(props: TrainingWorkspaceProps) {
                   routingOperationsRemoved: 0,
                   existingOperationsPreserved: true,
                   operationProgressUpdated: 0,
+                  routingReset: false,
                 }
               }}
               onOverrideRouting={async () => {
-                previewAction(`A one-time routing override would apply only to ${props.selectedProject.programName}.`)
+                previewAction(`A one-time ERP routing reset would apply only to ${props.selectedProject.programName}.`)
                 return {
                   project: props.selectedProject,
                   provider: 'Configured ERP',
@@ -603,6 +604,7 @@ export function TrainingWorkspace(props: TrainingWorkspaceProps) {
                   routingOperationsRemoved: 0,
                   existingOperationsPreserved: false,
                   operationProgressUpdated: 0,
+                  routingReset: true,
                 }
               }}
               notificationTaskId={null}

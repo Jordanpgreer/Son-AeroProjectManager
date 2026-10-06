@@ -88,14 +88,14 @@ public sealed class VendorQuotePersistenceTests
         var app = builder.Build();
         app.MapGroup("/api").MapVendorQuoteEndpoints().MapQuoteStatusEndpoints();
         var routes = ((IEndpointRouteBuilder)app).DataSources.SelectMany(x => x.Endpoints).OfType<RouteEndpoint>().ToList();
-        Assert.Equal(25, routes.Count);
+        Assert.Equal(28, routes.Count);
         Assert.Contains(routes, route => route.RoutePattern.RawText == "/api/quote-status/{id:int}/messages/{messageId:long}/rate-request"
             && route.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Contains("POST"));
         Assert.All(routes, route =>
         {
             var auth = route.Metadata.GetOrderedMetadata<IAuthorizeData>();
             Assert.Contains(auth, x => x.Policy == EstimatingPolicies.QuoteStatusView);
-            if (route.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Any(x => x is "POST" or "PUT"))
+            if (route.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Any(x => x is "POST" or "PUT" or "DELETE"))
                 Assert.Contains(auth, x => x.Policy == EstimatingPolicies.Editor);
             if (route.RoutePattern.RawText?.EndsWith("/remove") == true || route.RoutePattern.RawText?.EndsWith("/restore") == true)
                 Assert.Contains(route.Metadata.GetOrderedMetadata<AuthorizationPolicy>().SelectMany(x => x.Requirements)

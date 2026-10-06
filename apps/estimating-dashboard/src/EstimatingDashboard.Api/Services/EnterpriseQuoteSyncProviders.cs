@@ -19,6 +19,7 @@ internal interface IEstimatingQuoteProvider : IEnterpriseIntegrationAdapter
 internal sealed class FulcrumEstimatingQuoteProvider(
     EstimatingAccessDbContext db,
     FulcrumQuoteClient client,
+    FulcrumQuoteInspectionService inspectionService,
     IOptions<FulcrumQuoteSyncOptions> options) : IEstimatingQuoteProvider
 {
     public string ProviderName => EnterpriseProviderNames.Fulcrum;
@@ -33,7 +34,29 @@ internal sealed class FulcrumEstimatingQuoteProvider(
             .Where(record => quoteNumbers.Contains(record.QuoteNumber))
             .ToDictionaryAsync(record => record.QuoteNumber, cancellationToken);
         var mapping = FulcrumQuoteMapper.Map(snapshots, existing, options.Value);
-        return new EnterpriseQuotePullResult(mapping.Rows, snapshots.Count, mapping.Warnings);
+        var rows = mapping.Rows.ToDictionary(row => row.QuoteNumber);
+        var activeSnapshots = snapshots
+            .Where(snapshot => rows.TryGetValue(snapshot.Quote.Number, out var row) && !row.IsCompleted
+                && !FulcrumQuoteStatuses.IsPostEstimating(row.QuoteStatus))
+            .ToList();
+        var inspection = await inspectionService.InspectAsync(activeSnapshots, cancellationToken);
+        foreach (var pair in inspection.Results)
+        {
+            var details = pair.Value;
+            rows[pair.Key] = rows[pair.Key] with
+            {
+                FulcrumQuoteItemsJson = System.Text.Json.JsonSerializer.Serialize(details.Items),
+                FulcrumOpWarningsJson = System.Text.Json.JsonSerializer.Serialize(details.OpOperations),
+                FulcrumBuyItemCount = details.BuyItemCount,
+                FulcrumMakeItemCount = details.MakeItemCount,
+                FulcrumInspectionUpdatedAt = details.InspectedAt,
+                UpdateFulcrumInspection = true
+            };
+        }
+        return new EnterpriseQuotePullResult(
+            rows.Values.OrderBy(row => row.RowNumber).ToList(),
+            snapshots.Count,
+            mapping.Warnings.Concat(inspection.Warnings).ToList());
     }
 }
 

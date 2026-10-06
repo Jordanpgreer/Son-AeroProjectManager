@@ -190,7 +190,7 @@ public sealed class ProjectRoutingSyncServiceTests
     }
 
     [Fact]
-    public void Force_override_applies_the_exact_Fulcrum_route_and_removes_manual_only_operations()
+    public void Force_override_rebuilds_the_entire_route_from_Fulcrum()
     {
         var project = ProjectWith(
             new ProjectTask
@@ -225,24 +225,30 @@ public sealed class ProjectRoutingSyncServiceTests
             DateTimeOffset.UtcNow,
             ProjectRoutingSyncMode.ForceOverride);
 
-        Assert.Equal(1, result.Added);
-        Assert.Equal(1, result.Updated);
-        Assert.Equal(1, result.Removed);
+        Assert.Equal(2, result.Added);
+        Assert.Equal(0, result.Updated);
+        Assert.Equal(2, result.Removed);
         Assert.False(result.PreservedExisting);
-        Assert.Single(result.RemovedTasks, task => task.Id == 20);
+        Assert.True(result.ResetApplied);
+        Assert.Equal(new[] { 10, 20 }, result.RemovedTasks.Select(task => task.Id).Order().ToArray());
         Assert.DoesNotContain(project.Tasks, task => task.Id == 20);
         Assert.Collection(
             project.Tasks.OrderBy(task => task.Sequence),
             task =>
             {
+                Assert.Equal(0, task.Id);
                 Assert.Equal("Cut", task.Title);
-                Assert.Equal("Keep this operator note", task.Notes);
+                Assert.Null(task.Notes);
             },
-            task => Assert.Equal("Weld", task.Title));
+            task =>
+            {
+                Assert.Equal(0, task.Id);
+                Assert.Equal("Weld", task.Title);
+            });
     }
 
     [Fact]
-    public void Force_override_is_idempotent_after_source_operations_are_linked()
+    public void Force_override_rebuilds_even_when_source_operations_are_already_linked()
     {
         var project = ProjectWith(new ProjectTask
         {
@@ -263,10 +269,12 @@ public sealed class ProjectRoutingSyncServiceTests
             DateTimeOffset.UtcNow,
             ProjectRoutingSyncMode.ForceOverride);
 
-        Assert.Equal(0, result.Added);
+        Assert.Equal(1, result.Added);
         Assert.Equal(0, result.Updated);
-        Assert.Equal(0, result.Removed);
-        Assert.Equal(3, project.Tasks[0].Version);
+        Assert.Equal(1, result.Removed);
+        Assert.True(result.ResetApplied);
+        Assert.Equal(0, project.Tasks[0].Id);
+        Assert.Equal(1, project.Tasks[0].Version);
     }
 
     private static Project ProjectWith(params ProjectTask[] tasks) => new()

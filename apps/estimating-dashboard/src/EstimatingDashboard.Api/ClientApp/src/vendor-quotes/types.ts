@@ -101,7 +101,12 @@ export interface QuoteStatusSummary {
   status: string; fulcrumQuoteStatus: string; statusChangedAt: string | null; statusChangedBy: string | null
   followUpDate: string | null; estimatingDueDate: string | null; updatedAt: string; lastMessageAt: string | null
   threadCount: number; messageCount: number; unassignedMessageCount: number; version: number; canEdit: boolean
-  canRemove: boolean
+  canRemove: boolean; hasFulcrumWarnings?: boolean
+}
+export interface QuoteFileLocation { path: string; source: 'Fulcrum' | 'Arda' }
+export interface QuoteItemReference { itemId: string; partNumber: string; revision: string | null }
+export interface QuoteProductionWarnings {
+  items: QuoteItemReference[]; opOperations: string[]; buyItemCount: number; makeItemCount: number; inspectedAt: string | null
 }
 export interface QuoteActivity extends Omit<VendorActivity, 'id'> {
   id: string; requestId: number | null; vendorName: string | null; partNumber: string | null
@@ -110,6 +115,7 @@ export interface QuoteActivity extends Omit<VendorActivity, 'id'> {
 export interface QuoteStatusDetail {
   quote: QuoteStatusSummary; activity: QuoteActivity[]; threads: VendorDetail[]; unassignedMessages: VendorMessage[]; workflow: PersonalQuote
   removedMessages: RemovedQuoteEmail[]; removedNotes: QuoteActivity[]; fulcrumQuoteUrl: string | null; quoteFolderPath: string | null
+  fileLocations: QuoteFileLocation[]; productionWarnings: QuoteProductionWarnings
 }
 export interface RemovedQuoteEmail {
   id: number; subject: string; direction: string; fromAddress: string; fromName: string | null; vendorEmail: string

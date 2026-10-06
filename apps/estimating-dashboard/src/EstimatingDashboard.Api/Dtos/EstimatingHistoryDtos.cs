@@ -152,7 +152,8 @@ public sealed record EstimatingPersonalQuoteDto(
     int Version,
     bool IsCompleted,
     bool IsOverdue,
-    DateTime? EstimatingCompletionDate);
+    DateTime? EstimatingCompletionDate,
+    bool HasFulcrumWarnings = false);
 
 public sealed record EstimatingQuoteWorkflowStatsDto(
     decimal? AverageCompletionWorkdays,

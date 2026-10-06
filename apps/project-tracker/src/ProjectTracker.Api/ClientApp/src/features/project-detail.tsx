@@ -294,14 +294,16 @@ function projectDataSyncSummary(result: ProjectQuantitySyncResult) {
     parts.push(`${result.provider} did not change project quantities.`)
   if (result.existingOperationsPreserved)
     parts.push('Existing operation names, order, notes, and original dates were preserved.')
+  if (result.routingReset)
+    parts.push(`Reset the project routing from ${result.provider}.`)
   if (result.routingStepsAdded > 0)
     parts.push(`Added ${result.routingStepsAdded} routing operation${result.routingStepsAdded === 1 ? '' : 's'}.`)
   if (result.routingStepsUpdated > 0)
-    parts.push(`Updated ${result.routingStepsUpdated} operation${result.routingStepsUpdated === 1 ? '' : 's'} to match the Fulcrum route.`)
+    parts.push(`Updated ${result.routingStepsUpdated} operation${result.routingStepsUpdated === 1 ? '' : 's'} to match the ${result.provider} route.`)
   if (result.operationProgressUpdated > 0)
-    parts.push(`Updated Fulcrum progress and actual dates for ${result.operationProgressUpdated} operation${result.operationProgressUpdated === 1 ? '' : 's'}.`)
+    parts.push(`Updated ${result.provider} progress and actual dates for ${result.operationProgressUpdated} operation${result.operationProgressUpdated === 1 ? '' : 's'}.`)
   if (result.routingOperationsRemoved > 0)
-    parts.push(`Removed ${result.routingOperationsRemoved} operation${result.routingOperationsRemoved === 1 ? '' : 's'} that were not in the Fulcrum route.`)
+    parts.push(`Removed ${result.routingOperationsRemoved} previous operation${result.routingOperationsRemoved === 1 ? '' : 's'}.`)
   if (result.warnings.length > 0) parts.push(result.warnings.join(' '))
   return parts.join(' ')
 }
@@ -516,7 +518,7 @@ export function ProjectView({
       setQuantitySyncMessage(projectDataSyncSummary(result))
       setRoutingOverrideOpen(false)
     } catch (error) {
-      setRoutingOverrideError(error instanceof Error ? error.message : 'The project operations could not be overridden.')
+      setRoutingOverrideError(error instanceof Error ? error.message : 'The project BOM could not be reset from ERP.')
     } finally {
       setRoutingOverridePending(false)
     }
@@ -887,7 +889,7 @@ export function ProjectView({
             {notificationPreferenceSaving ? 'Saving...' : `Notifications ${notificationPreference.enabled ? 'On' : 'Off'}`}
           </button>}
           {canEditQuantities && <button className="button ghost" type="button" title="Refresh ERP quantities; existing operations are never replaced unless they are all blank" disabled={quantitySyncing || routingOverridePending} onClick={() => void syncQuantities()}><RefreshCw size={15} className={quantitySyncing ? 'spin' : undefined} /> {quantitySyncing ? 'Refreshing ERP Data...' : 'Refresh ERP Data'}</button>}
-          {canOverrideRouting && <button className="button ghost" type="button" title="Administrator-only, one-time override for this project's operations" disabled={quantitySyncing || routingOverridePending} onClick={() => { setRoutingOverrideError(null); setRoutingOverrideOpen(true) }}><RefreshCw size={15} /> Override Operations from ERP</button>}
+          {canOverrideRouting && <button className="button ghost" type="button" title="Administrator-only reset that reloads quantities and rebuilds this project's routing from ERP" disabled={quantitySyncing || routingOverridePending} onClick={() => { setRoutingOverrideError(null); setRoutingOverrideOpen(true) }}><RefreshCw size={15} /> Reset BOM from ERP</button>}
           {canManageBom && <ProjectBomImport project={project} onApplied={onBomApplied} />}
           {showChat && <button className="button ghost" type="button" data-guide-id={chatGuideId} onClick={onOpenChat}><MessageSquare size={15} /> Chat</button>}
           {(isCompleted
@@ -1087,19 +1089,19 @@ export function ProjectView({
           <section className="modal confirmation-modal" role="alertdialog" aria-modal="true" aria-labelledby="routing-override-title" onClick={(event) => event.stopPropagation()}>
             <div className="confirmation-icon danger"><AlertTriangle size={22} /></div>
             <div className="confirmation-copy">
-              <span className="kicker">Administrator Override</span>
-              <h2 id="routing-override-title">Replace this project's operation route?</h2>
+              <span className="kicker">Administrator Reset</span>
+              <h2 id="routing-override-title">Reset this project's BOM from ERP?</h2>
               <p>
-                This one-time action applies the current Fulcrum routing only to <strong>{project.programName}</strong>. Operation names and order will be reset, and manual-only operations not found in Fulcrum will be removed. Notes and scheduling data on matched operations will be retained.
+                This one-time action removes every current operation for <strong>{project.programName}</strong>, including operation notes, schedules, dependencies, and progress. It then recreates the routing and reloads required and job quantities from the current ERP data.
               </p>
-              <p>Future automatic or manual ERP refreshes will return to preserving these operations.</p>
+              <p>Project-level details such as the part number, sales order, job number, contacts, and sales person are retained. Future automatic or manual ERP refreshes will return to preserving the rebuilt operations.</p>
               {routingOverrideError && <p className="inline-note warning" role="alert"><AlertTriangle size={14} /> {routingOverrideError}</p>}
             </div>
             <div className="modal-actions confirmation-actions">
               <button className="button ghost" type="button" onClick={() => setRoutingOverrideOpen(false)} disabled={routingOverridePending}>Cancel</button>
               <button className="button danger-solid" type="button" onClick={() => void overrideRouting()} disabled={routingOverridePending} autoFocus>
                 <RefreshCw size={15} className={routingOverridePending ? 'spin' : undefined} />
-                {routingOverridePending ? 'Overriding...' : 'Override This Project'}
+                {routingOverridePending ? 'Resetting...' : 'Reset & Pull from ERP'}
               </button>
             </div>
           </section>

@@ -328,6 +328,7 @@ export type ProjectQuantitySyncResult = {
   routingOperationsRemoved: number
   existingOperationsPreserved: boolean
   operationProgressUpdated: number
+  routingReset: boolean
 }
 
 export type ProjectNotificationPreference = {

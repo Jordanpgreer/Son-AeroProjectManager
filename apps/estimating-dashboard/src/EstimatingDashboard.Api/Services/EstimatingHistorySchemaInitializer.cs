@@ -250,6 +250,14 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
             "NumberOfParts" INTEGER NOT NULL,
             "EstimatingStatus" TEXT NULL,
             "QuoteFolderPath" TEXT NULL,
+            "FulcrumFilePathsJson" TEXT NULL,
+            "ArdaFilePathOverridesJson" TEXT NULL,
+            "ArdaSuppressedFilePathsJson" TEXT NULL,
+            "FulcrumQuoteItemsJson" TEXT NULL,
+            "FulcrumOpWarningsJson" TEXT NULL,
+            "FulcrumBuyItemCount" INTEGER NOT NULL DEFAULT 0,
+            "FulcrumMakeItemCount" INTEGER NOT NULL DEFAULT 0,
+            "FulcrumInspectionUpdatedAt" TEXT NULL,
             "ArdaStatus" TEXT NULL,
             "ArdaStatusNotes" TEXT NULL,
             "ArdaStatusChangedAt" TEXT NULL,
@@ -346,6 +354,14 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
                 [NumberOfParts] int NOT NULL,
                 [EstimatingStatus] nvarchar(160) NULL,
                 [QuoteFolderPath] nvarchar(1000) NULL,
+                [FulcrumFilePathsJson] nvarchar(max) NULL,
+                [ArdaFilePathOverridesJson] nvarchar(max) NULL,
+                [ArdaSuppressedFilePathsJson] nvarchar(max) NULL,
+                [FulcrumQuoteItemsJson] nvarchar(max) NULL,
+                [FulcrumOpWarningsJson] nvarchar(max) NULL,
+                [FulcrumBuyItemCount] int NOT NULL CONSTRAINT [DF_EstimatingQuoteHistory_FulcrumBuyItemCount] DEFAULT 0,
+                [FulcrumMakeItemCount] int NOT NULL CONSTRAINT [DF_EstimatingQuoteHistory_FulcrumMakeItemCount] DEFAULT 0,
+                [FulcrumInspectionUpdatedAt] datetimeoffset NULL,
                 [ArdaStatus] nvarchar(80) NULL,
                 [ArdaStatusNotes] nvarchar(2000) NULL,
                 [ArdaStatusChangedAt] datetimeoffset NULL,
@@ -411,6 +427,22 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
             ALTER TABLE [EstimatingQuoteHistory] ADD [QuoteOnTrack] nvarchar(40) NULL;
         IF COL_LENGTH(N'EstimatingQuoteHistory', N'QuoteFolderPath') IS NULL
             ALTER TABLE [EstimatingQuoteHistory] ADD [QuoteFolderPath] nvarchar(1000) NULL;
+        IF COL_LENGTH(N'EstimatingQuoteHistory', N'FulcrumFilePathsJson') IS NULL
+            ALTER TABLE [EstimatingQuoteHistory] ADD [FulcrumFilePathsJson] nvarchar(max) NULL;
+        IF COL_LENGTH(N'EstimatingQuoteHistory', N'ArdaFilePathOverridesJson') IS NULL
+            ALTER TABLE [EstimatingQuoteHistory] ADD [ArdaFilePathOverridesJson] nvarchar(max) NULL;
+        IF COL_LENGTH(N'EstimatingQuoteHistory', N'ArdaSuppressedFilePathsJson') IS NULL
+            ALTER TABLE [EstimatingQuoteHistory] ADD [ArdaSuppressedFilePathsJson] nvarchar(max) NULL;
+        IF COL_LENGTH(N'EstimatingQuoteHistory', N'FulcrumQuoteItemsJson') IS NULL
+            ALTER TABLE [EstimatingQuoteHistory] ADD [FulcrumQuoteItemsJson] nvarchar(max) NULL;
+        IF COL_LENGTH(N'EstimatingQuoteHistory', N'FulcrumOpWarningsJson') IS NULL
+            ALTER TABLE [EstimatingQuoteHistory] ADD [FulcrumOpWarningsJson] nvarchar(max) NULL;
+        IF COL_LENGTH(N'EstimatingQuoteHistory', N'FulcrumBuyItemCount') IS NULL
+            ALTER TABLE [EstimatingQuoteHistory] ADD [FulcrumBuyItemCount] int NOT NULL CONSTRAINT [DF_EstimatingQuoteHistory_FulcrumBuyItemCount_Existing] DEFAULT 0;
+        IF COL_LENGTH(N'EstimatingQuoteHistory', N'FulcrumMakeItemCount') IS NULL
+            ALTER TABLE [EstimatingQuoteHistory] ADD [FulcrumMakeItemCount] int NOT NULL CONSTRAINT [DF_EstimatingQuoteHistory_FulcrumMakeItemCount_Existing] DEFAULT 0;
+        IF COL_LENGTH(N'EstimatingQuoteHistory', N'FulcrumInspectionUpdatedAt') IS NULL
+            ALTER TABLE [EstimatingQuoteHistory] ADD [FulcrumInspectionUpdatedAt] datetimeoffset NULL;
         IF COL_LENGTH(N'EstimatingQuoteHistory', N'ArdaStatus') IS NULL
             ALTER TABLE [EstimatingQuoteHistory] ADD [ArdaStatus] nvarchar(80) NULL;
         IF COL_LENGTH(N'EstimatingQuoteHistory', N'ArdaStatusNotes') IS NULL
@@ -492,6 +524,22 @@ public sealed class EstimatingHistorySchemaInitializer(EstimatingAccessDbContext
                 await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"QuoteOnTrack\" TEXT NULL", cancellationToken);
             if (!columns.Contains("QuoteFolderPath"))
                 await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"QuoteFolderPath\" TEXT NULL", cancellationToken);
+            if (!columns.Contains("FulcrumFilePathsJson"))
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"FulcrumFilePathsJson\" TEXT NULL", cancellationToken);
+            if (!columns.Contains("ArdaFilePathOverridesJson"))
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"ArdaFilePathOverridesJson\" TEXT NULL", cancellationToken);
+            if (!columns.Contains("ArdaSuppressedFilePathsJson"))
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"ArdaSuppressedFilePathsJson\" TEXT NULL", cancellationToken);
+            if (!columns.Contains("FulcrumQuoteItemsJson"))
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"FulcrumQuoteItemsJson\" TEXT NULL", cancellationToken);
+            if (!columns.Contains("FulcrumOpWarningsJson"))
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"FulcrumOpWarningsJson\" TEXT NULL", cancellationToken);
+            if (!columns.Contains("FulcrumBuyItemCount"))
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"FulcrumBuyItemCount\" INTEGER NOT NULL DEFAULT 0", cancellationToken);
+            if (!columns.Contains("FulcrumMakeItemCount"))
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"FulcrumMakeItemCount\" INTEGER NOT NULL DEFAULT 0", cancellationToken);
+            if (!columns.Contains("FulcrumInspectionUpdatedAt"))
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"FulcrumInspectionUpdatedAt\" TEXT NULL", cancellationToken);
             if (!columns.Contains("ArdaStatus"))
                 await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"EstimatingQuoteHistory\" ADD COLUMN \"ArdaStatus\" TEXT NULL", cancellationToken);
             if (!columns.Contains("ArdaStatusNotes"))

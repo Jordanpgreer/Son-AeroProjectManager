@@ -4,7 +4,6 @@ import { updatePersonalQuoteWorkflow } from '../quoteWorkflowApi'
 import ActivityTimeline, { StatusBadge } from './ActivityTimeline'
 import NewThreadDialog from './NewThreadDialog'
 import ProcessingMaterials from './ProcessingMaterials'
-import QuoteFolderActions from './QuoteFolderActions'
 import Modal from './Modal'
 import QuoteOverview from './QuoteOverview'
 import ManualEmailUpload from './ManualEmailUpload'
@@ -136,14 +135,14 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   return <section className="vq-detail qs-request-record" aria-label={`Quote ${quote.quoteNumber} details`}>
     <header className="qs-request-heading">
       <button className="qs-back-to-quotes vq-button" onClick={onBack}><ArrowLeft size={15} />Back to Quotes</button>
-      <div className="qs-request-title"><h2>Quote {quote.quoteNumber}</h2>
-        <div className="qs-record-actions">{detail.fulcrumQuoteUrl && <a className="qs-record-action" href={detail.fulcrumQuoteUrl} target="_blank" rel="noopener noreferrer" aria-label={`Open Fulcrum quote ${quote.quoteNumber} in a new tab`}><ArrowUpRight size={14} aria-hidden="true" />Open in Fulcrum</a>}{detail.quoteFolderPath && <QuoteFolderActions path={detail.quoteFolderPath} quoteNumber={quote.quoteNumber} />}<button type="button" className="vq-button qs-removed-button" onClick={() => setRemovedOpen(true)}><Trash2 size={14} />Removed items{removedCount > 0 && <span>{removedCount}</span>}</button></div>
+      <div className="qs-request-title"><h2>{detail.fulcrumQuoteUrl ? <a href={detail.fulcrumQuoteUrl} target="_blank" rel="noopener noreferrer" aria-label={`Open Fulcrum quote ${quote.quoteNumber} in a new tab`}>Quote {quote.quoteNumber}<ArrowUpRight size={16} aria-hidden="true" /></a> : <>Quote {quote.quoteNumber}</>}</h2>
+        <div className="qs-record-actions"><button type="button" className="vq-button qs-removed-button" onClick={() => setRemovedOpen(true)}><Trash2 size={14} />Removed items{removedCount > 0 && <span>{removedCount}</span>}</button></div>
       </div>
     </header>
     {lifecycle.alerts}
     <div className="qs-request-grid">
       <div className="qs-request-main">
-        <QuoteOverview detail={detail} canEdit={quote.canEdit && canManage} draft={overviewDraft} dirty={overviewDirty} saving={overviewSaving} busy={saving || rfqSaving || lifecycle.busy} saved={overviewSaved} error={overviewError} onChange={value => { setOverviewDraft(value); setOverviewSaved(false) }} onSave={() => void saveOverview()} onDiscard={discardOverview} />
+        <QuoteOverview detail={detail} canEdit={quote.canEdit && canManage} draft={overviewDraft} dirty={overviewDirty} saving={overviewSaving} busy={saving || rfqSaving || lifecycle.busy} saved={overviewSaved} error={overviewError} onChange={value => { setOverviewDraft(value); setOverviewSaved(false) }} onSave={() => void saveOverview()} onDiscard={discardOverview} onDetailChanged={emailImported} />
         <section className="qs-request-card qs-activity-card" aria-label="Activity Timeline"><header className="qs-card-heading"><h3>Activity Timeline</h3><span>Newest first</span></header>
           <ActivityTimeline activity={detail.activity} messages={messages} threads={threads} unassignedIds={new Set(detail.unassignedMessages.map(item => item.id))} onThread={selectThread} canEdit={quote.canEdit && canManage} canRemove={canRemove} busy={writeBusy} onEdit={lifecycle.editNote} onRemove={lifecycle.removeNote} onMoveEmail={lifecycle.moveEmail} onRemoveEmail={lifecycle.removeEmail} onRateRequest={changeRateRequest} onAssign={async (messageId, requestId) => { await assignQuoteMessage(quote.quoteHistoryId, messageId, quote.version, requestId); const updated = await onChanged(); if (updated) setOverviewBase(current => rebaseQuoteDetailsAfterActivity(current, updated.workflow)) }} />
         </section>

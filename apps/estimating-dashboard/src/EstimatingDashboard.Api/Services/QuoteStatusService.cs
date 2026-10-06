@@ -78,7 +78,7 @@ public sealed partial class QuoteStatusService(EstimatingAccessDbContext db, Tim
                 emailRows.Select(x => (DateTimeOffset?)(x.ReceivedAt ?? x.SentAt)).DefaultIfEmpty().Max(),
                 threadRows.Count, emailRows.Count, emailRows.Count(x => x.RequestId is null), q.Version,
                 !access.IsPreview && VendorQuoteService.Has(access, EstimatingPermissions.ManageQuotes), CanRemove(access),
-                q.SalesPerson, EffectiveDueDate(q), FulcrumQuoteStatuses.Normalize(q.QuoteStatus));
+                q.SalesPerson, EffectiveDueDate(q), FulcrumQuoteStatuses.Normalize(q.QuoteStatus), HasFulcrumWarnings(q));
         }).ToList();
     }
 
@@ -107,10 +107,12 @@ public sealed partial class QuoteStatusService(EstimatingAccessDbContext db, Tim
         events.AddRange(threads.SelectMany(t => t.Activity.Select(x => new QuoteStatusActivityDto($"thread-{x.Id}", x.Kind,
             x.Text, x.OldValue, x.NewValue, x.OccurredAt, x.AccountName, x.DisplayName, t.Request.Id, t.Request.VendorName, t.Request.PartNumber, x.EditedAt, x.EditedBy))));
         var unassigned = await vendors.MessagesAsync(db.Set<VendorQuoteMessage>().Where(x => x.QuoteHistoryId == id && x.RequestId == null), ct);
+        var fileLocations = FileLocations(quote);
         return new(summary, events.OrderByDescending(x => x.OccurredAt).ThenByDescending(x => x.Id).ToList(),
             threads.OrderBy(x => x.Request.PartNumber).ThenBy(x => x.Request.VendorName).ToList(), unassigned, workflowDetails,
             await RemovedEmailsAsync(id, ct), await RemovedNotesAsync(id, ct),
-            await sourceLinks.ResolveAsync(quote.SourceId, quote.QuoteNumber, ct), quote.QuoteFolderPath);
+            await sourceLinks.ResolveAsync(quote.SourceId, quote.QuoteNumber, ct), fileLocations.FirstOrDefault()?.Path,
+            fileLocations, ProductionWarnings(quote));
     }
     public async Task<QuoteStatusDetailDto> UpdateAsync(int id, UpdateQuoteStatusDto dto, EstimatingAccessProfile access, CancellationToken ct)
     {

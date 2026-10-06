@@ -1,5 +1,7 @@
+using EstimatingDashboard.Api.Auth;
 using EstimatingDashboard.Api.Data;
 using EstimatingDashboard.Api.Services;
+using Microsoft.EntityFrameworkCore;
 using static EstimatingDashboard.Tests.VendorQuoteTestFixture;
 
 namespace EstimatingDashboard.Tests;
@@ -133,6 +135,59 @@ public sealed class QuoteStatusWorkflowContextTests
         var completeQuote = await f.Quotes.DetailAsync(f.QuoteId(4451), Editor, default);
         Assert.Equal(4451, completeQuote.Workflow.QuoteNumber);
         Assert.Equal(completeQuote.Quote.QuoteHistoryId, completeQuote.Workflow.Id);
+    }
+
+    [Fact]
+    public async Task Detail_combines_fulcrum_and_arda_locations_and_exposes_cached_production_review()
+    {
+        await using var f = await CreateAsync();
+        var quoteId = f.QuoteId();
+        var quote = f.Db.QuoteHistory.Single(x => x.Id == quoteId);
+        quote.FulcrumFilePathsJson = "[\"S:\\\\Quotes\\\\Q4445\",\"S:\\\\Quotes\\\\Q4445 Support\"]";
+        quote.ArdaFilePathOverridesJson = "[\"S:\\\\Quotes\\\\Q4445 Local\"]";
+        quote.ArdaSuppressedFilePathsJson = "[\"S:\\\\Quotes\\\\Q4445 Support\"]";
+        quote.FulcrumQuoteItemsJson = "[{\"itemId\":\"item-1\",\"partNumber\":\"74A231660-2011\",\"revision\":\"C\"}]";
+        quote.FulcrumOpWarningsJson = "[\"74A231660-2011: OP Testing\"]";
+        quote.FulcrumBuyItemCount = 3;
+        quote.FulcrumMakeItemCount = 1;
+        quote.FulcrumInspectionUpdatedAt = Now;
+        await f.Db.SaveChangesAsync();
+
+        var detail = await f.Quotes.DetailAsync(quote.Id, Editor, default);
+        var page = await f.Quotes.ListAsync(Editor, null, null, quote.QuoteNumber, 1, 50, default);
+        var personal = (await f.Workflow.GetMineAsync(Editor, default)).Single(x => x.Id == quote.Id);
+
+        Assert.Equal([@"S:\Quotes\Q4445", @"S:\Quotes\Q4445 Local"], detail.FileLocations!.Select(location => location.Path));
+        Assert.Equal(["Fulcrum", "Arda"], detail.FileLocations!.Select(location => location.Source));
+        Assert.Equal("74A231660-2011", detail.ProductionWarnings!.Items.Single().PartNumber);
+        Assert.Equal("C", detail.ProductionWarnings.Items.Single().Revision);
+        Assert.Equal(3, detail.ProductionWarnings.BuyItemCount);
+        Assert.Equal(1, detail.ProductionWarnings.MakeItemCount);
+        Assert.True(detail.Quote.HasFulcrumWarnings);
+        Assert.True(page.Items.Single().HasFulcrumWarnings);
+        Assert.True(personal.HasFulcrumWarnings);
+    }
+
+    [Fact]
+    public async Task File_location_changes_are_versioned_audited_and_can_suppress_fulcrum_paths()
+    {
+        await using var f = await CreateAsync();
+        var quoteId = f.QuoteId();
+        var quote = f.Db.QuoteHistory.Single(x => x.Id == quoteId);
+        quote.FulcrumFilePathsJson = "[\"S:\\\\Quotes\\\\Q4445\"]";
+        await f.Db.SaveChangesAsync();
+
+        var added = await f.Quotes.UpsertFileLocationAsync(quote.Id, new(0, @"S:\Quotes\Q4445 Support"), Editor, default);
+        Assert.Equal(2, added.FileLocations!.Count);
+        var edited = await f.Quotes.UpsertFileLocationAsync(quote.Id, new(1, @"S:\Quotes\Q4445 Working", @"S:\Quotes\Q4445 Support"), Editor, default);
+        Assert.Contains(edited.FileLocations!, location => location.Path == @"S:\Quotes\Q4445 Working" && location.Source == "Arda");
+        var removed = await f.Quotes.RemoveFileLocationAsync(quote.Id, new(2, @"S:\Quotes\Q4445"), Editor, default);
+        Assert.Equal(@"S:\Quotes\Q4445 Working", Assert.Single(removed.FileLocations!).Path);
+        Assert.Equal(3, await f.Db.Set<EstimatingDashboard.Api.Models.QuoteStatusActivity>().CountAsync(activity => activity.Kind == "file-location"));
+
+        var viewer = Editor with { Role = EstimatingRoles.Viewer };
+        Assert.Equal(403, (await Assert.ThrowsAsync<VendorQuoteException>(() =>
+            f.Quotes.UpsertFileLocationAsync(quote.Id, new(3, @"S:\Quotes\Denied"), viewer, default))).StatusCode);
     }
 
     private sealed class CapturingQuoteLinks : IQuoteSourceLinkResolver

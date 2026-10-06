@@ -45,6 +45,7 @@ builder.Services.AddHttpClient<FulcrumQuoteClient>(client =>
 builder.Services.AddScoped<IEstimatingQuoteProvider, FulcrumEstimatingQuoteProvider>();
 builder.Services.AddScoped<IEstimatingQuoteProvider, AcumaticaEstimatingQuoteProvider>();
 builder.Services.AddScoped<EnterpriseQuoteSyncService>();
+builder.Services.AddScoped<FulcrumQuoteInspectionService>();
 builder.Services.AddScoped<FulcrumEstimateImportService>();
 builder.Services.AddHttpClient<FulcrumQuoteGenerationClient>(client => client.Timeout = TimeSpan.FromMinutes(5));
 builder.Services.AddScoped<IQuoteSourceLinkResolver, FulcrumQuoteLinkResolver>();

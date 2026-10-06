@@ -212,7 +212,8 @@ public sealed partial class VendorQuoteService(EstimatingAccessDbContext db, Tim
             !access.IsPreview && Has(access, EstimatingPermissions.ManageQuotes), x.PartNumber);
 }
 
-public sealed class VendorQuoteException(int statusCode, string message) : Exception(message)
+public sealed class VendorQuoteException(int statusCode, string message, string code = "QuoteStatusError") : Exception(message)
 {
     public int StatusCode { get; } = statusCode;
+    public string Code { get; } = code;
 }

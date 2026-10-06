@@ -9,6 +9,7 @@ public sealed record ProjectRoutingSyncResult(
     int ArdaOnlyRetained,
     int Removed,
     bool PreservedExisting,
+    bool ResetApplied,
     IReadOnlyList<string> Warnings,
     IReadOnlyList<ProjectTask> RemovedTasks);
 
@@ -28,7 +29,7 @@ public sealed class ProjectRoutingSyncService
         ProjectRoutingSyncMode mode = ProjectRoutingSyncMode.PopulateWhenBlank)
     {
         if (routingSteps.Count == 0)
-            return EmptyResult();
+            return EmptyResult(mode);
 
         var sourceSteps = routingSteps
             .Select((step, index) => new { Step = step, Index = index })
@@ -40,12 +41,15 @@ public sealed class ProjectRoutingSyncService
             .DistinctBy(step => step.ExternalId, StringComparer.OrdinalIgnoreCase)
             .ToList();
         if (sourceSteps.Count == 0)
-            return EmptyResult();
+            return EmptyResult(mode);
 
         var existingInOrder = project.Tasks
             .OrderBy(task => task.Sequence)
             .ThenBy(task => task.Id)
             .ToList();
+        if (mode == ProjectRoutingSyncMode.ForceOverride)
+            return ApplyFullReset(project, existingInOrder, sourceSteps, provider, now);
+
         var hasMeaningfulOperations = existingInOrder.Any(task => !string.IsNullOrWhiteSpace(task.Title));
         if (mode == ProjectRoutingSyncMode.PopulateWhenBlank && hasMeaningfulOperations)
             return ApplyProgressOnly(project, sourceSteps, provider, now);
@@ -105,7 +109,7 @@ public sealed class ProjectRoutingSyncService
         }
 
         var unmatchedInOrder = existingInOrder.Where(unmatched.Contains).ToList();
-        var removedTasks = mode == ProjectRoutingSyncMode.ForceOverride || !hasMeaningfulOperations
+        var removedTasks = !hasMeaningfulOperations
             ? unmatchedInOrder
             : [];
         var retained = removedTasks.Count == 0 ? unmatchedInOrder : [];
@@ -149,7 +153,7 @@ public sealed class ProjectRoutingSyncService
 
         IReadOnlyList<string> warnings = clearedDependencies == 0
             ? []
-            : [$"Cleared {clearedDependencies} operation dependenc{(clearedDependencies == 1 ? "y" : "ies")} that no longer pointed to an earlier operation after the Fulcrum sequence was applied."];
+            : [$"Cleared {clearedDependencies} operation dependenc{(clearedDependencies == 1 ? "y" : "ies")} that no longer pointed to an earlier operation after the {providerName} sequence was applied."];
         return new ProjectRoutingSyncResult(
             addedTasks.Count,
             updatedRoutingTasks.Count,
@@ -157,8 +161,53 @@ public sealed class ProjectRoutingSyncService
             retained.Count,
             removedTasks.Count,
             false,
+            false,
             warnings,
             removedTasks);
+    }
+
+    private static ProjectRoutingSyncResult ApplyFullReset(
+        Project project,
+        IReadOnlyList<ProjectTask> existingInOrder,
+        IReadOnlyList<ProjectRoutingStepSnapshot> sourceSteps,
+        string provider,
+        DateTimeOffset now)
+    {
+        foreach (var existingTask in existingInOrder)
+            project.Tasks.Remove(existingTask);
+
+        var providerName = provider.Trim();
+        var progressUpdated = 0;
+        for (var index = 0; index < sourceSteps.Count; index++)
+        {
+            var step = sourceSteps[index];
+            var sequence = index + 1;
+            var task = new ProjectTask
+            {
+                ProjectId = project.Id,
+                Project = project,
+                Title = step.Name.Trim(),
+                ExternalSourceProvider = providerName,
+                ExternalSourceOperationId = step.ExternalId.Trim(),
+                Sequence = sequence,
+                ExternalTaskId = sequence.ToString(),
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            if (SetProgressValues(task, step)) progressUpdated++;
+            project.Tasks.Add(task);
+        }
+
+        return new ProjectRoutingSyncResult(
+            sourceSteps.Count,
+            0,
+            progressUpdated,
+            0,
+            existingInOrder.Count,
+            false,
+            true,
+            [],
+            existingInOrder);
     }
 
     private static ProjectRoutingSyncResult ApplyProgressOnly(
@@ -201,7 +250,7 @@ public sealed class ProjectRoutingSyncService
 
         IReadOnlyList<string> warnings = unmatchedProgress == 0
             ? []
-            : [$"Could not match {unmatchedProgress} Fulcrum operation progress record{(unmatchedProgress == 1 ? string.Empty : "s")} to the existing project operations; operation names and order were preserved."];
+            : [$"Could not match {unmatchedProgress} {providerName} operation progress record{(unmatchedProgress == 1 ? string.Empty : "s")} to the existing project operations; operation names and order were preserved."];
         return new ProjectRoutingSyncResult(
             0,
             0,
@@ -209,6 +258,7 @@ public sealed class ProjectRoutingSyncService
             0,
             0,
             true,
+            false,
             warnings,
             []);
     }
@@ -318,6 +368,17 @@ public sealed class ProjectRoutingSyncService
         string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
             .ToUpperInvariant();
 
-    private static ProjectRoutingSyncResult EmptyResult() =>
-        new(0, 0, 0, 0, 0, false, [], []);
+    private static ProjectRoutingSyncResult EmptyResult(ProjectRoutingSyncMode mode) =>
+        new(
+            0,
+            0,
+            0,
+            0,
+            0,
+            false,
+            false,
+            mode == ProjectRoutingSyncMode.ForceOverride
+                ? ["The ERP response did not contain a usable routing, so the existing project operations were not removed."]
+                : [],
+            []);
 }

@@ -284,6 +284,8 @@ internal static class FulcrumQuoteMapper
                 current?.EstimatingRep ?? "Unassigned",
                 options.CustomFields.EstimatingRep,
                 "Estimator");
+            var internalNotes = InternalNotesText(quote.InternalNotes);
+            var filePaths = FulcrumQuoteFolderPath.ExtractAll(internalNotes);
 
             rows.Add(EstimatingHistoryImportService.CreateRow(
                 rowNumber,
@@ -307,8 +309,10 @@ internal static class FulcrumQuoteMapper
                 numberOfParts,
                 TextField(quote, current?.EstimatingStatus, options.CustomFields.EstimatingStatus).Value,
                 completionDate,
-                FulcrumQuoteFolderPath.Extract(ScalarText(quote.InternalNotes)),
-                updateQuoteFolderPath: quote.InternalNotes.ValueKind != JsonValueKind.Undefined));
+                filePaths.FirstOrDefault(),
+                updateQuoteFolderPath: quote.InternalNotes.ValueKind != JsonValueKind.Undefined,
+                fulcrumFilePathsJson: JsonSerializer.Serialize(filePaths),
+                updateFulcrumFilePaths: quote.InternalNotes.ValueKind != JsonValueKind.Undefined));
         }
         return new FulcrumQuoteMappingResult(rows, warnings);
     }
@@ -421,6 +425,30 @@ internal static class FulcrumQuoteMapper
                 return string.Join(", ", value.EnumerateArray().Select(ScalarText).Where(text => text is not null));
             default:
                 return Clean(value.GetRawText());
+        }
+    }
+
+    private static string? InternalNotesText(JsonElement value)
+    {
+        var values = new List<string>();
+        Collect(value, values);
+        return values.Count == 0 ? null : string.Join('\n', values);
+
+        static void Collect(JsonElement element, ICollection<string> destination)
+        {
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.String:
+                    if (!string.IsNullOrWhiteSpace(element.GetString()))
+                        destination.Add(element.GetString()!.Trim());
+                    break;
+                case JsonValueKind.Array:
+                    foreach (var child in element.EnumerateArray()) Collect(child, destination);
+                    break;
+                case JsonValueKind.Object:
+                    foreach (var property in element.EnumerateObject()) Collect(property.Value, destination);
+                    break;
+            }
         }
     }
 
