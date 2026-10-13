@@ -13,13 +13,81 @@ public sealed class VendorQuoteServiceTests
     [InlineData("Quote 4445", 4445)]
     [InlineData("RE: FW: FWD: quote 44450", 44450)]
     [InlineData("  Quote 4445  ", 4445)]
+    [InlineData("Quote 4445 - RM004420", 4445)]
+    [InlineData("RE: FW: Quote 4445 - A-1/2 (rev. E)", 4445)]
+    [InlineData("Quote 4445 - 11488049 E", 4445)]
     [InlineData("Quote 4445 extra", null)]
     [InlineData("Quote #4445", null)]
     [InlineData("Quote 4445 / Quote 44450", null)]
     [InlineData("Quote 0", null)]
     [InlineData("Quote 999999999999", null)]
     [InlineData("A Quote 4445", null)]
+    [InlineData("Quote 4445 - Quote 44450", null)]
+    [InlineData("Quote 4445 - ", null)]
+    [InlineData("Quote 4445-RM004420", null)]
+    [InlineData("Quote 4445 - RM004420\r\nBcc: other@example.test", null)]
     public void Matches_only_an_exact_quote_subject(string subject, int? expected) => Assert.Equal(expected, VendorQuoteService.MatchQuoteNumber(subject));
+
+    [Fact]
+    public async Task Material_subject_and_reply_import_under_the_exact_quote()
+    {
+        await using var f = await CreateAsync();
+        var thread = await f.ThreadAsync("RM004420");
+        var sent = await f.Vendors.ImportAsync(Message("<material-sent@vendor.example>", "Quote 4445 - RM004420") with
+        { Direction = "outgoing", FromAddress = "casey@company.example", ToAddresses = ["quotes@vendor.example"] }, Editor, default);
+        var reply = await f.Vendors.ImportAsync(Message("<material-reply@vendor.example>", "RE: Quote 4445 - RM004420"), Editor, default);
+        Assert.Equal("imported", sent.Outcome);
+        Assert.Equal("imported", reply.Outcome);
+        Assert.Equal(4445, sent.QuoteNumber);
+        Assert.Equal(thread.Request.Id, sent.RequestId);
+        Assert.Equal(sent.RequestId, reply.RequestId);
+        Assert.Null(VendorQuoteService.MatchQuoteNumber("Quote 4445 - " + new string('A', 998)));
+    }
+
+    [Fact]
+    public async Task Item_suffix_selects_exact_part_even_when_another_part_shares_the_vendor_and_conversation()
+    {
+        await using var f = await CreateAsync();
+        var first = await f.ThreadAsync("RM004420");
+        var second = await f.ThreadAsync("RM004421");
+        var firstImport = await f.Vendors.ImportAsync(Message("<part-one@vendor.example>", "Quote 4445 - RM004420"), Editor, default);
+        var secondImport = await f.Vendors.ImportAsync(Message("<part-two@vendor.example>", "RE: Quote 4445 - rm004421"), Editor, default);
+        Assert.Equal(first.Request.Id, firstImport.RequestId);
+        Assert.Equal(second.Request.Id, secondImport.RequestId);
+        Assert.Equal(2, await f.Db.Set<VendorQuoteRequest>().CountAsync());
+    }
+
+    [Theory]
+    [InlineData("RM004421", "quotes@vendor.example")]
+    [InlineData("RM004420", "second@vendor.example")]
+    public async Task Unknown_part_or_contact_stays_unassigned_without_a_generic_thread(string part, string contact)
+    {
+        await using var f = await CreateAsync();
+        await f.ThreadAsync("RM004420");
+        var result = await f.Vendors.ImportAsync(Message(subject: $"RE: Quote 4445 - {part}") with
+        { FromAddress = contact, VendorEmail = contact }, Editor, default);
+        Assert.Equal("unassigned", result.Outcome);
+        Assert.Null(result.RequestId);
+        Assert.Single(await f.Db.Set<VendorQuoteRequest>().ToListAsync());
+        Assert.Null((await f.Db.Set<VendorQuoteMessage>().SingleAsync()).RequestId);
+    }
+
+    [Fact]
+    public async Task Multi_contact_sent_message_only_assigns_the_known_item_contact()
+    {
+        await using var f = await CreateAsync();
+        var thread = await f.ThreadAsync("RM004420");
+        var message = Message("<multi-contact@vendor.example>", "Quote 4445 - RM004420") with
+        { Direction = "outgoing", FromAddress = "casey@company.example", ToAddresses = ["quotes@vendor.example", "second@vendor.example"] };
+        var first = await f.Vendors.ImportAsync(message, Editor, default);
+        var second = await f.Vendors.ImportAsync(message with { VendorEmail = "second@vendor.example" }, Editor, default);
+        Assert.Equal(thread.Request.Id, first.RequestId);
+        Assert.Equal("unassigned", second.Outcome);
+        Assert.Null(second.RequestId);
+        Assert.Single(await f.Db.Set<VendorQuoteRequest>().ToListAsync());
+        Assert.Equal(2, await f.Db.Set<VendorQuoteMessage>().CountAsync());
+        Assert.Equal("Untouched", (await f.Vendors.DetailAsync(thread.Request.Id, Editor, default)).Request.Status);
+    }
 
     [Fact]
     public async Task Accessible_quote_list_includes_completed_and_quotes_without_threads()

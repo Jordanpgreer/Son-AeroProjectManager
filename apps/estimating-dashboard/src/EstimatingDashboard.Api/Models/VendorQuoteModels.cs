@@ -45,6 +45,7 @@ public sealed class VendorQuoteMessage
     public string ImportedBy { get; set; } = "";
     public string BodyText { get; set; } = "";
     public bool IsRateRequest { get; set; }
+    public string? MaterialDraftToken { get; set; }
     public DateTimeOffset? RemovedAt { get; set; }
     public string? RemovedBy { get; set; }
     public DateTimeOffset? MovedAt { get; set; }

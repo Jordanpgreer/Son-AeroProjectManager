@@ -36,6 +36,7 @@ public sealed partial class QuoteStatusService
             request.StatusChangedAt = now; request.StatusChangedBy = access.DisplayName;
         }
         request.UpdatedAt = now; request.Version++;
+        if (dto.IsRateRequest) await vendors.ConfirmMaterialSentAsync(request, message, access, ct);
         Touch(quote, access);
         // Persist the label, RFQ status, concurrency versions, and audit trail together.
         await vendors.SaveAsync(ct);

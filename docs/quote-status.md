@@ -39,9 +39,34 @@ The Quotes Dashboard summarizes the signed-in estimator's synchronized quote his
 
 These statistics use all synchronized history currently retained in Arda. Won and Lost remain Fulcrum outcomes; they do not replace the Arda **Complete** status. A missing completion sample displays as unavailable rather than as zero days.
 
+## Material purchasing and vendor drafts
+
+The Material purchasing section checks the selected quote's current Fulcrum part lines, item production BOM, **Available** inventory, and item purchase history. It does not use On Hand inventory. Its own Refresh rechecks those values without synchronizing every quote or changing Fulcrum.
+
+For each production input, the requirement is `fixedUnits + per-unit usage × parent quantity`. Make BOMs recurse and purchased materials shared by different top-level parts are combined before comparing stock. For example, 10 fixed pounds plus 0.005 pounds per unit at 1,000 parts requires 15 pounds. With 58.20 available, no new vendor quote is needed. Customer-supplied items are excluded; ambiguous Make or Buy sourcing and incomplete provider data require review.
+
+The current public API exposes quote-line quantities but omits separate Pricing-panel quantity breaks. **Edit quoted quantities** lets an estimator confirm one quantity or the customer's lowest and largest quantities per part. These corrections are shared and saved in Arda, labeled **Confirmed in Arda**, and can be reset with **Use Fulcrum quantities**. Changes require edit access and a current version, are recorded in the timeline, and never update Fulcrum. Repeated lines for the same Fulcrum item are treated as quantity alternatives. If Fulcrum removes a part with a saved correction, current parts remain visible but drafts require reconfirming the quantities.
+
+Material rows distinguish these outcomes:
+
+- **Available stock covers requirement:** Available covers the largest actual production requirement.
+- **Recent PO pricing:** A placed, Ordered/Paid PO dated within the preceding three calendar months provides a positive effective unit price and quantity. The latest qualifying PO, price, vendor, and date are shown. A recently received vendor quote by itself does not qualify for this exemption.
+- **Email needs sending:** Stock is insufficient and there is no qualifying recent PO. One primary vendor and usable contact email addresses are required.
+- **Review required:** Quantity, sourcing, inventory, purchase history, description, units, or vendor data cannot be safely resolved. Missing data is never treated as zero stock or no previous purchases.
+
+For one customer quantity, the email requests the **full** material requirement and 1.5 times that requirement. For multiple quantity options, it requests the lowest and highest full requirements. Available stock is not subtracted from the email quantities. Both cases append **OR MOQ** and preserve the item's inventory units. The subject is `Quote {quote number} - {item number}`. The body contains exactly the requested greeting, pricing/lead-time request, bold item number, complete item Details description, quantity line, and thank-you. Internal notes are excluded. All distinct valid contacts for the primary vendor are in To.
+
+**Open Outlook draft** rechecks Fulcrum and downloads an unsent HTML `.eml` file. Open the file in classic Outlook to edit and send; Windows/browser file associations may require opening the downloaded file explicitly. This works independently of the optional correspondence connector and does not prove that Outlook launched or that a message was sent. No Graph registration or mailbox credentials are required by the draft download. Classic Outlook opening still needs validation on a configured company workstation.
+
+Preparing a draft creates or reuses a material RFQ with **Untouched** status. The installed Outlook connector detects the actual generated request in Sent Items, attaches it once even when addressed to multiple vendor contacts, labels it **Rates requested**, and moves the RFQ to **Waiting on vendor**. Replies from linked contacts and their supported attachments are tracked on that RFQ. Confirm **Quote received** after checking the vendor supplied pricing. Without automatic detection, attach the sent email and label it **Rates requested** manually. Drafts do not change status merely because they were downloaded. Tracking is tied to the current requirement, description, units, vendor and recipients, so changed requirements do not inherit an old sent/received state. Previously received pricing can stay tracked without becoming a recent-PO exemption.
+
+Endpoints are `GET /api/quote-status/{id}/materials`, `PUT /api/quote-status/{id}/materials/quantities`, and `POST /api/quote-status/{id}/materials/{itemId}/draft`. They enforce quote access; both writes require an editor outside access preview. The existing schema initializer adds `EstimatingMaterialPurchasing` idempotently for SQLite and SQL Server. This table stores quantity corrections and links to prepared RFQs, not mailbox credentials or sent emails.
+
+The `fixedUnits`, Available inventory, vendor contacts, and purchase-history contracts were verified against the [Fulcrum ITAR OpenAPI schema](https://api.fulcrumpro.us/swagger/v1/swagger.json) on October 12, 2026. Company data and native Outlook were not available on the development workstation; calculations, MIME output, authorization, persistence, and desktop/mobile UI were checked with synthetic data.
+
 ## Email connection
 
-The downloadable Outlook connector uses classic Outlook in the signed-in Windows user's session. It reads matching messages from the configured mailbox's Inbox and Sent Items, preserves mailbox contents and read flags, and sends correspondence to the authenticated Arda API. It requires neither Graph credentials nor a mailbox password. Existing workstation and Outlook policies still apply.
+The downloadable Outlook connector uses classic Outlook in the signed-in Windows user's session. Extract the package and run **Install.cmd** once on the work computer to configure the mailbox and start background syncing at sign-in. The **Outlook** button remains available for connection status and setup. The connector reads matching messages from the configured mailbox's Inbox and Sent Items, preserves mailbox contents and read flags, and sends correspondence to the authenticated Arda API. It requires neither Graph credentials nor a mailbox password. Existing workstation and Outlook policies still apply.
 
 `Quote 4445`, with supported reply/forward prefixes, matches quote 4445 exactly. Matching a quote number never grants access to it. Conversation identity and the contact help choose a thread. Ambiguous correspondence must not be guessed into one of several part threads; it remains available at quote level for explicit placement.
 
@@ -59,7 +84,7 @@ Use **Attach email** or drop a saved `.msg` or `.eml` message into the quote's e
 
 For a sent email, the optional **Rates requested** checkbox requires a selected RFQ. Importing with it checked saves the label and moves that RFQ to **Waiting on vendor** together. It is never inferred from an email subject or from every sent message; incoming emails cannot receive the label.
 
-Manual import uses the selected quote, so a missing or incorrect quote number in the original subject does not block it. Automatic Outlook matching retains its strict subject rule. Original email content is not rewritten to manufacture a match. Received and sent activity labels describe the direction and correspondent; Arda does not infer that an email is an RFQ or a completed vendor quote.
+Manual import uses the selected quote, so a missing or incorrect quote number in the original subject does not block it. Automatic Outlook matching retains its strict subject rule. Original email content is not rewritten to manufacture a match. Received and sent activity labels describe the direction and correspondent. Only a verified generated material draft or an explicit **Rates requested** confirmation establishes an RFQ send; an incoming reply never establishes a completed vendor quote.
 
 The server checks quote and thread access, validates the file and message, and records the importing user and time separately from the email's original date. Previewing a file does not save it to the quote. Duplicate message detection covers repeated file imports and messages with matching Internet Message IDs received from the connector. The manual import does not require a running Outlook connector or new mailbox permissions.
 

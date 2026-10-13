@@ -25,7 +25,7 @@ export default function ProcessingMaterials({ threads, selectedId, statuses, can
       })}</div> : <div className="qs-processing-empty"><CheckCircle2 size={24} /><p>No RFQs tracked yet</p><span>Add outside processing or material pricing, with or without a vendor email.</span></div>}
       {error && <p className="vq-error" role="alert">{error}</p>}
       {canEdit && <button className="vq-button qs-add-rfq" type="button" disabled={busy} onClick={onNew}><Plus size={15} />Add RFQ</button>}
-      <p className="qs-processing-hint">Mark a sent email Rates requested to set Waiting on vendor. Confirm pricing with Quote received.</p>
+      <p className="qs-processing-hint">Connected Outlook tracks verified sent material requests. If a request still needs sending after you sent it, mark its sent email Rates requested. Confirm pricing with Quote received.</p>
     </section>
   </aside>
 }

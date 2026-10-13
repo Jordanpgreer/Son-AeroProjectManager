@@ -7,7 +7,8 @@ using System.Text;
 namespace EstimatingDashboard.Api.Services;
 
 internal sealed record ParsedQuoteEmail(ManualQuoteEmailPreviewDto Preview, string SourceMessageId,
-    string? ConversationId, string BodyText, IReadOnlyList<ImportVendorQuoteAttachmentDto> Attachments);
+    string? ConversationId, string BodyText, IReadOnlyList<ImportVendorQuoteAttachmentDto> Attachments,
+    string? MaterialDraftToken = null);
 
 internal static class QuoteEmailFileParser
 {
@@ -58,7 +59,8 @@ internal static class QuoteEmailFileParser
         if (body is null)
             throw new VendorQuoteException(400, "This email does not contain a supported readable message body.");
         return Finish(fileName, message.Subject ?? "", sender.Address, sender.Name, recipients, message.Date,
-            null, message.Headers[HeaderId.MessageId] ?? "", null, body ?? "", attachments);
+            null, message.Headers[HeaderId.MessageId] ?? "", null, body ?? "", attachments)
+            with { MaterialDraftToken = message.Headers[MaterialDraftTracking.Header]?.Trim() };
     }
     private static ParsedQuoteEmail ReadMsg(Stream input, string fileName)
     {
@@ -86,7 +88,8 @@ internal static class QuoteEmailFileParser
         if (!string.IsNullOrWhiteSpace(sourceId) && !sourceId.Trim().StartsWith('<')) sourceId = "<" + sourceId.Trim() + ">";
         return Finish(fileName, message.Subject ?? "", message.Sender.Email, message.Sender.DisplayName,
             message.Recipients.Select(x => x.Email).ToList(), sent, message.ReceivedOn,
-            sourceId, message.ConversationId, body ?? "", attachments);
+            sourceId, message.ConversationId, body ?? "", attachments)
+            with { MaterialDraftToken = message.Headers?.UnknownHeaders[MaterialDraftTracking.Header]?.Trim() };
     }
     private static ParsedQuoteEmail Finish(string file, string subject, string from, string? fromName,
         IReadOnlyList<string> to, DateTimeOffset sent, DateTimeOffset? received, string sourceId, string? conversation,

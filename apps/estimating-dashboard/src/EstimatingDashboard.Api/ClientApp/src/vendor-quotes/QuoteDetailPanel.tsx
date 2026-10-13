@@ -4,6 +4,7 @@ import { updatePersonalQuoteWorkflow } from '../quoteWorkflowApi'
 import ActivityTimeline, { StatusBadge } from './ActivityTimeline'
 import NewThreadDialog from './NewThreadDialog'
 import ProcessingMaterials from './ProcessingMaterials'
+import MaterialPurchasing from './MaterialPurchasing'
 import Modal from './Modal'
 import QuoteOverview from './QuoteOverview'
 import ManualEmailUpload from './ManualEmailUpload'
@@ -16,10 +17,11 @@ import { assignQuoteMessage, updateQuoteStatus, updateVendorRequest } from './ap
 import { isUpdateDirty, mailtoVendor, makeUpdate, synchronizeActivityDraft, type UpdateDraft } from './model'
 import type { QuoteStatusDetail, VendorDetail, VendorMessage } from './types'
 
-export default function QuoteDetailPanel({ detail, statuses, threadStatuses, canManage, canRemove, draftReset, onBack, onChanged, onRecordsMoved, onDirty, guard }: {
+export default function QuoteDetailPanel({ detail, statuses, threadStatuses, canManage, canRemove, draftReset, outlookConnected = false, onBack, onChanged, onRecordsMoved, onDirty, guard }: {
   detail: QuoteStatusDetail; statuses: string[]; threadStatuses: string[]; canManage: boolean
   canRemove: boolean
   draftReset: number
+  outlookConnected?: boolean
   onRecordsMoved: () => void
   onBack: () => void; onChanged: (provided?: QuoteStatusDetail) => Promise<QuoteStatusDetail | null>; onDirty: (dirty: boolean) => void; guard: (action: () => void) => void
 }) {
@@ -42,6 +44,7 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   const [overviewSaved, setOverviewSaved] = useState(false)
   const [overviewError, setOverviewError] = useState<string | null>(null)
   const [emailDirty, setEmailDirty] = useState(false)
+  const [materialDirty, setMaterialDirty] = useState(false)
   const composerRef = useRef<HTMLElement>(null)
   const canEdit = target.canEdit && canManage
   const dirty = isUpdateDirty(draft, target.status, target.followUpDate)
@@ -52,7 +55,7 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   const lifecycle = useRecordLifecycle({ detail, resetToken: draftReset, canRemove, externalBusy: saving || overviewSaving || rfqSaving, onChanged: emailImported, onMoved: onRecordsMoved })
   const writeBusy = saving || overviewSaving || rfqSaving || lifecycle.busy
   const removedCount = (detail.removedMessages?.length || 0) + (detail.removedNotes?.length || 0)
-  useEffect(() => { onDirty(dirty || overviewDirty || emailDirty || saving || overviewSaving || rfqSaving || lifecycle.dirty) }, [dirty, overviewDirty, emailDirty, saving, overviewSaving, rfqSaving, lifecycle.dirty, onDirty])
+  useEffect(() => { onDirty(dirty || overviewDirty || emailDirty || materialDirty || saving || overviewSaving || rfqSaving || lifecycle.dirty) }, [dirty, overviewDirty, emailDirty, materialDirty, saving, overviewSaving, rfqSaving, lifecycle.dirty, onDirty])
   useEffect(() => () => onDirty(false), [onDirty])
   useEffect(() => { if (threadId !== null) composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }) }, [threadId])
   useEffect(() => {
@@ -143,6 +146,7 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
     <div className="qs-request-grid">
       <div className="qs-request-main">
         <QuoteOverview detail={detail} canEdit={quote.canEdit && canManage} draft={overviewDraft} dirty={overviewDirty} saving={overviewSaving} busy={saving || rfqSaving || lifecycle.busy} saved={overviewSaved} error={overviewError} onChange={value => { setOverviewDraft(value); setOverviewSaved(false) }} onSave={() => void saveOverview()} onDiscard={discardOverview} onDetailChanged={emailImported} />
+        <MaterialPurchasing key={quote.quoteHistoryId} quoteHistoryId={quote.quoteHistoryId} canEdit={quote.canEdit && canManage} busy={writeBusy} resetToken={draftReset} outlookConnected={outlookConnected} requestRevision={threads.map(item => `${item.request.id}:${item.request.version}:${item.request.status}`).join('|')} onDraftCreated={() => onChanged()} onDirty={setMaterialDirty} />
         <section className="qs-request-card qs-activity-card" aria-label="Activity Timeline"><header className="qs-card-heading"><h3>Activity Timeline</h3><span>Newest first</span></header>
           <ActivityTimeline activity={detail.activity} messages={messages} threads={threads} unassignedIds={new Set(detail.unassignedMessages.map(item => item.id))} onThread={selectThread} canEdit={quote.canEdit && canManage} canRemove={canRemove} busy={writeBusy} onEdit={lifecycle.editNote} onRemove={lifecycle.removeNote} onMoveEmail={lifecycle.moveEmail} onRemoveEmail={lifecycle.removeEmail} onRateRequest={changeRateRequest} onAssign={async (messageId, requestId) => { await assignQuoteMessage(quote.quoteHistoryId, messageId, quote.version, requestId); const updated = await onChanged(); if (updated) setOverviewBase(current => rebaseQuoteDetailsAfterActivity(current, updated.workflow)) }} />
         </section>

@@ -11,6 +11,8 @@ public sealed class VendorQuoteSchemaInitializer(EstimatingAccessDbContext db)
         await db.Database.ExecuteSqlRawAsync(CreateSql(db.Database.IsSqlite()), cancellationToken);
         await VendorQuoteLifecycleSchema.InitializeAsync(db, cancellationToken);
         await VendorQuoteRateRequestSchema.InitializeAsync(db, cancellationToken);
+        await MaterialDraftTokenSchema.InitializeAsync(db, cancellationToken);
+        await MaterialPurchasingSchema.InitializeAsync(db, cancellationToken);
     }
 
     // Identifiers and definitions below are code constants; no request data enters this DDL.

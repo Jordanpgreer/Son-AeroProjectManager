@@ -64,6 +64,18 @@ function Get-OutlookSourceIdentity {
     return @{ entryId = $entryId; storeId = $StoreId; sourceMessageId = $sourceId; conversationId = $conversation }
 }
 
+function Get-OutlookMaterialDraftToken {
+    param($Mail)
+    $headers = [string](Get-OutlookProperty $Mail '0x007D001F')
+    if (-not $headers) { $headers = [string](Get-OutlookProperty $Mail '0x007D001E') }
+    if ($headers.Length -gt 256KB) { return $null }
+    # Only this opaque tracking header is used. Headers are never persisted or logged.
+    if ([regex]::Matches($headers, '^X-Arda-Material-Draft:', 'IgnoreCase,Multiline').Count -ne 1) { return $null }
+    $match = [regex]::Match($headers, '^X-Arda-Material-Draft:[ \t]*([a-f0-9]{32})[ \t]*\r?$', 'IgnoreCase,Multiline')
+    if ($match.Success) { return $match.Groups[1].Value.ToLowerInvariant() }
+    return $null
+}
+
 function Get-OutlookAttachmentPayloads {
     param($Mail)
     $collection = $null
@@ -143,6 +155,7 @@ function Convert-OutlookMail {
             toAddresses = $addresses.ToArray(); vendorAddresses = $vendors
             sentAt = ([datetime]$Mail.SentOn).ToUniversalTime().ToString('o'); receivedAt = $received
             bodyText = $body; attachments = @(Get-OutlookAttachmentPayloads $Mail)
+            materialDraftToken = $(if ($Record.direction -eq 'outgoing') { Get-OutlookMaterialDraftToken $Mail } else { $null })
         }
     } finally { Release-OutlookReference $sender; Release-OutlookReference $recipients }
 }

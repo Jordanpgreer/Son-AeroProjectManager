@@ -30,8 +30,9 @@ function Test-ConnectorTransportPaused {
 
 function Get-QuoteNumberFromSubject {
     param([AllowNull()][string]$Subject)
-    if ([string]::IsNullOrWhiteSpace($Subject)) { return $null }
-    $match = [regex]::Match($Subject, '^\s*(?:(?:RE|FW|FWD)\s*:\s*)*Quote\s+([0-9]+)\s*$', 'IgnoreCase,CultureInvariant')
+    if ([string]::IsNullOrWhiteSpace($Subject) -or $Subject.Length -gt 998 -or $Subject -match '[\r\n]') { return $null }
+    if ([regex]::Matches($Subject, '\bQuote\s+[0-9]+\b', 'IgnoreCase,CultureInvariant').Count -ne 1) { return $null }
+    $match = [regex]::Match($Subject, '^\s*(?:(?:RE|FW|FWD)\s*:\s*)*Quote\s+([0-9]+)(?:\s+-\s+\S[^\r\n]*)?\s*$', 'IgnoreCase,CultureInvariant')
     $number = 0
     if ($match.Success -and [int]::TryParse($match.Groups[1].Value, [ref]$number) -and $number -gt 0) { return $number }
     return $null
@@ -200,6 +201,9 @@ function Invoke-ConnectorDelivery {
                 toAddresses = @($message.toAddresses); vendorEmail = $vendor; vendorName = $null
                 sentAt = $message.sentAt; receivedAt = $message.receivedAt; bodyText = $message.bodyText
                 conversationId = $Record.conversationId; attachments = @($message.attachments)
+            }
+            if ($Record.direction -eq 'outgoing' -and $message.ContainsKey('materialDraftToken') -and $message.materialDraftToken) {
+                $payload.materialDraftToken = $message.materialDraftToken
             }
             try {
                 $response = & $ImportMessage $payload

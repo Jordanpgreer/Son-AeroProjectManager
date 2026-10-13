@@ -90,10 +90,10 @@ foreach ($file in Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*.ps1' -File
     [void][Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$parseErrors)
     Assert-Connector (@($parseErrors).Count -eq 0) ('PowerShell parses ' + $file.Name)
 }
-foreach ($subject in @('Quote 42', 'RE: Quote 42', 'fw: FWD: RE: Quote 42', '  re :  Quote 42  ')) {
+foreach ($subject in @('Quote 42', 'RE: Quote 42', 'fw: FWD: RE: Quote 42', '  re :  Quote 42  ', 'Quote 42 - RM004420', 'RE: FW: Quote 42 - A-1/2 (rev. E)', 'Quote 42 - 11488049 E')) {
     Assert-Connector ((Get-QuoteNumberFromSubject $subject) -eq 42) 'Repeated reply/forward subject prefixes are accepted.'
 }
-foreach ($subject in @('', 'Quote #42', 'Quote 42 pricing', 'Pricing Quote 42', 'Quote 0', 'Quote 2147483648', 'Quote 42 Quote 43')) {
+foreach ($subject in @('', 'Quote #42', 'Quote 42 pricing', 'Pricing Quote 42', 'Quote 0', 'Quote 2147483648', 'Quote 42 Quote 43', 'Quote 42 - Quote 43', 'Quote 42 - ', 'Quote 42-RM004420', "Quote 42 - RM004420`r`nBcc: other@example.test", ('Quote 42 - ' + ('A' * 998)))) {
     Assert-Connector ($null -eq (Get-QuoteNumberFromSubject $subject)) 'Ambiguous or unsupported subject is excluded.'
 }
 $config = Get-ConnectorConfiguration @{ mailbox = 'owner@example.test' }
@@ -139,10 +139,20 @@ $fallback = Get-OutlookSourceIdentity $mail 'synthetic-store'
 Assert-Connector ($fallback.sourceMessageId -like 'outlook:*' -and $fallback.sourceMessageId -eq (Get-OutlookSourceIdentity $mail 'synthetic-store').sourceMessageId) 'Entry/store/conversation fallback is stable.'
 Assert-Connector ($fallback.sourceMessageId -ne (Get-OutlookSourceIdentity $mail 'other-store').sourceMessageId) 'Fallback separates Outlook stores.'
 
-$outgoing = New-FakeMail -To @('owner@example.test', 'vendor-a@example.test', 'vendor-b@example.test', 'vendor-a@example.test')
+$outgoing = New-FakeMail -Subject 'Quote 42 - RM004420' -To @('owner@example.test', 'vendor-a@example.test', 'vendor-b@example.test', 'vendor-a@example.test')
 $outRecord = New-FakeCandidate '<sent@example.test>' 'outgoing'
 $outMessage = Convert-OutlookMail $outgoing $outRecord $config.mailbox
 Assert-Connector ($outMessage.vendorAddresses.Count -eq 2) 'Sent mail fans out to unique recipients except the selected mailbox.'
+$token = '0123456789abcdef0123456789abcdef'
+$outgoing.PropertyAccessor = New-FakeAccessor @{ '0x007D001F' = "X-Arda-Material-Draft: $token`r`nOther: unrelated" }
+$outMessage = Convert-OutlookMail $outgoing $outRecord $config.mailbox
+Assert-Connector ($outMessage.materialDraftToken -eq $token) 'Sent mail reads the opaque material tracking header.'
+$incomingToken = Convert-OutlookMail $outgoing (New-FakeCandidate) $config.mailbox
+Assert-Connector ($null -eq $incomingToken.materialDraftToken) 'Incoming mail cannot present a sent-draft token.'
+foreach ($headers in @("X-Arda-Material-Draft: not-a-token", "X-Arda-Material-Draft: $token`r`nX-Arda-Material-Draft: $token")) {
+    $outgoing.PropertyAccessor = New-FakeAccessor @{ '0x007D001F' = $headers }
+    Assert-Connector ($null -eq (Get-OutlookMaterialDraftToken $outgoing)) 'Malformed or duplicate tracking headers are ignored.'
+}
 
 $now = [datetime]'2026-01-02T12:00:00Z'
 $state = New-ConnectorState $config $now
@@ -153,6 +163,7 @@ $script:FailVendorB = $true
 $reader = { param($candidate) return $outMessage }
 $importer = {
     param($payload)
+    Assert-Connector ($payload.materialDraftToken -eq $token) 'The verified token accompanies each outgoing import without entering local state.'
     $script:FakeTransportCalls.Add($payload.vendorEmail)
     if ($payload.vendorEmail -eq 'vendor-b@example.test' -and $script:FailVendorB) { return @{ outcome = 'unmatched' } }
     return @{ outcome = 'imported' }
@@ -190,6 +201,7 @@ $failedCandidate = New-FakeCandidate '<failed@example.test>'
 $pending = @($state.pending.Values)[0]
 $result = Invoke-ConnectorDelivery $state $pending { param($item) return $message } { param($payload) Stop-ConnectorOperation 'quote-access-denied' } $now
 Assert-Connector ($state.pending.Count -eq 1 -and $pending.lastErrorCode -eq 'quote-access-denied') 'Permission failures remain retryable and retain their identity.'
+Assert-Connector (($state | ConvertTo-Json -Depth 12 -Compress) -notmatch $token) 'Tracking tokens are never persisted in connector resume metadata.'
 $beforeDryRun = $state | ConvertTo-Json -Depth 12 -Compress
 $result = Invoke-ConnectorDelivery $state $pending { param($item) return $message } { throw 'Dry run must not call transport.' } $now.AddHours(1) -DryRun
 Assert-Connector ($result.ready -eq 1 -and ($state | ConvertTo-Json -Depth 12 -Compress) -eq $beforeDryRun) 'Dry run makes no network call and changes no delivery metadata.'

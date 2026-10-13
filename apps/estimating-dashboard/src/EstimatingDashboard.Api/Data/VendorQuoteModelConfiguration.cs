@@ -7,6 +7,14 @@ internal static class VendorQuoteModelConfiguration
 {
     public static void Configure(ModelBuilder model)
     {
+        model.Entity<MaterialPurchasingState>(e =>
+        {
+            e.ToTable("EstimatingMaterialPurchasing");
+            e.HasKey(x => x.QuoteHistoryId);
+            e.Property(x => x.Version).IsConcurrencyToken();
+            e.Property(x => x.UpdatedBy).HasMaxLength(160);
+            e.HasOne(x => x.QuoteHistory).WithOne().HasForeignKey<MaterialPurchasingState>(x => x.QuoteHistoryId).OnDelete(DeleteBehavior.Restrict);
+        });
         model.Entity<VendorQuoteRequest>(e =>
         {
             e.ToTable("EstimatingVendorRequests");
@@ -29,6 +37,7 @@ internal static class VendorQuoteModelConfiguration
             e.HasIndex(x => x.DeduplicationKey).IsUnique();
             e.Property(x => x.DeduplicationKey).HasMaxLength(64);
             e.Property(x => x.SourceMessageId).HasMaxLength(1024);
+            e.Property(x => x.MaterialDraftToken).HasMaxLength(32);
             e.Property(x => x.Mailbox).HasMaxLength(254);
             e.Property(x => x.Direction).HasMaxLength(16);
             e.Property(x => x.Subject).HasMaxLength(998);

@@ -42,7 +42,8 @@ public sealed record ImportVendorQuoteMessageDto(
     string FromAddress, string? FromName, IReadOnlyList<string> ToAddresses,
     string VendorEmail, string? VendorName, DateTimeOffset SentAt,
     DateTimeOffset? ReceivedAt, string BodyText,
-    IReadOnlyList<ImportVendorQuoteAttachmentDto> Attachments, string? ConversationId = null);
+    IReadOnlyList<ImportVendorQuoteAttachmentDto> Attachments, string? ConversationId = null,
+    string? MaterialDraftToken = null);
 public sealed record ImportVendorQuoteAttachmentDto(string FileName, string? ContentType, string ContentBase64);
 public sealed record VendorQuoteImportResultDto(string Outcome, int? RequestId, int? QuoteNumber, string Message);
 

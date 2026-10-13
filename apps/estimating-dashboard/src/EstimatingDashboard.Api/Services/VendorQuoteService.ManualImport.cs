@@ -35,7 +35,7 @@ public sealed partial class VendorQuoteService
         if (direction == "incoming") vendorName ??= email.FromName;
         var dto = new ImportVendorQuoteMessageDto(parsed.SourceMessageId, "", direction, email.Subject,
             email.FromAddress, email.FromName, email.ToAddresses, vendor!, vendorName,
-            email.SentAt, email.ReceivedAt, parsed.BodyText, parsed.Attachments, parsed.ConversationId);
+            email.SentAt, email.ReceivedAt, parsed.BodyText, parsed.Attachments, parsed.ConversationId, parsed.MaterialDraftToken);
         return await ImportCoreAsync(dto, access, ct, quoteId, options);
     }
 }

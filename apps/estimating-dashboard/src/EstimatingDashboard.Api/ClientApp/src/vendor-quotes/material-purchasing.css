@@ -1,0 +1,78 @@
+.qs-material-purchasing .qs-card-heading { margin-bottom: 13px; }
+.qs-material-purchasing button:disabled { cursor: not-allowed; opacity: .55; }
+.qs-material-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 15px; margin-bottom: 15px; }
+.qs-material-summary > span { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
+.qs-material-summary > small { margin-left: auto; color: var(--muted); font-size: 10px; }
+.qs-material-summary .is-pending,.qs-material-summary .is-review { color: var(--warn-700); }
+.qs-material-summary .is-covered { color: var(--ok-700); }
+.qs-material-parts { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding-bottom: 15px; font-size: 11px; }
+.qs-material-parts > span { color: var(--muted); margin-right: 3px; }
+.qs-material-parts > div { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-2); }
+.qs-material-parts > div > span { color: var(--steel-700); }
+.qs-material-parts small { color: var(--muted); }
+.qs-material-list { display: grid; gap: 11px; }
+.qs-material-row { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
+.qs-material-row.is-needs-rfq { border-left: 3px solid var(--warn); }
+.qs-material-row.is-review-required { border-left: 3px solid var(--line-3); }
+.qs-material-row-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 9px 14px; }
+.qs-material-row-heading > div { display: grid; gap: 5px; min-width: 0; }
+.qs-material-row-heading strong { color: var(--ink); font-size: 13px; overflow-wrap: anywhere; }
+.qs-material-state { color: var(--muted); font-size: 10px; }
+.is-needs-rfq .qs-material-state,.is-review-required .qs-material-state { color: var(--warn-700); }
+.is-stock-covered .qs-material-state,.is-recent-po .qs-material-state { color: var(--ok-700); }
+.qs-request-page .qs-material-draft { min-height: 33px; padding: 7px 10px; color: var(--steel-700); font-size: 11px !important; }
+.qs-material-description { margin: 10px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
+.qs-material-quantities { display: flex; flex-wrap: wrap; gap: 9px 30px; margin: 0; }
+.qs-material-quantities > div { display: grid; gap: 4px; }
+.qs-material-quantities dt,.qs-material-email dt { color: var(--muted); font-size: 10px; }
+.qs-material-quantities dd { margin: 0; color: var(--ink-2); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.qs-material-po { margin: 12px 0 0; color: var(--ok-700); font-size: 11px; line-height: 1.6; }
+.qs-material-breakdown { margin-top: 10px; }
+.qs-material-breakdown > summary { display: flex; align-items: center; gap: 7px; width: fit-content; padding: 4px 0; color: var(--steel-700); font-size: 11px; font-weight: 550; cursor: pointer; list-style: none; }
+.qs-material-breakdown > summary::-webkit-details-marker,.qs-material-covered > summary::-webkit-details-marker { display: none; }
+.qs-material-breakdown[open] > summary > svg,.qs-material-covered[open] > summary > svg:last-child { transform: rotate(180deg); }
+.qs-material-breakdown summary:focus-visible,.qs-material-covered summary:focus-visible { outline: 2px solid var(--steel); outline-offset: 3px; border-radius: 2px; }
+.qs-material-breakdown-content { display: grid; gap: 11px; margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.qs-material-source { display: grid; gap: 4px; font-size: 11px; color: var(--ink-2); line-height: 1.55; }
+.qs-material-source strong { font-weight: 600; }
+.qs-material-rule,.qs-material-hint,.qs-material-message { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.7; }
+.qs-material-hint { margin-top: 13px; }
+.qs-material-message { padding: 5px 0; }
+.qs-material-email { display: grid; gap: 10px; margin: 0; padding-top: 11px; border-top: 1px solid var(--line); }
+.qs-material-email > div { display: grid; gap: 4px; }
+.qs-material-email dd { margin: 0; color: var(--ink-2); font-size: 11px; line-height: 1.65; overflow-wrap: anywhere; }
+.qs-material-full-description { white-space: pre-wrap; }
+.qs-material-covered { margin-top: 14px; border-top: 1px solid var(--line); }
+.qs-material-covered > summary { display: flex; align-items: center; gap: 7px; padding: 13px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; cursor: pointer; list-style: none; }
+.qs-material-covered > summary > svg { flex-shrink: 0; }
+.qs-material-covered > summary > svg:first-child { color: var(--ok-700); }
+.qs-material-covered > summary > svg:last-child { margin-left: auto; }
+.qs-material-covered > .qs-material-list { padding-top: 12px; }
+.qs-material-alert { display: flex; align-items: flex-start; gap: 8px; padding: 12px; margin: 5px 0 13px; border: 1px solid color-mix(in srgb,var(--warn) 25%,var(--line)); border-radius: 6px; background: color-mix(in srgb,var(--warn-tint) 45%,var(--surface)); color: var(--warn-700); font-size: 11px; line-height: 1.6; }
+.qs-material-alert > svg { flex-shrink: 0; margin-top: 2px; }
+.qs-material-alert > div { min-width: 0; overflow-wrap: anywhere; }
+.qs-material-alert p { margin: 5px 0 0; }
+.qs-material-alert ul,.qs-material-issues { margin: 7px 0 0; padding-left: 17px; }
+.qs-material-issues { color: var(--warn-700); font-size: 11px; line-height: 1.65; }
+.qs-material-download { margin: 10px 0 0; color: var(--steel-700); font-size: 11px; line-height: 1.65; }
+.qs-material-quantity-editor { margin: -3px 0 15px; }
+.qs-material-quantity-tools { display: flex; flex-wrap: wrap; gap: 6px 17px; }
+.qs-material-quantity-tools .qs-text-button { font-size: 11px !important; }
+.qs-material-quantity-form { padding: 14px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface-2); }
+.qs-material-quantity-form > p { margin: 0 0 13px; color: var(--muted); font-size: 11px; line-height: 1.65; }
+.qs-material-quantity-fields { display: grid; grid-template-columns: minmax(80px,.8fr) minmax(0,1fr) minmax(0,1fr); gap: 10px; align-items: end; margin-top: 12px; }
+.qs-material-quantity-fields > strong { align-self: center; color: var(--ink-2); font-size: 12px; overflow-wrap: anywhere; }
+.qs-material-quantity-fields label { display: grid; gap: 5px; color: var(--muted); font-size: 10px; }
+.qs-material-quantity-fields input { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--line-2); border-radius: 5px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; }
+.qs-material-quantity-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
+.qs-request-page .qs-material-quantity-actions .vq-button { min-height: 32px; padding: 7px 10px; font-size: 11px !important; }
+@media (max-width: 600px) {
+  .qs-material-summary > small { flex-basis: 100%; margin-left: 0; }
+  .qs-material-row { padding: 12px; }
+  .qs-material-row-heading { align-items: flex-start; }
+  .qs-material-quantities { gap: 10px 20px; }
+  .qs-material-quantities dd { font-size: 12px; }
+  .qs-material-quantity-fields { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
+  .qs-material-quantity-fields > strong { grid-column: 1/-1; }
+  .qs-material-quantity-fields input { font-size: 16px; }
+}

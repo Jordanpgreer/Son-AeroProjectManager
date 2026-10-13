@@ -7,9 +7,11 @@ import { StatusBadge } from './ActivityTimeline'
 import ConnectOutlookDialog from './ConnectOutlookDialog'
 import Modal from './Modal'
 import QuoteDetailPanel from './QuoteDetailPanel'
-import { loadQuoteStatusDetail, loadQuoteStatuses, loadQuoteStatusOptions, loadVendorSync } from './api'
-import { dateOnly, dateTime, DEFAULT_QUOTE_STATUS_SCOPE, FULCRUM_STATUSES, fulcrumStatusLabel, isOverdue, QUOTE_STATUSES, quoteFromHash, quoteStatusRequestScope, shouldShowConnectOutlook, sortQuoteStatusesByDueDate, VENDOR_STATUSES, type QuoteStatusScope } from './model'
-import type { QuoteStatusDetail, QuoteStatusPage as PageData, VendorSync } from './types'
+import { loadQuoteStatusDetail, loadQuoteStatuses, loadQuoteStatusOptions } from './api'
+import { dateOnly, dateTime, DEFAULT_QUOTE_STATUS_SCOPE, FULCRUM_STATUSES, fulcrumStatusLabel, isOverdue, QUOTE_STATUSES, quoteFromHash, quoteStatusRequestScope, sortQuoteStatusesByDueDate, VENDOR_STATUSES, type QuoteStatusScope } from './model'
+import type { QuoteStatusDetail, QuoteStatusPage as PageData } from './types'
+import useOutlookSync from './useOutlookSync'
+import { outlookConnectionState, outlookImportRevision } from './outlookSyncModel'
 import useDraftGuard from './useDraftGuard'
 import './quote-status.css'
 import './quote-status-workspace.css'
@@ -36,15 +38,17 @@ export default function QuoteStatusPage({ me }: { me: EstimatingMe }) {
   const [dirty, setDirty] = useState(false)
   const [draftReset, setDraftReset] = useState(0)
   const [connect, setConnect] = useState(false)
-  const [sync, setSync] = useState<VendorSync[]>([])
-  const [syncError, setSyncError] = useState<string | null>(null)
-  const [syncLoaded, setSyncLoaded] = useState(false)
+  const { sync, syncError, syncLoaded, syncChecking, syncCheckedAt, refreshSync } = useOutlookSync(connect, revision)
+  const dirtyNow = useRef(dirty)
+  dirtyNow.current = dirty
+  const lastOutlookImport = useRef('')
+  const observedOutlookImports = useRef('')
   const [createError, setCreateError] = useState<string | null>(null)
   const [options, setOptions] = useState({ statuses: QUOTE_STATUSES, fulcrumStatuses: FULCRUM_STATUSES, threadStatuses: VENDOR_STATUSES })
   const { guard, pending, cancel, discard } = useDraftGuard(dirty, () => { setDraftReset(value => value + 1); setDirty(false) })
   const canManage = !me.isPreview && hasEstimatingPermission(me, estimatingPermissions.manageQuotes)
   const storageError = getQuoteStoreError()
-  const showConnectOutlook = shouldShowConnectOutlook(syncLoaded, syncError, sync)
+  const outlookHealth = outlookConnectionState(sync, syncLoaded, syncError, new Date(syncCheckedAt))
   const requestScope = quoteStatusRequestScope(scope, quoteFilter, status, fulcrumStatus)
   const scopeLabel = requestScope === 'mine-active' ? 'My active quotes' : requestScope === 'mine' ? 'My quotes' : 'All quotes'
   const visibleQuotes = useMemo(() => requestScope === 'mine-active' && !quoteFilter
@@ -68,20 +72,9 @@ export default function QuoteStatusPage({ me }: { me: EstimatingMe }) {
   }, [query, status, fulcrumStatus, requestScope, quoteFilter, page, revision])
   useEffect(() => {
     const controller = new AbortController()
-    setSyncLoaded(false)
     void loadQuoteStatusOptions(controller.signal).then(setOptions).catch(() => { /* Local labels remain usable if options cannot load. */ })
-    void loadVendorSync(controller.signal).then(result => {
-      if (controller.signal.aborted) return
-      setSync(result)
-      setSyncError(null)
-      setSyncLoaded(true)
-    }).catch(reason => {
-      if (controller.signal.aborted) return
-      setSyncError(reason instanceof Error ? reason.message : 'Connection status is unavailable.')
-      setSyncLoaded(true)
-    })
     return () => controller.abort()
-  }, [revision, connect])
+  }, [revision])
   useEffect(() => {
     if (!selectedId) { setDetail(null); setDetailError(null); setDetailLoading(false); return }
     const controller = new AbortController()
@@ -99,6 +92,20 @@ export default function QuoteStatusPage({ me }: { me: EstimatingMe }) {
     setData(previous => previous ? { ...previous, items: previous.items.map(item => item.quoteHistoryId === selectedId ? updated.quote : item) } : previous)
     return updated
   }, [selectedId])
+  useEffect(() => {
+    const imported = outlookImportRevision(sync, observedOutlookImports.current)
+    observedOutlookImports.current = imported
+    const key = `${selectedId}:${imported}`
+    if (!selectedId || !imported || syncError || dirty || detailLoading || lastOutlookImport.current === key) return
+    const controller = new AbortController()
+    void loadQuoteStatusDetail(selectedId, controller.signal).then(updated => {
+      if (controller.signal.aborted || dirtyNow.current || activeSelection.current !== selectedId || updated.quote.quoteHistoryId !== selectedId) return
+      lastOutlookImport.current = key
+      setDetail(updated); setDetailError(null)
+      setData(previous => previous ? { ...previous, items: previous.items.map(item => item.quoteHistoryId === selectedId ? updated.quote : item) } : previous)
+    }).catch(() => { /* Retry on the next connection check without interrupting the quote workspace. */ })
+    return () => controller.abort()
+  }, [selectedId, sync, syncError, dirty, detailLoading])
   function refresh() {
     guard(() => { setRevision(value => value + 1); if (selectedId) void changed().catch(reason => setDetailError(reason instanceof Error ? reason.message : 'Quote could not be refreshed.')) })
   }
@@ -119,7 +126,7 @@ export default function QuoteStatusPage({ me }: { me: EstimatingMe }) {
   const hasSearchFilters = Boolean(query || status || fulcrumStatus || quoteFilter)
   return <div className="vq-page qs-request-page">
     <header className="vq-page-heading">
-      <div className="vq-page-actions"><button type="button" className="vq-button" onClick={refresh} disabled={loading} aria-label="Refresh quote records"><RefreshCw size={16} /><span>Refresh</span></button>{showConnectOutlook && <button type="button" className="vq-button" onClick={() => setConnect(true)}><Mail size={16} />Connect Outlook</button>}<button type="button" className="vq-button vq-button-primary" disabled={!canManage || Boolean(storageError)} title={storageError ?? (canManage ? 'Create a quote' : 'Editor access is required')} onClick={createQuote}><Plus size={16} aria-hidden="true" />Create Quote</button></div>
+      <div className="vq-page-actions"><button type="button" className="vq-button" onClick={refresh} disabled={loading} aria-label="Refresh quote records"><RefreshCw size={16} /><span>Refresh</span></button><button type="button" className={`vq-button qs-outlook-status is-${outlookHealth.tone}`} onClick={() => setConnect(true)}><Mail size={16} />{syncLoaded && !syncError && sync.length === 0 ? 'Connect Outlook' : outlookHealth.label}</button><button type="button" className="vq-button vq-button-primary" disabled={!canManage || Boolean(storageError)} title={storageError ?? (canManage ? 'Create a quote' : 'Editor access is required')} onClick={createQuote}><Plus size={16} aria-hidden="true" />Create Quote</button></div>
     </header>
     {(storageError || createError) && <p className="vq-create-error" role="alert">{storageError ?? createError}</p>}
     <div className={`vq-workspace${!selectedId && !quoteFilter ? ' vq-browse' : ''}${selectedId ? ' vq-has-selection' : ''}${quoteFilter || selectedId ? ' vq-focused' : ''}`}>
@@ -133,9 +140,9 @@ export default function QuoteStatusPage({ me }: { me: EstimatingMe }) {
         </button>)}</div>}
         {data && data.totalCount > data.pageSize && <footer className="vq-pagination"><button className="vq-icon-button" aria-label="Previous page" disabled={page === 1 || loading} onClick={() => setPage(value => value - 1)}><ArrowLeft size={15} /></button><span>Page {page} of {Math.ceil(data.totalCount / data.pageSize)}</span><button className="vq-icon-button" aria-label="Next page" disabled={page * data.pageSize >= data.totalCount || loading} onClick={() => setPage(value => value + 1)}><ArrowRight size={15} /></button></footer>}
       </section>}
-      {detailLoading ? <div className="vq-detail-placeholder" role="status"><LoaderCircle size={25} className="vq-spinner" /><p>Opening quote record…</p></div> : detailError ? <div className="vq-detail-placeholder" role="alert"><p>{detailError}</p><button className="vq-button" onClick={refresh}>Try again</button><button className="vq-button" onClick={backToQuotes}>All quotes</button></div> : detail ? <QuoteDetailPanel key={detail.quote.quoteHistoryId} detail={detail} statuses={options.statuses} threadStatuses={options.threadStatuses} canManage={canManage} canRemove={Boolean(detail.quote.canRemove) && !me.isPreview} draftReset={draftReset} onBack={backToQuotes} onChanged={changed} onRecordsMoved={() => setRevision(value => value + 1)} onDirty={setDirty} guard={guard} /> : quoteFilter ? <div className="vq-detail-placeholder"><Inbox size={28} /><h2>{loading ? 'Opening quote…' : 'Quote unavailable'}</h2><p>{error || (loading ? 'Loading the shared record.' : 'This quote could not be found or you do not have access.')}</p><button className="vq-button" onClick={backToQuotes}>All quotes</button></div> : null}
+      {detailLoading ? <div className="vq-detail-placeholder" role="status"><LoaderCircle size={25} className="vq-spinner" /><p>Opening quote record…</p></div> : detailError ? <div className="vq-detail-placeholder" role="alert"><p>{detailError}</p><button className="vq-button" onClick={refresh}>Try again</button><button className="vq-button" onClick={backToQuotes}>All quotes</button></div> : detail ? <QuoteDetailPanel key={detail.quote.quoteHistoryId} detail={detail} statuses={options.statuses} threadStatuses={options.threadStatuses} canManage={canManage} canRemove={Boolean(detail.quote.canRemove) && !me.isPreview} draftReset={draftReset} outlookConnected={outlookHealth.connected} onBack={backToQuotes} onChanged={changed} onRecordsMoved={() => setRevision(value => value + 1)} onDirty={setDirty} guard={guard} /> : quoteFilter ? <div className="vq-detail-placeholder"><Inbox size={28} /><h2>{loading ? 'Opening quote…' : 'Quote unavailable'}</h2><p>{error || (loading ? 'Loading the shared record.' : 'This quote could not be found or you do not have access.')}</p><button className="vq-button" onClick={backToQuotes}>All quotes</button></div> : null}
     </div>
-    {connect && <ConnectOutlookDialog sync={sync} syncError={syncError} canConnect={canManage} onClose={() => setConnect(false)} />}
+    {connect && <ConnectOutlookDialog sync={sync} syncError={syncError} syncLoaded={syncLoaded} checking={syncChecking} checkedAt={syncCheckedAt} onRefresh={refreshSync} canConnect={canManage} onClose={() => setConnect(false)} />}
     {pending && <Modal title="Keep your unsaved update?" subtitle="Your status, dates, summary, and activity changes have not been saved." onClose={cancel}><footer className="vq-modal-footer"><button className="vq-button" onClick={discard}>Discard changes</button><button className="vq-button vq-button-primary" onClick={cancel}>Keep editing</button></footer></Modal>}
   </div>
 }

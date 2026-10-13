@@ -9,10 +9,11 @@ namespace EstimatingDashboard.Api.Services;
 
 public sealed partial class VendorQuoteService
 {
-    private static readonly Regex QuoteSubject = new(@"^\s*(?:(?:RE|FW|FWD)\s*:\s*)*Quote\s+([0-9]+)\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+    private static readonly Regex QuoteSubject = new(@"^\s*(?:(?:RE|FW|FWD)\s*:\s*)*Quote\s+([0-9]+)(?:\s+-\s+(?<item>\S[^\r\n]*))?\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
     public static int? MatchQuoteNumber(string? subject)
     {
-        if (subject is null || subject.Length > 998) return null;
+        if (subject is null || subject.Length > 998 || subject.IndexOfAny(['\r', '\n']) >= 0) return null;
+        if (Regex.Matches(subject, @"\bQuote\s+[0-9]+\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)).Count != 1) return null;
         var match = QuoteSubject.Match(subject);
         return match.Success && int.TryParse(match.Groups[1].Value, out var number) && number > 0 ? number : null;
     }
@@ -25,17 +26,22 @@ public sealed partial class VendorQuoteService
         Guard(access, true);
         if (manual is null)
         {
-            var identity = Hash(Email(dto.VendorEmail) + "\n" + Required(dto.SourceMessageId, "Source message ID", 1024));
-            if (await db.Set<VendorQuoteMessage>().AnyAsync(x => x.DeduplicationKey == identity && (x.RemovedAt != null || x.MovedAt != null), ct))
+            var normalizedSourceId = Required(dto.SourceMessageId, "Source message ID", 1024);
+            var identity = Hash(Email(dto.VendorEmail) + "\n" + normalizedSourceId);
+            var materialIdentity = MaterialDraftTracking.SentDeduplicationKey(normalizedSourceId);
+            if (await db.Set<VendorQuoteMessage>().AnyAsync(x => (x.DeduplicationKey == identity || x.DeduplicationKey == materialIdentity)
+                && (x.RemovedAt != null || x.MovedAt != null), ct))
                 return new("duplicate", null, null, "This email was already handled in Arda. Sync left it unchanged.");
         }
         var subject = manual is null ? Required(dto.Subject, "Subject", 998) : dto.Subject;
         if (subject.Length > 998) throw new VendorQuoteException(400, "Subject exceeds 998 characters.");
         var quoteNumber = MatchQuoteNumber(subject);
+        var subjectItem = manual is null && quoteNumber.HasValue
+            ? QuoteSubject.Match(subject).Groups["item"].Value.Trim() : "";
         if (quoteNumber is null && explicitQuoteId is null)
         {
             var ambiguous = Regex.Matches(subject, @"\bQuote\s+[0-9]+\b", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)).Count > 1;
-            return new(ambiguous ? "ambiguous" : "unmatched", null, null, "Subject must be Quote followed by one exact quote number, optionally prefixed by RE, FW, or FWD.");
+            return new(ambiguous ? "ambiguous" : "unmatched", null, null, "Subject must be Quote followed by one exact quote number, optionally followed by ' - item number' and prefixed by RE, FW, or FWD.");
         }
         var quoteId = explicitQuoteId ?? await db.QuoteHistory.Where(x => x.QuoteNumber == quoteNumber).Select(x => (int?)x.Id).SingleOrDefaultAsync(ct);
         if (!quoteId.HasValue) return new("unmatched", null, quoteNumber, "This quote is not yet in Arda. The connector can retry later.");
@@ -52,11 +58,15 @@ public sealed partial class VendorQuoteService
         }
         var sourceId = Required(dto.SourceMessageId, "Source message ID", 1024);
         var dedup = Hash(vendor + "\n" + sourceId);
-        var existing = await db.Set<VendorQuoteMessage>().AsNoTracking().SingleOrDefaultAsync(x => x.DeduplicationKey == dedup, ct);
+        var materialDedup = MaterialDraftTracking.SentDeduplicationKey(sourceId);
+        var existing = await db.Set<VendorQuoteMessage>().AsNoTracking().Where(x => x.DeduplicationKey == dedup
+                || x.DeduplicationKey == materialDedup)
+            .OrderByDescending(x => x.DeduplicationKey == materialDedup).FirstOrDefaultAsync(ct);
         if (existing is not null)
         {
             // A reused source ID cannot expose another quote or silently rewrite previously imported evidence.
             if (existing.QuoteHistoryId != quote.Id) throw new VendorQuoteException(409, "The source message ID is already attached to a different quote.");
+            if (manual is null) await BackfillMaterialConversationAsync(existing, dto, sourceId, access, ct);
             return new("duplicate", existing.RequestId, quoteNumber, existing.RemovedAt.HasValue
                 ? "This email was removed from Arda. Restore it from Removed items instead of importing it again. No additional note was added."
                 : "This email has already been imported. No email or additional note was added.");
@@ -73,6 +83,8 @@ public sealed partial class VendorQuoteService
         if ((direction == "incoming" && vendor != from) || (direction == "outgoing" && !recipients.Contains(vendor)))
             throw new VendorQuoteException(400, "The vendor must be the sender of an incoming message or a recipient of an outgoing message.");
         var body = Optional(dto.BodyText, "Message body", 200000) ?? "";
+        if (dto.MaterialDraftToken is not null && !MaterialDraftTracking.ValidToken(dto.MaterialDraftToken))
+            throw new VendorQuoteException(400, "The material draft tracking token is invalid.");
         var fromName = Optional(dto.FromName, "Sender name", 200);
         var conversation = Optional(dto.ConversationId, "Conversation ID", 512);
         if (dto.SentAt.Year < 2000 || dto.SentAt > clock.GetUtcNow().AddDays(1)
@@ -80,9 +92,19 @@ public sealed partial class VendorQuoteService
             throw new VendorQuoteException(400, "The message dates are outside the supported range.");
         var attachments = DecodeAttachments(dto.Attachments);
         var note = Optional(manual?.Note, "Note", 4000);
+        var materialMatch = manual is null
+            ? await MatchMaterialMessageAsync(quote.Id, subjectItem, dto, vendor, direction, body, recipients, ct)
+            : new MaterialMessageMatch(null, null, null, false, new HashSet<int>());
+        if (direction == "outgoing" && materialMatch.Request is not null) dedup = materialDedup;
         var candidates = await db.Set<VendorQuoteRequest>().Where(x => x.QuoteHistoryId == quote.Id && x.VendorEmail == vendor).ToListAsync(ct);
-        VendorQuoteRequest? request = explicitThread;
-        if (manual is null && conversation is not null)
+        // Prepared material RFQs require verified draft/conversation evidence, never subject alone.
+        if (manual is null) candidates.RemoveAll(candidate => materialMatch.ManagedRequestIds.Contains(candidate.Id));
+        // An explicit item suffix narrows every automatic matching path, including conversation
+        // matches. Other contacts and unknown parts stay on the quote for manual assignment.
+        if (subjectItem.Length > 0)
+            candidates = candidates.Where(x => string.Equals(x.PartNumber, subjectItem, StringComparison.OrdinalIgnoreCase)).ToList();
+        VendorQuoteRequest? request = explicitThread ?? materialMatch.Request;
+        if (manual is null && request is null && conversation is not null)
         {
             var related = await db.Set<VendorQuoteMessage>().Where(x => x.QuoteHistoryId == quote.Id && x.VendorEmail == vendor
                 && x.ConversationId == conversation && x.RequestId != null && x.RemovedAt == null).Select(x => x.RequestId!.Value).Distinct().ToListAsync(ct);
@@ -90,7 +112,7 @@ public sealed partial class VendorQuoteService
             if (match.Count == 1) request = match[0];
         }
         if (manual is null && request is null && candidates.Count == 1) request = candidates[0];
-        if (manual is null && request is null && candidates.Count == 0)
+        if (manual is null && subjectItem.Length == 0 && request is null && candidates.Count == 0)
         {
             request = NewRequest(quote, vendor, Optional(dto.VendorName, "Vendor name", 200) ?? vendor,
                 $"Correspondence with {vendor}"[..Math.Min(240, $"Correspondence with {vendor}".Length)], null, access);
@@ -101,7 +123,8 @@ public sealed partial class VendorQuoteService
             Mailbox = mailbox, Direction = direction, Subject = subject, FromAddress = from, FromName = fromName,
             ToAddressesJson = JsonSerializer.Serialize(recipients), SentAt = dto.SentAt.ToUniversalTime(),
             ReceivedAt = dto.ReceivedAt?.ToUniversalTime(), ImportedAt = clock.GetUtcNow(), ImportedBy = access.AccountName,
-            BodyText = body, Attachments = attachments, IsRateRequest = manual?.IsRateRequest == true };
+            BodyText = body, Attachments = attachments, IsRateRequest = manual?.IsRateRequest == true || materialMatch.IsRateRequest,
+            MaterialDraftToken = dto.MaterialDraftToken };
         db.Add(message);
         if (request is not null)
         {
@@ -115,7 +138,10 @@ public sealed partial class VendorQuoteService
             if (message.IsRateRequest)
             {
                 AddActivity(request, "email-rate-request", "Email marked as Rates requested", access, null, subject);
-                SetStatus(request, VendorQuoteStatuses.WaitingOnVendor, access);
+                // Historical sent mail must not overwrite a newer estimator decision.
+                if (manual is not null || request.Status == VendorQuoteStatuses.Untouched
+                    && request.StatusChangedAt.ToUnixTimeSeconds() <= message.SentAt.ToUnixTimeSeconds())
+                    SetStatus(request, VendorQuoteStatuses.WaitingOnVendor, access);
             }
         }
         else
@@ -128,6 +154,9 @@ public sealed partial class VendorQuoteService
                 OccurredAt = clock.GetUtcNow(), AccountName = access.AccountName, DisplayName = access.DisplayName });
         }
         if (manual is not null) { quote.Version++; quote.UpdatedAt = clock.GetUtcNow(); quote.UpdatedBy = access.AccountName; }
+        await RecordMaterialSendAsync(materialMatch, message, access, ct);
+        if (manual?.IsRateRequest == true && request is not null)
+            await ConfirmMaterialSentAsync(request, message, access, ct);
         // EF wraps the message, blobs, state change, and audit inserts in one transaction.
         await SaveAsync(ct);
         return new(request is null ? "unassigned" : "imported", request?.Id, quoteNumber,
