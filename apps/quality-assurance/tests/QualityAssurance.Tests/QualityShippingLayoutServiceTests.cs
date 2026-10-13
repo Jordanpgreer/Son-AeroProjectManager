@@ -18,9 +18,9 @@ public sealed class QualityShippingLayoutServiceTests
         Assert.Contains(defaults.Columns, column => column.Key == "salesOrderNumber");
         Assert.DoesNotContain(defaults.Columns, column => column.Key == "shipperNumber");
         var columns = defaults.Columns.Select(column => column with { }).ToList();
-        var action = columns.Single(column => column.Key == "nextAction");
+        var action = columns.Single(column => column.Key == "action");
         columns.Remove(action);
-        columns.Insert(0, action with { Width = 28 });
+        columns.Insert(1, action with { Width = 28 });
 
         var saved = await fixture.Service.SaveAsync(
             new QualityShippingLayoutUpdateDto(columns, defaults.Version),
@@ -31,8 +31,9 @@ public sealed class QualityShippingLayoutServiceTests
         var otherUser = await fixture.Service.GetAsync(fixture.UserTwo, CancellationToken.None);
 
         Assert.Equal(1, saved.Version);
-        Assert.Equal("nextAction", reloaded.Columns[0].Key);
-        Assert.Equal(28, reloaded.Columns[0].Width);
+        Assert.Equal("status", reloaded.Columns[0].Key);
+        Assert.Equal("action", reloaded.Columns[1].Key);
+        Assert.Equal(28, reloaded.Columns[1].Width);
         Assert.All(reloaded.Columns, column => Assert.True(column.IsVisible));
         Assert.Equal(0, otherUser.Version);
         Assert.Equal("status", otherUser.Columns[0].Key);

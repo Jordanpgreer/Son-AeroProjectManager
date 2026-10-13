@@ -98,3 +98,6 @@
   .admin-workspace-content .access-group-open { padding: 10px; }
 }
 @media (prefers-reduced-motion: reduce) { .admin-nav-link { transition: none; } }
+.quality-team-admin-stack { display: grid; gap: 16px; }
+.quality-team-admin-stack .admin-readonly-note { margin: 0; }
+.quality-team-admin-stack .admin-readonly-note strong { display: block; margin-bottom: 5px; color: var(--admin-ink, inherit); }

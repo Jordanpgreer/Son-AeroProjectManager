@@ -9,6 +9,7 @@ namespace QualityAssurance.Api.Services;
 
 public interface IQualityShipmentSyncService
 {
+    Task<QualityExternalShipment?> LookupAsync(string shipperNumber, CancellationToken cancellationToken);
     Task<bool> TrySyncShipmentAsync(int shipmentId, CancellationToken cancellationToken);
     Task<int> SyncAllAsync(CancellationToken cancellationToken);
 }
@@ -21,6 +22,19 @@ public sealed class QualityShipmentSyncService(
     TimeProvider timeProvider,
     ILogger<QualityShipmentSyncService> logger) : IQualityShipmentSyncService
 {
+    public async Task<QualityExternalShipment?> LookupAsync(
+        string shipperNumber,
+        CancellationToken cancellationToken)
+    {
+        if (!options.Value.Enabled)
+            throw new InvalidOperationException("Quality shipment integration is disabled.");
+        var normalized = shipperNumber.Trim();
+        if (normalized.Length == 0) throw new ArgumentException("Shipper number is required.");
+        var provider = await SelectProviderAsync(cancellationToken);
+        var results = await provider.FindByShipperNumbersAsync([normalized], cancellationToken);
+        return results.GetValueOrDefault(normalized);
+    }
+
     public async Task<bool> TrySyncShipmentAsync(
         int shipmentId,
         CancellationToken cancellationToken)
@@ -185,24 +199,67 @@ public sealed class QualityShipmentSyncService(
                 UnitPrice = unitPrice,
                 TotalValue = total,
                 ExternalItemId = LimitOptional(part.ExternalItemId, 80),
+                LineItemNumber = part.LineItemNumber,
                 DisplayOrder = index
             };
         }).ToList();
         var oldValue = FormatParts(shipment.Parts);
-        var newValue = FormatParts(normalized);
-        if (string.Equals(oldValue, newValue, StringComparison.Ordinal)) return false;
+        var existing = shipment.Parts.OrderBy(part => part.DisplayOrder).ThenBy(part => part.Id).ToList();
+        var claimed = new HashSet<QualityShipmentPart>();
+        var changed = false;
+        foreach (var external in normalized)
+        {
+            var match = !string.IsNullOrWhiteSpace(external.ExternalItemId)
+                ? existing.FirstOrDefault(part => !claimed.Contains(part)
+                    && string.Equals(part.ExternalItemId, external.ExternalItemId, StringComparison.OrdinalIgnoreCase))
+                : null;
+            match ??= external.LineItemNumber.HasValue
+                ? existing.FirstOrDefault(part => !claimed.Contains(part)
+                    && part.LineItemNumber == external.LineItemNumber)
+                : null;
+            match ??= existing.FirstOrDefault(part => !claimed.Contains(part)
+                && string.Equals(part.PartNumber, external.PartNumber, StringComparison.OrdinalIgnoreCase));
+            if (match is null)
+            {
+                shipment.Parts.Add(external);
+                claimed.Add(external);
+                changed = true;
+                continue;
+            }
 
-        db.ShipmentParts.RemoveRange(shipment.Parts);
-        shipment.Parts.Clear();
-        foreach (var part in normalized) shipment.Parts.Add(part);
-        shipment.PartNumber = normalized[0].PartNumber;
-        shipment.Quantity = normalized.Any(part => part.Quantity.HasValue)
-            ? normalized.Sum(part => (decimal?)(part.Quantity ?? 0))
+            claimed.Add(match);
+            changed |= Set(match.PartNumber, external.PartNumber, value => match.PartNumber = value);
+            changed |= Set(match.Quantity, external.Quantity, value => match.Quantity = value);
+            changed |= Set(match.UnitPrice, external.UnitPrice, value => match.UnitPrice = value);
+            changed |= Set(match.TotalValue, external.TotalValue, value => match.TotalValue = value);
+            changed |= Set(match.ExternalItemId, external.ExternalItemId, value => match.ExternalItemId = value);
+            changed |= Set(match.LineItemNumber, external.LineItemNumber, value => match.LineItemNumber = value);
+            changed |= Set(match.DisplayOrder, external.DisplayOrder, value => match.DisplayOrder = value);
+        }
+
+        var nextDisplayOrder = normalized.Count;
+        foreach (var retained in existing.Where(part => !claimed.Contains(part)).OrderBy(part => part.DisplayOrder))
+            changed |= Set(retained.DisplayOrder, nextDisplayOrder++, value => retained.DisplayOrder = value);
+
+        var ordered = shipment.Parts.OrderBy(part => part.DisplayOrder).ThenBy(part => part.Id).ToList();
+        var newValue = FormatParts(ordered);
+        if (!changed && string.Equals(oldValue, newValue, StringComparison.Ordinal)) return false;
+
+        shipment.PartNumber = ordered[0].PartNumber;
+        shipment.Quantity = ordered.Any(part => part.Quantity.HasValue)
+            ? ordered.Sum(part => (decimal?)(part.Quantity ?? 0))
             : null;
-        shipment.DollarValue = normalized.Any(part => part.TotalValue.HasValue)
-            ? normalized.Sum(part => part.TotalValue ?? 0)
+        shipment.DollarValue = ordered.Any(part => part.TotalValue.HasValue)
+            ? ordered.Sum(part => part.TotalValue ?? 0)
             : null;
         AddAudit(shipment, "ExternalPartsSynced", "parts", oldValue, newValue, providerName, now);
+        return true;
+    }
+
+    private static bool Set<T>(T current, T next, Action<T> setter)
+    {
+        if (EqualityComparer<T>.Default.Equals(current, next)) return false;
+        setter(next);
         return true;
     }
 
@@ -263,7 +320,7 @@ public sealed class QualityShipmentSyncService(
     private static string FormatParts(IEnumerable<QualityShipmentPart> parts) => string.Join(
         "; ",
         parts.OrderBy(part => part.DisplayOrder).Select(part =>
-            $"{part.PartNumber}|{part.Quantity?.ToString(CultureInfo.InvariantCulture) ?? ""}|{part.UnitPrice?.ToString("0.00", CultureInfo.InvariantCulture) ?? ""}"));
+            $"{part.LineItemNumber?.ToString(CultureInfo.InvariantCulture) ?? ""}|{part.PartNumber}|{part.Quantity?.ToString(CultureInfo.InvariantCulture) ?? ""}|{part.UnitPrice?.ToString("0.00", CultureInfo.InvariantCulture) ?? ""}"));
 
     private static string? Format<T>(T value) => value switch
     {

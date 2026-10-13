@@ -80,6 +80,8 @@ export default function App() {
   const [route, setRoute] = useState(routeFromHash)
   const [reloadKey, setReloadKey] = useState(0)
   const [accessReloadKey, setAccessReloadKey] = useState(0)
+  const [refreshingFulcrum, setRefreshingFulcrum] = useState(false)
+  const [refreshNotice, setRefreshNotice] = useState<string | null>(null)
 
   useEffect(() => {
     try {
@@ -177,9 +179,27 @@ export default function App() {
       ? 'all'
       : userPermissions.includes('quality-assurance.dashboard.team-view') ? 'team' : 'mine'
     const comments = openComments ? '&comments=1' : ''
-    window.location.hash = `#/shipping-status?shipment=${shipmentId}${comments}&scope=${notificationScope}&status=${isShipped ? 'shipped' : 'open'}`
+    window.location.hash = `#/shipping-status?shipment=${shipmentId}${comments}&scope=${notificationScope}&status=${isShipped ? 'closed' : 'open'}`
     setRoute('shipping-status')
     setReloadKey((value) => value + 1)
+  }
+
+  async function refreshPage() {
+    if (activeRoute !== 'shipping-status') {
+      setReloadKey((value) => value + 1)
+      return
+    }
+    setRefreshingFulcrum(true)
+    setRefreshNotice(null)
+    try {
+      const result = await qualityApi<{ updatedRecords: number }>('/api/shipments/refresh', { method: 'POST' })
+      setRefreshNotice(`Fulcrum refresh complete. ${result.updatedRecords} shipment${result.updatedRecords === 1 ? '' : 's'} updated.`)
+      setReloadKey((value) => value + 1)
+    } catch (cause) {
+      setRefreshNotice(cause instanceof Error ? cause.message : 'Fulcrum shipping data could not be refreshed.')
+    } finally {
+      setRefreshingFulcrum(false)
+    }
   }
 
   return (
@@ -218,9 +238,10 @@ export default function App() {
             <div className="topbar-identity"><ThemeSwitch theme={theme} onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} /><div className="user-chip topbar-user-chip" title={`${user.displayName}\n${user.groups.join(', ')}`}><span className="user-copy"><strong>{user.displayName}</strong></span><span className="avatar">{initials(user.displayName)}</span></div></div>
             {userPermissions.includes('quality-assurance.shipments.view') && userPermissions.includes('quality-assurance.fields.comments.view') && <QualityNotificationCenter onOpenShipment={(shipmentId, isShipped) => openShippingShipment(shipmentId, isShipped, true)} />}
             {activeRoute === 'shipping-status' && canRunQualityAction(user, 'shipment-imported', userPermissions.includes('quality-assurance.shipments.import')) && <button className="button ghost" type="button" onClick={() => window.dispatchEvent(new Event('quality:open-shipping-import'))}><FileUp size={15} /> Import Excel</button>}
-            <button className="button ghost" type="button" onClick={() => setReloadKey((value) => value + 1)}><RefreshCw size={15} /> Refresh</button>
+            <button className="button ghost" type="button" disabled={refreshingFulcrum} onClick={() => void refreshPage()}><RefreshCw className={refreshingFulcrum ? 'is-spinning' : undefined} size={15} /> {refreshingFulcrum ? 'Refreshing Fulcrum...' : 'Refresh'}</button>
           </div>
         </header>
+        {refreshNotice && <p className="topbar-refresh-notice" role="status">{refreshNotice}<button type="button" onClick={() => setRefreshNotice(null)} aria-label="Dismiss refresh result">×</button></p>}
         <div className="main-scroll">{activeRoute === 'dashboard' ? <Dashboard user={user} reloadKey={reloadKey} onOpenShipment={canViewQualityPage(userPermissions, 'shipping-status') ? (shipment) => openShippingShipment(shipment.id, shipment.isShipped) : undefined} /> : <ShippingStatus user={user} reloadKey={reloadKey} />}</div>
       </main>
     </div>

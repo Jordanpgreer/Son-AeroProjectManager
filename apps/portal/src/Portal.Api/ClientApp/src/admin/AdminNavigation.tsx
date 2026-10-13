@@ -47,7 +47,10 @@ export default function AdminNavigation(props: AdminNavigationProps) {
       ...item, href: `#/admin/engineering/${item.key}`, allowed: props.canViewEngineeringSettings,
     }))
     if (module.key === 'quality-assurance') return QUALITY_SECTIONS.map((item) => ({
-      ...item, href: `#/admin/quality-assurance/${item.key}`, allowed: props.canViewQualitySettings,
+      ...item,
+      href: `#/admin/quality-assurance/${item.key}`,
+      allowed: props.canViewQualitySettings
+        && (item.key === 'teams' ? props.canManageGroups : item.key === 'people' ? props.canManageUsers : true),
     }))
     return [{ key: module.href.split('/').at(-1)!, label: module.label, icon: module.icon, href: module.href, allowed: true }]
   }

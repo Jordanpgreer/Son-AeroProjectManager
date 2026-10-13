@@ -5,7 +5,6 @@ import {
   Clock3,
   Download,
   PackageCheck,
-  UserRoundCheck,
 } from 'lucide-react'
 import { qualityApi } from './api'
 import DashboardShipmentQuickView from './DashboardShipmentQuickView'
@@ -15,6 +14,7 @@ import type { DashboardData, PersonQueue, QualityAssuranceUser, Shipment } from 
 import './Dashboard.css'
 
 type TeamSelection = number | 'group' | 'unassigned' | null
+type QueueFilter = 'open' | 'overdue' | 'completed' | 'average'
 
 export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: QualityAssuranceUser; reloadKey: number; onOpenShipment?: (shipment: Shipment) => void }) {
   const [data, setData] = useState<DashboardData | null>(null)
@@ -22,6 +22,7 @@ export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: Q
   const [refreshKey, setRefreshKey] = useState(0)
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null)
   const [selectedTeam, setSelectedTeam] = useState<TeamSelection>(null)
+  const [queueFilter, setQueueFilter] = useState<QueueFilter>('open')
 
   useEffect(() => {
     let active = true
@@ -30,13 +31,6 @@ export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: Q
       .then((next) => {
         if (!active) return
         setData(next)
-        setSelectedTeam((current) => current ?? (
-          next.canReviewUnassigned && next.unassignedQueue.open > 0
-            ? 'unassigned'
-            : next.groupQueue.open > 0
-              ? 'group'
-              : next.teamQueues[0]?.userId ?? null
-        ))
       })
       .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : 'Dashboard unavailable.') })
     return () => { active = false }
@@ -68,16 +62,21 @@ export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: Q
     : selectedTeam === 'group'
       ? 'Group Queue'
       : selectedPerson?.displayName ?? 'Select a Team Member'
-  const selectedMetrics = selectedTeam === 'unassigned'
-    ? data.unassignedQueue
-    : selectedTeam === 'group'
-      ? data.groupQueue
-      : selectedPerson?.metrics ?? null
   const selectedShipments = selectedTeam === 'unassigned'
     ? data.unassignedShipments
     : selectedTeam === 'group'
       ? data.groupShipments
-      : selectedPerson?.openShipments ?? []
+      : selectedPerson?.openShipments ?? data.queue
+  const visibleQueue = queueFilter === 'completed' || queueFilter === 'average'
+    ? selectedTeam === null ? data.completedShipments : []
+    : queueFilter === 'overdue'
+      ? selectedShipments.filter((shipment) => shipment.dueState === 'Past due')
+      : selectedShipments
+  const queueTitle = queueFilter === 'overdue'
+    ? 'Past Due Queue'
+    : queueFilter === 'completed' || queueFilter === 'average'
+      ? 'Completed Shipments'
+      : 'Queue Priority'
   const maxTeamOpen = Math.max(
     1,
     data.canReviewUnassigned ? data.unassignedQueue.open : 0,
@@ -96,21 +95,21 @@ export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: Q
   return (
     <div className="view dashboard-view">
       <section className="metric-grid" aria-label="My shipping queue statistics">
-        <article className="metric-card accent"><span className="metric-icon"><PackageCheck size={18} /></span><div><span>Open In My Queue</span><strong>{data.myQueue.open}</strong><small>{includesUnassigned ? 'Includes Unassigned Manager Review' : 'Oldest Work Appears First'}</small></div></article>
-        <article className={`metric-card ${data.myQueue.overdue ? 'risk' : ''}`}><span className="metric-icon"><AlertTriangle size={18} /></span><div><span>Past Due</span><strong>{data.myQueue.overdue}</strong><small>Based On Ship By</small></div></article>
-        <article className="metric-card"><span className="metric-icon"><CheckCircle2 size={18} /></span><div><span>Completed</span><strong>{data.myQueue.completed}</strong><small>All Shipped Assignments</small></div></article>
-        <article className="metric-card"><span className="metric-icon"><Clock3 size={18} /></span><div><span>Average Completion</span><strong>{formatDuration(data.myQueue.averageCompletionHours)}</strong><small>Arrival In Queue To Shipped</small></div></article>
+        <button type="button" aria-pressed={queueFilter === 'open'} className={`metric-card accent metric-filter ${queueFilter === 'open' ? 'is-selected' : ''}`} onClick={() => { setSelectedTeam(null); setQueueFilter('open') }}><span className="metric-icon"><PackageCheck size={18} /></span><div><span>Open In My Queue</span><strong>{data.myQueue.open}</strong><small>{includesUnassigned ? 'Includes Unassigned Manager Review' : 'Oldest Work Appears First'}</small></div></button>
+        <button type="button" aria-pressed={queueFilter === 'overdue'} className={`metric-card metric-filter ${data.myQueue.overdue ? 'risk' : ''} ${queueFilter === 'overdue' ? 'is-selected' : ''}`} onClick={() => { setSelectedTeam(null); setQueueFilter('overdue') }}><span className="metric-icon"><AlertTriangle size={18} /></span><div><span>Past Due</span><strong>{data.myQueue.overdue}</strong><small>Based On Ship By</small></div></button>
+        <button type="button" aria-pressed={queueFilter === 'completed'} className={`metric-card metric-filter ${queueFilter === 'completed' ? 'is-selected' : ''}`} onClick={() => { setSelectedTeam(null); setQueueFilter('completed') }}><span className="metric-icon"><CheckCircle2 size={18} /></span><div><span>Completed</span><strong>{data.myQueue.completed}</strong><small>All Shipped Assignments</small></div></button>
+        <button type="button" aria-pressed={queueFilter === 'average'} className={`metric-card metric-filter ${queueFilter === 'average' ? 'is-selected' : ''}`} onClick={() => { setSelectedTeam(null); setQueueFilter('average') }}><span className="metric-icon"><Clock3 size={18} /></span><div><span>Average Completion</span><strong>{formatDuration(data.myQueue.averageCompletionHours)}</strong><small>Shows The Completed Records Used</small></div></button>
       </section>
 
       <section className="dashboard-layout">
         <article className="panel queue-panel">
           <header className="panel-head">
-            <div><span className="eyebrow">{includesUnassigned ? 'My Work + Manager Review' : 'My Work'}</span><h2>Queue Priority</h2><p>{includesUnassigned ? 'Unassigned records are included so managers can assign them without leaving the dashboard.' : 'Ordered oldest first, with Ship By risk visible alongside age.'}</p></div>
+            <div><span className="eyebrow">{selectedTeam === null ? includesUnassigned ? 'My Work + Manager Review' : 'My Work' : selectedLabel}</span><h2>{queueTitle}</h2><p>Ordered oldest first. Select the summary boxes above or a team box below to filter this queue.</p></div>
             <span className="dashboard-hint">Select A Row For Quick View</span>
           </header>
-          {data.queue.length ? (
+          {visibleQueue.length ? (
             <div className="queue-list">
-              {data.queue.map((shipment, index) => (
+              {visibleQueue.map((shipment, index) => (
                 <button className="queue-item" type="button" onClick={() => setSelectedShipment(shipment)} key={shipment.id}>
                   <span className="queue-rank">{String(index + 1).padStart(2, '0')}</span>
                   <span className="queue-primary"><strong>{shipment.salesOrderNumber || `Shipment ${shipment.id}`}</strong><small>{shipment.customer || 'Customer hidden'} · {shipment.partNumber || 'Part hidden'}</small></span>
@@ -120,7 +119,7 @@ export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: Q
                 </button>
               ))}
             </div>
-          ) : <div className="empty-state"><CheckCircle2 size={25} /><h3>Your Queue Is Clear</h3><p>New assignments will appear here automatically.</p></div>}
+          ) : <div className="empty-state"><CheckCircle2 size={25} /><h3>No Matching Shipments</h3><p>Choose another summary or team box to change the queue filter.</p></div>}
         </article>
 
         {data.canViewTeam && (
@@ -140,37 +139,15 @@ export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: Q
 
             <div className="team-stat-grid" aria-label="Team queue statistics">
               {data.canReviewUnassigned && data.unassignedQueue.open > 0 && (
-                <TeamStatCard label="Needs Assignment" description="Manager Review" metrics={data.unassignedQueue} selected={selectedTeam === 'unassigned'} maxOpen={maxTeamOpen} onClick={() => setSelectedTeam('unassigned')} unassigned />
+                <TeamStatCard label="Needs Assignment" description="Manager Review" metrics={data.unassignedQueue} selected={selectedTeam === 'unassigned'} maxOpen={maxTeamOpen} onClick={() => { setSelectedTeam((current) => current === 'unassigned' ? null : 'unassigned'); setQueueFilter('open') }} unassigned />
               )}
               {data.groupQueue.open > 0 && (
-                <TeamStatCard label="Group Queue" description="Awaiting An Individual Owner" metrics={data.groupQueue} selected={selectedTeam === 'group'} maxOpen={maxTeamOpen} onClick={() => setSelectedTeam('group')} groupQueue />
+                <TeamStatCard label="Group Queue" description="Awaiting An Individual Owner" metrics={data.groupQueue} selected={selectedTeam === 'group'} maxOpen={maxTeamOpen} onClick={() => { setSelectedTeam((current) => current === 'group' ? null : 'group'); setQueueFilter('open') }} groupQueue />
               )}
               {data.teamQueues.map((person) => (
-                <TeamStatCard key={person.userId} label={person.displayName} description="Quality Team Member" metrics={person.metrics} selected={selectedTeam === person.userId} maxOpen={maxTeamOpen} onClick={() => setSelectedTeam(person.userId)} />
+                <TeamStatCard key={person.userId} label={person.displayName} description="Quality Team Member" metrics={person.metrics} selected={selectedTeam === person.userId} maxOpen={maxTeamOpen} onClick={() => { setSelectedTeam((current) => current === person.userId ? null : person.userId); setQueueFilter('open') }} />
               ))}
             </div>
-
-            {selectedMetrics && (
-              <section className="team-drilldown" aria-label={`${selectedLabel} open workload`}>
-                <header>
-                  <div><span className="eyebrow">Selected Workload</span><h3>{selectedLabel}</h3></div>
-                  <div className="team-drilldown-summary"><span><b>{selectedMetrics.open}</b> Open</span><span className={selectedMetrics.overdue ? 'risk-number' : ''}><b>{selectedMetrics.overdue}</b> Past Due</span><span><b>{formatMetricCurrency(selectedMetrics.openDollarValue)}</b> Open Value</span></div>
-                </header>
-                {selectedShipments.length ? (
-                  <div className="team-work-list">
-                    {selectedShipments.map((shipment) => (
-                      <button type="button" key={shipment.id} onClick={() => setSelectedShipment(shipment)}>
-                        <span><strong>{shipment.salesOrderNumber ?? `Shipment ${shipment.id}`}</strong><small>{shipment.customer ?? 'Customer hidden'} · {shipment.partNumber ?? 'Part hidden'}</small></span>
-                        <span><strong>{formatDate(shipment.shipDate)}</strong><small>Ship By</small></span>
-                        <span><strong>{formatCurrency(shipment.dollarValue)}</strong><small>Open Value</small></span>
-                        <span className={`due-pill ${shipment.dueState.toLowerCase().replaceAll(' ', '-')}`}><i />{shipment.dueState}</span>
-                        <UserRoundCheck size={16} aria-hidden="true" />
-                      </button>
-                    ))}
-                  </div>
-                ) : <div className="empty-state compact"><CheckCircle2 size={21} /><h3>No Open Work</h3><p>This team member's queue is clear.</p></div>}
-              </section>
-            )}
           </article>
         )}
       </section>

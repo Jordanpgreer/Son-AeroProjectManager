@@ -12,6 +12,7 @@ import {
   FileSpreadsheet,
   FileClock,
   FileUp,
+  GripVertical,
   ListFilter,
   MessageSquare,
   PackageCheck,
@@ -24,6 +25,7 @@ import {
   X,
 } from 'lucide-react'
 import { qualityApi } from './api'
+import { assignmentOwnerName } from './assignmentDisplay'
 import CustomerFilterCombobox from './CustomerFilterCombobox'
 import { ageInDays, formatCurrency, formatDate, formatDateTime } from './format'
 import ShipmentCommentsDrawer from './ShipmentCommentsDrawer'
@@ -39,6 +41,9 @@ import type {
   Shipment,
   ShipmentFieldKey,
   ShipmentList,
+  ShipmentLookup,
+  ShippingColumnLayout,
+  ShippingLayout,
 } from './types'
 
 const PERMISSIONS = {
@@ -56,12 +61,9 @@ const PERMISSIONS = {
 
 const STATUS_OPTIONS = [
   'WIP',
-  'Ready to Ship',
-  'Pending Customer Service/Sales',
-  'Pending Customer Feedback',
-  'Pending Source Inspection',
-  'Pending FAI Approval Portal',
-  'On Hold',
+  'Pending Source',
+  'Pending Customer Service',
+  'Pending FAI Approval',
 ]
 
 const TASK_TYPES = ['General', 'Source Inspection', 'FAI Approval', 'Customer Feedback', 'Documentation', 'Final Review']
@@ -81,9 +83,11 @@ interface ShipmentDraft {
 }
 
 interface ShipmentPartDraft {
+  id: number | null
   partNumber: string
   quantity: string
   unitPrice: string
+  lineItemNumber: string
 }
 
 interface ShippingImportResult {
@@ -113,10 +117,12 @@ const REQUIRED_CREATE_FIELDS = new Set<ShipmentFieldKey>([
 ])
 
 function draftFor(shipment?: Shipment | null): ShipmentDraft {
+  const today = new Date()
+  const localToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   return {
     status: shipment?.status ?? 'WIP',
     salesOrderNumber: shipment?.salesOrderNumber ?? '',
-    qaArrivalDate: shipment?.qaArrivalDate ?? '',
+    qaArrivalDate: shipment?.qaArrivalDate ?? localToday,
     purchaseOrderNumber: shipment?.purchaseOrderNumber ?? '',
     customer: shipment?.customer ?? '',
     taskType: shipment?.taskType ?? 'General',
@@ -126,16 +132,20 @@ function draftFor(shipment?: Shipment | null): ShipmentDraft {
     comments: shipment?.comments ?? '',
     parts: shipment?.parts?.length
       ? shipment.parts.map((part) => ({
+        id: part.id,
         partNumber: part.partNumber,
         quantity: part.quantity?.toString() ?? '',
         unitPrice: part.unitPrice?.toFixed(2) ?? '',
+        lineItemNumber: part.lineItemNumber?.toString() ?? '',
       }))
       : [{
+        id: null,
         partNumber: shipment?.partNumber ?? '',
         quantity: shipment?.quantity?.toString() ?? '',
         unitPrice: shipment?.quantity && shipment.dollarValue != null
           ? (shipment.dollarValue / shipment.quantity).toFixed(2)
           : '',
+        lineItemNumber: '',
       }],
   }
 }
@@ -147,10 +157,19 @@ function fieldValue(draft: ShipmentDraft, key: ScalarDraftKey) {
 
 function partValues(draft: ShipmentDraft) {
   return draft.parts.map((part) => ({
+    id: part.id,
     partNumber: part.partNumber.trim(),
     quantity: part.quantity === '' ? null : Number(part.quantity),
     unitPrice: part.unitPrice === '' ? null : Number(part.unitPrice),
+    lineItemNumber: part.lineItemNumber === '' ? null : Number(part.lineItemNumber),
   }))
+}
+
+function normalizeShipperNumber(value: string) {
+  const normalized = value.trim()
+  if (/^SHP-/i.test(normalized)) return normalized
+  if (/^SO/i.test(normalized)) return `SHP-${normalized}`
+  return normalized ? `SHP-SO${normalized}` : ''
 }
 
 function Highlight({ value, query }: { value: string; query: string }) {
@@ -308,6 +327,8 @@ function ShipmentForm({
   const creationRequestId = useRef(crypto.randomUUID())
   const formRef = useRef<HTMLFormElement>(null)
   const [saving, setSaving] = useState(false)
+  const [lookingUp, setLookingUp] = useState(false)
+  const [lookupMessage, setLookupMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const editable = useMemo(() => new Map(fields.map((field) => [field.key, field.canEdit])), [fields])
   const creating = !shipment
@@ -325,7 +346,7 @@ function ShipmentForm({
     setDraft((current) => ({ ...current, [key]: value }))
   }
 
-  function updatePart(index: number, key: keyof ShipmentPartDraft, value: string) {
+  function updatePart(index: number, key: Exclude<keyof ShipmentPartDraft, 'id'>, value: string) {
     setDraft((current) => ({
       ...current,
       parts: current.parts.map((part, partIndex) => partIndex === index
@@ -337,7 +358,7 @@ function ShipmentForm({
   function addPart() {
     setDraft((current) => ({
       ...current,
-      parts: [...current.parts, { partNumber: '', quantity: '', unitPrice: '' }],
+      parts: [...current.parts, { id: null, partNumber: '', quantity: '', unitPrice: '', lineItemNumber: '' }],
     }))
   }
 
@@ -346,6 +367,45 @@ function ShipmentForm({
       ...current,
       parts: current.parts.filter((_, partIndex) => partIndex !== index),
     }))
+  }
+
+  async function lookupShipment() {
+    const shipperNumber = normalizeShipperNumber(draft.salesOrderNumber)
+    if (!shipperNumber) {
+      setError('Enter the Fulcrum shipper number first.')
+      return
+    }
+    setLookingUp(true)
+    setError(null)
+    setLookupMessage(null)
+    try {
+      const result = await qualityApi<ShipmentLookup>('/api/shipments/lookup', {
+        method: 'POST',
+        body: JSON.stringify({ shipperNumber }),
+      })
+      setDraft((current) => ({
+        ...current,
+        status: 'WIP',
+        salesOrderNumber: result.shipperNumber,
+        purchaseOrderNumber: result.purchaseOrderNumber ?? current.purchaseOrderNumber,
+        customer: result.customer ?? current.customer,
+        shipDate: result.shipByDate ?? current.shipDate,
+        parts: result.parts.length
+          ? result.parts.map((part) => ({
+            id: null,
+            partNumber: part.partNumber,
+            quantity: part.quantity?.toString() ?? '',
+            unitPrice: part.unitPrice?.toFixed(2) ?? '',
+            lineItemNumber: part.lineItemNumber?.toString() ?? '',
+          }))
+          : current.parts,
+      }))
+      setLookupMessage(`Fulcrum matched ${result.shipperNumber}${result.externalStatus ? ` · ${result.externalStatus}` : ''}. Review the imported values, then add it to the queue.`)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Fulcrum shipment lookup failed.')
+    } finally {
+      setLookingUp(false)
+    }
   }
 
   async function submit(event: React.FormEvent) {
@@ -424,18 +484,19 @@ function ShipmentForm({
         <form ref={formRef} onSubmit={submit}>
           {error && <p className="notice error"><AlertTriangle size={16} />{error}</p>}
           <div className="form-grid">
-            {can('status') && <label><span>Status</span><select value={draft.status} onChange={(event) => update('status', event.target.value)}>{STATUS_OPTIONS.map((status) => <option key={status}>{status}</option>)}</select></label>}
+            {can('status') && <label><span>Status</span><select value={draft.status} onChange={(event) => update('status', event.target.value)}>{!STATUS_OPTIONS.includes(draft.status) && <option value={draft.status} disabled>{draft.status} (system status)</option>}{STATUS_OPTIONS.map((status) => <option key={status}>{status}</option>)}</select></label>}
             {can('taskType') && <label><span>Task Type</span><input list="qa-task-types" value={draft.taskType} onChange={(event) => update('taskType', event.target.value)} /><datalist id="qa-task-types">{TASK_TYPES.map((type) => <option key={type}>{type}</option>)}</datalist></label>}
-            {canUse('salesOrderNumber') && <label><span>Shipper Number <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={draft.salesOrderNumber} onChange={(event) => update('salesOrderNumber', event.target.value)} /></label>}
+            {canUse('salesOrderNumber') && <label className={creating ? 'shipper-lookup-field' : undefined}><span>Shipper Number <b className="required-marker" aria-hidden="true">*</b></span><span className="shipper-lookup-control"><input required aria-required="true" placeholder="SHP-SO1234-1" value={draft.salesOrderNumber} onChange={(event) => { update('salesOrderNumber', event.target.value); setLookupMessage(null) }} onBlur={() => { if (creating && draft.salesOrderNumber.trim()) update('salesOrderNumber', normalizeShipperNumber(draft.salesOrderNumber)) }} />{creating && <button className="button ghost compact" type="button" disabled={lookingUp || !draft.salesOrderNumber.trim()} onClick={() => void lookupShipment()}>{lookingUp ? 'Checking...' : 'Confirm & pull'}</button>}</span><small>Enter the number after SHP-SO, or paste the complete Fulcrum shipper number.</small></label>}
             {canUse('purchaseOrderNumber') && <label><span>PO Number <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={draft.purchaseOrderNumber} onChange={(event) => update('purchaseOrderNumber', event.target.value)} /></label>}
             {canUse('customer') && <label><span>Customer <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={draft.customer} onChange={(event) => update('customer', event.target.value)} /></label>}
             {canUse('qaArrivalDate') && <label><span>Shipment Arrival Date <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" type="date" value={draft.qaArrivalDate} onChange={(event) => update('qaArrivalDate', event.target.value)} /></label>}
-            {canUse('shipDate') && <label><span>Ship By Date <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" type="date" value={draft.shipDate} onChange={(event) => update('shipDate', event.target.value)} /></label>}
+            {canUse('shipDate') && <label><span>Ship By Date</span><input type="date" value={draft.shipDate} onChange={(event) => update('shipDate', event.target.value)} /><small>Filled from Fulcrum when the shipment has a ship-by date.</small></label>}
             {canUse('partNumber') && <fieldset className="shipment-parts-editor span-2"><legend>Part Lines</legend>{draft.parts.map((part, index) => {
               const lineTotal = part.quantity !== '' && part.unitPrice !== ''
                 ? Number(part.quantity) * Number(part.unitPrice)
                 : null
               return <div className="shipment-part-row" key={index}>
+                <label><span>Line Item</span><input disabled type="number" value={part.lineItemNumber} placeholder="From Fulcrum" /></label>
                 <label><span>Part Number <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={part.partNumber} onChange={(event) => updatePart(index, 'partNumber', event.target.value)} /></label>
                 <label><span>Quantity {creating && <b className="required-marker" aria-hidden="true">*</b>}</span><input required={creating} aria-required={creating} disabled={!canUse('quantity')} type="number" min="0" step="1" value={part.quantity} onChange={(event) => updatePart(index, 'quantity', event.target.value)} /></label>
                 <label className="currency-field"><span>Unit Price</span><div><b>$</b><input disabled={!can('dollarValue')} type="number" min="0" step="0.01" value={part.unitPrice} onChange={(event) => updatePart(index, 'unitPrice', event.target.value)} /></div></label>
@@ -446,6 +507,7 @@ function ShipmentForm({
             {can('sourceRequestedDate') && <label><span>Source Scheduled</span><input type="date" value={draft.sourceRequestedDate} onChange={(event) => update('sourceRequestedDate', event.target.value)} /></label>}
             {can('holdReason') && <label className="span-2"><span>Hold Reason</span><textarea rows={3} value={draft.holdReason} onChange={(event) => update('holdReason', event.target.value)} /></label>}
           </div>
+          {lookupMessage && <p className="notice success">{lookupMessage}</p>}
           {!canSave && <p className="notice error"><AlertTriangle size={16} />Your current access does not allow {creating ? 'creating shipments' : 'editing this shipment'}.</p>}
           <footer><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary" disabled={saving || !canSave} type="submit">{saving ? 'Saving...' : creating ? 'Add to queue' : 'Save changes'}</button></footer>
         </form>
@@ -503,8 +565,8 @@ function AssignmentDialog({
         <form onSubmit={submit}>
           {error && <p className="notice error"><AlertTriangle size={16} />{error}</p>}
           {!options ? <div className="loading-panel compact">Loading shared groups and users...</div> : <div className="assignment-fields">
-            <label><span>Responsible Group</span><select disabled={!canMoveGroup} value={groupId} onChange={(event) => { setGroupId(event.target.value); setUserId('') }}><option value="">Unassigned - Manager Review</option>{currentGroupUnavailable && <option value={groupId} disabled>{shipment.assignedGroupName ?? 'Current Group'} (not enabled)</option>}{options.groups.map((group) => <option value={group.id} key={group.id}>{group.name} ({group.activeUserCount})</option>)}</select><small>Only groups enabled as a Quality Responsible Group in Arda Access appear here.</small></label>
-            <label><span>Individual Owner</span><select disabled={!canAssignUser || !groupId || currentGroupUnavailable} value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Group Queue / Unassigned</option>{currentUserUnavailable && <option value={userId} disabled>{shipment.assignedDisplayName ?? 'Current Owner'} (not eligible)</option>}{users.map((candidate) => <option value={candidate.id} key={candidate.id}>{candidate.displayName}</option>)}</select><small>Only active users granted Receive Quality assignments through a permission group appear here.</small></label>
+            <label><span>Responsible Group</span><select disabled={!canMoveGroup} value={groupId} onChange={(event) => { setGroupId(event.target.value); setUserId('') }}><option value="">Unassigned - Manager Review</option>{currentGroupUnavailable && <option value={groupId} disabled>{shipment.assignedGroupName ?? 'Current Group'} (not enabled)</option>}{options.groups.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select><small>Only groups enabled as a Quality Responsible Group in Arda Access appear here.</small></label>
+            <label><span>Individual Owner</span><select disabled={!canAssignUser || !groupId || currentGroupUnavailable} value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Group Queue / Unassigned</option>{currentUserUnavailable && <option value={userId} disabled>{assignmentOwnerName(shipment.assignedDisplayName ?? 'Current Owner')} (not eligible)</option>}{users.map((candidate) => <option value={candidate.id} key={candidate.id}>{assignmentOwnerName(candidate.displayName, candidate.accountName)}</option>)}</select><small>Only active users granted Receive Quality assignments through a permission group appear here.</small></label>
           </div>}
           {!canMoveGroup && !canAssignUser && <p className="notice error"><AlertTriangle size={16} />Your current access does not allow changing assignments.</p>}
           <footer><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary" disabled={!options || saving || (!canMoveGroup && !canAssignUser) || currentGroupUnavailable || currentUserUnavailable} type="submit">{saving ? 'Assigning...' : 'Save assignment'}</button></footer>
@@ -613,7 +675,7 @@ function DetailDrawer({
             {visible('sourceRequestedDate') && <div><dt>Source Scheduled</dt><dd>{formatDate(shipment.sourceRequestedDate)}</dd></div>}
             {visible('lastWorkedAt') && <div><dt>Last Worked</dt><dd>{formatDateTime(shipment.lastWorkedAt)}</dd></div>}
           </dl></section>
-          {visible('partNumber') && <section className="detail-section"><h3>Part Lines</h3><div className="shipment-part-list"><div className="shipment-part-list-head"><span>Part Number</span>{visible('quantity') && <span>Quantity</span>}{visible('dollarValue') && <><span>Unit Price</span><span>Total</span></>}</div>{shipment.parts.map((part) => <div className="shipment-part-list-row" key={part.id || `${part.displayOrder}-${part.partNumber}`}><strong>{part.partNumber}</strong>{visible('quantity') && <span>{part.quantity?.toLocaleString() ?? 'Not Set'}</span>}{visible('dollarValue') && <><span>{formatCurrency(part.unitPrice)}</span><span>{formatCurrency(part.totalValue)}</span></>}</div>)}</div></section>}
+          {visible('partNumber') && <section className="detail-section"><h3>Part Lines</h3><div className="shipment-part-list"><div className="shipment-part-list-head"><span>Line</span><span>Part Number</span>{visible('quantity') && <span>Quantity</span>}{visible('dollarValue') && <><span>Unit Price</span><span>Total</span></>}</div>{shipment.parts.map((part) => <div className="shipment-part-list-row" key={part.id || `${part.displayOrder}-${part.partNumber}`}><span>{part.lineItemNumber ?? '—'}</span><strong>{part.partNumber}</strong>{visible('quantity') && <span>{part.quantity?.toLocaleString() ?? 'Not Set'}</span>}{visible('dollarValue') && <><span>{formatCurrency(part.unitPrice)}</span><span>{formatCurrency(part.totalValue)}</span></>}</div>)}</div></section>}
           {(shipment.externalSyncProvider || shipment.externalSyncError) && <section className="detail-section"><h3>Fulcrum Sync</h3><dl><div><dt>Provider</dt><dd>{shipment.externalSyncProvider ?? 'Not Set'}</dd></div><div><dt>Fulcrum Status</dt><dd>{shipment.externalShipmentStatus ?? 'No Match'}</dd></div><div><dt>Last Checked</dt><dd>{formatDateTime(shipment.externalSyncedAt)}</dd></div></dl>{shipment.externalSyncError && <p className="sync-warning"><AlertTriangle size={14} /> {shipment.externalSyncError}</p>}</section>}
           {visible('holdReason') && <section className="detail-section narrative"><h3>Hold Reason</h3><p>{shipment.holdReason || 'No hold reason recorded.'}</p></section>}
           {visible('comments') && <section className="detail-section narrative"><h3>Comments</h3><p>{shipment.comments || 'No comments yet.'}</p><button className="button ghost" type="button" onClick={onOpenComments}><MessageSquare size={14} /> Open Conversation</button></section>}
@@ -630,9 +692,9 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   const canTeam = user.permissions.includes(PERMISSIONS.teamView) || user.permissions.includes(PERMISSIONS.viewAll)
   const canAll = user.permissions.includes(PERMISSIONS.viewAll)
   const [data, setData] = useState<ShipmentList | null>(null)
-  const [status, setStatus] = useState<'open' | 'shipped' | 'all'>(() => {
+  const [status, setStatus] = useState<'open' | 'closed' | 'all'>(() => {
     const value = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('status')
-    return value === 'shipped' || value === 'all' ? value : 'open'
+    return value === 'closed' || value === 'shipped' ? 'closed' : value === 'all' ? 'all' : 'open'
   })
   const [scope, setScope] = useState<ShippingScope>(() => {
     const value = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('scope')
@@ -661,6 +723,9 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   const [assignmentOrigin, setAssignmentOrigin] = useState<'list' | 'detail'>('detail')
   const [importOpen, setImportOpen] = useState(false)
   const [refresh, setRefresh] = useState(0)
+  const [layout, setLayout] = useState<ShippingLayout | null>(null)
+  const layoutRef = useRef<ShippingLayout | null>(null)
+  const draggedColumn = useRef<WorklistColumnKey | null>(null)
   const pendingDeepLink = useRef<ReturnType<typeof readShipmentDeepLink>>(null)
   const interactionState = useRef({ selected, editing, assigning })
 
@@ -688,8 +753,21 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
     const requestedScope = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('scope')
     const requestedStatus = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('status')
     if (requestedScope !== null) setScope(normalizeShippingScope(requestedScope, canTeam, canAll))
-    if (requestedStatus === 'open' || requestedStatus === 'shipped') setStatus(requestedStatus)
+    if (requestedStatus === 'open') setStatus('open')
+    if (requestedStatus === 'closed' || requestedStatus === 'shipped') setStatus('closed')
   }, [canAll, canTeam, reloadKey])
+
+  useEffect(() => {
+    let active = true
+    void qualityApi<ShippingLayout>('/api/shipping-layout')
+      .then((next) => {
+        if (!active) return
+        layoutRef.current = next
+        setLayout(next)
+      })
+      .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : 'Your saved column layout could not be loaded.') })
+    return () => { active = false }
+  }, [user.accountName])
 
   function queryParameters() {
     const query = new URLSearchParams({
@@ -780,7 +858,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   const canAssign = canViewAssignment
     && (user.permissions.includes(PERMISSIONS.assignmentGroup) || user.permissions.includes(PERMISSIONS.assignmentUser))
     && canRunQualityAction(user, 'assignment-changed', true)
-  const worklistColumns = useMemo<WorklistColumn[]>(() => [
+  const availableColumns = useMemo<WorklistColumn[]>(() => [
     visibleFields.has('status') && { key: 'status', label: 'Status', width: 145 },
     visibleFields.has('salesOrderNumber') && { key: 'salesOrderNumber', label: 'Shipper Number', width: 125 },
     visibleFields.has('qaArrivalDate') && { key: 'qaArrivalDate', label: 'Shipment Arrival', width: 105 },
@@ -797,6 +875,24 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
     visibleFields.has('comments') && { key: 'comments', label: 'Comments', width: 185 },
     { key: 'queueAge', label: 'Queue Age', width: 65 },
   ].filter(Boolean) as WorklistColumn[], [canViewAssignment, visibleFields])
+  const worklistColumns = useMemo<WorklistColumn[]>(() => {
+    const byKey = new Map(availableColumns.map((column) => [column.key, column]))
+    const configured = layout?.columns ?? availableColumns.map((column) => ({
+      key: column.key,
+      width: column.width,
+      isVisible: true,
+    }))
+    const ordered = configured
+      .map((column) => {
+        const definition = byKey.get(column.key as WorklistColumnKey)
+        return definition && column.isVisible ? { ...definition, width: column.width } : null
+      })
+      .filter(Boolean) as WorklistColumn[]
+    const statusColumn = ordered.find((column) => column.key === 'status')
+    return statusColumn
+      ? [statusColumn, ...ordered.filter((column) => column.key !== 'status')]
+      : ordered
+  }, [availableColumns, layout])
   const attentionCount = data?.items.filter((shipment) => shipment.dueState === 'Past due' || shipment.dueState === 'Due today').length ?? 0
   const unassignedCount = canViewAssignment
     ? data?.items.filter((shipment) => !shipment.assignedGroupId && !shipment.assignedUserId).length ?? 0
@@ -838,6 +934,79 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
     }
     setSortKey(key)
     setSortDirection('asc')
+  }
+
+  async function persistColumns(columns: ShippingColumnLayout[]) {
+    const current = layoutRef.current
+    if (!current) return
+    const statusColumn = columns.find((column) => column.key === 'status')
+    const normalized = statusColumn
+      ? [statusColumn, ...columns.filter((column) => column.key !== 'status')]
+      : columns
+    const optimistic = { ...current, columns: normalized }
+    layoutRef.current = optimistic
+    setLayout(optimistic)
+    try {
+      const saved = await qualityApi<ShippingLayout>('/api/shipping-layout', {
+        method: 'PUT',
+        body: JSON.stringify({ columns: normalized, version: current.version }),
+      })
+      layoutRef.current = saved
+      setLayout(saved)
+    } catch (cause) {
+      layoutRef.current = current
+      setLayout(current)
+      setError(cause instanceof Error ? cause.message : 'Your column layout could not be saved.')
+    }
+  }
+
+  function moveColumn(targetKey: WorklistColumnKey) {
+    const sourceKey = draggedColumn.current
+    draggedColumn.current = null
+    if (!sourceKey || sourceKey === 'status' || targetKey === 'status' || sourceKey === targetKey || !layoutRef.current) return
+    const columns = [...layoutRef.current.columns]
+    const sourceIndex = columns.findIndex((column) => column.key === sourceKey)
+    const targetIndex = columns.findIndex((column) => column.key === targetKey)
+    if (sourceIndex < 0 || targetIndex < 0) return
+    const [source] = columns.splice(sourceIndex, 1)
+    columns.splice(targetIndex, 0, source)
+    void persistColumns(columns)
+  }
+
+  function beginResize(event: React.PointerEvent, key: WorklistColumnKey) {
+    if (!layoutRef.current) return
+    event.preventDefault()
+    event.stopPropagation()
+    const startX = event.clientX
+    const starting = layoutRef.current.columns.find((column) => column.key === key)
+    if (!starting) return
+    let latestWidth = starting.width
+    const move = (moveEvent: PointerEvent) => {
+      latestWidth = Math.max(28, Math.min(key === 'holdReason' || key === 'comments' || key === 'action' ? 640 : 480, starting.width + moveEvent.clientX - startX))
+      setLayout((current) => current ? {
+        ...current,
+        columns: current.columns.map((column) => column.key === key ? { ...column, width: latestWidth } : column),
+      } : current)
+    }
+    const stop = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+      const current = layoutRef.current
+      if (!current || latestWidth === starting.width) return
+      void persistColumns(current.columns.map((column) => column.key === key ? { ...column, width: latestWidth } : column))
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop, { once: true })
+  }
+
+  async function resetColumns() {
+    try {
+      const defaults = await qualityApi<ShippingLayout>('/api/shipping-layout', { method: 'DELETE' })
+      layoutRef.current = defaults
+      setLayout(defaults)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The default column layout could not be restored.')
+    }
   }
 
   function resetFiltersAndSort() {
@@ -940,7 +1109,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
         <div className="toolbar-top">
           <div className="queue-view-summary">
             <span className="eyebrow">Live Worklist</span>
-            <div className="queue-title-line"><h2>{status === 'open' ? 'Open Shipment Queue' : status === 'shipped' ? 'Past Shipments' : 'All Shipments'}</h2>{data && <span className="result-count">{data.total}</span>}</div>
+            <div className="queue-title-line"><h2>{status === 'open' ? 'Open Shipment Queue' : status === 'closed' ? 'Closed Shipments' : 'All Shipments'}</h2>{data && <span className="result-count">{data.total}</span>}</div>
             <p>{data ? status === 'open'
               ? `${attentionCount} need date attention${canViewAssignment ? ` · ${unassignedCount} need an owner` : ''}`
               : 'Searchable shipment history with full record details.'
@@ -950,15 +1119,16 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
         </div>
         <div className="filter-row">
           <label className="search-box"><Search size={16} /><span className="sr-only">Search Shipments</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search shipper, part, customer, action..." />{search && <button type="button" onClick={() => setSearch('')} aria-label="Clear search"><X size={14} /></button>}</label>
-          <div className="segmented" aria-label="Shipment status"><button className={status === 'open' ? 'active' : ''} type="button" onClick={() => setStatus('open')}>Open</button><button className={status === 'shipped' ? 'active' : ''} type="button" onClick={() => setStatus('shipped')}>Past</button>{canAll && <button className={status === 'all' ? 'active' : ''} type="button" onClick={() => setStatus('all')}>All</button>}</div>
+          <div className="segmented" aria-label="Shipment status"><button className={status === 'open' ? 'active' : ''} type="button" onClick={() => setStatus('open')}>Open</button><button className={status === 'closed' ? 'active' : ''} type="button" onClick={() => setStatus('closed')}>Closed</button>{canAll && <button className={status === 'all' ? 'active' : ''} type="button" onClick={() => setStatus('all')}>All</button>}</div>
           <label className="compact-select"><SlidersHorizontal size={15} /><span className="compact-select-label">Queue</span><select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)} aria-label="Queue scope"><option value="mine">{canReviewUnassigned ? 'Mine + Unassigned' : 'My Queue'}</option>{canTeam && <option value="team">My Groups</option>}{canAll && <option value="all">All Shipments</option>}</select></label>
           <button className={`control-button ${filtersOpen || activeFilterCount ? 'active' : ''}`} type="button" onClick={() => setFiltersOpen((current) => !current)} aria-expanded={filtersOpen} aria-controls="shipping-filter-panel"><ListFilter size={15} /><span>Filters</span>{activeFilterCount > 0 && <b>{activeFilterCount}</b>}</button>
           {hasResettableState && <button className="control-button reset-control" type="button" onClick={resetFiltersAndSort}><RotateCcw size={14} /><span>Reset Filters</span></button>}
+          <button className="control-button" type="button" onClick={() => void resetColumns()}><RotateCcw size={14} /><span>Reset Columns</span></button>
         </div>
         {filtersOpen && <section className="shipping-filter-panel" id="shipping-filter-panel" aria-label="Shipment filters">
           <div className="filter-panel-heading"><div><span className="eyebrow">Narrow The Worklist</span><strong>Filter Results</strong><p>Combine filters below. Customer selections match any chosen customer.</p></div></div>
           {visibleFields.has('customer') && <CustomerFilterCombobox options={customerOptions} selected={customerFilters} query={customerQuery} loading={customerOptionsLoading} onQueryChange={setCustomerQuery} onAdd={addCustomerFilter} onRemove={removeCustomerFilter} />}
-          {visibleFields.has('status') && <label><span>Status</span><select value={shipmentStatusFilter} onChange={(event) => setShipmentStatusFilter(event.target.value)}><option value="">All Statuses</option>{STATUS_OPTIONS.map((option) => <option value={option} key={option}>{option}</option>)}</select></label>}
+          {visibleFields.has('status') && <label><span>Status</span><select value={shipmentStatusFilter} onChange={(event) => setShipmentStatusFilter(event.target.value)}><option value="">All Statuses</option>{visibleFields.has('shipDate') && <option value="__past_due__">Past Due</option>}{STATUS_OPTIONS.map((option) => <option value={option} key={option}>{option}</option>)}</select></label>}
           {canViewAssignment && <label><span>Assigned To</span><select value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)}><option value="">Anyone</option><option value="unassigned">Unassigned</option>{assignmentOptions?.groups.map((group) => <option value={`group:${group.id}`} key={`group-${group.id}`}>{group.name} Queue</option>)}{assignmentOptions?.users.map((candidate) => <option value={`user:${candidate.id}`} key={`user-${candidate.id}`}>{candidate.displayName}</option>)}</select></label>}
         </section>}
         {(deferredSearch.trim() || activeFilterCount > 0) && <p className="filter-summary" role="status"><Search size={13} /> Showing {data?.total ?? 0} filtered result{data?.total === 1 ? '' : 's'}{deferredSearch.trim() && <> for <mark>{deferredSearch.trim()}</mark></>}</p>}
@@ -968,19 +1138,18 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
       <section className="shipping-register panel" aria-busy={loading}>
         {loading && !data ? <div className="loading-panel" role="status">Loading Shipping Status...</div> : data?.items.length ? (<>
           <div className="shipping-table-wrap">
-            <table className="shipping-table" aria-label={`${status === 'open' ? 'Open' : status === 'shipped' ? 'Past' : 'All'} shipments`}>
-              <colgroup><col style={{ width: 44 }} />{worklistColumns.map((column) => <col style={{ width: column.width }} key={column.key} />)}<col style={{ width: 44 }} /></colgroup>
-              <thead><tr><th className="sticky-col row-number">#</th>{worklistColumns.map((column) => <th aria-sort={sortKey === column.key ? sortDirection === 'asc' ? 'ascending' : 'descending' : 'none'} key={column.key}><button className="column-sort-button" type="button" onClick={() => toggleSort(column.key)}><span>{column.label}</span>{sortKey === column.key ? sortDirection === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} /> : <ArrowDownUp size={11} />}</button></th>)}<th aria-label="Details" /></tr></thead>
-              <tbody>{data.items.map((shipment, index) => (
+            <table className="shipping-table" style={{ minWidth: worklistColumns.reduce((sum, column) => sum + column.width, 44) }} aria-label={`${status === 'open' ? 'Open' : status === 'closed' ? 'Closed' : 'All'} shipments`}>
+              <colgroup>{worklistColumns.map((column) => <col style={{ width: column.width }} key={column.key} />)}<col style={{ width: 44 }} /></colgroup>
+              <thead><tr>{worklistColumns.map((column) => <th className={column.key === 'status' ? 'fixed-status-column' : undefined} aria-sort={sortKey === column.key ? sortDirection === 'asc' ? 'ascending' : 'descending' : 'none'} key={column.key} onDragOver={(event) => { if (column.key !== 'status') event.preventDefault() }} onDrop={() => moveColumn(column.key)}><span className="column-heading">{column.key !== 'status' && <span className="column-drag-handle" draggable onDragStart={() => { draggedColumn.current = column.key }} title={`Drag ${column.label} to reorder`} aria-label={`Drag ${column.label} to reorder`}><GripVertical size={12} /></span>}<button className="column-sort-button" type="button" onClick={() => toggleSort(column.key)}><span>{column.label}</span>{sortKey === column.key ? sortDirection === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} /> : <ArrowDownUp size={11} />}</button><span className="column-resize-handle" role="separator" aria-orientation="vertical" aria-label={`Resize ${column.label}`} onPointerDown={(event) => beginResize(event, column.key)} /></span></th>)}<th aria-label="Details" /></tr></thead>
+              <tbody>{data.items.map((shipment) => (
                 <tr className={`${shipment.dueState === 'Past due' ? 'past-due-row' : ''} ${shipment.isShipped ? 'shipped-row' : ''}`} key={shipment.id} onClick={() => openShipment(shipment)}>
-                  <td className="sticky-col row-number">{index + 1}</td>
                   {worklistColumns.map((column) => renderCell(column.key, shipment))}
                   <td><button className="row-open" type="button" onClick={(event) => { event.stopPropagation(); openShipment(shipment) }} aria-label={`Open details for ${shipment.salesOrderNumber ?? `shipment ${shipment.id}`}`}><ChevronRight size={16} /></button></td>
                 </tr>
               ))}</tbody>
             </table>
           </div>
-          <div className="shipping-card-list" aria-label={`${status === 'open' ? 'Open' : status === 'shipped' ? 'Past' : 'All'} shipments`}>
+          <div className="shipping-card-list" aria-label={`${status === 'open' ? 'Open' : status === 'closed' ? 'Closed' : 'All'} shipments`}>
             {data.items.map((shipment) => (
               <article className={`shipping-card ${shipment.dueState === 'Past due' ? 'past-due' : ''}`} key={shipment.id}>
                 <header><span className={`status-badge ${shipment.isShipped ? 'shipped' : ''}`}>{shipment.status ?? 'Status hidden'}</span><span className={`due-pill ${shipment.dueState.toLowerCase().replaceAll(' ', '-')}`}><span />{shipment.dueState}</span></header>
@@ -992,7 +1161,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
             ))}
           </div>
         </>
-        ) : <div className="empty-state"><ClipboardList size={28} /><h3>{status === 'open' ? 'No Open Shipments In This Queue' : 'No Past Shipments In This Queue'}</h3><p>Adjust the scope or search, or add a shipment if you have permission.</p></div>}
+        ) : <div className="empty-state"><ClipboardList size={28} /><h3>{status === 'open' ? 'No Open Shipments In This Queue' : 'No Closed Shipments In This Queue'}</h3><p>Adjust the scope or search, or add a shipment if you have permission.</p></div>}
       </section>
 
       {selected && !editing && !assigning && !commentsOpen && <DetailDrawer shipment={selected} user={user} fields={fields} onClose={() => setSelected(null)} onEdit={() => setEditing(true)} onAssign={() => { setAssignmentOrigin('detail'); setAssigning(true) }} onOpenComments={() => setCommentsOpen(true)} onUpdated={accepted} />}

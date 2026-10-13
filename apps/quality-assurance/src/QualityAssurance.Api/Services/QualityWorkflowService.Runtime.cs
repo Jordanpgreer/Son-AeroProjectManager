@@ -78,6 +78,9 @@ public sealed partial class QualityWorkflowService
             shipment.AssignedDisplayName = selected?.DisplayName;
             shipment.LegacyAssigneeTag = null;
             shipment.NextAction = selected?.DisplayName ?? group.Name;
+            if (selected is not null)
+                shipment.Status = QualityShipmentStatusRules.ForAssignedGroup(group.Name)
+                    ?? shipment.Status;
         }
         shipment.AuditEntries.Add(new QualityShipmentAuditEntry
         {

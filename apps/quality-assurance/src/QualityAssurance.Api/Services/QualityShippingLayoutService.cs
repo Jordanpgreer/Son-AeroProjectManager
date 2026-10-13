@@ -14,22 +14,20 @@ public sealed class QualityShippingLayoutService(QualityAssuranceDbContext db)
 
     private static readonly IReadOnlyList<ColumnDefinition> Definitions =
     [
-        Column("status", 150, NarrowestColumnWidth, 480, required: true),
+        Column("status", 145, NarrowestColumnWidth, 480, required: true),
         Column("salesOrderNumber", 140, NarrowestColumnWidth, 480),
         Column("qaArrivalDate", 115, NarrowestColumnWidth, 480),
         Column("partNumber", 145, NarrowestColumnWidth, 480, required: true),
         Column("purchaseOrderNumber", 120, NarrowestColumnWidth, 480),
         Column("customer", 180, NarrowestColumnWidth, 480),
-        Column("taskType", 150, NarrowestColumnWidth, 480),
         Column("quantity", 90, NarrowestColumnWidth, 480),
         Column("dollarValue", 125, NarrowestColumnWidth, 480),
         Column("shipDate", 135, NarrowestColumnWidth, 480),
         Column("holdReason", 235, NarrowestColumnWidth, 640),
         Column("sourceRequestedDate", 130, NarrowestColumnWidth, 480),
-        Column("nextAction", 255, NarrowestColumnWidth, 640, required: true),
+        Column("action", 255, NarrowestColumnWidth, 640, required: true),
         Column("lastWorkedAt", 125, NarrowestColumnWidth, 480),
         Column("comments", 255, NarrowestColumnWidth, 640),
-        Column("assignment", 175, NarrowestColumnWidth, 480),
         Column("queueAge", 90, NarrowestColumnWidth, 480)
     ];
 
@@ -135,7 +133,8 @@ public sealed class QualityShippingLayoutService(QualityAssuranceDbContext db)
                 definition.DefaultWidth,
                 true));
         }
-        return normalized;
+        var status = normalized.Single(column => column.Key == "status");
+        return [status, .. normalized.Where(column => column.Key != "status")];
     }
 
     private static void Validate(IReadOnlyList<QualityShippingColumnDto> columns)
@@ -145,6 +144,8 @@ public sealed class QualityShippingLayoutService(QualityAssuranceDbContext db)
         var keys = columns.Select(column => column.Key).ToHashSet(StringComparer.Ordinal);
         if (keys.Count != Definitions.Count || keys.Any(key => !DefinitionByKey.ContainsKey(key)))
             throw new ArgumentException("The layout contains an unknown or duplicate Shipping Status column.");
+        if (!string.Equals(columns[0].Key, "status", StringComparison.Ordinal))
+            throw new ArgumentException("The Status column must remain first.");
         if (columns.Any(column => !column.IsVisible))
             throw new ArgumentException("Shipping Status columns must remain visible in the live table layout.");
         if (columns.Any(column => column.Width < DefinitionByKey[column.Key].MinimumWidth

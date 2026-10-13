@@ -187,9 +187,14 @@ public sealed class QualityShipmentService(
                 && groupIds.Contains(shipment.AssignedGroupId.Value))
             || (canReviewUnassigned && !shipment.AssignedGroupId.HasValue && !shipment.AssignedUserId.HasValue));
         var queue = reviewQueue.Where(shipment => !shipment.IsShipped)
-            .OrderBy(shipment => shipment.ShipDate ?? DateOnly.MaxValue)
-            .ThenBy(shipment => shipment.CreatedAt)
+            .OrderBy(shipment => shipment.CreatedAt)
             .ThenBy(shipment => shipment.QaArrivalDate ?? DateOnly.MaxValue)
+            .Take(12)
+            .Select(shipment => ToDto(shipment, access))
+            .ToList();
+        var completedShipments = reviewQueue.Where(shipment => shipment.IsShipped)
+            .OrderBy(shipment => shipment.CreatedAt)
+            .ThenBy(shipment => shipment.ShippedAt ?? DateTimeOffset.MaxValue)
             .Take(12)
             .Select(shipment => ToDto(shipment, access))
             .ToList();
@@ -216,7 +221,7 @@ public sealed class QualityShipmentService(
                 {
                     var personShipments = all.Where(shipment => shipment.AssignedUserId == user.Id).ToList();
                     var openShipments = personShipments.Where(shipment => !shipment.IsShipped)
-                        .OrderBy(shipment => shipment.ShipDate ?? DateOnly.MaxValue)
+                        .OrderBy(shipment => shipment.CreatedAt)
                         .ThenBy(shipment => shipment.QaArrivalDate ?? DateOnly.MaxValue)
                         .ThenBy(shipment => shipment.Id)
                         .Take(20)
@@ -237,10 +242,11 @@ public sealed class QualityShipmentService(
         return new QualityDashboardDto(
             Metrics(reviewQueue, canViewDollarValue),
             queue,
+            completedShipments,
             team,
             Metrics(groupQueue, canViewDollarValue),
             groupQueue.Where(shipment => !shipment.IsShipped)
-                .OrderBy(shipment => shipment.ShipDate ?? DateOnly.MaxValue)
+                .OrderBy(shipment => shipment.CreatedAt)
                 .ThenBy(shipment => shipment.QaArrivalDate ?? DateOnly.MaxValue)
                 .ThenBy(shipment => shipment.Id)
                 .Take(20)
@@ -248,7 +254,7 @@ public sealed class QualityShipmentService(
                 .ToList(),
             Metrics(unassigned, canViewDollarValue),
             unassigned.Where(shipment => !shipment.IsShipped)
-                .OrderBy(shipment => shipment.ShipDate ?? DateOnly.MaxValue)
+                .OrderBy(shipment => shipment.CreatedAt)
                 .ThenBy(shipment => shipment.QaArrivalDate ?? DateOnly.MaxValue)
                 .ThenBy(shipment => shipment.Id)
                 .Take(20)
@@ -311,18 +317,18 @@ public sealed class QualityShipmentService(
         var now = DateTimeOffset.UtcNow;
         var shipment = new QualityShipment
         {
-            Status = Required(dto.Status ?? "WIP", "Status", 80),
+            Status = QualityShipmentStatusRules.NormalizeUserStatus(dto.Status ?? "WIP"),
             SalesOrderNumber = shipperNumber,
             ShipperNumber = shipperNumber,
             CreationRequestId = dto.CreationRequestId,
-            QaArrivalDate = RequiredDate(dto.QaArrivalDate, "Shipment arrival date"),
+            QaArrivalDate = dto.QaArrivalDate ?? DateOnly.FromDateTime(DateTime.Today),
             PartNumber = normalizedParts[0].PartNumber,
             PurchaseOrderNumber = Required(dto.PurchaseOrderNumber, "PO number", 160),
             Customer = Required(dto.Customer, "Customer", 240),
             TaskType = Required(dto.TaskType ?? "General", "Task type", 120),
             Quantity = normalizedParts.Sum(part => (decimal?)(part.Quantity ?? 0)),
             DollarValue = normalizedParts.Sum(part => part.TotalValue ?? 0),
-            ShipDate = RequiredDate(dto.ShipDate, "Ship by date"),
+            ShipDate = dto.ShipDate,
             HoldReason = Text(dto.HoldReason, null, 4000),
             SourceRequestedDate = dto.SourceRequestedDate,
             NextAction = Text(dto.NextAction, null, 2000),
@@ -366,6 +372,9 @@ public sealed class QualityShipmentService(
                 shipment.AssignedDisplayName = access.DisplayName;
             }
         }
+        if (shipment.AssignedUserId.HasValue)
+            shipment.Status = QualityShipmentStatusRules.ForAssignedGroup(shipment.AssignedGroupName)
+                ?? shipment.Status;
         await Workflows.ApplyAsync("shipment-created", shipment, access, cancellationToken);
         db.Shipments.Add(shipment);
         AddAudit(shipment, access, "Created", "salesOrderNumber", null, shipment.SalesOrderNumber, now);
@@ -545,6 +554,7 @@ public sealed class QualityShipmentService(
 
         var old = AssignmentLabel(shipment);
         var oldAction = shipment.NextAction;
+        var oldStatus = shipment.Status;
         shipment.AssignedGroupId = group?.Id;
         shipment.AssignedGroupName = group?.Name;
         shipment.AssignedUserId = user?.Id;
@@ -552,6 +562,8 @@ public sealed class QualityShipmentService(
         shipment.AssignedDisplayName = user?.DisplayName;
         shipment.LegacyAssigneeTag = null;
         if (user is not null) shipment.NextAction = user.DisplayName;
+        var assignmentStatus = user is null ? null : QualityShipmentStatusRules.ForAssignedGroup(group?.Name);
+        if (assignmentStatus is not null) shipment.Status = assignmentStatus;
         var now = DateTimeOffset.UtcNow;
         shipment.LastWorkedAt = now;
         shipment.UpdatedAt = now;
@@ -562,6 +574,8 @@ public sealed class QualityShipmentService(
         AddAudit(shipment, access, "Assigned", "assignment", old, AssignmentLabel(shipment), now);
         if (oldAction != shipment.NextAction)
             AddAudit(shipment, access, "Updated", "nextAction", oldAction, shipment.NextAction, now);
+        if (oldStatus != shipment.Status)
+            AddAudit(shipment, access, "Updated", "status", oldStatus, shipment.Status, now);
         await db.SaveChangesAsync(cancellationToken);
         return ToDto(shipment, access);
     }
@@ -763,7 +777,20 @@ public sealed class QualityShipmentService(
         var normalizedShipmentStatus = shipmentStatus?.Trim().ToLowerInvariant();
         if (!string.IsNullOrWhiteSpace(normalizedShipmentStatus)
             && access.HasPermission(QualityAssurancePermissions.StatusView))
-            query = query.Where(shipment => shipment.Status.ToLower() == normalizedShipmentStatus);
+        {
+            if (normalizedShipmentStatus is "past due" or "past-due" or "__past_due__")
+            {
+                if (access.HasPermission(QualityAssurancePermissions.ShipDateView))
+                {
+                    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+                    query = query.Where(shipment => !shipment.IsShipped
+                        && shipment.ShipDate.HasValue
+                        && shipment.ShipDate < today);
+                }
+            }
+            else
+                query = query.Where(shipment => shipment.Status.ToLower() == normalizedShipmentStatus);
+        }
 
         var normalizedCustomers = customer?
             .Select(value => value?.Trim().ToLowerInvariant())
@@ -884,7 +911,7 @@ public sealed class QualityShipmentService(
 
     private static string NormalizeStatus(string? status) => status?.Trim().ToLowerInvariant() switch
     {
-        "shipped" => "shipped",
+        "shipped" or "closed" => "shipped",
         "all" => "all",
         _ => "open"
     };
@@ -1024,12 +1051,17 @@ public sealed class QualityShipmentService(
         shipment.Parts.Clear();
         foreach (var part in parts)
         {
+            var previous = part.Id.HasValue
+                ? existing.FirstOrDefault(candidate => candidate.Id == part.Id.Value)
+                : null;
             shipment.Parts.Add(new QualityShipmentPart
             {
                 PartNumber = part.PartNumber,
                 Quantity = part.Quantity,
                 UnitPrice = part.UnitPrice,
                 TotalValue = part.TotalValue,
+                ExternalItemId = previous?.ExternalItemId,
+                LineItemNumber = part.LineItemNumber ?? previous?.LineItemNumber,
                 DisplayOrder = part.DisplayOrder
             });
         }
@@ -1057,7 +1089,7 @@ public sealed class QualityShipmentService(
             decimal? unitPrice = quantity > 0 && totalValue.HasValue
                 ? decimal.Round(totalValue.Value / quantity.Value, 2, MidpointRounding.AwayFromZero)
                 : null;
-            return [new NormalizedShipmentPart(partNumber, quantity, unitPrice, totalValue, 0)];
+            return [new NormalizedShipmentPart(partNumber, quantity, unitPrice, totalValue, 0, null, null)];
         }
 
         if (parts.Count > 100)
@@ -1068,31 +1100,42 @@ public sealed class QualityShipmentService(
             var partNumber = Required(part.PartNumber, $"Part number on line {index + 1}", 160);
             if (part.Quantity < 0) throw new ArgumentException($"Quantity on line {index + 1} cannot be negative.");
             var unitPrice = NonNegative(part.UnitPrice, $"Unit price on line {index + 1}");
+            if (part.LineItemNumber < 1)
+                throw new ArgumentException($"Line item number on line {index + 1} must be positive.");
             decimal? totalValue = part.Quantity.HasValue && unitPrice.HasValue
                 ? decimal.Round(part.Quantity.Value * unitPrice.Value, 2, MidpointRounding.AwayFromZero)
                 : null;
-            return new NormalizedShipmentPart(partNumber, part.Quantity, unitPrice, totalValue, index);
+            return new NormalizedShipmentPart(
+                partNumber,
+                part.Quantity,
+                unitPrice,
+                totalValue,
+                index,
+                part.Id,
+                part.LineItemNumber);
         }).ToList();
 
         var duplicate = normalized
-            .GroupBy(part => part.PartNumber, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(part => $"{part.LineItemNumber?.ToString(CultureInfo.InvariantCulture) ?? "manual"}|{part.PartNumber}", StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault(group => group.Count() > 1);
         if (duplicate is not null)
-            throw new ArgumentException($"Part number '{duplicate.Key}' is listed more than once.");
+            throw new ArgumentException($"Part number '{duplicate.First().PartNumber}' is listed more than once for the same line item.");
         return normalized;
     }
 
     private static string FormatParts(IEnumerable<QualityShipmentPart> parts) => string.Join(
         "; ",
         parts.OrderBy(part => part.DisplayOrder).Select(part =>
-            $"{part.PartNumber} | Qty {part.Quantity?.ToString(CultureInfo.InvariantCulture) ?? "Not set"} | Unit {part.UnitPrice?.ToString("0.00", CultureInfo.InvariantCulture) ?? "Not set"}"));
+            $"Line {part.LineItemNumber?.ToString(CultureInfo.InvariantCulture) ?? "-"} | {part.PartNumber} | Qty {part.Quantity?.ToString(CultureInfo.InvariantCulture) ?? "Not set"} | Unit {part.UnitPrice?.ToString("0.00", CultureInfo.InvariantCulture) ?? "Not set"}"));
 
     private sealed record NormalizedShipmentPart(
         string PartNumber,
         int? Quantity,
         decimal? UnitPrice,
         decimal? TotalValue,
-        int DisplayOrder);
+        int DisplayOrder,
+        int? Id,
+        int? LineItemNumber);
 
     private void ApplyChange(
         QualityShipment shipment,
@@ -1103,7 +1146,7 @@ public sealed class QualityShipmentService(
     {
         switch (key)
         {
-            case "status": Change(shipment, key, shipment.Status, Required(ReadString(value), "Status", 80), next => shipment.Status = next, access, now); break;
+            case "status": Change(shipment, key, shipment.Status, QualityShipmentStatusRules.NormalizeUserStatus(ReadString(value)), next => shipment.Status = next, access, now); break;
             case "salesOrderNumber": throw new InvalidOperationException("Shipper number changes must be normalized before field updates are applied.");
             case "qaArrivalDate": Change(shipment, key, shipment.QaArrivalDate, RequiredDate(ReadDate(value), "Shipment arrival date"), next => shipment.QaArrivalDate = next, access, now); break;
             case "partNumber": Change(shipment, key, shipment.PartNumber, Required(ReadString(value), "Part number", 160), next => shipment.PartNumber = next, access, now); break;
@@ -1184,6 +1227,7 @@ public sealed class QualityShipmentService(
                     canQuantity ? part.Quantity : null,
                     canValue ? part.UnitPrice : null,
                     canValue ? part.TotalValue : null,
+                    part.LineItemNumber,
                     part.DisplayOrder))
                 .ToList()
             : [];

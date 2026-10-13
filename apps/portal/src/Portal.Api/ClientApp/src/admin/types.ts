@@ -29,6 +29,8 @@ export type EngineeringAdminSection =
 
 export type QualityAdminSection =
   | 'assignment-rules'
+  | 'teams'
+  | 'people'
 
 export type DayOfWeekName =
   | 'Sunday'

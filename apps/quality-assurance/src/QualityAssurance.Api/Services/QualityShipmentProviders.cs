@@ -22,7 +22,8 @@ public sealed record QualityExternalShipmentPart(
     string PartNumber,
     decimal? Quantity,
     decimal? UnitPrice,
-    string? ExternalItemId);
+    string? ExternalItemId,
+    int? LineItemNumber = null);
 
 public sealed record QualityExternalShipment(
     string ExternalId,
@@ -103,10 +104,57 @@ public sealed class FulcrumQualityShipmentProvider(
             .GroupBy(row => row.ShipmentName!, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
 
+        var shipmentLines = await GetShipmentLinesAsync(
+            exactShipments.Values.Select(shipment => shipment.Id).ToArray(),
+            token,
+            cancellationToken);
+        var salesOrderLines = new Dictionary<string, IReadOnlyList<FulcrumSalesOrderPartLineItemDto>>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var salesOrderId in shipmentLines
+            .Select(line => line.SalesOrderId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Cast<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            salesOrderLines[salesOrderId] = await PostAsync<IReadOnlyList<FulcrumSalesOrderPartLineItemDto>>(
+                $"api/sales-orders/{Uri.EscapeDataString(salesOrderId)}/part-line-items/list",
+                new { },
+                token,
+                cancellationToken);
+        }
+        var linesByShipmentId = shipmentLines
+            .Where(line => !string.IsNullOrWhiteSpace(line.ShipmentId))
+            .GroupBy(line => line.ShipmentId!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+
         return exactShipments.ToDictionary(
             pair => pair.Key,
-            pair => Map(pair.Value, rowsByShipment.GetValueOrDefault(pair.Key), settings.FulcrumShipmentUrlTemplate),
+            pair => Map(
+                pair.Value,
+                rowsByShipment.GetValueOrDefault(pair.Key),
+                linesByShipmentId.GetValueOrDefault(pair.Value.Id),
+                salesOrderLines,
+                settings.FulcrumShipmentUrlTemplate),
             StringComparer.OrdinalIgnoreCase);
+    }
+
+    private async Task<IReadOnlyList<FulcrumShipmentLineItemDto>> GetShipmentLinesAsync(
+        IReadOnlyCollection<string> shipmentIds,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        if (shipmentIds.Count == 0) return [];
+        var rows = new List<FulcrumShipmentLineItemDto>();
+        foreach (var batch in shipmentIds.Chunk(500))
+        {
+            var page = await PostAsync<FulcrumPage<FulcrumShipmentLineItemDto>>(
+                $"api/shipment-line-items/list?Skip=0&Take=5000&Sort.Field=ShipmentName&Sort.Dir={FulcrumApiEndpoint.AscendingSortDirection}",
+                new { shipmentIds = batch },
+                token,
+                cancellationToken);
+            rows.AddRange(page.Data);
+        }
+        return rows;
     }
 
     private async Task<IReadOnlyList<FulcrumShippingReportRowDto>> GetShippingReportAsync(
@@ -161,19 +209,47 @@ public sealed class FulcrumQualityShipmentProvider(
     private static QualityExternalShipment Map(
         FulcrumShipmentDto shipment,
         IReadOnlyCollection<FulcrumShippingReportRowDto>? rows,
+        IReadOnlyCollection<FulcrumShipmentLineItemDto>? shipmentLines,
+        IReadOnlyDictionary<string, IReadOnlyList<FulcrumSalesOrderPartLineItemDto>> salesOrderLines,
         string urlTemplate)
     {
         var reportRows = rows ?? [];
-        var parts = reportRows
-            .Where(row => !string.IsNullOrWhiteSpace(row.ItemName))
-            .GroupBy(row => row.ItemName!.Trim(), StringComparer.OrdinalIgnoreCase)
-            .Select(group => new QualityExternalShipmentPart(
-                group.Key,
-                group.Sum(row => row.QuantityShipped ?? row.QuantityPacked ?? 0),
-                group.Select(row => row.UnitPrice).FirstOrDefault(value => value.HasValue),
-                null))
-            .OrderBy(part => part.PartNumber, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var exactLines = shipmentLines ?? [];
+        var parts = exactLines.Select((line, index) =>
+        {
+            FulcrumSalesOrderPartLineItemDto? salesOrderLine = null;
+            if (!string.IsNullOrWhiteSpace(line.SalesOrderId)
+                && !string.IsNullOrWhiteSpace(line.SalesOrderLineItemId)
+                && salesOrderLines.TryGetValue(line.SalesOrderId, out var candidates))
+                salesOrderLine = candidates.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Id, line.SalesOrderLineItemId, StringComparison.OrdinalIgnoreCase));
+            var report = reportRows.FirstOrDefault(row =>
+                salesOrderLine is not null
+                && string.Equals(row.ItemName?.Trim(), salesOrderLine.Name.Trim(), StringComparison.OrdinalIgnoreCase));
+            var partNumber = salesOrderLine?.Name?.Trim()
+                ?? report?.ItemName?.Trim()
+                ?? line.ItemId?.Trim()
+                ?? $"Shipment line {index + 1}";
+            return new QualityExternalShipmentPart(
+                partNumber,
+                line.QuantityToShip,
+                salesOrderLine?.DiscountedPrice ?? salesOrderLine?.Price ?? report?.UnitPrice,
+                line.Id,
+                salesOrderLine?.Number);
+        }).ToList();
+        if (parts.Count == 0)
+        {
+            parts = reportRows
+                .Where(row => !string.IsNullOrWhiteSpace(row.ItemName))
+                .GroupBy(row => row.ItemName!.Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(group => new QualityExternalShipmentPart(
+                    group.Key,
+                    group.Sum(row => row.QuantityToShip ?? row.QuantityPacked ?? row.QuantityShipped ?? 0),
+                    group.Select(row => row.UnitPrice).FirstOrDefault(value => value.HasValue),
+                    null))
+                .OrderBy(part => part.PartNumber, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
         var first = reportRows.FirstOrDefault();
         return new QualityExternalShipment(
             shipment.Id,
@@ -181,7 +257,7 @@ public sealed class FulcrumQualityShipmentProvider(
             shipment.Status,
             shipment.ShipByDate.HasValue ? DateOnly.FromDateTime(shipment.ShipByDate.Value.UtcDateTime) : null,
             shipment.ShippedDateOverride ?? shipment.ShippedDate,
-            first?.RecipientName,
+            first?.RecipientCustomerCode ?? first?.RecipientName,
             first?.CustomerPoNumber,
             BuildRecordUrl(urlTemplate, shipment.Id, shipment.Name),
             parts);
@@ -213,11 +289,28 @@ public sealed class FulcrumQualityShipmentProvider(
     private sealed record FulcrumShippingReportRowDto(
         string? ShipmentName,
         string? RecipientName,
+        string? RecipientCustomerCode,
         string? CustomerPoNumber,
         string? ItemName,
         decimal? QuantityShipped,
         decimal? QuantityPacked,
+        decimal? QuantityToShip,
         decimal? UnitPrice);
+
+    private sealed record FulcrumShipmentLineItemDto(
+        string Id,
+        decimal QuantityToShip,
+        string? ItemId,
+        string? ShipmentId,
+        string? SalesOrderId,
+        string? SalesOrderLineItemId);
+
+    private sealed record FulcrumSalesOrderPartLineItemDto(
+        string Id,
+        string Name,
+        decimal Price,
+        decimal DiscountedPrice,
+        int Number);
 }
 
 public sealed class AcumaticaQualityShipmentProvider : IQualityShipmentProvider

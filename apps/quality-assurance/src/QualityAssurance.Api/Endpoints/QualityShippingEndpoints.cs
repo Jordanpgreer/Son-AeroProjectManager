@@ -63,6 +63,44 @@ public static class QualityShippingEndpoints
                 Access(context), status, scope, cancellationToken)))
             .RequireAuthorization(QualityAssurancePermissions.ShipmentsView);
 
+        api.MapPost("/shipments/lookup", async (
+            QualityShipmentLookupRequestDto dto,
+            HttpContext context,
+            IQualityShipmentSyncService synchronization,
+            CancellationToken cancellationToken) =>
+        {
+            var access = Access(context);
+            var shipperNumber = NormalizeShipperNumber(dto.ShipperNumber);
+            var external = await synchronization.LookupAsync(shipperNumber, cancellationToken);
+            if (external is null)
+                return Results.NotFound(new ErrorDto(
+                    "FulcrumShipmentNotFound",
+                    $"No Fulcrum shipment matched {shipperNumber}. Check the shipper number and try again."));
+            return Results.Ok(new QualityShipmentLookupDto(
+                external.ShipperNumber,
+                external.Status,
+                external.ShipByDate,
+                external.Customer,
+                external.PurchaseOrderNumber,
+                external.Parts.Select(part => new QualityShipmentPartInputDto(
+                    part.PartNumber,
+                    ToWholeQuantity(part.Quantity, part.PartNumber),
+                    access.HasPermission(QualityAssurancePermissions.DollarValueEdit)
+                        ? part.UnitPrice
+                        : null,
+                    null,
+                    part.LineItemNumber)).ToList()));
+        }).RequireAuthorization(
+            QualityAssurancePermissions.ShipmentsView,
+            QualityAssurancePermissions.ShipmentCreate);
+
+        api.MapPost("/shipments/refresh", async (
+            IQualityShipmentSyncService synchronization,
+            CancellationToken cancellationToken) =>
+            Results.Ok(new QualityShipmentRefreshResultDto(
+                await synchronization.SyncAllAsync(cancellationToken))))
+            .RequireAuthorization(QualityAssurancePermissions.ShipmentsView);
+
         api.MapGet("/shipments/{id:int}", async (
             int id,
             HttpContext context,
@@ -265,6 +303,25 @@ public static class QualityShippingEndpoints
     private static QualityAssuranceAccessProfile Access(HttpContext context) =>
         context.Items[QualityAssurancePolicies.AccessItem] as QualityAssuranceAccessProfile
         ?? throw new UnauthorizedAccessException("Quality Assurance access is unavailable.");
+
+    private static string NormalizeShipperNumber(string? value)
+    {
+        var normalized = value?.Trim()
+            ?? throw new ArgumentException("Shipper number is required.");
+        if (normalized.Length == 0) throw new ArgumentException("Shipper number is required.");
+        if (normalized.StartsWith("SHP-", StringComparison.OrdinalIgnoreCase)) return normalized;
+        if (normalized.StartsWith("SO", StringComparison.OrdinalIgnoreCase)) return $"SHP-{normalized}";
+        return $"SHP-SO{normalized}";
+    }
+
+    private static int? ToWholeQuantity(decimal? value, string partNumber)
+    {
+        if (!value.HasValue) return null;
+        if (value.Value < 0 || decimal.Truncate(value.Value) != value.Value || value.Value > int.MaxValue)
+            throw new InvalidOperationException(
+                $"Fulcrum returned a non-whole or invalid quantity for part {partNumber}.");
+        return decimal.ToInt32(value.Value);
+    }
 
     private static async Task<QualityAssignmentOptionsDto> OptionsAsync(
         IQualityAssuranceAccessStore accessStore,

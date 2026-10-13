@@ -78,7 +78,35 @@ export interface ShipmentPart {
   quantity: number | null
   unitPrice: number | null
   totalValue: number | null
+  lineItemNumber: number | null
   displayOrder: number
+}
+
+export interface ShipmentLookup {
+  shipperNumber: string
+  externalStatus: string | null
+  shipByDate: string | null
+  customer: string | null
+  purchaseOrderNumber: string | null
+  parts: Array<{
+    partNumber: string
+    quantity: number | null
+    unitPrice: number | null
+    id: number | null
+    lineItemNumber: number | null
+  }>
+}
+
+export interface ShippingColumnLayout {
+  key: string
+  width: number
+  isVisible: boolean
+}
+
+export interface ShippingLayout {
+  columns: ShippingColumnLayout[]
+  version: number
+  updatedAt: string | null
 }
 
 export interface ShipmentList {
@@ -113,6 +141,7 @@ export interface PersonQueue {
 export interface DashboardData {
   myQueue: QueueMetrics
   queue: Shipment[]
+  completedShipments: Shipment[]
   teamQueues: PersonQueue[]
   groupQueue: QueueMetrics
   groupShipments: Shipment[]

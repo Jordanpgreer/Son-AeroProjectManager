@@ -26,13 +26,24 @@ public sealed class QualityShipmentSyncServiceTests
             Customer = "Old Customer",
             TaskType = "General",
             Status = "Ready to Ship",
+            HoldReason = "User-entered hold reason",
+            Comments = "User-entered notes",
             AssignedGroupId = 20,
             AssignedGroupName = "Shipping",
             CreatedByAccountName = "TEST\\admin",
             CreatedByDisplayName = "Admin",
             UpdatedByAccountName = "TEST\\admin",
             UpdatedByDisplayName = "Admin",
-            Version = 1
+            Version = 1,
+            Parts =
+            [
+                new QualityShipmentPart
+                {
+                    PartNumber = "MANUAL-LINE",
+                    Quantity = 1,
+                    DisplayOrder = 0
+                }
+            ]
         };
         db.Shipments.Add(shipment);
         await db.SaveChangesAsync();
@@ -46,8 +57,8 @@ public sealed class QualityShipmentSyncServiceTests
             "PO-100",
             "https://fulcrum.example/shipments/fulcrum-id-100",
             [
-                new QualityExternalShipmentPart("PART-A", 2, 12.50m, "line-a"),
-                new QualityExternalShipmentPart("PART-B", 3, 20m, "line-b")
+                new QualityExternalShipmentPart("PART-A", 2, 12.50m, "line-a", 10),
+                new QualityExternalShipmentPart("PART-B", 3, 20m, "line-b", 20)
             ]);
         var service = new QualityShipmentSyncService(
             db,
@@ -67,9 +78,13 @@ public sealed class QualityShipmentSyncServiceTests
         Assert.Equal(new DateOnly(2026, 9, 10), saved.ShipDate);
         Assert.Equal("Synced Customer", saved.Customer);
         Assert.Equal("PO-100", saved.PurchaseOrderNumber);
-        Assert.Equal(5m, saved.Quantity);
+        Assert.Equal(6m, saved.Quantity);
         Assert.Equal(85m, saved.DollarValue);
-        Assert.Equal(2, saved.Parts.Count);
+        Assert.Equal(3, saved.Parts.Count);
+        Assert.Equal("User-entered hold reason", saved.HoldReason);
+        Assert.Equal("User-entered notes", saved.Comments);
+        Assert.Contains(saved.Parts, part => part.PartNumber == "MANUAL-LINE" && part.ExternalItemId is null);
+        Assert.Contains(saved.Parts, part => part.PartNumber == "PART-A" && part.LineItemNumber == 10);
         Assert.Contains(await db.ShipmentAuditEntries.ToListAsync(), entry => entry.EventType == "ExternalShipped");
     }
 

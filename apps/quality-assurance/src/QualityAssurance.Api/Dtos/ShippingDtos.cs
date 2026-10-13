@@ -49,12 +49,27 @@ public sealed record QualityShipmentPartDto(
     int? Quantity,
     decimal? UnitPrice,
     decimal? TotalValue,
+    int? LineItemNumber,
     int DisplayOrder);
 
 public sealed record QualityShipmentPartInputDto(
     string? PartNumber,
     int? Quantity,
-    decimal? UnitPrice);
+    decimal? UnitPrice,
+    int? Id = null,
+    int? LineItemNumber = null);
+
+public sealed record QualityShipmentLookupRequestDto(string? ShipperNumber);
+
+public sealed record QualityShipmentLookupDto(
+    string ShipperNumber,
+    string? ExternalStatus,
+    DateOnly? ShipByDate,
+    string? Customer,
+    string? PurchaseOrderNumber,
+    IReadOnlyList<QualityShipmentPartInputDto> Parts);
+
+public sealed record QualityShipmentRefreshResultDto(int UpdatedRecords);
 
 public sealed record QualityShipmentListDto(
     IReadOnlyList<QualityShipmentDto> Items,
@@ -132,6 +147,7 @@ public sealed record QualityPersonQueueDto(
 public sealed record QualityDashboardDto(
     QualityQueueMetricsDto MyQueue,
     IReadOnlyList<QualityShipmentDto> Queue,
+    IReadOnlyList<QualityShipmentDto> CompletedShipments,
     IReadOnlyList<QualityPersonQueueDto> TeamQueues,
     QualityQueueMetricsDto GroupQueue,
     IReadOnlyList<QualityShipmentDto> GroupShipments,
