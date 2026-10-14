@@ -6,6 +6,205 @@
  * surfaces so each module can retain its own navigation and content treatment.
  */
 
+/* Shared, permission-filtered navigation across the live Arda applications. */
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app) .sidebar {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.arda-global-navigation {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0 0 14px;
+  padding: 0 0 14px;
+  border-bottom: 1px solid var(--nav-line, var(--line-2, #a8bbc9));
+}
+
+.arda-global-navigation__heading {
+  margin: 0 0 3px;
+  color: var(--nav-muted, var(--muted, #66788a));
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.arda-global-navigation > nav {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.arda-global-navigation__home,
+.arda-global-navigation__module-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 39px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.35;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.arda-global-navigation__home:hover,
+.arda-global-navigation__module-toggle:hover {
+  color: var(--arda-band-ink);
+  background: var(--arda-band-hover);
+  border-color: var(--arda-band-line);
+}
+
+.arda-global-navigation :is(a, button):focus-visible {
+  outline: 2px solid var(--arda-band-focus);
+  outline-offset: 2px;
+}
+
+.arda-global-navigation__home--current {
+  color: var(--arda-band-ink);
+  background: var(--arda-band);
+}
+
+.arda-global-navigation__home--disabled {
+  opacity: .62;
+  cursor: default;
+}
+
+.arda-global-navigation__module-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  opacity: .75;
+}
+
+.arda-global-navigation__module-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arda-global-navigation__chevron {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-right: 1.7px solid currentColor;
+  border-bottom: 1.7px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 140ms ease;
+}
+
+.arda-global-navigation__module-toggle[aria-expanded='true'] .arda-global-navigation__chevron {
+  transform: rotate(45deg);
+}
+
+.arda-global-navigation__panel {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  margin: 1px 0 7px;
+  padding-left: 25px;
+}
+
+.arda-global-navigation__panel[hidden] {
+  display: none;
+}
+
+.arda-global-navigation__panel [hidden] {
+  display: none;
+}
+
+.arda-global-navigation__panel > nav,
+.arda-global-navigation__panel .primary-nav {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.arda-global-navigation__page,
+.arda-global-navigation__panel :is(.nav-button, .nav-link, .admin-nav-link) {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.arda-global-navigation__page {
+  border: 1px solid transparent;
+  color: inherit;
+}
+
+.arda-global-navigation__page:hover {
+  color: var(--arda-band-ink);
+  background: var(--arda-band-hover);
+}
+
+.arda-global-navigation__page--disabled {
+  opacity: .62;
+  cursor: default;
+}
+
+.arda-global-navigation__panel :is(.nav-button.active, .nav-link.active, .admin-nav-link.active) {
+  background: #2365e8;
+  border-color: #2365e8;
+  color: #fff;
+  box-shadow: none;
+}
+
+.arda-global-navigation__panel :is(.nav-button.active, .nav-link.active, .admin-nav-link.active) :is(.nav-icon, svg) {
+  color: #fff;
+  background: transparent;
+}
+
+.arda-global-navigation__status {
+  padding: 6px 11px;
+  color: var(--nav-muted, var(--muted, #66788a));
+  font-size: 12px;
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .arda-global-navigation__heading,
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .arda-global-navigation__module-name,
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .arda-global-navigation__chevron,
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .arda-global-navigation__panel,
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .arda-global-navigation__status {
+  display: none;
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .arda-global-navigation__module-toggle {
+  justify-content: center;
+  padding-inline: 3px;
+}
+
+:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .arda-global-navigation__home {
+  justify-content: center;
+  overflow: hidden;
+  font-size: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arda-global-navigation__chevron { transition: none; }
+}
+
 :root {
   --arda-navy: #07325f;
   --arda-navy-muted: #385773;

@@ -20,6 +20,7 @@ import { persistTheme, readThemePreference } from './theme'
 import type { AppTheme } from './theme'
 import type { QualityAssuranceUser } from './types'
 import { canViewQualityPage, firstAccessibleQualityPage, routeFromHash } from './qualityNavigation'
+import ArdaGlobalNavigation from './ArdaGlobalNavigation'
 
 function defaultHubUrl() {
   const hostname = window.location.hostname.toLowerCase()
@@ -211,14 +212,18 @@ export default function App() {
           {sidebarCollapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}
           <span className="sidebar-rail-toggle-label">{sidebarCollapsed ? 'Expand menu' : 'Collapse menu'}</span>
         </button>
-        <div className="nav-section">
-          <span className="nav-heading">Quality Assurance</span>
+        <ArdaGlobalNavigation
+          currentApplicationId="quality-assurance"
+          hubUrl={hubUrl}
+          disabled={user.isPreview}
+          currentPages={<>
           <nav aria-label="Quality Assurance pages">
             {canViewQualityPage(userPermissions, 'dashboard') && <a className={`nav-button ${activeRoute === 'dashboard' ? 'active' : ''}`} href="#/dashboard" aria-current={activeRoute === 'dashboard' ? 'page' : undefined} title="Dashboard"><span className="nav-icon"><LayoutDashboard size={17} /></span><span className="nav-label">Dashboard</span></a>}
             {canViewQualityPage(userPermissions, 'shipping-status') && <a className={`nav-button ${activeRoute === 'shipping-status' ? 'active' : ''}`} href="#/shipping-status" aria-current={activeRoute === 'shipping-status' ? 'page' : undefined} title="Shipping Status"><span className="nav-icon"><Truck size={17} /></span><span className="nav-label">Shipping Status</span></a>}
           </nav>
-        </div>
-        {userPermissions.includes('quality-assurance.settings.view') && <div className="sidebar-foot"><nav className="foot-nav" aria-label="Quality Assurance administration"><a className="nav-button" href={qualityAdminUrl} target="_top" title="Quality Admin / Settings"><span className="nav-icon"><Settings2 size={17} /></span><span className="nav-label">Quality Admin / Settings</span></a></nav></div>}
+          {userPermissions.includes('quality-assurance.settings.view') && <nav className="foot-nav" aria-label="Quality Assurance administration"><a className="nav-button" href={qualityAdminUrl} target="_top" title="Quality Admin / Settings"><span className="nav-icon"><Settings2 size={17} /></span><span className="nav-label">Quality Admin / Settings</span></a></nav>}
+          </>}
+        />
       </aside>
 
       <main className="main-area" id="main-content">

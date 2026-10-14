@@ -28,6 +28,7 @@ import type { AppTheme } from './theme'
 import AccountSetupWelcome from './AccountSetupWelcome'
 import type { AccountStatus } from './AccountSetupWelcome'
 import AdminConsole from './admin/AdminConsole'
+import ArdaGlobalNavigation from './ArdaGlobalNavigation'
 import { isAdminHash } from './admin/api'
 import {
   applicationNavigationMode,
@@ -239,7 +240,7 @@ export default function App() {
   const accountDisplayName = accessPreview?.title ?? me?.displayName ?? ''
 
   useEffect(() => {
-    if (!adminRoute) document.title = 'Arda · Applications'
+    if (!adminRoute) document.title = 'Arda · Home'
   }, [adminRoute])
 
   useEffect(() => {
@@ -424,12 +425,22 @@ export default function App() {
           onPreviewWalkthrough={startWalkthroughPreview}
         />
       ) : (
+        <div className={`arda-workspace ${accessPreview ? 'is-access-preview' : ''}`.trim()}>
+        {!accessPreview && (
+          <aside className="arda-workspace-sidebar">
+            <ArdaGlobalNavigation
+              currentApplicationId="portal"
+              hubUrl={window.location.origin}
+              applications={catalogApps ?? []}
+            />
+          </aside>
+        )}
         <main className="portal-main catalog-main">
         <section className="catalog-intro" aria-labelledby="catalog-title">
           <div className="catalog-intro-copy">
             <span className="kicker">Arda Internal Systems</span>
-            <h1 id="catalog-title">{accessPreview ? `Access for ${accessPreview.title}` : 'Applications'}</h1>
-            <p>{accessPreview ? 'This is a read-only view of the application cards available to this target.' : 'Choose an internal workspace for your account.'}</p>
+            <h1 id="catalog-title">{accessPreview ? `Access for ${accessPreview.title}` : 'Home'}</h1>
+            <p>{accessPreview ? 'This is a read-only view of the workspaces available to this target.' : 'Your workspaces are in the navigation. Pick up where you need to work.'}</p>
           </div>
         </section>
 
@@ -461,8 +472,8 @@ export default function App() {
         ) : (
           <div className="catalog-results" aria-live="polite">
             <ApplicationSection
-              title="Application catalog"
-              description="Company tools and workspaces"
+              title="Your workspaces"
+              description="Open a workspace from here or the navigation"
               applications={catalogApps}
               notificationCounts={accessPreview ? {} : notificationCounts}
               launchingAppId={launchingAppId}
@@ -472,6 +483,7 @@ export default function App() {
           </div>
         )}
         </main>
+        </div>
       )}
 
       <footer className="portal-foot">
@@ -574,7 +586,7 @@ function ApplicationCard({
               ? 'Opening...'
               : previewMode
                 ? previewAvailable ? 'Open read-only preview' : 'Visible to this user · Full preview unavailable'
-                : 'Open application'}
+                : 'Open workspace'}
             {previewMode
               ? previewAvailable && <Eye size={16} aria-hidden="true" />
               : <ArrowUpRight size={16} aria-hidden="true" />}
@@ -591,7 +603,7 @@ function ApplicationCard({
           className={`catalog-app-card is-openable ${launching ? 'is-launching' : ''}`.trim()}
           href={previewMode ? '#' : applicationLaunchUrl(application.url)}
           onClick={(event) => onLaunch(application, event)}
-          aria-label={`Open ${application.name}`}
+          aria-label={`Open ${application.name} workspace`}
         >
           {content}
         </a>

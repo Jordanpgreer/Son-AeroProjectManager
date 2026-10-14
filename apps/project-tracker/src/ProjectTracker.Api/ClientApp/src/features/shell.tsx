@@ -49,6 +49,7 @@ import type {
 import type { AppTheme } from '../theme'
 import { usePushNotifications } from '../push-notifications'
 import { canViewProjectTrackerScreen } from '../permissions'
+import ArdaGlobalNavigation from '../ArdaGlobalNavigation'
 
 function hasPermission(user: User | null, permission: string) {
   return Boolean(user?.permissions?.includes(permission))
@@ -155,15 +156,17 @@ export function Sidebar({
         <span className="sidebar-rail-toggle-label">{collapsed ? 'Expand menu' : 'Collapse menu'}</span>
       </button>
 
-      <div className="nav-section">
-        <span className="nav-heading">Program Control</span>
-        <nav aria-label="Primary">
+      <ArdaGlobalNavigation
+        currentApplicationId="project-tracker"
+        hubUrl={hubUrl}
+        disabled={trainingMode || Boolean(user?.preview?.readOnly)}
+        currentPages={<nav aria-label="Project Tracker pages">
           {canViewProjectTrackerScreen(permissions, 'dashboard') && <NavButton guideId={trainingMode ? 'nav-dashboard' : undefined} active={screen === 'dashboard'} onClick={() => setScreen('dashboard')} icon={<LayoutDashboard size={17} />} label="Dashboard" />}
           {canViewProjectTrackerScreen(permissions, 'project') && <NavButton guideId={trainingMode ? 'nav-project' : undefined} active={screen === 'project' && selectedProject?.status !== 'Complete'} onClick={() => void onOpenActiveProjects()} icon={<ListChecks size={17} />} label="Project Detail" disabled={!hasActiveProjects} />}
           {canViewProjectTrackerScreen(permissions, 'calendar') && <NavButton guideId={trainingMode ? 'nav-calendar' : undefined} active={screen === 'calendar'} onClick={() => setScreen('calendar')} icon={<CalendarRange size={17} />} label="Calendar" />}
           {canViewProjectTrackerScreen(permissions, 'pastProjects') && <NavButton guideId={trainingMode ? 'nav-past' : undefined} active={screen === 'pastProjects' || (screen === 'project' && selectedProject?.status === 'Complete')} onClick={() => setScreen('pastProjects')} icon={<Archive size={17} />} label="Past Projects" />}
-        </nav>
-      </div>
+        </nav>}
+      />
 
       {user?.isAdmin && (
         <div className="sidebar-foot">

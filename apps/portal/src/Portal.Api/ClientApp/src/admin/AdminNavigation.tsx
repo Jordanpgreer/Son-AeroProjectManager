@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ChevronDown, ChevronRight, Menu, ShieldCheck } from 'lucide-react'
+import { ChevronDown, ChevronRight, Menu, ShieldCheck } from 'lucide-react'
+import ArdaGlobalNavigation from '../ArdaGlobalNavigation'
 import {
   ADMIN_MODULES, ARDA_ACCESS_SECTIONS, ENGINEERING_SECTIONS,
   PROJECT_TRACKER_SECTIONS, QUALITY_SECTIONS,
@@ -32,7 +33,7 @@ export default function AdminNavigation(props: AdminNavigationProps) {
   })
 
   useEffect(() => {
-    sidebarRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest' })
+    sidebarRef.current?.querySelector('.admin-nav-link[aria-current="page"]')?.scrollIntoView({ block: 'nearest' })
   }, [selected, section, expanded])
 
   function linksFor(module: typeof ADMIN_MODULES[number]) {
@@ -70,8 +71,7 @@ export default function AdminNavigation(props: AdminNavigationProps) {
         </button>
       </div>
       <div className="admin-sidebar-body" id="admin-sidebar-body">
-        <a className="admin-sidebar-back" href="#/"><ArrowLeft size={15} aria-hidden="true" /> Applications</a>
-        <nav aria-label="Admin pages">
+        <ArdaGlobalNavigation currentApplicationId="admin-console" hubUrl={window.location.origin} currentPages={<nav aria-label="Admin pages">
           {modules.map((module) => {
             const links = linksFor(module)
             const grouped = ['access', 'project-tracker', 'engineering', 'quality-assurance'].includes(module.key)
@@ -99,7 +99,7 @@ export default function AdminNavigation(props: AdminNavigationProps) {
               </div>
             )
           })}
-        </nav>
+        </nav>} />
         <div className="admin-sidebar-footer"><ShieldCheck size={14} aria-hidden="true" /><span>Permission-controlled access</span></div>
       </div>
     </aside>

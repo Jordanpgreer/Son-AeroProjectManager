@@ -12,6 +12,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $source = Join-Path $repoRoot 'shared\branding\web'
 $tokens = Join-Path $repoRoot 'shared\branding\brand-tokens.css'
 $shellStyles = Join-Path $repoRoot 'shared\branding\arda-shell.css'
+$globalNavigation = Join-Path $repoRoot 'shared\branding\ArdaGlobalNavigation.tsx'
 $assetNames = @(
     'arda-lockup.png',
     'arda-mark.png',
@@ -24,13 +25,15 @@ if (-not (Test-Path -LiteralPath $source)) {
     throw "Branding source not found: $source"
 }
 
-# ClientApp roots for each frontend that consumes brand assets.
-$clientApps = @(
+# Live ClientApp roots that consume shared Arda navigation.
+$liveClientApps = @(
     (Join-Path $repoRoot 'apps\project-tracker\src\ProjectTracker.Api\ClientApp'),
     (Join-Path $repoRoot 'apps\portal\src\Portal.Api\ClientApp'),
     (Join-Path $repoRoot 'apps\estimating-dashboard\src\EstimatingDashboard.Api\ClientApp'),
     (Join-Path $repoRoot 'apps\engineering-hub\src\EngineeringHub.Api\ClientApp'),
-    (Join-Path $repoRoot 'apps\quality-assurance\src\QualityAssurance.Api\ClientApp'),
+    (Join-Path $repoRoot 'apps\quality-assurance\src\QualityAssurance.Api\ClientApp')
+)
+$clientApps = $liveClientApps + @(
     (Join-Path $repoRoot 'apps\small-business-subcontracting\src\SmallBusinessSubcontracting.Api\ClientApp')
 )
 
@@ -56,8 +59,16 @@ foreach ($clientApp in $clientApps) {
         Copy-Item -LiteralPath $tokens -Destination (Join-Path $clientApp 'src') -Force
     }
 
-    if (Test-Path -LiteralPath $shellStyles) {
+    # Subcontracting is not live yet. Leave its shell and navigation untouched.
+    if ($clientApp -in $liveClientApps -and (Test-Path -LiteralPath $shellStyles)) {
         Copy-Item -LiteralPath $shellStyles -Destination (Join-Path $clientApp 'src') -Force
+    }
+
+    if ($clientApp -in $liveClientApps) {
+        if (-not (Test-Path -LiteralPath $globalNavigation)) {
+            throw "Canonical Arda navigation not found: $globalNavigation"
+        }
+        Copy-Item -LiteralPath $globalNavigation -Destination (Join-Path $clientApp 'src') -Force
     }
 
     Write-Host "Synced branding -> $brandDir"

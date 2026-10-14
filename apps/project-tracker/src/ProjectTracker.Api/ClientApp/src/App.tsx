@@ -90,6 +90,7 @@ import type {
 import type { BennySafeCommand } from './demo/benny-rules'
 import { PageTourPrompt } from './demo/PageTourPrompt'
 import { pageTourPromptKey, pageTourUrl } from './demo/page-tours'
+import { hashForScreen, screenFromHash } from './navigation-routes'
 import { saveTrainingProfile } from './demo/training-profile'
 import {
   hasAnyPermission,
@@ -214,7 +215,9 @@ function App() {
   const [workCenters, setWorkCenters] = useState<WorkCenter[]>([])
   const [scheduleSettings, setScheduleSettings] = useState<ScheduleSettings>(defaultScheduleSettings)
   const [screen, setScreen] = useState<Screen>(() =>
-    isPortalDashboardPreview || isPortalDashboardLaunch ? 'dashboard' : readStoredScreen(),
+    isPortalDashboardPreview || isPortalDashboardLaunch
+      ? 'dashboard'
+      : screenFromHash(window.location.hash) ?? readStoredScreen(),
   )
   const [loading, setLoading] = useState(true)
   const [screenDataLoading, setScreenDataLoading] = useState(false)
@@ -1075,6 +1078,27 @@ function App() {
     if (navigation) await navigation()
   }
 
+  useEffect(() => {
+    const handleHashChange = () => {
+      const requested = screenFromHash(window.location.hash)
+      if (!requested || requested === screen || !user || loading) return
+
+      // A hash change stays in this document, so restore the current URL before
+      // passing the requested page through the unsaved-details guard.
+      const currentUrl = new URL(window.location.href)
+      currentUrl.hash = hashForScreen(screen)
+      window.history.replaceState(window.history.state, '', currentUrl)
+      if (!canViewProjectTrackerScreen(user.permissions, requested)) return
+
+      void requestNavigation(requested === 'project'
+        ? openActiveProjectWorkspace
+        : () => setScreen(requested))
+    }
+
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  })
+
   async function createProject(request: ProjectCreateRequest) {
     const project = await api<ProjectDetail>('/api/projects', {
       method: 'POST',
@@ -1110,6 +1134,15 @@ function App() {
       window.localStorage.setItem('project-tracker-screen', screen)
     }
   }, [screen])
+
+  useEffect(() => {
+    if (loading || !user || !canViewProjectTrackerScreen(user.permissions, screen)) return
+    const hash = hashForScreen(screen)
+    if (window.location.hash === hash) return
+    const url = new URL(window.location.href)
+    url.hash = hash
+    window.history.replaceState(window.history.state, '', url)
+  }, [screen, loading, user])
 
   useEffect(() => {
     if (!isPortalDashboardLaunch) return

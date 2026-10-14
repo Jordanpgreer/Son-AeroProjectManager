@@ -31,6 +31,7 @@ import ToolingManagement from './ToolingManagement'
 import type { ToolRecordHeader } from './ToolingManagement'
 import type { EngineeringSearchResult } from './EngineeringDashboard'
 import { engineeringPermissionKeys, hasEngineeringPermission } from './permissions'
+import ArdaGlobalNavigation from './ArdaGlobalNavigation'
 
 function defaultHubUrl() {
   const hostname = window.location.hostname.toLowerCase()
@@ -285,7 +286,7 @@ export default function App() {
       const showFirstAllowedSection = () => {
         if (allowed(engineeringPermissionKeys.dashboardView)) {
           setActiveSectionId('dashboard')
-          window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+          window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#dashboard`)
         } else if (allowed(engineeringPermissionKeys.drawingsView)) {
           setActiveSectionId('drawing-document-control')
           setDrawingScreen('dashboard')
@@ -296,8 +297,21 @@ export default function App() {
           window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#tooling-dashboard`)
         } else if (allowed(engineeringPermissionKeys.compoundDataView)) {
           setActiveSectionId('compound-test-data-management')
-          window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+          window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#compound-dashboard`)
         }
+      }
+      if (route === 'dashboard' || route === '') {
+        if (!allowed(engineeringPermissionKeys.dashboardView)) return showFirstAllowedSection()
+        setSelectedModuleRecord(null)
+        setActiveSectionId('dashboard')
+        if (!route) window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#dashboard`)
+        return
+      }
+      if (route === 'compound-dashboard') {
+        if (!allowed(engineeringPermissionKeys.compoundDataView)) return showFirstAllowedSection()
+        setSelectedModuleRecord(null)
+        setActiveSectionId('compound-test-data-management')
+        return
       }
       const toolingMatch = route.match(/^tooling-record\/(\d+)$/)
       if (toolingMatch) {
@@ -522,47 +536,48 @@ export default function App() {
           <span className="sidebar-rail-toggle-label">{sidebarCollapsed ? 'Expand menu' : 'Collapse menu'}</span>
         </button>
 
-        <div className="nav-section">
-          <div className="nav-heading">
-            <span>Engineering Module</span>
-            <span className="nav-flag">Testing</span>
-          </div>
-          <nav aria-label="Engineering pages">
-          {availableSections.map((section) => {
-            const Icon = ICONS[section.id] ?? Beaker
-            const active = section.id === activeSection?.id
-            return (
-              <div className="engineering-nav-item" key={section.id}>
-                <button
-                  type="button"
-                  className={`nav-button ${active ? 'active' : ''}`.trim()}
-                  aria-current={active ? 'page' : undefined}
-                  title={section.title}
-                  onClick={() => {
-                    if (section.id === 'drawing-document-control') openDrawingDashboard()
-                    else if (section.id === 'tooling-management') {
-                      setSelectedModuleRecord(null)
-                      setActiveSectionId(section.id)
-                      setToolingRecordId(null)
-                      window.location.hash = 'tooling-dashboard'
-                    }
-                    else {
-                      setSelectedModuleRecord(null)
-                      setActiveSectionId(section.id)
-                      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
-                    }
-                  }}
-                >
-                  <span className="nav-icon">
-                    <Icon size={17} />
-                  </span>
-                  <span className="nav-label">{section.title}</span>
-                </button>
-              </div>
-            )
-          })}
-          </nav>
-        </div>
+        <ArdaGlobalNavigation
+          currentApplicationId="engineering-hub"
+          hubUrl={hubUrl}
+          disabled={Boolean(me?.isPreview)}
+          currentPages={<nav aria-label="Engineering pages">
+            {availableSections.map((section) => {
+              const Icon = ICONS[section.id] ?? Beaker
+              const active = section.id === activeSection?.id
+              return (
+                <div className="engineering-nav-item" key={section.id}>
+                  <button
+                    type="button"
+                    className={`nav-button ${active ? 'active' : ''}`.trim()}
+                    aria-current={active ? 'page' : undefined}
+                    title={section.title}
+                    onClick={() => {
+                      if (section.id === 'drawing-document-control') openDrawingDashboard()
+                      else if (section.id === 'tooling-management') {
+                        setSelectedModuleRecord(null)
+                        setActiveSectionId(section.id)
+                        setToolingRecordId(null)
+                        window.location.hash = 'tooling-dashboard'
+                      }
+                      else {
+                        setSelectedModuleRecord(null)
+                        setActiveSectionId(section.id)
+                        window.location.hash = section.id === 'compound-test-data-management'
+                          ? 'compound-dashboard'
+                          : section.id
+                      }
+                    }}
+                  >
+                    <span className="nav-icon">
+                      <Icon size={17} />
+                    </span>
+                    <span className="nav-label">{section.title}</span>
+                  </button>
+                </div>
+              )
+            })}
+          </nav>}
+        />
 
         {can(engineeringPermissionKeys.settingsView) && <div className="sidebar-foot">
           <nav className="foot-nav" aria-label="Engineering administration">

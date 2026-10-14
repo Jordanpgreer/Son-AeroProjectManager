@@ -155,7 +155,7 @@ api.MapGet("/apps", async (PortalUserService users, ApplicationRegistry registry
     return registry.GetVisibleFor(currentUser)
         .Select(ToApplicationDto)
         .ToList();
-}).RequireAuthorization();
+}).RequireAuthorization().RequireCors("ArdaModules");
 
 api.MapGet("/application-notifications", async (
     PortalUserService users,

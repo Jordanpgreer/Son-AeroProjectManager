@@ -25,6 +25,7 @@ import {
 import type { EstimatingMe } from './authorization'
 import { persistTheme, readThemePreference } from './theme'
 import type { AppTheme } from './theme'
+import ArdaGlobalNavigation from './ArdaGlobalNavigation'
 
 import {
   PAGE_META,
@@ -324,10 +325,11 @@ export default function App() {
           <span className="sidebar-rail-toggle-label">{sidebarCollapsed ? 'Expand menu' : 'Collapse menu'}</span>
         </button>
 
-        <section className="nav-section" aria-labelledby="estimating-nav-heading">
-          <div className="nav-heading" id="estimating-nav-heading">
-            <span>Estimating</span>
-          </div>
+        <ArdaGlobalNavigation
+          currentApplicationId="estimating-dashboard"
+          hubUrl={hubUrl}
+          disabled={me.isPreview}
+          currentPages={<>
           <nav className="primary-nav" aria-label="Estimating pages">
             {canViewQuotes && <a
               className={`nav-link ${page === 'quotes' ? 'active' : ''}`}
@@ -366,7 +368,6 @@ export default function App() {
               <span className="nav-link-label">Estimating Logs</span>
             </a>}
           </nav>
-        </section>
         {(canViewRates || canViewOperationRules) && <section className="nav-section references-nav" aria-labelledby="references-nav-heading">
           <button
             type="button"
@@ -395,6 +396,8 @@ export default function App() {
             </a>}
           </nav>
         </section>}
+          </>}
+        />
       </aside>
 
       <main className="main-area">

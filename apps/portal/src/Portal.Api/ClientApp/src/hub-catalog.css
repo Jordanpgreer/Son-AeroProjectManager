@@ -1,5 +1,5 @@
 /*
- * Arda application catalog redesign.
+ * Arda home and workspace navigation.
  *
  * This layer intentionally treats every registered application with equal
  * visual weight. It is scoped to the Portal and does not affect either module.
@@ -19,6 +19,25 @@
 
 .catalog-portal {
   min-height: 100vh;
+}
+
+.arda-workspace {
+  display: grid;
+  grid-template-columns: minmax(210px, 240px) minmax(0, 1fr);
+  align-items: stretch;
+  flex: 1;
+  min-width: 0;
+}
+
+.arda-workspace.is-access-preview {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.arda-workspace-sidebar {
+  min-width: 0;
+  padding: 24px 12px;
+  background: var(--surface-2);
+  border-right: 1px solid var(--line-2);
 }
 
 .catalog-main {
@@ -421,12 +440,39 @@
 }
 
 @media (max-width: 900px) {
+  .arda-workspace {
+    grid-template-columns: minmax(180px, 205px) minmax(0, 1fr);
+  }
+
   .catalog-main {
     padding: 34px 24px 52px;
   }
 }
 
 @media (max-width: 680px) {
+  .arda-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .arda-workspace-sidebar {
+    padding: 12px 16px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line-2);
+  }
+
+  .arda-workspace-sidebar .arda-global-navigation {
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .arda-workspace-sidebar .arda-global-navigation > nav {
+    display: grid;
+    gap: 5px;
+    max-width: 100%;
+  }
+
   .access-preview-banner { grid-template-columns: 38px minmax(0, 1fr); }
   .access-preview-banner .ghost-button { grid-column: 1 / -1; width: 100%; }
 
