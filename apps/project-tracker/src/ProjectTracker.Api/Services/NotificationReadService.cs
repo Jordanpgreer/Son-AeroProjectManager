@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using ProjectTracker.Api.Configuration;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Dtos;
 using ProjectTracker.Api.Models;
@@ -8,7 +10,8 @@ namespace ProjectTracker.Api.Services;
 
 public sealed class NotificationReadService(
     ProjectTrackerDbContext db,
-    ILogger<NotificationReadService>? logger = null)
+    ILogger<NotificationReadService>? logger = null,
+    IOptions<OperationScheduleReminderOptions>? reminderOptions = null)
 {
     private const string ProjectChatMention = nameof(NotificationKind.ProjectChatMention);
     private const string OperationNoteMention = nameof(NotificationKind.OperationNoteMention);
@@ -25,6 +28,7 @@ public sealed class NotificationReadService(
         bool includeScheduleConfirmations = true,
         CancellationToken cancellationToken = default)
     {
+        includeScheduleConfirmations = ScheduleConfirmationsEnabled(includeScheduleConfirmations);
         var rows = await LoadValidRowsAsync(recipientUserId, cancellationToken);
         return rows
             .Where(row => !WindowsAccountNames.Equals(row.ActorAccountName, recipientAccountName))
@@ -43,6 +47,7 @@ public sealed class NotificationReadService(
         bool includeScheduleConfirmations = true,
         CancellationToken cancellationToken = default)
     {
+        includeScheduleConfirmations = ScheduleConfirmationsEnabled(includeScheduleConfirmations);
         var rows = await LoadValidRowsAsync(recipientUserId, cancellationToken);
         return rows.Count(row =>
             row.ReadAt is null
@@ -57,6 +62,7 @@ public sealed class NotificationReadService(
         bool includeScheduleConfirmations = true,
         CancellationToken cancellationToken = default)
     {
+        includeScheduleConfirmations = ScheduleConfirmationsEnabled(includeScheduleConfirmations);
         var rows = await LoadValidRowsAsync(recipientUserId, cancellationToken);
         if (!rows.Any(row =>
                 row.Id == id
@@ -82,6 +88,7 @@ public sealed class NotificationReadService(
         bool includeScheduleConfirmations = true,
         CancellationToken cancellationToken = default)
     {
+        includeScheduleConfirmations = ScheduleConfirmationsEnabled(includeScheduleConfirmations);
         var rows = await LoadValidRowsAsync(recipientUserId, cancellationToken);
         var unreadIds = rows
             .Where(row =>
@@ -233,6 +240,9 @@ public sealed class NotificationReadService(
             or OperationFinishConfirmation
             or OperationStartResponse
             or OperationFinishResponse;
+
+    private bool ScheduleConfirmationsEnabled(bool requested) =>
+        requested && (reminderOptions?.Value.Enabled ?? true);
 
     private sealed class NotificationReadRow
     {

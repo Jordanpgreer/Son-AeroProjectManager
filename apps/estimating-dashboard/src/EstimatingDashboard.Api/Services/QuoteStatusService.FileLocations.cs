@@ -165,7 +165,12 @@ public sealed partial class QuoteStatusService
 
     internal static QuoteProductionWarningsDto ProductionWarnings(EstimatingQuoteHistoryRecord quote) => new(
         JsonObjects<FulcrumQuoteItemReference>(quote.FulcrumQuoteItemsJson)
-            .Select(item => new QuoteItemReferenceDto(item.ItemId, item.PartNumber, item.Revision)).ToList(),
+            .Select(item => new QuoteItemReferenceDto(
+                item.ItemId,
+                item.PartNumber,
+                item.Revision,
+                item.LineNumber,
+                item.Quantity)).ToList(),
         JsonStrings(quote.FulcrumOpWarningsJson),
         quote.FulcrumBuyItemCount,
         quote.FulcrumMakeItemCount,

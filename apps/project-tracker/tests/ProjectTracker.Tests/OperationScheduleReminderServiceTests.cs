@@ -1,6 +1,8 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ProjectTracker.Api.Auth;
+using ProjectTracker.Api.Configuration;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Models;
 using ProjectTracker.Api.Services;
@@ -10,6 +12,19 @@ namespace ProjectTracker.Tests;
 
 public sealed class OperationScheduleReminderServiceTests
 {
+    [Fact]
+    public async Task EnsureRemindersAsync_WhenDisabled_DoesNotCreatePrompts()
+    {
+        await using var fixture = await ReminderFixture.CreateAsync(remindersEnabled: false);
+        fixture.AddUser("Assigned", includeReminderPermission: true);
+        fixture.AddProject(DueStartTask());
+        await fixture.Db.SaveChangesAsync();
+
+        Assert.Equal(0, await fixture.Service.EnsureRemindersAsync(new DateOnly(2026, 8, 17)));
+        Assert.Empty(await fixture.Db.UserNotifications.AsNoTracking().ToListAsync());
+        Assert.Empty(fixture.Queue.Ids);
+    }
+
     [Fact]
     public async Task EnsureRemindersAsync_UsesPriorWorkingDayPermissionAndIsIdempotent()
     {
@@ -522,7 +537,7 @@ public sealed class OperationScheduleReminderServiceTests
         private readonly List<AppUser> reminderUsers = [];
         private int userNumber;
 
-        private ReminderFixture(SqliteConnection connection, ProjectTrackerDbContext db)
+        private ReminderFixture(SqliteConnection connection, ProjectTrackerDbContext db, bool remindersEnabled)
         {
             this.connection = connection;
             Db = db;
@@ -533,7 +548,8 @@ public sealed class OperationScheduleReminderServiceTests
                 new ScheduleCalculator(),
                 new ProjectMetricsService(new ScheduleCalculator()),
                 Queue,
-                Audience);
+                Audience,
+                reminderOptions: Options.Create(new OperationScheduleReminderOptions { Enabled = remindersEnabled }));
         }
 
         public ProjectTrackerDbContext Db { get; }
@@ -541,7 +557,7 @@ public sealed class OperationScheduleReminderServiceTests
         public ProjectNotificationAudienceService Audience { get; }
         public OperationScheduleReminderService Service { get; }
 
-        public static async Task<ReminderFixture> CreateAsync()
+        public static async Task<ReminderFixture> CreateAsync(bool remindersEnabled = true)
         {
             var connection = new SqliteConnection("Data Source=:memory:");
             await connection.OpenAsync();
@@ -552,7 +568,7 @@ public sealed class OperationScheduleReminderServiceTests
             await db.Database.EnsureCreatedAsync();
             db.ScheduleSettings.Add(new ScheduleSettings());
             await db.SaveChangesAsync();
-            return new ReminderFixture(connection, db);
+            return new ReminderFixture(connection, db, remindersEnabled);
         }
 
         public AppUser AddUser(string displayName, bool includeReminderPermission)

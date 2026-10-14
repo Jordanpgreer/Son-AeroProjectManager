@@ -104,7 +104,7 @@ public sealed class IntegrationCredentialAdminEndpointTests
     }
 
     [Fact]
-    public async Task Fulcrum_connection_test_uses_the_saved_token_for_one_read_only_request()
+    public async Task Fulcrum_connection_test_uses_the_saved_token_for_global_read_only_checks()
     {
         var handler = new CapturingHandler(System.Net.HttpStatusCode.OK);
         var tester = new FulcrumCredentialTester(
@@ -115,13 +115,19 @@ public sealed class IntegrationCredentialAdminEndpointTests
 
         Assert.True(result.Succeeded);
         Assert.Equal(200, result.HttpStatusCode);
-        Assert.Equal("Bearer saved-token", handler.Authorization);
-        Assert.Equal(HttpMethod.Post, handler.Method);
-        Assert.StartsWith(
-            "https://api.fulcrumpro.us/api/reporting/quote/list?Skip=0&Take=1",
-            handler.RequestUri?.ToString(),
-            StringComparison.Ordinal);
-        Assert.DoesNotContain("Sort.", handler.RequestUri?.Query, StringComparison.Ordinal);
+        Assert.Equal(5, handler.Requests.Count);
+        Assert.All(handler.Requests, request => Assert.Equal("Bearer saved-token", request.Authorization));
+        Assert.All(handler.Requests, request => Assert.Equal(HttpMethod.Post, request.Method));
+        Assert.Equal(
+            [
+                "/api/reporting/quote/list",
+                "/api/items/list/v2",
+                "/api/jobs/list",
+                "/api/sales-orders/list",
+                "/api/shipments/list"
+            ],
+            handler.Requests.Select(request => request.RequestUri.AbsolutePath));
+        Assert.All(handler.Requests, request => Assert.DoesNotContain("Sort.", request.RequestUri.Query, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -150,18 +156,19 @@ public sealed class IntegrationCredentialAdminEndpointTests
 
     private sealed class CapturingHandler(System.Net.HttpStatusCode statusCode) : HttpMessageHandler
     {
-        public string? Authorization { get; private set; }
-        public HttpMethod? Method { get; private set; }
-        public Uri? RequestUri { get; private set; }
+        public List<CapturedRequest> Requests { get; } = [];
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
-            Authorization = request.Headers.Authorization?.ToString();
-            Method = request.Method;
-            RequestUri = request.RequestUri;
+            Requests.Add(new CapturedRequest(
+                request.Headers.Authorization?.ToString(),
+                request.Method,
+                request.RequestUri!));
             return Task.FromResult(new HttpResponseMessage(statusCode));
         }
     }
+
+    private sealed record CapturedRequest(string? Authorization, HttpMethod Method, Uri RequestUri);
 }

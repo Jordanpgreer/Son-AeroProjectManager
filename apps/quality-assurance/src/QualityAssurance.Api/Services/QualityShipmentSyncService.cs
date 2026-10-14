@@ -18,7 +18,6 @@ public sealed class QualityShipmentSyncService(
     QualityAssuranceDbContext db,
     IEnterpriseProviderSource providerSource,
     IEnumerable<IQualityShipmentProvider> providers,
-    IOptions<QualityIntegrationOptions> options,
     TimeProvider timeProvider,
     ILogger<QualityShipmentSyncService> logger) : IQualityShipmentSyncService
 {
@@ -26,8 +25,6 @@ public sealed class QualityShipmentSyncService(
         string shipperNumber,
         CancellationToken cancellationToken)
     {
-        if (!options.Value.Enabled)
-            throw new InvalidOperationException("Quality shipment integration is disabled.");
         var normalized = shipperNumber.Trim();
         if (normalized.Length == 0) throw new ArgumentException("Shipper number is required.");
         var provider = await SelectProviderAsync(cancellationToken);
@@ -39,7 +36,6 @@ public sealed class QualityShipmentSyncService(
         int shipmentId,
         CancellationToken cancellationToken)
     {
-        if (!options.Value.Enabled) return false;
         var shipment = await db.Shipments
             .Include(candidate => candidate.Parts)
             .SingleOrDefaultAsync(candidate => candidate.Id == shipmentId, cancellationToken);
@@ -81,7 +77,6 @@ public sealed class QualityShipmentSyncService(
 
     public async Task<int> SyncAllAsync(CancellationToken cancellationToken)
     {
-        if (!options.Value.Enabled) return 0;
         var shipments = await db.Shipments
             .Include(shipment => shipment.Parts)
             .Where(shipment => shipment.SalesOrderNumber != ""

@@ -25,7 +25,39 @@ public static class ProjectQuantitySyncEndpoints
             .RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, RoutingOverrideAuthorizationPolicy);
         api.MapGet("/project-quantity-lookups/{kind}", SearchAsync)
             .RequireAuthorization(ProjectTrackerPagePolicies.ProjectDetail, AuthorizationPolicy);
+        api.MapPost("/project-quantity-lookups/refresh", RefreshCatalogAsync)
+            .RequireAuthorization(
+                ProjectTrackerPagePolicies.ProjectDetail,
+                RoutingOverrideAuthorizationPolicy);
         return api;
+    }
+
+    private static async Task<IResult> RefreshCatalogAsync(
+        FulcrumProjectQuantityProvider provider,
+        IEnterpriseProviderSource providerSource,
+        CancellationToken cancellationToken)
+    {
+        var activeProvider = await providerSource.GetActiveProviderAsync(cancellationToken);
+        if (!string.Equals(activeProvider, EnterpriseProviderNames.Fulcrum, StringComparison.OrdinalIgnoreCase))
+            return Results.Conflict(new
+            {
+                detail = $"The active enterprise provider is {activeProvider}. Set Fulcrum as active before refreshing its lookup catalogue."
+            });
+
+        try
+        {
+            return Results.Ok(await provider.RefreshLookupCatalogAsync(cancellationToken));
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return Results.Json(
+                new { detail = "Fulcrum did not respond before the lookup catalogue refresh timed out. Try again." },
+                statusCode: StatusCodes.Status504GatewayTimeout);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or HttpRequestException or JsonException or NotSupportedException)
+        {
+            return Results.Json(new { detail = exception.Message }, statusCode: StatusCodes.Status502BadGateway);
+        }
     }
 
     private static async Task<IResult> SearchAsync(

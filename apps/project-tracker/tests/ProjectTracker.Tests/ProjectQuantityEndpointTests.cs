@@ -26,6 +26,7 @@ public sealed class ProjectQuantityEndpointTests
         builder.Services.AddScoped<ProjectTaskReferenceCleanupService>();
         builder.Services.AddScoped<OperationScheduleReminderService>();
         builder.Services.AddScoped<IProjectQuantityProvider, AcumaticaProjectQuantityProvider>();
+        builder.Services.AddScoped<FulcrumProjectQuantityProvider>();
         builder.Services.AddScoped<IEnterpriseProviderSource, StubProviderSource>();
         var app = builder.Build();
         app.MapGroup("/api").MapProjectQuantitySyncEndpoints();
@@ -57,6 +58,7 @@ public sealed class ProjectQuantityEndpointTests
         builder.Services.AddScoped<ProjectTaskReferenceCleanupService>();
         builder.Services.AddScoped<OperationScheduleReminderService>();
         builder.Services.AddScoped<IProjectQuantityProvider, AcumaticaProjectQuantityProvider>();
+        builder.Services.AddScoped<FulcrumProjectQuantityProvider>();
         builder.Services.AddScoped<IEnterpriseProviderSource, StubProviderSource>();
         var app = builder.Build();
         app.MapGroup("/api").MapProjectQuantitySyncEndpoints();
@@ -85,6 +87,7 @@ public sealed class ProjectQuantityEndpointTests
         builder.Services.AddScoped<ProjectTaskReferenceCleanupService>();
         builder.Services.AddScoped<OperationScheduleReminderService>();
         builder.Services.AddScoped<IProjectQuantityProvider, AcumaticaProjectQuantityProvider>();
+        builder.Services.AddScoped<FulcrumProjectQuantityProvider>();
         builder.Services.AddScoped<IEnterpriseProviderSource, StubProviderSource>();
         var app = builder.Build();
         app.MapGroup("/api").MapProjectQuantitySyncEndpoints();
@@ -93,6 +96,35 @@ public sealed class ProjectQuantityEndpointTests
             .SelectMany(source => source.Endpoints)
             .OfType<RouteEndpoint>(),
             endpoint => endpoint.RoutePattern.RawText == "/api/projects/{projectId:int}/routing/override");
+
+        Assert.Contains(
+            route.Metadata.GetOrderedMetadata<IAuthorizeData>(),
+            authorization => authorization.Policy == ProjectQuantitySyncEndpoints.RoutingOverrideAuthorizationPolicy);
+    }
+
+    [Fact]
+    public void Lookup_catalog_refresh_requires_the_administrator_policy()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddAuthorization();
+        builder.Services.AddDbContext<ProjectTrackerDbContext>(options =>
+            options.UseSqlite("Data Source=:memory:"));
+        builder.Services.AddScoped<ProjectAuditService>();
+        builder.Services.AddSingleton<ScheduleCalculator>();
+        builder.Services.AddScoped<ProjectMetricsService>();
+        builder.Services.AddScoped<ProjectRoutingSyncService>();
+        builder.Services.AddScoped<ProjectTaskReferenceCleanupService>();
+        builder.Services.AddScoped<OperationScheduleReminderService>();
+        builder.Services.AddScoped<IProjectQuantityProvider, AcumaticaProjectQuantityProvider>();
+        builder.Services.AddScoped<FulcrumProjectQuantityProvider>();
+        builder.Services.AddScoped<IEnterpriseProviderSource, StubProviderSource>();
+        var app = builder.Build();
+        app.MapGroup("/api").MapProjectQuantitySyncEndpoints();
+
+        var route = Assert.Single(((IEndpointRouteBuilder)app).DataSources
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>(),
+            endpoint => endpoint.RoutePattern.RawText == "/api/project-quantity-lookups/refresh");
 
         Assert.Contains(
             route.Metadata.GetOrderedMetadata<IAuthorizeData>(),

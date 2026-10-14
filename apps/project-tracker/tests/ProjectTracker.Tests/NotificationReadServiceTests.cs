@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using ProjectTracker.Api.Configuration;
 using ProjectTracker.Api.Data;
 using ProjectTracker.Api.Models;
 using ProjectTracker.Api.Services;
@@ -287,6 +289,15 @@ public sealed class NotificationReadServiceTests
         var service = new NotificationReadService(db);
         Assert.Empty(await service.GetAsync(user.Id, user.AccountName, false, 20, includeScheduleConfirmations: false));
         Assert.Single(await service.GetAsync(user.Id, user.AccountName, false, 20, includeScheduleConfirmations: true));
+        var disabledService = new NotificationReadService(
+            db,
+            reminderOptions: Options.Create(new OperationScheduleReminderOptions { Enabled = false }));
+        Assert.Empty(await disabledService.GetAsync(
+            user.Id,
+            user.AccountName,
+            false,
+            20,
+            includeScheduleConfirmations: true));
         Assert.False(await service.DeleteAsync(reminder.Id, user.Id));
 
         reminder.SnoozedUntil = new DateOnly(2026, 8, 14);

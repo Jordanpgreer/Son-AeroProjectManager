@@ -27,6 +27,8 @@ builder.Services.AddScoped<MentionNotificationService>();
 builder.Services.AddScoped<NotificationReadService>();
 builder.Services.AddScoped<ProjectNotificationAudienceService>();
 builder.Services.AddScoped<OperationScheduleReminderService>();
+builder.Services.AddOptions<OperationScheduleReminderOptions>()
+    .Bind(builder.Configuration.GetSection(OperationScheduleReminderOptions.SectionName));
 builder.Services.AddScoped<PushSubscriptionService>();
 builder.Services.AddOptions<WebPushOptions>()
     .Bind(builder.Configuration.GetSection(WebPushOptions.SectionName))

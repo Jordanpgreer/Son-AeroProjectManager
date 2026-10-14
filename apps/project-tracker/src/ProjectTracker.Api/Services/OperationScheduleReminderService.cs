@@ -39,7 +39,8 @@ public sealed class OperationScheduleReminderService(
     IPushNotificationQueue pushQueue,
     ProjectNotificationAudienceService notificationAudience,
     IProjectTrackerPortalPushBridge? portalPushBridge = null,
-    IOptions<PortalPushOptions>? portalPushOptions = null)
+    IOptions<PortalPushOptions>? portalPushOptions = null,
+    IOptions<OperationScheduleReminderOptions>? reminderOptions = null)
 {
     private const string SystemAccountName = "PROJECT-TRACKER";
     private const string SystemDisplayName = "Project Tracker";
@@ -54,6 +55,8 @@ public sealed class OperationScheduleReminderService(
         bool retryUniqueConflict,
         CancellationToken cancellationToken)
     {
+        if (!(reminderOptions?.Value.Enabled ?? true)) return 0;
+
         var awakened = await WakeDueSnoozesAsync(today, cancellationToken);
         var calendar = await LoadCalendarAsync(cancellationToken);
         var scheduledDate = scheduleCalculator.PreviousWorkingDay(today, calendar);

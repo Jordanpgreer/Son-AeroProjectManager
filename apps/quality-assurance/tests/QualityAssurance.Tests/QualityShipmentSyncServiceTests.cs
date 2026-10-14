@@ -1,7 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using QualityAssurance.Api.Data;
 using QualityAssurance.Api.Models;
 using QualityAssurance.Api.Services;
@@ -64,7 +63,6 @@ public sealed class QualityShipmentSyncServiceTests
             db,
             new StubProviderSource(),
             [new StubProvider(external)],
-            Options.Create(new QualityIntegrationOptions { Enabled = true }),
             TimeProvider.System,
             NullLogger<QualityShipmentSyncService>.Instance);
 

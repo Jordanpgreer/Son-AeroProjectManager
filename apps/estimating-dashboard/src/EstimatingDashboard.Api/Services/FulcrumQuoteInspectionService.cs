@@ -3,7 +3,12 @@ using System.Text.Json;
 
 namespace EstimatingDashboard.Api.Services;
 
-internal sealed record FulcrumQuoteItemReference(string ItemId, string PartNumber, string? Revision);
+internal sealed record FulcrumQuoteItemReference(
+    string ItemId,
+    string PartNumber,
+    string? Revision,
+    int? LineNumber = null,
+    decimal? Quantity = null);
 
 internal sealed record FulcrumQuoteInspection(
     IReadOnlyList<FulcrumQuoteItemReference> Items,
@@ -74,7 +79,12 @@ internal sealed class FulcrumQuoteInspectionService(
             var partNumber = Text(item, "number");
             if (string.IsNullOrWhiteSpace(partNumber))
                 throw new InvalidOperationException("A Fulcrum quote item did not include a part number.");
-            items.Add(new(itemId, partNumber, Revision(item)));
+            items.Add(new(
+                itemId,
+                partNumber,
+                Revision(item),
+                Integer(line, "number"),
+                NullableNumber(line, "quantity")));
             await InspectRoutingAsync(itemId, partNumber, new HashSet<string>(StringComparer.Ordinal), itemCache,
                 operations, count => buyCount += count, count => makeCount += count,
                 () => ++nodeCount, cancellationToken);
@@ -84,7 +94,7 @@ internal sealed class FulcrumQuoteInspectionService(
             throw new InvalidOperationException("The Fulcrum quote BOM exceeded the safe inspection size.");
 
         return new(
-            items.GroupBy(item => (item.ItemId, item.Revision)).Select(group => group.First()).ToList(),
+            items.OrderBy(item => item.LineNumber ?? int.MaxValue).ToList(),
             operations.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToList(),
             buyCount,
             makeCount,
@@ -171,6 +181,14 @@ internal sealed class FulcrumQuoteInspectionService(
     private static decimal Number(JsonElement element, string property) =>
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value)
             && value.TryGetDecimal(out var number) ? number : 0;
+
+    private static decimal? NullableNumber(JsonElement element, string property) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value)
+            && value.TryGetDecimal(out var number) ? number : null;
+
+    private static int? Integer(JsonElement element, string property) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value)
+            && value.TryGetInt32(out var number) ? number : null;
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

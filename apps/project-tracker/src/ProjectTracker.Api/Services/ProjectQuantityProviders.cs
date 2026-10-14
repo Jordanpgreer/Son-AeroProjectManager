@@ -55,6 +55,12 @@ public sealed record ProjectQuantityLookupOption(
     string? JobNumber = null,
     decimal? JobQuantity = null);
 
+public sealed record ProjectLookupCatalogRefreshResult(
+    int Items,
+    int Jobs,
+    int SalesOrders,
+    DateTimeOffset CompletedAt);
+
 public sealed class FulcrumProjectLookupCatalog
 {
     private readonly SemaphoreSlim itemsGate = new(1, 1);
@@ -323,7 +329,8 @@ public sealed class FulcrumProjectQuantityProvider(
             RoutingSteps: routingSteps);
     }
 
-    public async Task RefreshLookupCatalogAsync(CancellationToken cancellationToken)
+    public async Task<ProjectLookupCatalogRefreshResult> RefreshLookupCatalogAsync(
+        CancellationToken cancellationToken)
     {
         var baseUri = ReadBaseUri();
         var token = await credentials.GetSecretAsync(
@@ -334,8 +341,7 @@ public sealed class FulcrumProjectQuantityProvider(
                 "The Fulcrum Public API credential is not configured. Add it in Admin Hub under API Keys.");
 
         var maxAge = LookupCatalogMaxAge();
-        await Task.WhenAll(
-            catalog.GetItemsAsync(
+        var itemsTask = catalog.GetItemsAsync(
                 ct => LoadAllAsync<FulcrumItemDto>(
                     baseUri,
                     "api/items/list/v2",
@@ -344,8 +350,8 @@ public sealed class FulcrumProjectQuantityProvider(
                     ct),
                 maxAge,
                 cancellationToken,
-                forceRefresh: true),
-            catalog.GetJobsAsync(
+                forceRefresh: true);
+        var jobsTask = catalog.GetJobsAsync(
                 ct => LoadAllAsync<FulcrumJobDto>(
                     baseUri,
                     "api/jobs/list",
@@ -354,12 +360,19 @@ public sealed class FulcrumProjectQuantityProvider(
                     ct),
                 maxAge,
                 cancellationToken,
-                forceRefresh: true),
-            catalog.GetSalesOrdersAsync(
+                forceRefresh: true);
+        var salesOrdersTask = catalog.GetSalesOrdersAsync(
                 ct => LoadAllAsync<FulcrumSalesOrderDto>(baseUri, "api/sales-orders/list", token, new { }, ct),
                 maxAge,
                 cancellationToken,
-                forceRefresh: true));
+                forceRefresh: true);
+
+        await Task.WhenAll(itemsTask, jobsTask, salesOrdersTask);
+        return new ProjectLookupCatalogRefreshResult(
+            itemsTask.Result.Count,
+            jobsTask.Result.Count,
+            salesOrdersTask.Result.Count,
+            DateTimeOffset.UtcNow);
     }
 
     public async Task<IReadOnlyList<ProjectQuantityLookupOption>> SearchAsync(

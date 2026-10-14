@@ -104,7 +104,9 @@ export interface QuoteStatusSummary {
   canRemove: boolean; hasFulcrumWarnings?: boolean
 }
 export interface QuoteFileLocation { path: string; source: 'Fulcrum' | 'Arda' }
-export interface QuoteItemReference { itemId: string; partNumber: string; revision: string | null }
+export interface QuoteItemReference {
+  itemId: string; partNumber: string; revision: string | null; lineNumber: number | null; quantity: number | null
+}
 export interface QuoteProductionWarnings {
   items: QuoteItemReference[]; opOperations: string[]; buyItemCount: number; makeItemCount: number; inspectedAt: string | null
 }

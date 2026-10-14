@@ -15,7 +15,12 @@ public sealed record QuoteStatusDetailDto(QuoteStatusSummaryDto Quote,
     IReadOnlyList<QuoteFileLocationDto>? FileLocations = null,
     QuoteProductionWarningsDto? ProductionWarnings = null);
 public sealed record QuoteFileLocationDto(string Path, string Source);
-public sealed record QuoteItemReferenceDto(string ItemId, string PartNumber, string? Revision);
+public sealed record QuoteItemReferenceDto(
+    string ItemId,
+    string PartNumber,
+    string? Revision,
+    int? LineNumber = null,
+    decimal? Quantity = null);
 public sealed record QuoteProductionWarningsDto(
     IReadOnlyList<QuoteItemReferenceDto> Items,
     IReadOnlyList<string> OpOperations,

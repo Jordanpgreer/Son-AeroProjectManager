@@ -36,7 +36,7 @@ export default function QuoteOverview({ detail, canEdit, draft, dirty, saving, b
     </div>
     {(detail.productionWarnings?.items?.length > 0 || quote.hasFulcrumWarnings) && <section className={`qs-production-summary${quote.hasFulcrumWarnings ? ' has-warning' : ''}`} aria-label="Fulcrum production review">
       <header>{quote.hasFulcrumWarnings && <AlertTriangle size={17} aria-hidden="true" />}<strong>{quote.hasFulcrumWarnings ? 'This quote has production items to review' : 'Parts in quote'}</strong></header>
-      {detail.productionWarnings.items.length > 0 && <div className="qs-quote-parts">{detail.productionWarnings.items.map(item => <span key={`${item.itemId}-${item.revision ?? ''}`}><strong>{item.partNumber}</strong>{item.revision && <small>Rev {item.revision}</small>}</span>)}</div>}
+      {detail.productionWarnings.items.length > 0 && <div className="qs-quote-parts">{detail.productionWarnings.items.map((item, index) => <span key={`${item.itemId}-${item.lineNumber ?? index}`}><strong>{item.partNumber}</strong>{item.revision && <small>Rev {item.revision}</small>}{item.lineNumber !== null && <small>Line {item.lineNumber}</small>}{item.quantity !== null && <small>Qty {item.quantity.toLocaleString()}</small>}</span>)}</div>}
       {quote.hasFulcrumWarnings && <ul>{detail.productionWarnings.opOperations.map(operation => <li key={operation}><strong>OP operation:</strong> {operation}</li>)}{detail.productionWarnings.buyItemCount > 0 && <li><strong>Buy items:</strong> {detail.productionWarnings.buyItemCount}</li>}{detail.productionWarnings.makeItemCount > 0 && <li><strong>Make items:</strong> {detail.productionWarnings.makeItemCount}</li>}</ul>}
     </section>}
     {error && <p className="vq-error" role="alert">{error}</p>}

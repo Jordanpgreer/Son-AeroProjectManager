@@ -146,7 +146,7 @@ public sealed class QuoteStatusWorkflowContextTests
         quote.FulcrumFilePathsJson = "[\"S:\\\\Quotes\\\\Q4445\",\"S:\\\\Quotes\\\\Q4445 Support\"]";
         quote.ArdaFilePathOverridesJson = "[\"S:\\\\Quotes\\\\Q4445 Local\"]";
         quote.ArdaSuppressedFilePathsJson = "[\"S:\\\\Quotes\\\\Q4445 Support\"]";
-        quote.FulcrumQuoteItemsJson = "[{\"itemId\":\"item-1\",\"partNumber\":\"74A231660-2011\",\"revision\":\"C\"}]";
+        quote.FulcrumQuoteItemsJson = "[{\"itemId\":\"item-1\",\"partNumber\":\"74A231660-2011\",\"revision\":\"C\",\"lineNumber\":20,\"quantity\":12.5}]";
         quote.FulcrumOpWarningsJson = "[\"74A231660-2011: OP Testing\"]";
         quote.FulcrumBuyItemCount = 3;
         quote.FulcrumMakeItemCount = 1;
@@ -161,6 +161,8 @@ public sealed class QuoteStatusWorkflowContextTests
         Assert.Equal(["Fulcrum", "Arda"], detail.FileLocations!.Select(location => location.Source));
         Assert.Equal("74A231660-2011", detail.ProductionWarnings!.Items.Single().PartNumber);
         Assert.Equal("C", detail.ProductionWarnings.Items.Single().Revision);
+        Assert.Equal(20, detail.ProductionWarnings.Items.Single().LineNumber);
+        Assert.Equal(12.5m, detail.ProductionWarnings.Items.Single().Quantity);
         Assert.Equal(3, detail.ProductionWarnings.BuyItemCount);
         Assert.Equal(1, detail.ProductionWarnings.MakeItemCount);
         Assert.True(detail.Quote.HasFulcrumWarnings);

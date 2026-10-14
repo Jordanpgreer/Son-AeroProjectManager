@@ -184,6 +184,17 @@ export interface EnterpriseQuoteSyncResult {
   unchangedRecords: number
 }
 
+export interface ProjectLookupCatalogRefreshResult {
+  items: number
+  jobs: number
+  salesOrders: number
+  completedAt: string
+}
+
+export interface QualityShipmentRefreshResult {
+  updatedRecords: number
+}
+
 export interface EnterpriseIntegrationProvider {
   activeProvider: string
   updatedAt: string
