@@ -9,7 +9,27 @@ public sealed class ArdaPushSchemaInitializer(PortalRoleDbContext db)
     {
         var provider = db.Database.ProviderName ?? string.Empty;
         if (provider.Contains("Sqlite", StringComparison.OrdinalIgnoreCase))
+        {
             await db.Database.ExecuteSqlRawAsync(SqliteSchema, cancellationToken);
+            await db.Database.OpenConnectionAsync(cancellationToken);
+            try
+            {
+                await using var command = db.Database.GetDbConnection().CreateCommand();
+                command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ArdaPushNotifications') WHERE name = 'ReadAt';";
+                var exists = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken));
+                if (exists == 0)
+                    await db.Database.ExecuteSqlRawAsync(
+                        "ALTER TABLE \"ArdaPushNotifications\" ADD COLUMN \"ReadAt\" TEXT NULL;",
+                        cancellationToken);
+                await db.Database.ExecuteSqlRawAsync(
+                    "CREATE INDEX IF NOT EXISTS \"IX_ArdaPushNotifications_RecipientAccountName_CreatedAt\" ON \"ArdaPushNotifications\" (\"RecipientAccountName\", \"CreatedAt\");",
+                    cancellationToken);
+            }
+            finally
+            {
+                await db.Database.CloseConnectionAsync();
+            }
+        }
         else if (provider.Contains("SqlServer", StringComparison.OrdinalIgnoreCase))
             await db.Database.ExecuteSqlRawAsync(SqlServerSchema, cancellationToken);
     }
@@ -39,6 +59,7 @@ public sealed class ArdaPushSchemaInitializer(PortalRoleDbContext db)
             "CreatedAt" TEXT NOT NULL,
             "NextAttemptAt" TEXT NOT NULL,
             "DeliveredAt" TEXT NULL,
+            "ReadAt" TEXT NULL,
             "DeliveryMethod" TEXT NULL,
             "AttemptCount" INTEGER NOT NULL,
             "LastError" TEXT NULL,
@@ -80,6 +101,7 @@ public sealed class ArdaPushSchemaInitializer(PortalRoleDbContext db)
                 [CreatedAt] datetimeoffset NOT NULL,
                 [NextAttemptAt] datetimeoffset NOT NULL,
                 [DeliveredAt] datetimeoffset NULL,
+                [ReadAt] datetimeoffset NULL,
                 [DeliveryMethod] nvarchar(24) NULL,
                 [AttemptCount] int NOT NULL,
                 [LastError] nvarchar(1000) NULL,
@@ -91,5 +113,11 @@ public sealed class ArdaPushSchemaInitializer(PortalRoleDbContext db)
             CREATE INDEX [IX_ArdaPushNotifications_DeliveredAt_NextAttemptAt]
                 ON [dbo].[ArdaPushNotifications] ([DeliveredAt], [NextAttemptAt]);
         END;
+        IF COL_LENGTH(N'dbo.ArdaPushNotifications', N'ReadAt') IS NULL
+            ALTER TABLE [dbo].[ArdaPushNotifications] ADD [ReadAt] datetimeoffset NULL;
+        IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[ArdaPushNotifications]')
+            AND name = N'IX_ArdaPushNotifications_RecipientAccountName_CreatedAt')
+            CREATE INDEX [IX_ArdaPushNotifications_RecipientAccountName_CreatedAt]
+                ON [dbo].[ArdaPushNotifications] ([RecipientAccountName], [CreatedAt]);
         """;
 }

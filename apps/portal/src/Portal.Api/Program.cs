@@ -24,6 +24,7 @@ builder.Services.AddSingleton<ApplicationRegistry>();
 builder.Services.AddScoped<PortalUserService>();
 builder.Services.AddScoped<IPortalRoleStore, PortalRoleStore>();
 builder.Services.AddScoped<ApplicationNotificationService>();
+builder.Services.AddScoped<ArdaGlobalInboxService>();
 builder.Services.AddScoped<ArdaPushSchemaInitializer>();
 builder.Services.AddScoped<ArdaPushSubscriptionService>();
 builder.Services.AddScoped<ArdaPushProducerService>();

@@ -110,6 +110,10 @@ function initials(name: string) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
+function firstName(displayName: string) {
+  return displayName.trim().split(/\s+/)[0] ?? ''
+}
+
 function capabilityLabels(application: PortalApp) {
   return CAPABILITIES[application.id] ?? [application.category, 'Internal workflow']
 }
@@ -336,7 +340,7 @@ export default function App() {
   }
 
   return (
-    <div className={`portal ${adminRoute ? 'admin-portal' : 'catalog-portal'} ${launchingAppId ? 'is-launching' : ''}`.trim()}>
+    <div className={`portal ${adminRoute ? 'admin-portal' : 'catalog-portal'} ${!adminRoute && !accountStatus && !accessPreview ? 'arda-home-portal' : ''} ${launchingAppId ? 'is-launching' : ''}`.trim()}>
       <header className="portal-top">
         <div className="brand arda-brand">
           <span className="arda-logo-surface">
@@ -436,15 +440,43 @@ export default function App() {
           </aside>
         )}
         <main className="portal-main catalog-main">
-        <section className="catalog-intro" aria-labelledby="catalog-title">
-          <div className="catalog-intro-copy">
-            <span className="kicker">Arda Internal Systems</span>
-            <h1 id="catalog-title">{accessPreview ? `Access for ${accessPreview.title}` : 'Home'}</h1>
-            <p>{accessPreview ? 'This is a read-only view of the workspaces available to this target.' : 'Your workspaces are in the navigation. Pick up where you need to work.'}</p>
-          </div>
-        </section>
+        {accessPreview ? (
+          <section className="catalog-intro" aria-labelledby="catalog-title">
+            <div className="catalog-intro-copy">
+              <span className="kicker">Arda Internal Systems</span>
+              <h1 id="catalog-title">Access for {accessPreview.title}</h1>
+              <p>This is a read-only view of the workspaces available to this target.</p>
+            </div>
+          </section>
+        ) : (
+          <section className="arda-home-hero" aria-labelledby="arda-home-title">
+            <p className="arda-home-greeting">
+              Welcome{me?.displayName ? `, ${firstName(me.displayName)}` : ''}
+            </p>
+            <div className="arda-home-center">
+              <span className="arda-home-emblem" aria-hidden="true" />
+              <h1 id="arda-home-title">
+                <span className="sr-only">Arda</span>
+                <svg className="arda-home-wordmark" viewBox="720 322 1040 210" aria-hidden="true" focusable="false">
+                  <image className="arda-home-wordmark-light" href="/brand/arda-lockup.png" width="1825" height="862" />
+                  <image className="arda-home-wordmark-dark" href="/brand/arda-lockup-reversed.png" width="1825" height="862" />
+                </svg>
+              </h1>
+            </div>
+            {error ? (
+              <div className="arda-home-status" role="alert">
+                <span>The application list could not load.</span>
+                <button type="button" onClick={() => void load()}>Try again</button>
+              </div>
+            ) : !loading && catalogApps?.length === 0 ? (
+              <p className="arda-home-status" role="status">
+                Your account does not currently have access to an application.
+              </p>
+            ) : null}
+          </section>
+        )}
 
-        {loading ? (
+        {accessPreview && (loading ? (
           <section className="catalog-loading" aria-live="polite" aria-busy="true">
             <span className="sr-only">Loading applications</span>
             <div className="catalog-section-heading skeleton-heading" aria-hidden="true" />
@@ -481,7 +513,7 @@ export default function App() {
               previewMode={Boolean(accessPreview)}
             />
           </div>
-        )}
+        ))}
         </main>
         </div>
       )}

@@ -265,6 +265,7 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
             entity.HasIndex(notification => new { notification.SourceModule, notification.SourceNotificationKey })
                 .IsUnique();
             entity.HasIndex(notification => new { notification.DeliveredAt, notification.NextAttemptAt });
+            entity.HasIndex(notification => new { notification.RecipientAccountName, notification.CreatedAt });
             entity.Property(notification => notification.RecipientAccountName).HasMaxLength(160);
             entity.Property(notification => notification.SourceModule).HasMaxLength(64);
             entity.Property(notification => notification.SourceNotificationKey).HasMaxLength(160);
@@ -402,8 +403,13 @@ public sealed class PortalNotificationRecord
     public int? ProjectMessageId { get; set; }
     public string Kind { get; set; } = string.Empty;
     public string ActorAccountName { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string BodyPreview { get; set; } = string.Empty;
+    public DateOnly? ScheduledDate { get; set; }
+    public DateOnly? SnoozedUntil { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? ReadAt { get; set; }
+    public DateTimeOffset? RespondedAt { get; set; }
 }
 
 public sealed class PortalNotificationProjectRecord
@@ -416,6 +422,11 @@ public sealed class PortalNotificationTaskRecord
 {
     public int Id { get; set; }
     public int ProjectId { get; set; }
+    public DateOnly? StartDate { get; set; }
+    public DateOnly? EndDate { get; set; }
+    public DateOnly? ExternalActualStartDate { get; set; }
+    public decimal PercentComplete { get; set; }
+    public bool PercentCompleteManual { get; set; }
 }
 
 public sealed class PortalNotificationMessageRecord
@@ -569,6 +580,7 @@ public sealed class ArdaPushNotificationRecord
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset NextAttemptAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? DeliveredAt { get; set; }
+    public DateTimeOffset? ReadAt { get; set; }
     public string? DeliveryMethod { get; set; }
     public int AttemptCount { get; set; }
     public string? LastError { get; set; }

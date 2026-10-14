@@ -6,7 +6,7 @@
 .admin-portal > footer { display: none; }
 .admin-main.portal-main {
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-columns: 322px minmax(0, 1fr);
   width: 100%;
   max-width: none;
   min-height: 0;
@@ -68,12 +68,12 @@
 .admin-workspace-content .admin-preview-targets { max-height: none; }
 
 @media (min-width: 1600px) {
-  .admin-main.portal-main { grid-template-columns: 264px minmax(0, 1fr); }
+  .admin-main.portal-main { grid-template-columns: 343px minmax(0, 1fr); }
   .admin-workspace-head { padding-inline: 40px; }
   .admin-workspace-content { padding: 28px 40px 48px; }
 }
 @media (max-width: 1100px) and (min-width: 761px) {
-  .admin-main.portal-main { grid-template-columns: 220px minmax(0, 1fr); }
+  .admin-main.portal-main { grid-template-columns: 286px minmax(0, 1fr); }
   .admin-sidebar-heading { padding-inline: 14px; }
   .admin-workspace-head, .admin-workspace-content { padding-inline: 20px; }
   .admin-workspace-content .access-overview-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }

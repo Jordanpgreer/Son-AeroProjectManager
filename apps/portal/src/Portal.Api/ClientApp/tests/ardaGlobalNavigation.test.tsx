@@ -56,6 +56,8 @@ describe('ArdaGlobalNavigation', () => {
     expect(markup).toContain('Loading other areas')
     expect(markup).not.toContain('title="Project Tracker"')
     expect(markup.match(/href=/g)).toHaveLength(1)
+    expect(markup).not.toContain('arda-global-navigation__topline')
+    expect(markup).not.toContain('arda-global-navigation__heading')
   })
 
   it('marks Home as current on the Portal without marking an application current', () => {
@@ -79,6 +81,7 @@ describe('ArdaGlobalNavigation', () => {
     expect(markup).not.toContain('href=')
     expect(markup).not.toContain('title="Quality Assurance"')
     expect(markup).toContain('aria-disabled="true"')
+    expect(markup).not.toContain('aria-label="Arda notifications"')
   })
 
   it('rejects unsafe destinations even in a supplied catalog', () => {

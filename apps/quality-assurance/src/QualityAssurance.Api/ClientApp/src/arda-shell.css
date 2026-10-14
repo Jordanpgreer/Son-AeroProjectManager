@@ -13,6 +13,25 @@
   overflow-y: auto;
 }
 
+/* Give the expanded navigation 30% more room without changing compact rails. */
+@media (min-width: 981px) {
+  :is(.app-shell.project-tracker-app, .estimating-shell.estimating-app, .engineering-shell.engineering-app, .qa-shell.quality-assurance-app):not(.is-sidebar-collapsed) {
+    grid-template-columns: 302px minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 901px) {
+  .arda-workspace:not(.is-access-preview) {
+    grid-template-columns: 312px minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 681px) and (max-width: 900px) {
+  .arda-workspace:not(.is-access-preview) {
+    grid-template-columns: 267px minmax(0, 1fr);
+  }
+}
+
 .arda-global-navigation {
   display: grid;
   gap: 8px;
@@ -22,14 +41,72 @@
   border-bottom: 1px solid var(--nav-line, var(--line-2, #a8bbc9));
 }
 
-.arda-global-navigation__heading {
-  margin: 0 0 3px;
-  color: var(--nav-muted, var(--muted, #66788a));
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .12em;
-  line-height: 1.4;
-  text-transform: uppercase;
+.arda-global-navigation__inbox-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 32px;
+  min-height: 30px;
+  gap: 4px;
+  padding: 4px 5px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.arda-global-navigation__inbox-trigger:hover,
+.arda-global-navigation__inbox-trigger[aria-expanded='true'] {
+  color: var(--arda-band-ink);
+  background: var(--arda-band-hover);
+  border-color: var(--arda-band-line);
+}
+
+.arda-global-navigation__inbox-count {
+  display: inline-grid;
+  min-width: 17px;
+  height: 17px;
+  place-items: center;
+  padding-inline: 3px;
+  border-radius: 9px;
+  background: var(--arda-red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.arda-global-navigation__inbox-slot {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.arda-global-navigation__inbox-slot .arda-global-navigation__inbox-trigger {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  min-height: 38px;
+  padding: 0;
+  border-color: var(--line-2, #b8cadb);
+  background: var(--surface, #fff);
+  color: var(--ink, #172434);
+}
+
+.arda-global-navigation__inbox-slot .arda-global-navigation__inbox-count {
+  position: absolute;
+  top: -6px;
+  right: -7px;
+  box-shadow: 0 0 0 2px var(--surface, #fff);
+}
+
+.arda-global-navigation__inbox-slot .arda-global-navigation__inbox-trigger:focus-visible {
+  outline: 2px solid var(--arda-band-focus);
+  outline-offset: 2px;
 }
 
 .arda-global-navigation > nav {
@@ -182,7 +259,6 @@
   font-size: 12px;
 }
 
-:is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .arda-global-navigation__heading,
 :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .arda-global-navigation__module-name,
 :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .arda-global-navigation__chevron,
 :is(.project-tracker-app, .estimating-app, .engineering-app, .quality-assurance-app).is-sidebar-collapsed .arda-global-navigation__panel,
@@ -204,6 +280,170 @@
 @media (prefers-reduced-motion: reduce) {
   .arda-global-navigation__chevron { transition: none; }
 }
+
+/* The inbox is portaled to the document so narrow and scrollable sidebars do not clip it. */
+.arda-global-inbox {
+  position: fixed;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100vw - 16px));
+  max-height: min(520px, calc(100dvh - 16px));
+  overflow: hidden;
+  border: 1px solid var(--line-2, #b8cadb);
+  border-radius: 11px;
+  background: var(--surface, #fff);
+  color: var(--ink, #172434);
+  box-shadow: 0 20px 55px rgba(6, 18, 33, .26);
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.arda-global-inbox__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 15px;
+  border-bottom: 1px solid var(--line, #d1dde6);
+}
+
+.arda-global-inbox__header > div { display: grid; gap: 2px; }
+.arda-global-inbox__header strong { font-size: 14px; line-height: 1.2; }
+.arda-global-inbox__header span { color: var(--muted, #66788a); font-size: 11px; }
+.arda-global-inbox__header button,
+.arda-global-inbox__mark-read,
+.arda-global-inbox__error button,
+.arda-global-inbox-toast button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.arda-global-inbox__header button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 6px;
+}
+.arda-global-inbox__header button:hover,
+.arda-global-inbox-toast button:hover { background: var(--surface-2, #eef4f8); }
+.arda-global-inbox__empty {
+  margin: 0;
+  padding: 26px 15px;
+  color: var(--muted, #66788a);
+  font-size: 12px;
+  text-align: center;
+}
+.arda-global-inbox__error {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 14px;
+  background: var(--red-tint, #fff0ef);
+  color: var(--red-700, #a5271d);
+  font-size: 11px;
+}
+.arda-global-inbox__error button { font-weight: 700; text-decoration: underline; }
+.arda-global-inbox__list {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.arda-global-inbox__list li {
+  display: grid;
+  gap: 0;
+  border-bottom: 1px solid var(--line, #d1dde6);
+}
+.arda-global-inbox__list li:last-child { border-bottom: 0; }
+.arda-global-inbox__list li.is-unread {
+  box-shadow: inset 3px 0 0 var(--steel, #2f679b);
+  background: color-mix(in srgb, var(--steel, #2f679b) 8%, var(--surface, #fff));
+}
+.arda-global-inbox__list li > a {
+  display: grid;
+  gap: 5px;
+  padding: 11px 14px 5px;
+  color: inherit;
+  text-decoration: none;
+}
+.arda-global-inbox__list li > a:hover { background: color-mix(in srgb, var(--steel, #2f679b) 7%, transparent); }
+.arda-global-inbox__item-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.arda-global-inbox__item-top strong { font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
+.arda-global-inbox__unread-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--steel, #2f679b);
+}
+.arda-global-inbox__item-body { color: var(--ink-2, #4f6173); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.arda-global-inbox__item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 3px 10px;
+  color: var(--muted, #66788a);
+  font-size: 10px;
+}
+.arda-global-inbox__mark-read {
+  justify-self: start;
+  margin: 0 0 8px 14px;
+  padding: 3px 0;
+  color: var(--steel-700, #285d90);
+  font-size: 10px;
+  font-weight: 700;
+}
+.arda-global-inbox__mark-read:disabled { opacity: .5; cursor: wait; }
+.arda-global-inbox__mark-read:hover:not(:disabled) { text-decoration: underline; }
+.arda-global-inbox :is(a, button):focus-visible,
+.arda-global-inbox-toast :is(a, button):focus-visible {
+  outline: 2px solid var(--arda-band-focus, #2365e8);
+  outline-offset: -2px;
+}
+.arda-global-inbox-toasts {
+  position: fixed;
+  z-index: 1210;
+  right: 18px;
+  bottom: 18px;
+  display: grid;
+  width: min(380px, calc(100vw - 36px));
+  gap: 8px;
+  pointer-events: none;
+  font-family: Inter, system-ui, sans-serif;
+}
+.arda-global-inbox-toast {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  overflow: hidden;
+  border: 1px solid var(--line-2, #b8cadb);
+  border-left: 4px solid var(--steel, #2f679b);
+  border-radius: 9px;
+  background: var(--surface, #fff);
+  color: var(--ink, #172434);
+  box-shadow: 0 16px 45px rgba(6, 18, 33, .26);
+  pointer-events: auto;
+}
+.arda-global-inbox-toast a {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+  padding: 11px;
+  color: inherit;
+  text-decoration: none;
+}
+.arda-global-inbox-toast a:hover { background: var(--surface-2, #eef4f8); }
+.arda-global-inbox-toast a > svg { flex: none; color: var(--steel, #2f679b); }
+.arda-global-inbox-toast a > span { display: grid; min-width: 0; gap: 2px; }
+.arda-global-inbox-toast strong { font-size: 11px; line-height: 1.3; }
+.arda-global-inbox-toast small { overflow: hidden; color: var(--ink-2, #4f6173); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.arda-global-inbox-toast em { color: var(--muted, #66788a); font-size: 9px; font-style: normal; text-transform: uppercase; }
+.arda-global-inbox-toast button { align-self: start; display: grid; width: 28px; height: 28px; place-items: center; margin-top: 5px; border-radius: 5px; }
 
 :root {
   --arda-navy: #07325f;
