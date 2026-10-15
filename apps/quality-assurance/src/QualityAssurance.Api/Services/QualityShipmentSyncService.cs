@@ -208,9 +208,9 @@ public sealed class QualityShipmentSyncService(
                 ? existing.FirstOrDefault(part => !claimed.Contains(part)
                     && string.Equals(part.ExternalItemId, external.ExternalItemId, StringComparison.OrdinalIgnoreCase))
                 : null;
-            match ??= external.LineItemNumber.HasValue
+            match ??= !string.IsNullOrWhiteSpace(external.LineItemNumber)
                 ? existing.FirstOrDefault(part => !claimed.Contains(part)
-                    && part.LineItemNumber == external.LineItemNumber)
+                    && string.Equals(part.LineItemNumber, external.LineItemNumber, StringComparison.OrdinalIgnoreCase))
                 : null;
             match ??= existing.FirstOrDefault(part => !claimed.Contains(part)
                 && string.Equals(part.PartNumber, external.PartNumber, StringComparison.OrdinalIgnoreCase));
@@ -228,7 +228,8 @@ public sealed class QualityShipmentSyncService(
             changed |= Set(match.UnitPrice, external.UnitPrice, value => match.UnitPrice = value);
             changed |= Set(match.TotalValue, external.TotalValue, value => match.TotalValue = value);
             changed |= Set(match.ExternalItemId, external.ExternalItemId, value => match.ExternalItemId = value);
-            changed |= Set(match.LineItemNumber, external.LineItemNumber, value => match.LineItemNumber = value);
+            if (!string.IsNullOrWhiteSpace(external.LineItemNumber))
+                changed |= Set(match.LineItemNumber, external.LineItemNumber, value => match.LineItemNumber = value);
             changed |= Set(match.DisplayOrder, external.DisplayOrder, value => match.DisplayOrder = value);
         }
 
@@ -315,7 +316,7 @@ public sealed class QualityShipmentSyncService(
     private static string FormatParts(IEnumerable<QualityShipmentPart> parts) => string.Join(
         "; ",
         parts.OrderBy(part => part.DisplayOrder).Select(part =>
-            $"{part.LineItemNumber?.ToString(CultureInfo.InvariantCulture) ?? ""}|{part.PartNumber}|{part.Quantity?.ToString(CultureInfo.InvariantCulture) ?? ""}|{part.UnitPrice?.ToString("0.00", CultureInfo.InvariantCulture) ?? ""}"));
+            $"{part.LineItemNumber ?? ""}|{part.PartNumber}|{part.Quantity?.ToString(CultureInfo.InvariantCulture) ?? ""}|{part.UnitPrice?.ToString("0.00", CultureInfo.InvariantCulture) ?? ""}"));
 
     private static string? Format<T>(T value) => value switch
     {

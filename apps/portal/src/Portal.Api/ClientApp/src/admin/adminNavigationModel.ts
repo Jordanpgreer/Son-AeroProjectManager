@@ -147,6 +147,5 @@ export const QUALITY_SECTIONS: {
   icon: typeof Settings2
 }[] = [
   { key: 'assignment-rules', label: 'Workflow', icon: Waypoints },
-  { key: 'teams', label: 'Teams & Groups', icon: ShieldCheck },
-  { key: 'people', label: 'Team Members', icon: Users },
+  { key: 'teams', label: 'Teams', icon: Users },
 ]

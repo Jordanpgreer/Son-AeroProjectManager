@@ -11,6 +11,7 @@ import EstimatingImportAccessPanel from './EstimatingImportAccessPanel'
 import IntegrationCredentialsPanel from './IntegrationCredentialsPanel'
 import ApiCustomizerPanel from './ApiCustomizerPanel'
 import QualityAssignmentRulesPanel from './QualityAssignmentRulesPanel'
+import QualityTeamsPanel from './QualityTeamsPanel'
 import RaidLogPanel from './RaidLogPanel'
 import WalkthroughSettingsPanel from './WalkthroughSettingsPanel'
 import { toErrorMessage, trackerApi } from './api'
@@ -31,6 +32,7 @@ import './admin.css'
 import './admin-responsive.css'
 import './access-management.css'
 import './admin-workspace.css'
+import './quality-teams.css'
 
 interface AdminRoute {
   module: AdminModuleKey
@@ -180,6 +182,7 @@ export default function AdminConsole({
   const canViewEngineeringSettings = granted.has('engineering.settings.view')
   const canViewQualitySettings = granted.has('quality-assurance.settings.view')
   const canManageQualityRules = granted.has('quality-assurance.rules.manage')
+  const canManageQualityTeams = granted.has('quality-assurance.teams.manage')
   const canManageEstimatingSettings = granted.has('estimating.settings.admin')
   const canManageEstimatingImportAccess = canManageGroups
   const canManageWorkCenters = granted.has(PERMISSIONS.workCenters)
@@ -272,6 +275,7 @@ export default function AdminConsole({
         canOpenTrackerSection={(section) => permissionsReady && canOpenSection(section)}
         canViewEngineeringSettings={permissionsReady && canViewEngineeringSettings}
         canViewQualitySettings={permissionsReady && canViewQualitySettings}
+        canManageQualityTeams={permissionsReady && canManageQualityTeams}
       />
       <section className="admin-module-panel" aria-labelledby="admin-workspace-title">
         <header className="admin-workspace-head">
@@ -322,10 +326,8 @@ export default function AdminConsole({
           {route.module === 'quality-assurance' && !permissionsLoading && permissionsError && <NoAccess detail={permissionsError} />}
           {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && !canViewQualitySettings && <NoAccess detail="Your groups do not grant permission to view Quality settings." />}
           {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && canViewQualitySettings && route.section === 'assignment-rules' && <QualityAssignmentRulesPanel canManage={canManageQualityRules} />}
-          {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && canViewQualitySettings && route.section === 'teams' && !canManageGroups && <NoAccess detail="Managing Quality teams requires the Manage Permission Groups permission." />}
-          {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && canViewQualitySettings && route.section === 'teams' && canManageGroups && <div className="quality-team-admin-stack"><section className="admin-surface admin-readonly-note"><strong>Quality team setup</strong><p>Create one shared team group for its manager and team members. Give only the manager's separate permission group the Team Dashboard permission; the server then limits that manager to workloads assigned to teams they belong to.</p></section><AccessPanel key="quality-teams" currentAccountName={trackerUser?.accountName ?? currentAccountName} canManageUsers={canManageUsers} canManageGroups={canManageGroups} view="groups" /></div>}
-          {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && canViewQualitySettings && route.section === 'people' && !canManageUsers && <NoAccess detail="Assigning Quality team members requires the Manage Users permission." />}
-          {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && canViewQualitySettings && route.section === 'people' && canManageUsers && <div className="quality-team-admin-stack"><section className="admin-surface admin-readonly-note"><strong>Team membership</strong><p>Assign each manager to their team group plus a manager permission group. Assign team members only to their team group unless they should also manage that team.</p></section><AccessPanel key="quality-people" currentAccountName={trackerUser?.accountName ?? currentAccountName} canManageUsers={canManageUsers} canManageGroups={canManageGroups} view="people" /></div>}
+          {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && canViewQualitySettings && route.section === 'teams' && !canManageQualityTeams && <NoAccess detail="Managing Quality teams requires the Manage Quality Teams permission." />}
+          {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && canViewQualitySettings && route.section === 'teams' && canManageQualityTeams && <QualityTeamsPanel />}
           {route.module === 'raid-log' && currentPortalRole !== 'Admin' && <NoAccess detail="The RAID Log is available only to Arda administrators." />}
           {route.module === 'raid-log' && currentPortalRole === 'Admin' && <RaidLogPanel currentAccountName={trackerUser?.accountName ?? currentAccountName} />}
           {route.module === 'estimating' && permissionsLoading && <div className="admin-loading" role="status">Checking Estimating permissions...</div>}

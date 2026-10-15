@@ -18,6 +18,7 @@ interface AdminNavigationProps {
   canOpenTrackerSection: (section: ProjectTrackerAdminSection) => boolean
   canViewEngineeringSettings: boolean
   canViewQualitySettings: boolean
+  canManageQualityTeams: boolean
 }
 
 export default function AdminNavigation(props: AdminNavigationProps) {
@@ -51,7 +52,7 @@ export default function AdminNavigation(props: AdminNavigationProps) {
       ...item,
       href: `#/admin/quality-assurance/${item.key}`,
       allowed: props.canViewQualitySettings
-        && (item.key === 'teams' ? props.canManageGroups : item.key === 'people' ? props.canManageUsers : true),
+        && (item.key !== 'teams' || props.canManageQualityTeams),
     }))
     return [{ key: module.href.split('/').at(-1)!, label: module.label, icon: module.icon, href: module.href, allowed: true }]
   }

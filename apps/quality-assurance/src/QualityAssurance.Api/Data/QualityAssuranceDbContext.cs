@@ -91,6 +91,7 @@ public sealed class QualityAssuranceDbContext(
             entity.Property(part => part.UnitPrice).HasPrecision(18, 2);
             entity.Property(part => part.TotalValue).HasPrecision(18, 2);
             entity.Property(part => part.ExternalItemId).HasMaxLength(80);
+            entity.Property(part => part.LineItemNumber).HasMaxLength(80);
             entity.HasIndex(part => new { part.ShipmentId, part.DisplayOrder });
             entity.HasIndex(part => part.PartNumber);
         });

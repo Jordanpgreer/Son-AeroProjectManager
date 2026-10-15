@@ -539,6 +539,11 @@ nav { display: grid; gap: 3px; }
 .notice { display: flex; gap: 9px; align-items: flex-start; margin: 14px 0; padding: 11px 13px; border: 1px solid var(--line-2); border-radius: var(--r-sm); font-size: 12px; line-height: 1.45; }
 .notice.error { color: var(--risk-700); background: var(--risk-tint); border-color: color-mix(in srgb, var(--risk) 35%, var(--line)); }
 .notice.success { color: var(--done-700); background: var(--done-tint); border-color: color-mix(in srgb, var(--done) 35%, var(--line)); }
+.shipment-success-toast { position: fixed; z-index: 10025; right: 18px; bottom: 18px; display: grid; grid-template-columns: 20px minmax(0, 1fr) 28px; width: min(370px, calc(100vw - 36px)); gap: 10px; align-items: center; padding: 11px 10px 11px 13px; color: var(--done-700); background: var(--surface); border: 1px solid color-mix(in srgb, var(--done) 35%, var(--line)); border-left: 4px solid var(--done); border-radius: var(--r-md); box-shadow: 0 22px 58px rgba(6, 10, 14, .3); font-size: 11.5px; font-weight: 700; animation: shipment-toast-in 180ms ease-out; }
+.shipment-success-toast > svg { color: var(--done); }
+.shipment-success-toast button { display: grid; width: 28px; height: 28px; place-items: center; padding: 0; color: var(--muted); background: transparent; border: 0; border-radius: var(--r-xs); cursor: pointer; }
+.shipment-success-toast button:hover { color: var(--ink); background: var(--surface-2); }
+@keyframes shipment-toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .loading-panel { display: grid; min-height: 260px; place-items: center; color: var(--muted); font-size: 13px; }
 .loading-panel.compact { min-height: 120px; }
 .error-panel { display: flex; max-width: 720px; gap: 14px; margin: 30px; color: var(--risk-700); border-color: color-mix(in srgb, var(--risk) 32%, var(--line)); }
@@ -865,4 +870,9 @@ mark { padding: 0 2px; color: inherit; background: #ffe071; border-radius: 2px; 
   .drawer-confirm .button { width: 100%; }
   .modal-backdrop { padding: 8px; }
   .modal { max-height: calc(100vh - 16px); }
+  .shipment-success-toast { right: 14px; bottom: 14px; left: 14px; width: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shipment-success-toast { animation: none; }
 }

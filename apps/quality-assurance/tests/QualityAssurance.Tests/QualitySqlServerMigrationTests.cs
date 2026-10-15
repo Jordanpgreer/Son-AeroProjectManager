@@ -20,7 +20,8 @@ public sealed class QualitySqlServerMigrationTests
         "20260908210000_AddQualityMentionPortalPushDelivery",
         "20260909200000_AddQualityShipmentCreationRequestId",
         "20260910165911_AddQualityWorkflows",
-        "20261013090000_AddQualityShipmentLineItemNumbers"
+        "20261013090000_AddQualityShipmentLineItemNumbers",
+        "20261015120000_ConvertQualityShipmentLineItemNumbersToString"
     ];
 
     [Fact]
@@ -80,6 +81,7 @@ public sealed class QualitySqlServerMigrationTests
         Assert.Contains("[ExternalShipmentUrl] nvarchar(1000) NULL", script);
         Assert.Contains("[ShipperNumber] nvarchar(80) NULL", script);
         Assert.Contains("[LineItemNumber] int NULL", script);
+        Assert.Contains("ALTER COLUMN [LineItemNumber] nvarchar(80) NULL", script);
         Assert.Contains("[CreationRequestId] uniqueidentifier NULL", script);
         Assert.Contains("IX_QualityShipments_CreationRequestId", script);
         Assert.Contains(

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -14,7 +15,7 @@ public sealed class QualityIntegrationOptions
     public bool Enabled { get; set; } = true;
     public string FulcrumBaseUrl { get; set; } = FulcrumApiEndpoint.ItarBaseUrl;
     public string FulcrumShipmentUrlTemplate { get; set; } = string.Empty;
-    public int SyncIntervalMinutes { get; set; } = 5;
+    public int SyncIntervalMinutes { get; set; } = 60;
     public int PageSize { get; set; } = 5000;
 }
 
@@ -23,7 +24,7 @@ public sealed record QualityExternalShipmentPart(
     decimal? Quantity,
     decimal? UnitPrice,
     string? ExternalItemId,
-    int? LineItemNumber = null);
+    string? LineItemNumber = null);
 
 public sealed record QualityExternalShipment(
     string ExternalId,
@@ -147,12 +148,18 @@ public sealed class FulcrumQualityShipmentProvider(
         var rows = new List<FulcrumShipmentLineItemDto>();
         foreach (var batch in shipmentIds.Chunk(500))
         {
-            var page = await PostAsync<FulcrumPage<FulcrumShipmentLineItemDto>>(
-                $"api/shipment-line-items/list?Skip=0&Take=5000&Sort.Field=ShipmentName&Sort.Dir={FulcrumApiEndpoint.AscendingSortDirection}",
-                new { shipmentIds = batch },
-                token,
-                cancellationToken);
-            rows.AddRange(page.Data);
+            var skip = 0;
+            while (true)
+            {
+                var page = await PostAsync<FulcrumPage<FulcrumShipmentLineItemDto>>(
+                    $"api/shipment-line-items/list?Skip={skip}&Take=5000&Sort.Field=ShipmentName&Sort.Dir={FulcrumApiEndpoint.AscendingSortDirection}",
+                    new { shipmentIds = batch },
+                    token,
+                    cancellationToken);
+                rows.AddRange(page.Data);
+                if (!page.HasNextPage || page.Data.Count == 0) break;
+                skip += page.Data.Count;
+            }
         }
         return rows;
     }
@@ -215,14 +222,29 @@ public sealed class FulcrumQualityShipmentProvider(
     {
         var reportRows = rows ?? [];
         var exactLines = shipmentLines ?? [];
+        var allSalesOrderLines = salesOrderLines.Values.SelectMany(lines => lines).ToList();
         var parts = exactLines.Select((line, index) =>
         {
             FulcrumSalesOrderPartLineItemDto? salesOrderLine = null;
+            IReadOnlyList<FulcrumSalesOrderPartLineItemDto> candidates = [];
             if (!string.IsNullOrWhiteSpace(line.SalesOrderId)
-                && !string.IsNullOrWhiteSpace(line.SalesOrderLineItemId)
-                && salesOrderLines.TryGetValue(line.SalesOrderId, out var candidates))
+                && salesOrderLines.TryGetValue(line.SalesOrderId, out var matchingCandidates))
+                candidates = matchingCandidates;
+            if (!string.IsNullOrWhiteSpace(line.SalesOrderLineItemId))
+            {
                 salesOrderLine = candidates.FirstOrDefault(candidate =>
                     string.Equals(candidate.Id, line.SalesOrderLineItemId, StringComparison.OrdinalIgnoreCase));
+                salesOrderLine ??= allSalesOrderLines.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Id, line.SalesOrderLineItemId, StringComparison.OrdinalIgnoreCase));
+            }
+            if (salesOrderLine is null && !string.IsNullOrWhiteSpace(line.ItemId))
+            {
+                var itemMatches = candidates
+                    .Where(candidate => string.Equals(candidate.ItemId, line.ItemId, StringComparison.OrdinalIgnoreCase))
+                    .Take(2)
+                    .ToList();
+                if (itemMatches.Count == 1) salesOrderLine = itemMatches[0];
+            }
             var report = reportRows.FirstOrDefault(row =>
                 salesOrderLine is not null
                 && string.Equals(row.ItemName?.Trim(), salesOrderLine.Name.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -235,7 +257,7 @@ public sealed class FulcrumQualityShipmentProvider(
                 line.QuantityToShip,
                 salesOrderLine?.DiscountedPrice ?? salesOrderLine?.Price ?? report?.UnitPrice,
                 line.Id,
-                salesOrderLine?.Number);
+                salesOrderLine?.Number?.ToString(CultureInfo.InvariantCulture));
         }).ToList();
         if (parts.Count == 0)
         {
@@ -310,7 +332,8 @@ public sealed class FulcrumQualityShipmentProvider(
         string Name,
         decimal Price,
         decimal DiscountedPrice,
-        int Number);
+        int? Number,
+        string? ItemId);
 }
 
 public sealed class AcumaticaQualityShipmentProvider : IQualityShipmentProvider

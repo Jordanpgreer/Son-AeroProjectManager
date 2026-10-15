@@ -58,7 +58,7 @@ public sealed class QualityShipmentPart
     public decimal? UnitPrice { get; set; }
     public decimal? TotalValue { get; set; }
     public string? ExternalItemId { get; set; }
-    public int? LineItemNumber { get; set; }
+    public string? LineItemNumber { get; set; }
     public int DisplayOrder { get; set; }
 }
 

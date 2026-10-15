@@ -28,6 +28,12 @@ export function formatDuration(hours: number | null | undefined) {
   return `${(hours / 24).toFixed(1)} days`
 }
 
+export function formatCompletionDays(days: number | null | undefined) {
+  if (days == null || !Number.isFinite(days)) return 'Not recorded'
+  const rounded = Math.round(days * 10) / 10
+  return `${rounded.toLocaleString('en-US', { maximumFractionDigits: 1 })} ${rounded === 1 ? 'day' : 'days'}`
+}
+
 export function ageInDays(createdAt: string) {
   const created = new Date(createdAt).getTime()
   if (!Number.isFinite(created)) return 0

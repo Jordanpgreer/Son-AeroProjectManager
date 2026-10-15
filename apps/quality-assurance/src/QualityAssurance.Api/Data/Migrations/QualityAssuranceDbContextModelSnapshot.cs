@@ -442,8 +442,9 @@ namespace QualityAssurance.Api.Data.Migrations
                         .HasMaxLength(80)
                         .HasColumnType("nvarchar(80)");
 
-                    b.Property<int?>("LineItemNumber")
-                        .HasColumnType("int");
+                    b.Property<string>("LineItemNumber")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
 
                     b.Property<string>("PartNumber")
                         .IsRequired()

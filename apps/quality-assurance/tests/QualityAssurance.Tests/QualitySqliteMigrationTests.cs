@@ -105,6 +105,43 @@ public sealed class QualitySqliteMigrationTests
     }
 
     [Fact]
+    public async Task Line_item_conversion_preserves_existing_numeric_values_as_text()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<QualityAssuranceDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new QualityAssuranceDbContext(options);
+        var migrator = db.Database.GetService<IMigrator>();
+        await migrator.MigrateAsync("20261013090000_AddQualityShipmentLineItemNumbers");
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            INSERT INTO QualityShipments
+                (Status, SalesOrderNumber, PartNumber, Customer, TaskType, IsShipped, CreatedAt,
+                 CreatedByAccountName, CreatedByDisplayName, UpdatedAt, UpdatedByAccountName,
+                 UpdatedByDisplayName, Version)
+            VALUES
+                ('WIP', 'SHIP-LINE', 'PART-LINE', 'Customer', 'General', 0,
+                 '2026-10-15T00:00:00+00:00', 'TEST\admin', 'Admin',
+                 '2026-10-15T00:00:00+00:00', 'TEST\admin', 'Admin', 1);
+            INSERT INTO QualityShipmentParts
+                (ShipmentId, PartNumber, LineItemNumber, DisplayOrder)
+            VALUES
+                (last_insert_rowid(), 'PART-LINE', 42, 0);
+            """);
+
+        await migrator.MigrateAsync();
+
+        var part = await db.ShipmentParts.AsNoTracking().SingleAsync();
+        Assert.Equal("42", part.LineItemNumber);
+        await using var command = db.Database.GetDbConnection().CreateCommand();
+        command.CommandText =
+            "SELECT type FROM pragma_table_info('QualityShipmentParts') WHERE name = 'LineItemNumber';";
+        Assert.Equal("TEXT", await command.ExecuteScalarAsync());
+    }
+
+    [Fact]
     public void Readwrite_mode_does_not_recreate_a_missing_database()
     {
         var databasePath = Path.Combine(

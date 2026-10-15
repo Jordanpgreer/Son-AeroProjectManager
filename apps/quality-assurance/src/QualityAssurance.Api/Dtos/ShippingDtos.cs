@@ -49,7 +49,7 @@ public sealed record QualityShipmentPartDto(
     int? Quantity,
     decimal? UnitPrice,
     decimal? TotalValue,
-    int? LineItemNumber,
+    string? LineItemNumber,
     int DisplayOrder);
 
 public sealed record QualityShipmentPartInputDto(
@@ -57,7 +57,7 @@ public sealed record QualityShipmentPartInputDto(
     int? Quantity,
     decimal? UnitPrice,
     int? Id = null,
-    int? LineItemNumber = null);
+    string? LineItemNumber = null);
 
 public sealed record QualityShipmentLookupRequestDto(string? ShipperNumber);
 

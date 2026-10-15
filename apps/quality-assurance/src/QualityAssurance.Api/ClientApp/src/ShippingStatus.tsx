@@ -4,6 +4,7 @@ import {
   ArrowDown,
   ArrowDownUp,
   ArrowUp,
+  CheckCircle2,
   ChevronRight,
   ClipboardList,
   Clock3,
@@ -27,7 +28,7 @@ import {
 import { qualityApi } from './api'
 import { assignmentOwnerName } from './assignmentDisplay'
 import CustomerFilterCombobox from './CustomerFilterCombobox'
-import { ageInDays, formatCurrency, formatDate, formatDateTime } from './format'
+import { ageInDays, formatCompletionDays, formatCurrency, formatDate, formatDateTime } from './format'
 import ShipmentCommentsDrawer from './ShipmentCommentsDrawer'
 import { readShipmentDeepLink } from './shippingDeepLink'
 import { normalizeShippingScope } from './shippingScope'
@@ -59,12 +60,14 @@ const PERMISSIONS = {
   teamView: 'quality-assurance.dashboard.team-view',
 } as const
 
-const STATUS_OPTIONS = [
+const EDITABLE_STATUS_OPTIONS = [
   'WIP',
   'Pending Source',
   'Pending Customer Service',
   'Pending FAI Approval',
 ]
+
+const FILTER_STATUS_OPTIONS = [...EDITABLE_STATUS_OPTIONS, 'Ready to Ship']
 
 const TASK_TYPES = ['General', 'Source Inspection', 'FAI Approval', 'Customer Feedback', 'Documentation', 'Final Review']
 
@@ -78,6 +81,7 @@ interface ShipmentDraft {
   shipDate: string
   holdReason: string
   sourceRequestedDate: string
+  nextAction: string
   comments: string
   parts: ShipmentPartDraft[]
 }
@@ -103,18 +107,8 @@ type ScalarDraftKey = Exclude<keyof ShipmentDraft, 'parts'>
 const FIELD_KEYS: ScalarDraftKey[] = [
   'status', 'salesOrderNumber', 'qaArrivalDate', 'purchaseOrderNumber',
   'customer', 'taskType', 'shipDate', 'holdReason',
-  'sourceRequestedDate', 'comments',
+  'sourceRequestedDate', 'nextAction', 'comments',
 ]
-
-const REQUIRED_CREATE_FIELDS = new Set<ShipmentFieldKey>([
-  'salesOrderNumber',
-  'qaArrivalDate',
-  'partNumber',
-  'purchaseOrderNumber',
-  'customer',
-  'quantity',
-  'shipDate',
-])
 
 function draftFor(shipment?: Shipment | null): ShipmentDraft {
   const today = new Date()
@@ -129,6 +123,7 @@ function draftFor(shipment?: Shipment | null): ShipmentDraft {
     shipDate: shipment?.shipDate ?? '',
     holdReason: shipment?.holdReason ?? '',
     sourceRequestedDate: shipment?.sourceRequestedDate ?? '',
+    nextAction: shipment?.nextAction ?? '',
     comments: shipment?.comments ?? '',
     parts: shipment?.parts?.length
       ? shipment.parts.map((part) => ({
@@ -161,7 +156,7 @@ function partValues(draft: ShipmentDraft) {
     partNumber: part.partNumber.trim(),
     quantity: part.quantity === '' ? null : Number(part.quantity),
     unitPrice: part.unitPrice === '' ? null : Number(part.unitPrice),
-    lineItemNumber: part.lineItemNumber === '' ? null : Number(part.lineItemNumber),
+    lineItemNumber: part.lineItemNumber.trim() || null,
   }))
 }
 
@@ -418,7 +413,6 @@ function ShipmentForm({
       const parts = partValues(draft)
       if (creating) {
         const body: Record<string, unknown> = Object.fromEntries(FIELD_KEYS
-          .filter((key) => editable.get(key as ShipmentFieldKey) || REQUIRED_CREATE_FIELDS.has(key as ShipmentFieldKey))
           .map((key) => [key, fieldValue(draft, key)]))
         const firstPart = parts[0]
         Object.assign(body, {
@@ -453,7 +447,7 @@ function ShipmentForm({
   }
 
   const can = (key: ShipmentFieldKey) => editable.get(key) === true
-  const canUse = (key: ShipmentFieldKey) => can(key) || (creating && REQUIRED_CREATE_FIELDS.has(key))
+  const canUse = (key: ShipmentFieldKey) => creating ? canSave : can(key)
 
   function handleDialogKeyDown(event: React.KeyboardEvent<HTMLElement>) {
     if (event.key === 'Escape') {
@@ -484,8 +478,8 @@ function ShipmentForm({
         <form ref={formRef} onSubmit={submit}>
           {error && <p className="notice error"><AlertTriangle size={16} />{error}</p>}
           <div className="form-grid">
-            {can('status') && <label><span>Status</span><select value={draft.status} onChange={(event) => update('status', event.target.value)}>{!STATUS_OPTIONS.includes(draft.status) && <option value={draft.status} disabled>{draft.status} (system status)</option>}{STATUS_OPTIONS.map((status) => <option key={status}>{status}</option>)}</select></label>}
-            {can('taskType') && <label><span>Task Type</span><input list="qa-task-types" value={draft.taskType} onChange={(event) => update('taskType', event.target.value)} /><datalist id="qa-task-types">{TASK_TYPES.map((type) => <option key={type}>{type}</option>)}</datalist></label>}
+            {canUse('status') && <label><span>Status</span><select value={draft.status} onChange={(event) => update('status', event.target.value)}>{!EDITABLE_STATUS_OPTIONS.includes(draft.status) && <option value={draft.status} disabled>{draft.status} (system status)</option>}{EDITABLE_STATUS_OPTIONS.map((status) => <option key={status}>{status}</option>)}</select></label>}
+            {canUse('taskType') && <label><span>Task Type</span><input list="qa-task-types" value={draft.taskType} onChange={(event) => update('taskType', event.target.value)} /><datalist id="qa-task-types">{TASK_TYPES.map((type) => <option key={type}>{type}</option>)}</datalist></label>}
             {canUse('salesOrderNumber') && <label className={creating ? 'shipper-lookup-field' : undefined}><span>Shipper Number <b className="required-marker" aria-hidden="true">*</b></span><span className="shipper-lookup-control"><input required aria-required="true" placeholder="SHP-SO1234-1" value={draft.salesOrderNumber} onChange={(event) => { update('salesOrderNumber', event.target.value); setLookupMessage(null) }} onBlur={() => { if (creating && draft.salesOrderNumber.trim()) update('salesOrderNumber', normalizeShipperNumber(draft.salesOrderNumber)) }} />{creating && <button className="button ghost compact" type="button" disabled={lookingUp || !draft.salesOrderNumber.trim()} onClick={() => void lookupShipment()}>{lookingUp ? 'Checking...' : 'Confirm & pull'}</button>}</span><small>Enter the number after SHP-SO, or paste the complete Fulcrum shipper number.</small></label>}
             {canUse('purchaseOrderNumber') && <label><span>PO Number <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={draft.purchaseOrderNumber} onChange={(event) => update('purchaseOrderNumber', event.target.value)} /></label>}
             {canUse('customer') && <label><span>Customer <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={draft.customer} onChange={(event) => update('customer', event.target.value)} /></label>}
@@ -496,16 +490,18 @@ function ShipmentForm({
                 ? Number(part.quantity) * Number(part.unitPrice)
                 : null
               return <div className="shipment-part-row" key={index}>
-                <label><span>Line Item</span><input disabled type="number" value={part.lineItemNumber} placeholder="From Fulcrum" /></label>
+                <label><span>Line Item</span><input disabled={!canUse('partNumber')} type="text" value={part.lineItemNumber} onChange={(event) => updatePart(index, 'lineItemNumber', event.target.value)} placeholder="From Fulcrum or enter manually" /></label>
                 <label><span>Part Number <b className="required-marker" aria-hidden="true">*</b></span><input required aria-required="true" value={part.partNumber} onChange={(event) => updatePart(index, 'partNumber', event.target.value)} /></label>
                 <label><span>Quantity {creating && <b className="required-marker" aria-hidden="true">*</b>}</span><input required={creating} aria-required={creating} disabled={!canUse('quantity')} type="number" min="0" step="1" value={part.quantity} onChange={(event) => updatePart(index, 'quantity', event.target.value)} /></label>
-                <label className="currency-field"><span>Unit Price</span><div><b>$</b><input disabled={!can('dollarValue')} type="number" min="0" step="0.01" value={part.unitPrice} onChange={(event) => updatePart(index, 'unitPrice', event.target.value)} /></div></label>
+                <label className="currency-field"><span>Unit Price</span><div><b>$</b><input disabled={!canUse('dollarValue')} type="number" min="0" step="0.01" value={part.unitPrice} onChange={(event) => updatePart(index, 'unitPrice', event.target.value)} /></div></label>
                 <span className="part-line-total"><small>Line Total</small><strong>{lineTotal == null || !Number.isFinite(lineTotal) ? 'Not Set' : formatCurrency(lineTotal)}</strong></span>
                 {draft.parts.length > 1 && <button className="icon-button part-remove" type="button" onClick={() => removePart(index)} aria-label={`Remove part line ${index + 1}`}><X size={15} /></button>}
               </div>
             })}<button className="button ghost add-part-line" type="button" onClick={addPart}><Plus size={14} /> Add Part Number</button></fieldset>}
-            {can('sourceRequestedDate') && <label><span>Source Scheduled</span><input type="date" value={draft.sourceRequestedDate} onChange={(event) => update('sourceRequestedDate', event.target.value)} /></label>}
-            {can('holdReason') && <label className="span-2"><span>Hold Reason</span><textarea rows={3} value={draft.holdReason} onChange={(event) => update('holdReason', event.target.value)} /></label>}
+            {canUse('sourceRequestedDate') && <label><span>Source Scheduled</span><input type="date" value={draft.sourceRequestedDate} onChange={(event) => update('sourceRequestedDate', event.target.value)} /></label>}
+            {canUse('nextAction') && <label className="span-2"><span>Next Action</span><textarea rows={2} value={draft.nextAction} onChange={(event) => update('nextAction', event.target.value)} /></label>}
+            {canUse('holdReason') && <label className="span-2"><span>Hold Reason</span><textarea rows={3} value={draft.holdReason} onChange={(event) => update('holdReason', event.target.value)} /></label>}
+            {creating && canUse('comments') && <label className="span-2"><span>Initial Comment</span><textarea rows={3} value={draft.comments} onChange={(event) => update('comments', event.target.value)} /></label>}
           </div>
           {lookupMessage && <p className="notice success">{lookupMessage}</p>}
           {!canSave && <p className="notice error"><AlertTriangle size={16} />Your current access does not allow {creating ? 'creating shipments' : 'editing this shipment'}.</p>}
@@ -564,9 +560,9 @@ function AssignmentDialog({
         <header><div><span className="eyebrow">Queue Routing</span><h2 id="assignment-title">Assign {shipment.salesOrderNumber ?? `Shipment ${shipment.id}`}</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label="Close"><X size={18} /></button></header>
         <form onSubmit={submit}>
           {error && <p className="notice error"><AlertTriangle size={16} />{error}</p>}
-          {!options ? <div className="loading-panel compact">Loading shared groups and users...</div> : <div className="assignment-fields">
-            <label><span>Responsible Group</span><select disabled={!canMoveGroup} value={groupId} onChange={(event) => { setGroupId(event.target.value); setUserId('') }}><option value="">Unassigned - Manager Review</option>{currentGroupUnavailable && <option value={groupId} disabled>{shipment.assignedGroupName ?? 'Current Group'} (not enabled)</option>}{options.groups.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select><small>Only groups enabled as a Quality Responsible Group in Arda Access appear here.</small></label>
-            <label><span>Individual Owner</span><select disabled={!canAssignUser || !groupId || currentGroupUnavailable} value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Group Queue / Unassigned</option>{currentUserUnavailable && <option value={userId} disabled>{assignmentOwnerName(shipment.assignedDisplayName ?? 'Current Owner')} (not eligible)</option>}{users.map((candidate) => <option value={candidate.id} key={candidate.id}>{assignmentOwnerName(candidate.displayName, candidate.accountName)}</option>)}</select><small>Only active users granted Receive Quality assignments through a permission group appear here.</small></label>
+          {!options ? <div className="loading-panel compact">Loading Quality teams and members...</div> : <div className="assignment-fields">
+            <label><span>Responsible Team</span><select disabled={!canMoveGroup} value={groupId} onChange={(event) => { setGroupId(event.target.value); setUserId('') }}><option value="">Unassigned - Manager Review</option>{currentGroupUnavailable && <option value={groupId} disabled>{shipment.assignedGroupName ?? 'Current Team'} (not active)</option>}{options.groups.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select><small>Only active teams created in Quality Admin appear here.</small></label>
+            <label><span>Individual Owner</span><select disabled={!canAssignUser || !groupId || currentGroupUnavailable} value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Team Queue / Unassigned</option>{currentUserUnavailable && <option value={userId} disabled>{assignmentOwnerName(shipment.assignedDisplayName ?? 'Current Owner')} (not a team member)</option>}{users.map((candidate) => <option value={candidate.id} key={candidate.id}>{assignmentOwnerName(candidate.displayName, candidate.accountName)}</option>)}</select><small>Only active members of the selected Quality team can receive the shipment.</small></label>
           </div>}
           {!canMoveGroup && !canAssignUser && <p className="notice error"><AlertTriangle size={16} />Your current access does not allow changing assignments.</p>}
           <footer><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary" disabled={!options || saving || (!canMoveGroup && !canAssignUser) || currentGroupUnavailable || currentUserUnavailable} type="submit">{saving ? 'Assigning...' : 'Save assignment'}</button></footer>
@@ -674,6 +670,7 @@ function DetailDrawer({
             {visible('dollarValue') && <div><dt>Dollar Value</dt><dd>{formatCurrency(shipment.dollarValue)}</dd></div>}
             {visible('sourceRequestedDate') && <div><dt>Source Scheduled</dt><dd>{formatDate(shipment.sourceRequestedDate)}</dd></div>}
             {visible('lastWorkedAt') && <div><dt>Last Worked</dt><dd>{formatDateTime(shipment.lastWorkedAt)}</dd></div>}
+            {shipment.isShipped && <div><dt>Days To Completion</dt><dd>{formatCompletionDays(shipment.completionDays)}</dd></div>}
           </dl></section>
           {visible('partNumber') && <section className="detail-section"><h3>Part Lines</h3><div className="shipment-part-list"><div className="shipment-part-list-head"><span>Line</span><span>Part Number</span>{visible('quantity') && <span>Quantity</span>}{visible('dollarValue') && <><span>Unit Price</span><span>Total</span></>}</div>{shipment.parts.map((part) => <div className="shipment-part-list-row" key={part.id || `${part.displayOrder}-${part.partNumber}`}><span>{part.lineItemNumber ?? '—'}</span><strong>{part.partNumber}</strong>{visible('quantity') && <span>{part.quantity?.toLocaleString() ?? 'Not Set'}</span>}{visible('dollarValue') && <><span>{formatCurrency(part.unitPrice)}</span><span>{formatCurrency(part.totalValue)}</span></>}</div>)}</div></section>}
           {(shipment.externalSyncProvider || shipment.externalSyncError) && <section className="detail-section"><h3>Fulcrum Sync</h3><dl><div><dt>Provider</dt><dd>{shipment.externalSyncProvider ?? 'Not Set'}</dd></div><div><dt>Fulcrum Status</dt><dd>{shipment.externalShipmentStatus ?? 'No Match'}</dd></div><div><dt>Last Checked</dt><dd>{formatDateTime(shipment.externalSyncedAt)}</dd></div></dl>{shipment.externalSyncError && <p className="sync-warning"><AlertTriangle size={14} /> {shipment.externalSyncError}</p>}</section>}
@@ -723,13 +720,19 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   const [assignmentOrigin, setAssignmentOrigin] = useState<'list' | 'detail'>('detail')
   const [importOpen, setImportOpen] = useState(false)
   const [refresh, setRefresh] = useState(0)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [layout, setLayout] = useState<ShippingLayout | null>(null)
   const layoutRef = useRef<ShippingLayout | null>(null)
   const draggedColumn = useRef<WorklistColumnKey | null>(null)
   const pendingDeepLink = useRef<ReturnType<typeof readShipmentDeepLink>>(null)
   const interactionState = useRef({ selected, editing, assigning })
+  const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => { interactionState.current = { selected, editing, assigning } }, [selected, editing, assigning])
+
+  useEffect(() => () => {
+    if (successTimer.current) clearTimeout(successTimer.current)
+  }, [])
 
   useEffect(() => {
     const deepLink = readShipmentDeepLink(window.location.hash)
@@ -1097,6 +1100,20 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
     setRefresh((value) => value + 1)
   }
 
+  function created() {
+    setSelected(null)
+    setCreating(false)
+    setEditing(false)
+    setAssigning(false)
+    setRefresh((value) => value + 1)
+    setSuccessMessage('Shipment successfully added')
+    if (successTimer.current) clearTimeout(successTimer.current)
+    successTimer.current = setTimeout(() => {
+      setSuccessMessage(null)
+      successTimer.current = null
+    }, 3200)
+  }
+
   function assignmentAccepted(saved: Shipment) {
     setSelected(assignmentOrigin === 'detail' ? saved : null)
     setAssigning(false)
@@ -1128,7 +1145,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
         {filtersOpen && <section className="shipping-filter-panel" id="shipping-filter-panel" aria-label="Shipment filters">
           <div className="filter-panel-heading"><div><span className="eyebrow">Narrow The Worklist</span><strong>Filter Results</strong><p>Combine filters below. Customer selections match any chosen customer.</p></div></div>
           {visibleFields.has('customer') && <CustomerFilterCombobox options={customerOptions} selected={customerFilters} query={customerQuery} loading={customerOptionsLoading} onQueryChange={setCustomerQuery} onAdd={addCustomerFilter} onRemove={removeCustomerFilter} />}
-          {visibleFields.has('status') && <label><span>Status</span><select value={shipmentStatusFilter} onChange={(event) => setShipmentStatusFilter(event.target.value)}><option value="">All Statuses</option>{visibleFields.has('shipDate') && <option value="__past_due__">Past Due</option>}{STATUS_OPTIONS.map((option) => <option value={option} key={option}>{option}</option>)}</select></label>}
+          {visibleFields.has('status') && <label><span>Status</span><select value={shipmentStatusFilter} onChange={(event) => setShipmentStatusFilter(event.target.value)}><option value="">All Statuses</option>{visibleFields.has('shipDate') && <option value="__past_due__">Past Due</option>}{FILTER_STATUS_OPTIONS.map((option) => <option value={option} key={option}>{option}</option>)}</select></label>}
           {canViewAssignment && <label><span>Assigned To</span><select value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)}><option value="">Anyone</option><option value="unassigned">Unassigned</option>{assignmentOptions?.groups.map((group) => <option value={`group:${group.id}`} key={`group-${group.id}`}>{group.name} Queue</option>)}{assignmentOptions?.users.map((candidate) => <option value={`user:${candidate.id}`} key={`user-${candidate.id}`}>{candidate.displayName}</option>)}</select></label>}
         </section>}
         {(deferredSearch.trim() || activeFilterCount > 0) && <p className="filter-summary" role="status"><Search size={13} /> Showing {data?.total ?? 0} filtered result{data?.total === 1 ? '' : 's'}{deferredSearch.trim() && <> for <mark>{deferredSearch.trim()}</mark></>}</p>}
@@ -1166,10 +1183,11 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
 
       {selected && !editing && !assigning && !commentsOpen && <DetailDrawer shipment={selected} user={user} fields={fields} onClose={() => setSelected(null)} onEdit={() => setEditing(true)} onAssign={() => { setAssignmentOrigin('detail'); setAssigning(true) }} onOpenComments={() => setCommentsOpen(true)} onUpdated={accepted} />}
       {selected && commentsOpen && <ShipmentCommentsDrawer shipment={selected} currentUser={user} canPost={fields.some((field) => field.key === 'comments' && field.canEdit)} onClose={closeComments} onMessageSent={() => setRefresh((value) => value + 1)} />}
-      {creating && <ShipmentForm fields={fields} canSave={canCreate} onClose={() => setCreating(false)} onSaved={accepted} />}
+      {creating && <ShipmentForm fields={fields} canSave={canCreate} onClose={() => setCreating(false)} onSaved={created} />}
       {editing && selected && <ShipmentForm shipment={selected} fields={fields} canSave={canEdit} onClose={() => setEditing(false)} onSaved={accepted} />}
       {assigning && selected && <AssignmentDialog shipment={selected} user={user} onClose={closeAssignment} onSaved={assignmentAccepted} />}
       {importOpen && canImport && <ShippingImportDialog onClose={() => setImportOpen(false)} onImported={() => setRefresh((value) => value + 1)} />}
+      {successMessage && <div className="shipment-success-toast" role="status" aria-live="polite"><CheckCircle2 size={17} /><span>{successMessage}</span><button type="button" onClick={() => setSuccessMessage(null)} aria-label="Dismiss success message"><X size={14} /></button></div>}
     </div>
   )
 }

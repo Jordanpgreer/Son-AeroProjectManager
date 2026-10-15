@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Clock3, ExternalLink, UserRoundCheck, X } from 'lucide-react'
 import { qualityApi } from './api'
 import { assignmentOwnerName } from './assignmentDisplay'
-import { ageInDays, formatCurrency, formatDate, formatDateTime } from './format'
+import { ageInDays, formatCompletionDays, formatCurrency, formatDate, formatDateTime } from './format'
 import type { AssignmentOptions, FieldAccess, Shipment, ShipmentFieldKey } from './types'
 
 export default function DashboardShipmentQuickView({
@@ -43,7 +43,7 @@ export default function DashboardShipmentQuickView({
     'lastWorkedAt',
     'quantity',
     'sourceRequestedDate',
-  ].some((key) => visible(key as ShipmentFieldKey))
+  ].some((key) => visible(key as ShipmentFieldKey)) || shipment.isShipped
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -151,6 +151,7 @@ export default function DashboardShipmentQuickView({
             {visible('lastWorkedAt') && <div><dt>Last Worked</dt><dd>{formatDateTime(shipment.lastWorkedAt)}</dd></div>}
             {visible('quantity') && <div><dt>Quantity</dt><dd>{shipment.quantity?.toLocaleString() ?? 'Not set'}</dd></div>}
             {visible('sourceRequestedDate') && <div><dt>Source Scheduled</dt><dd>{formatDate(shipment.sourceRequestedDate)}</dd></div>}
+            {shipment.isShipped && <div><dt>Days To Completion</dt><dd>{formatCompletionDays(shipment.completionDays)}</dd></div>}
           </dl></section>}
           {visible('partNumber') && <section className="detail-section"><h3>Part Lines</h3><div className="shipment-part-list"><div className="shipment-part-list-head"><span>Part Number</span>{visible('quantity') && <span>Quantity</span>}{visible('dollarValue') && <><span>Unit Price</span><span>Total</span></>}</div>{shipment.parts.map((part) => <div className="shipment-part-list-row" key={part.id || `${part.displayOrder}-${part.partNumber}`}><strong>{part.partNumber}</strong>{visible('quantity') && <span>{part.quantity?.toLocaleString() ?? 'Not Set'}</span>}{visible('dollarValue') && <><span>{formatCurrency(part.unitPrice)}</span><span>{formatCurrency(part.totalValue)}</span></>}</div>)}</div></section>}
           {visible('holdReason') && <section className="detail-section narrative"><h3>Hold Reason</h3><p>{shipment.holdReason || 'No hold reason recorded.'}</p></section>}

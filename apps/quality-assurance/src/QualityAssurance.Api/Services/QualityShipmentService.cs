@@ -1100,8 +1100,7 @@ public sealed class QualityShipmentService(
             var partNumber = Required(part.PartNumber, $"Part number on line {index + 1}", 160);
             if (part.Quantity < 0) throw new ArgumentException($"Quantity on line {index + 1} cannot be negative.");
             var unitPrice = NonNegative(part.UnitPrice, $"Unit price on line {index + 1}");
-            if (part.LineItemNumber < 1)
-                throw new ArgumentException($"Line item number on line {index + 1} must be positive.");
+            var lineItemNumber = Text(part.LineItemNumber, null, 80);
             decimal? totalValue = part.Quantity.HasValue && unitPrice.HasValue
                 ? decimal.Round(part.Quantity.Value * unitPrice.Value, 2, MidpointRounding.AwayFromZero)
                 : null;
@@ -1112,11 +1111,11 @@ public sealed class QualityShipmentService(
                 totalValue,
                 index,
                 part.Id,
-                part.LineItemNumber);
+                lineItemNumber);
         }).ToList();
 
         var duplicate = normalized
-            .GroupBy(part => $"{part.LineItemNumber?.ToString(CultureInfo.InvariantCulture) ?? "manual"}|{part.PartNumber}", StringComparer.OrdinalIgnoreCase)
+            .GroupBy(part => $"{part.LineItemNumber ?? "manual"}|{part.PartNumber}", StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault(group => group.Count() > 1);
         if (duplicate is not null)
             throw new ArgumentException($"Part number '{duplicate.First().PartNumber}' is listed more than once for the same line item.");
@@ -1126,7 +1125,7 @@ public sealed class QualityShipmentService(
     private static string FormatParts(IEnumerable<QualityShipmentPart> parts) => string.Join(
         "; ",
         parts.OrderBy(part => part.DisplayOrder).Select(part =>
-            $"Line {part.LineItemNumber?.ToString(CultureInfo.InvariantCulture) ?? "-"} | {part.PartNumber} | Qty {part.Quantity?.ToString(CultureInfo.InvariantCulture) ?? "Not set"} | Unit {part.UnitPrice?.ToString("0.00", CultureInfo.InvariantCulture) ?? "Not set"}"));
+            $"Line {part.LineItemNumber ?? "-"} | {part.PartNumber} | Qty {part.Quantity?.ToString(CultureInfo.InvariantCulture) ?? "Not set"} | Unit {part.UnitPrice?.ToString("0.00", CultureInfo.InvariantCulture) ?? "Not set"}"));
 
     private sealed record NormalizedShipmentPart(
         string PartNumber,
@@ -1135,7 +1134,7 @@ public sealed class QualityShipmentService(
         decimal? TotalValue,
         int DisplayOrder,
         int? Id,
-        int? LineItemNumber);
+        string? LineItemNumber);
 
     private void ApplyChange(
         QualityShipment shipment,

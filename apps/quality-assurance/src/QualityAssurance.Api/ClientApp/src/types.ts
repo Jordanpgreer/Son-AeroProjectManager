@@ -65,6 +65,7 @@ export interface Shipment {
   createdAt: string
   updatedAt: string
   shippedAt: string | null
+  completionDays: number | null
   externalShipmentUrl: string | null
   externalShipmentStatus: string | null
   externalSyncProvider: string | null
@@ -78,7 +79,7 @@ export interface ShipmentPart {
   quantity: number | null
   unitPrice: number | null
   totalValue: number | null
-  lineItemNumber: number | null
+  lineItemNumber: string | null
   displayOrder: number
 }
 
@@ -93,7 +94,7 @@ export interface ShipmentLookup {
     quantity: number | null
     unitPrice: number | null
     id: number | null
-    lineItemNumber: number | null
+    lineItemNumber: string | null
   }>
 }
 
@@ -155,6 +156,9 @@ export interface DashboardData {
   canAssignGroup: boolean
   canAssignUser: boolean
   canViewDollarValue: boolean
+  queuePage: number
+  queuePageSize: number
+  queueTotal: number
 }
 
 export interface DirectoryGroup {
