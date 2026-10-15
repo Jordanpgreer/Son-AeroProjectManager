@@ -27,6 +27,9 @@ public static class ArdaPushEndpoints
         authenticated.MapPost("/foreground/{notificationId:long}/ack", AcknowledgeForegroundAsync)
             .RequireCors("ArdaModules");
         authenticated.MapGet("/open/{notificationId:long}", OpenAsync);
+        authenticated.MapGet("/inbox", GetInboxAsync).RequireCors("ArdaModules");
+        authenticated.MapPost("/inbox/{id}/read", MarkInboxReadAsync).RequireCors("ArdaModules");
+        authenticated.MapGet("/inbox/{id}/open", OpenInboxAsync);
 
         endpoints.MapPost("/api/push/producers/{sourceModule}/notifications", EnqueueAsync);
         return endpoints;
@@ -100,6 +103,7 @@ public static class ArdaPushEndpoints
         HttpRequest httpRequest,
         PortalUserService users,
         ArdaPushForegroundService foreground,
+        ArdaGlobalInboxService inbox,
         CancellationToken cancellationToken)
     {
         if (!IsModuleClientRequest(httpRequest)) return Results.BadRequest();
@@ -107,7 +111,8 @@ public static class ArdaPushEndpoints
         if (request is null) return Results.BadRequest();
         var user = await users.CurrentAsync(cancellationToken);
         if (user.AccountStatus != Portal.Api.Dtos.PortalAccountStatus.Configured) return Results.Forbid();
-        var claimed = await foreground.ClaimAsync(user.AccountName, request, cancellationToken);
+        var sources = await inbox.AuthorizedSourceIdsAsync(user, cancellationToken);
+        var claimed = await foreground.ClaimAsync(user.AccountName, request, sources, cancellationToken);
         return claimed is null ? Results.Forbid() : Results.Ok(claimed);
     }
 
@@ -132,17 +137,47 @@ public static class ArdaPushEndpoints
     private static async Task<IResult> OpenAsync(
         long notificationId,
         PortalUserService users,
-        PortalRoleDbContext db,
+        ArdaGlobalInboxService inbox,
         CancellationToken cancellationToken)
     {
         var user = await users.CurrentAsync(cancellationToken);
         if (user.AccountStatus != Portal.Api.Dtos.PortalAccountStatus.Configured) return Results.Forbid();
-        var notification = await db.ArdaPushNotifications.AsNoTracking()
-            .SingleOrDefaultAsync(candidate => candidate.Id == notificationId, cancellationToken);
-        if (notification is null) return Results.NotFound();
-        if (!WindowsAccountNames.Equals(notification.RecipientAccountName, user.AccountName))
-            return Results.Forbid();
-        return Results.Redirect(notification.TargetUrl);
+        var target = await inbox.OpenAsync($"push:{notificationId}", user, cancellationToken);
+        return target is null ? Results.NotFound() : Results.Redirect(target);
+    }
+
+    private static async Task<IResult> GetInboxAsync(
+        PortalUserService users,
+        ArdaGlobalInboxService inbox,
+        CancellationToken cancellationToken)
+    {
+        var user = await users.CurrentAsync(cancellationToken);
+        if (user.AccountStatus != Portal.Api.Dtos.PortalAccountStatus.Configured) return Results.Forbid();
+        return Results.Ok(await inbox.GetAsync(user, cancellationToken));
+    }
+
+    private static async Task<IResult> MarkInboxReadAsync(
+        string id,
+        PortalUserService users,
+        ArdaGlobalInboxService inbox,
+        CancellationToken cancellationToken)
+    {
+        var user = await users.CurrentAsync(cancellationToken);
+        if (user.AccountStatus != Portal.Api.Dtos.PortalAccountStatus.Configured) return Results.Forbid();
+        return await inbox.MarkReadAsync(id, user, cancellationToken)
+            ? Results.NoContent() : Results.NotFound();
+    }
+
+    private static async Task<IResult> OpenInboxAsync(
+        string id,
+        PortalUserService users,
+        ArdaGlobalInboxService inbox,
+        CancellationToken cancellationToken)
+    {
+        var user = await users.CurrentAsync(cancellationToken);
+        if (user.AccountStatus != Portal.Api.Dtos.PortalAccountStatus.Configured) return Results.Forbid();
+        var target = await inbox.OpenAsync(id, user, cancellationToken);
+        return target is null ? Results.NotFound() : Results.Redirect(target);
     }
 
     private static async Task<IResult> EnqueueAsync(

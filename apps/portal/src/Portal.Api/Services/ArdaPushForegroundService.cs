@@ -15,6 +15,7 @@ public sealed class ArdaPushForegroundService(
     public async Task<IReadOnlyList<ArdaPushForegroundNotification>?> ClaimAsync(
         string accountName,
         ArdaPushForegroundRequest request,
+        IReadOnlySet<string>? allowedSources = null,
         CancellationToken cancellationToken = default)
     {
         if (!ValidClient(request.ModuleId, request.ClientId)
@@ -22,13 +23,15 @@ public sealed class ArdaPushForegroundService(
             return null;
 
         var lookupKeys = WindowsAccountNames.LookupKeys(accountName);
+        var allowedSourceIds = allowedSources?.ToArray();
         var now = DateTimeOffset.UtcNow;
         var claimedBy = ClaimKey(accountName, request.ModuleId!, request.ClientId!);
         await using var transaction = await db.Database.BeginTransactionAsync(
             IsolationLevel.Serializable, cancellationToken);
         var candidates = await db.ArdaPushNotifications
             .Where(notification => notification.DeliveredAt == null
-                && lookupKeys.Contains(notification.RecipientAccountName.ToUpper()))
+                && lookupKeys.Contains(notification.RecipientAccountName.ToUpper())
+                && (allowedSourceIds == null || allowedSourceIds.Contains(notification.SourceModule)))
             .OrderBy(notification => notification.Id)
             .Take(250)
             .ToListAsync(cancellationToken);

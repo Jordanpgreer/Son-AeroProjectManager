@@ -144,6 +144,23 @@ public sealed class ArdaPushServiceTests
     }
 
     [Fact]
+    public async Task ForegroundClaim_DoesNotRevealRevokedSourceModule()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var tracker = new ArdaPresenceTracker();
+        tracker.Record(@"SON4L\recipient", "portal", "tab-1", true);
+        var service = new ArdaPushForegroundService(fixture.Db, tracker);
+        fixture.Db.ArdaPushNotifications.Add(Notification());
+        await fixture.Db.SaveChangesAsync();
+
+        var request = new ArdaPushForegroundRequest("portal", "tab-1");
+        Assert.Empty((await service.ClaimAsync(@"SON4L\recipient", request,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)))!);
+        Assert.Single((await service.ClaimAsync(@"SON4L\recipient", request,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "quality-assurance" }))!);
+    }
+
+    [Fact]
     public async Task Dispatcher_DefersForVisibleArda_ThenDeliversSecurePortalDeepLink()
     {
         await using var fixture = await Fixture.CreateAsync();
