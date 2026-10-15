@@ -138,37 +138,44 @@ export default function ArdaGlobalNavigation({
     })
   }
 
+  const administration = visibleApplications.find((application) => application.id === 'admin-console')
+  const applicationModules = visibleApplications.filter((application) => application.id !== 'admin-console')
+  const renderApplication = (application: ArdaNavigationApplication) => {
+    const current = application.id === currentApplicationId
+    const expanded = expandedApplicationId === application.id
+    const panelId = `arda-module-pages-${application.id}`
+    return <div className={`arda-global-navigation__module${current ? ' arda-global-navigation__module--current' : ''}`} key={application.id}>
+      <button type="button" className="arda-global-navigation__module-toggle"
+        aria-expanded={expanded} aria-controls={panelId} title={application.name}
+        onClick={() => setExpandedApplicationId(expanded ? null : application.id)}>
+        <span className="arda-global-navigation__module-mark" aria-hidden="true">{moduleIcon(application.id)}</span>
+        <span className="arda-global-navigation__module-name">{application.name}</span>
+        <span className="arda-global-navigation__chevron" aria-hidden="true" />
+      </button>
+      <div className="arda-global-navigation__panel" id={panelId} hidden={!expanded}>
+        {current && currentPages ? currentPages : modulePages[application.id]?.map((page) => {
+          const href = safeHttpUrl(page.path, application.url)
+          return href && (disabled
+            ? <span className="arda-global-navigation__page arda-global-navigation__page--disabled" aria-disabled="true" key={page.path}>{page.label}</span>
+            : <a className="arda-global-navigation__page" href={href} target="_top" key={page.path}>{page.label}</a>)
+        })}
+      </div>
+    </div>
+  }
+
   return <section className="arda-global-navigation" aria-label="Arda navigation">
     <h2 className="arda-global-navigation__heading">Arda</h2>
-    <nav aria-label="Arda applications">
+    <nav className="arda-global-navigation__applications" aria-label="Arda applications">
       {safeHubUrl && (disabled
         ? <span className="arda-global-navigation__home arda-global-navigation__home--disabled" aria-disabled="true" title="Home"><House size={17} aria-hidden="true" />Home</span>
         : <a className={`arda-global-navigation__home${currentApplicationId === 'portal' ? ' arda-global-navigation__home--current' : ''}`} href={safeHubUrl} target="_top" aria-current={currentApplicationId === 'portal' ? 'page' : undefined} title="Home"><House size={17} aria-hidden="true" />Home</a>)}
-      {visibleApplications.map((application) => {
-        const current = application.id === currentApplicationId
-        const expanded = expandedApplicationId === application.id
-        const panelId = `arda-module-pages-${application.id}`
-        return <div className={`arda-global-navigation__module${current ? ' arda-global-navigation__module--current' : ''}`} key={application.id}>
-          <button type="button" className="arda-global-navigation__module-toggle"
-            aria-expanded={expanded} aria-controls={panelId} title={application.name}
-            onClick={() => setExpandedApplicationId(expanded ? null : application.id)}>
-            <span className="arda-global-navigation__module-mark" aria-hidden="true">{moduleIcon(application.id)}</span>
-            <span className="arda-global-navigation__module-name">{application.name}</span>
-            <span className="arda-global-navigation__chevron" aria-hidden="true" />
-          </button>
-          <div className="arda-global-navigation__panel" id={panelId} hidden={!expanded}>
-            {current && currentPages ? currentPages : modulePages[application.id]?.map((page) => {
-              const href = safeHttpUrl(page.path, application.url)
-              return href && (disabled
-                ? <span className="arda-global-navigation__page arda-global-navigation__page--disabled" aria-disabled="true" key={page.path}>{page.label}</span>
-                : <a className="arda-global-navigation__page" href={href} target="_top" key={page.path}>{page.label}</a>)
-            })}
-          </div>
-        </div>
-      })}
+      {applicationModules.map(renderApplication)}
       {applications === undefined && !disabled && !catalog && <span className="arda-global-navigation__status" role="status">
         {loadFailed ? 'Other areas unavailable' : 'Loading other areas…'}
       </span>}
     </nav>
+    {administration && <nav className="arda-global-navigation__administration" aria-label="Arda administration">
+      {renderApplication(administration)}
+    </nav>}
   </section>
 }

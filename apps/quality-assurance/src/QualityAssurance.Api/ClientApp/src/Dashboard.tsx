@@ -17,7 +17,7 @@ import type { DashboardData, PersonQueue, QualityAssuranceUser, Shipment } from 
 import './Dashboard.css'
 
 type TeamSelection = number | 'group' | 'unassigned' | null
-type QueueFilter = 'open' | 'overdue' | 'completed' | 'average' | 'unassigned'
+type QueueFilter = 'open' | 'overdue' | 'unassigned'
 
 const queuePageSize = 12
 
@@ -29,15 +29,13 @@ export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: Q
   const [selectedTeam, setSelectedTeam] = useState<TeamSelection>(null)
   const [queueFilter, setQueueFilter] = useState<QueueFilter>('open')
   const [requestedPage, setRequestedPage] = useState(1)
-  const apiQueue = queueFilter === 'average'
-    ? 'completed'
-    : selectedTeam === 'unassigned'
-      ? 'unassigned'
-      : selectedTeam === 'group'
-        ? 'group'
-        : typeof selectedTeam === 'number'
-          ? 'person'
-          : queueFilter
+  const apiQueue = selectedTeam === 'unassigned'
+    ? 'unassigned'
+    : selectedTeam === 'group'
+      ? 'group'
+      : typeof selectedTeam === 'number'
+        ? 'person'
+        : queueFilter
 
   useEffect(() => {
     let active = true
@@ -90,9 +88,7 @@ export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: Q
     ? 'Needs Assignment'
     : queueFilter === 'overdue'
     ? 'Past Due Queue'
-    : queueFilter === 'completed' || queueFilter === 'average'
-      ? 'Completed Shipments'
-      : 'Queue Priority'
+    : 'Queue Priority'
   const activeQueueTotal = data.queueTotal
   const activePage = data.queuePage ?? requestedPage
   const activePageSize = data.queuePageSize ?? queuePageSize
@@ -123,10 +119,9 @@ export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: Q
       <section className="metric-grid" aria-label="My shipping queue statistics">
         <button type="button" aria-pressed={queueFilter === 'open' && selectedTeam === null} className={`metric-card accent metric-filter ${queueFilter === 'open' && selectedTeam === null ? 'is-selected' : ''}`} onClick={() => selectQueue('open')}><span className="metric-icon"><PackageCheck size={18} /></span><div><span>Open In My Queue</span><strong>{data.myQueue.open}</strong><small>{includesUnassigned ? 'Includes Unassigned Manager Review' : 'Oldest Work Appears First'}</small></div></button>
         <button type="button" aria-pressed={queueFilter === 'overdue' && selectedTeam === null} className={`metric-card metric-filter ${data.myQueue.overdue ? 'risk' : ''} ${queueFilter === 'overdue' && selectedTeam === null ? 'is-selected' : ''}`} onClick={() => selectQueue('overdue')}><span className="metric-icon"><AlertTriangle size={18} /></span><div><span>Past Due</span><strong>{data.myQueue.overdue}</strong><small>Based On Ship By</small></div></button>
-        <button type="button" aria-pressed={queueFilter === 'completed' && selectedTeam === null} className={`metric-card metric-filter ${queueFilter === 'completed' && selectedTeam === null ? 'is-selected' : ''}`} onClick={() => selectQueue('completed')}><span className="metric-icon"><CheckCircle2 size={18} /></span><div><span>Completed</span><strong>{data.myQueue.completed}</strong><small>All Shipped Assignments</small></div></button>
-        <button type="button" aria-pressed={queueFilter === 'average' && selectedTeam === null} className={`metric-card metric-filter ${queueFilter === 'average' && selectedTeam === null ? 'is-selected' : ''}`} onClick={() => selectQueue('average')}><span className="metric-icon"><Clock3 size={18} /></span><div><span>Average Completion</span><strong>{formatDuration(data.myQueue.averageCompletionHours)}</strong><small>Shows The Completed Records Used</small></div></button>
-        {data.myQueue.openDollarValue != null && <article className="metric-card" aria-label={`Open dollar value ${formatCurrency(data.myQueue.openDollarValue)}`}><span className="metric-icon"><DollarSign size={18} /></span><div><span>Open Dollar Value</span><strong>{formatCurrency(data.myQueue.openDollarValue)}</strong><small>Current Assigned Work</small></div></article>}
         {data.canReviewUnassigned && <button type="button" aria-pressed={queueFilter === 'unassigned'} className={`metric-card metric-filter ${data.unassignedQueue.open ? 'risk' : ''} ${queueFilter === 'unassigned' ? 'is-selected' : ''}`} onClick={() => selectQueue('unassigned', 'unassigned')}><span className="metric-icon"><AlertTriangle size={18} /></span><div><span>Needs Assignment</span><strong>{data.unassignedQueue.open}</strong><small>Unassigned Manager Review</small></div></button>}
+        <article className="metric-card" aria-label={`Average completion ${formatDuration(data.myQueue.averageCompletionHours)}`}><span className="metric-icon"><Clock3 size={18} /></span><div><span>Average Completion</span><strong>{formatDuration(data.myQueue.averageCompletionHours)}</strong><small>Completed Shipment History</small></div></article>
+        {data.myQueue.openDollarValue != null && <article className="metric-card" aria-label={`Open dollar value ${formatCurrency(data.myQueue.openDollarValue)}`}><span className="metric-icon"><DollarSign size={18} /></span><div><span>Open Dollar Value</span><strong>{formatCurrency(data.myQueue.openDollarValue)}</strong><small>Your Current Open Work</small></div></article>}
       </section>
 
       <section className="dashboard-layout">

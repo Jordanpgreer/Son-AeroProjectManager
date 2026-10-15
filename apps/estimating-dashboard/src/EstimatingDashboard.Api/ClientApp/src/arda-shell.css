@@ -14,12 +14,13 @@
 }
 
 .arda-global-navigation {
-  display: grid;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   gap: 8px;
+  min-height: 0;
   min-width: 0;
-  margin: 0 0 14px;
-  padding: 0 0 14px;
-  border-bottom: 1px solid var(--nav-line, var(--line-2, #a8bbc9));
+  margin: 0;
 }
 
 .arda-global-navigation__heading {
@@ -36,6 +37,18 @@
   display: grid;
   gap: 3px;
   min-width: 0;
+}
+
+.arda-global-navigation__applications {
+  align-content: start;
+  overflow-y: auto;
+}
+
+.arda-global-navigation__administration {
+  flex: none;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--nav-line, var(--line-2, #a8bbc9));
 }
 
 .arda-global-navigation__home,
