@@ -535,6 +535,44 @@ public sealed class QualityShipmentWorkflowTests
     }
 
     [Fact]
+    public async Task Dashboard_server_filters_and_paginates_team_and_person_queues()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        for (var index = 1; index <= 13; index++)
+        {
+            var shipment = ShipmentForGrid($"SO-TEAM-{index:00}", "WIP", "Customer", index, null);
+            shipment.AssignedGroupId = 10;
+            shipment.AssignedGroupName = "Quality";
+            fixture.Db.Shipments.Add(shipment);
+        }
+        for (var index = 1; index <= 3; index++)
+        {
+            var shipment = ShipmentForGrid($"SO-PERSON-{index:00}", "WIP", "Customer", index, 1);
+            shipment.AssignedGroupId = 10;
+            shipment.AssignedGroupName = "Quality";
+            shipment.AssignedDisplayName = "Person One";
+            fixture.Db.Shipments.Add(shipment);
+        }
+        await fixture.Db.SaveChangesAsync();
+
+        var teamQueue = await fixture.Shipments.DashboardAsync(
+            fixture.Admin, "group", 2, 5, null, null, default);
+        var personQueue = await fixture.Shipments.DashboardAsync(
+            fixture.Admin, "person", 1, 12, null, 1, default);
+
+        Assert.Equal("group", teamQueue.SelectedQueue);
+        Assert.Equal(2, teamQueue.QueuePage);
+        Assert.Equal(5, teamQueue.QueuePageSize);
+        Assert.Equal(13, teamQueue.QueueTotal);
+        Assert.Equal(5, teamQueue.Queue.Count);
+        Assert.All(teamQueue.Queue, shipment => Assert.Null(shipment.AssignedUserId));
+
+        Assert.Equal("person", personQueue.SelectedQueue);
+        Assert.Equal(3, personQueue.QueueTotal);
+        Assert.All(personQueue.Queue, shipment => Assert.Equal(1, shipment.AssignedUserId));
+    }
+
+    [Fact]
     public async Task ManagerDashboardProvidesDollarRiskAndPersonDrilldownStatistics()
     {
         await using var fixture = await WorkflowFixture.CreateAsync();
@@ -643,7 +681,7 @@ public sealed class QualityShipmentWorkflowTests
         Assert.Equal(dashboard.TeamQueues.Count + 1, text.Split("/Type /Page ").Length - 1);
         Assert.Contains("Team Shipping Performance", text);
         Assert.Contains("Person One", text);
-        Assert.Contains("Group queue - needs owner", text);
+        Assert.Contains("Team queue - needs owner", text);
     }
 
     [Fact]

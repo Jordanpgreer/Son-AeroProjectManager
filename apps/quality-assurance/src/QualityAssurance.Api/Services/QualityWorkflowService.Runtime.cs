@@ -103,5 +103,5 @@ public sealed partial class QualityWorkflowService
     }
 
     private static string Assignment(QualityShipment shipment) =>
-        $"{shipment.AssignedGroupName ?? "Unassigned"} / {shipment.AssignedDisplayName ?? "Group queue"}";
+        $"{shipment.AssignedGroupName ?? "Unassigned"} / {shipment.AssignedDisplayName ?? "Team queue"}";
 }

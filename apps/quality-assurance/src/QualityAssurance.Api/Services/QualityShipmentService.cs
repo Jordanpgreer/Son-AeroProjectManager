@@ -220,13 +220,14 @@ public sealed class QualityShipmentService(
             .ToList();
 
         var team = new List<QualityPersonQueueDto>();
+        QualityAssignmentOptionsDto? assignmentOptions = null;
         if (canViewTeam)
         {
-            var options = await teams.GetAssignmentOptionsAsync(cancellationToken);
+            assignmentOptions = await teams.GetAssignmentOptionsAsync(cancellationToken);
             var permittedTeamIds = canViewAll
-                ? options.Groups.Select(group => group.Id).ToHashSet()
+                ? assignmentOptions.Groups.Select(group => group.Id).ToHashSet()
                 : teamContext.ManagedTeamIds;
-            team = options.Users
+            team = assignmentOptions.Users
                 .Where(user => user.GroupIds.Any(permittedTeamIds.Contains))
                 .Select(user =>
                 {
@@ -272,6 +273,16 @@ public sealed class QualityShipmentService(
                 selectedQuery = selectedQuery.Where(shipment =>
                     !shipment.IsOperationalTeamAssignment || !shipment.AssignedGroupId.HasValue);
                 break;
+            case "group":
+                if (!canViewTeam) throw new UnauthorizedAccessException("You cannot view Quality team queues.");
+                var groupTeamIds = canViewAll
+                    ? assignmentOptions!.Groups.Select(group => group.Id).ToList()
+                    : managedTeamIds;
+                selectedQuery = selectedQuery.Where(shipment => shipment.IsOperationalTeamAssignment
+                    && !shipment.AssignedUserId.HasValue
+                    && shipment.AssignedGroupId.HasValue
+                    && groupTeamIds.Contains(shipment.AssignedGroupId.Value));
+                break;
             case "team":
                 if (!teamId.HasValue || (!canViewAll && !teamContext.IsManager(teamId.Value)))
                     throw new UnauthorizedAccessException("You cannot view this Quality team queue.");
@@ -279,11 +290,14 @@ public sealed class QualityShipmentService(
                     && shipment.AssignedGroupId == teamId.Value);
                 break;
             case "person":
-                if (!teamId.HasValue || !userId.HasValue
-                    || (!canViewAll && !teamContext.IsManager(teamId.Value)))
+                if (!userId.HasValue || !canViewTeam)
                     throw new UnauthorizedAccessException("You cannot view this Quality team member queue.");
+                var personTeamIds = canViewAll
+                    ? assignmentOptions!.Groups.Select(group => group.Id).ToList()
+                    : managedTeamIds;
                 selectedQuery = selectedQuery.Where(shipment => shipment.IsOperationalTeamAssignment
-                    && shipment.AssignedGroupId == teamId.Value
+                    && shipment.AssignedGroupId.HasValue
+                    && personTeamIds.Contains(shipment.AssignedGroupId.Value)
                     && shipment.AssignedUserId == userId.Value);
                 break;
             default:
@@ -1041,6 +1055,7 @@ public sealed class QualityShipmentService(
             "overdue" => "overdue",
             "completed" => "completed",
             "unassigned" => "unassigned",
+            "group" => "group",
             "team" => "team",
             "person" => "person",
             _ => "open"
@@ -1076,14 +1091,6 @@ public sealed class QualityShipmentService(
             && shipment.AssignedGroupId.HasValue
             && teamContext.IsManager(shipment.AssignedGroupId.Value)) return;
         throw new UnauthorizedAccessException("This shipment is not in your permitted queue.");
-    }
-
-    private static void EnsureEditable(QualityAssuranceAccessProfile access, string fieldKey, object? value)
-    {
-        if (value is null || value is string text && string.IsNullOrWhiteSpace(text)) return;
-        var field = QualityFieldAccess.Find(fieldKey);
-        if (field.EditPermission is null || !access.HasPermission(field.EditPermission))
-            throw new UnauthorizedAccessException($"You do not have permission to set {field.Label}.");
     }
 
     private static void EnsurePartsEditable(

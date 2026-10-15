@@ -3,14 +3,14 @@ import type { WorkflowGraph, WorkflowIssue, WorkflowNode } from './types'
 export const TRIGGERS = [
   ['shipment-created', 'Create shipment', 'When a new shipment is created'],
   ['shipment-updated', 'Update shipment', 'When shipment details are saved'],
-  ['assignment-changed', 'Change assignment', 'When a person or group is assigned'],
+  ['assignment-changed', 'Change assignment', 'When a person or team is assigned'],
   ['qa-completed', 'Complete QA', 'When QA is complete and the shipment is ready to ship'],
   ['shipment-shipped', 'Mark shipped', 'When a shipment moves to past shipments'],
   ['shipment-imported', 'Import shipment', 'When a shipment is imported from a workbook'],
 ] as const
 export const FIELDS = [['customer', 'Customer'], ['taskType', 'Task type'], ['status', 'Status'], ['holdReason', 'Hold reason']] as const
 export const OPERATORS = [['Equals', 'is exactly'], ['Contains', 'contains'], ['StartsWith', 'starts with'], ['IsEmpty', 'is empty']] as const
-export const MODES = [['GroupOnly', 'Group queue'], ['SpecificUser', 'Specific person'], ['LeastLoaded', 'Least-loaded person']] as const
+export const MODES = [['GroupOnly', 'Team queue'], ['SpecificUser', 'Specific person'], ['LeastLoaded', 'Least-loaded team member']] as const
 export const nodeName = (node: WorkflowNode) => node.label.trim() || `Untitled ${node.type}`
 
 export function canConnect(graph: WorkflowGraph, source: string, target: string): boolean {
@@ -104,9 +104,9 @@ export function validateGraph(graph: WorkflowGraph): WorkflowIssue[] {
       if (outgoing.filter(edge => edge.branch === 'yes').length !== 1 || outgoing.filter(edge => edge.branch === 'no').length !== 1) issue('Connect both the Yes and No paths.', node.id)
     }
     if (node.type === 'route') {
-      if (!node.targetGroupId) issue('Choose a destination group.', node.id)
+      if (!node.targetGroupId) issue('Choose a destination team.', node.id)
       if (!MODES.some(([key]) => key === node.assignmentMode)) issue('Choose an assignment method.', node.id)
-      if (node.assignmentMode === 'SpecificUser' && !node.targetUserId) issue('Choose a person in the destination group.', node.id)
+      if (node.assignmentMode === 'SpecificUser' && !node.targetUserId) issue('Choose a person in the destination team.', node.id)
     }
     if (node.type === 'end' && outgoing.length) issue('An end block cannot have outgoing connections.', node.id)
     if (node.type === 'route' && (outgoing.length > 1 || outgoing.some(edge => graph.nodes.find(next => next.id === edge.target)?.type !== 'end'))) issue('A destination can only connect to an end block.', node.id)

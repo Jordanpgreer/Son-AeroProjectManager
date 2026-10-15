@@ -98,7 +98,7 @@ public sealed class QualityDashboardReportService
         {
             y -= 22;
             page.FillRect(42, y, 708, 22, "EDF4FA");
-            page.Text(50, y + 7, "Group queue - needs owner", 8.5, true, "295E8D");
+            page.Text(50, y + 7, "Team queue - needs owner", 8.5, true, "295E8D");
             page.TextRight(columns[2] - 8, y + 7, groupQueue.Open.ToString("N0", UsCulture), 8.5, true, "295E8D");
             page.TextRight(columns[3] - 8, y + 7, groupQueue.Overdue.ToString("N0", UsCulture), 8.5, true, "295E8D");
             page.TextRight(columns[4] - 8, y + 7, Money(groupQueue.OpenDollarValue), 8.5, false, "295E8D");

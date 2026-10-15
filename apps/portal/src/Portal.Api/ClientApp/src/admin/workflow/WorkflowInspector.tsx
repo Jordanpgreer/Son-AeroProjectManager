@@ -21,6 +21,7 @@ export function WorkflowInspector({ graph, node, options, issues, onChange, onCl
   </aside>
   const update = (patch: Partial<WorkflowNode>) => onChange({ ...graph, nodes: graph.nodes.map(item => item.id === node.id ? { ...item, ...patch } : item) })
   const users = options.users.filter(user => user.groupIds.includes(node.targetGroupId ?? 0))
+  const permissionGroups = options.permissionGroups ?? []
   const nextStep = (branch?: 'yes' | 'no') => {
     const edge = graph.edges.find(item => item.source === node.id && (item.branch ?? undefined) === branch)
     return <label key={branch ?? 'next'}><span>{branch === 'yes' ? 'If yes' : branch === 'no' ? 'Otherwise' : 'Next step'} <ArrowRight size={12} /></span>
@@ -38,8 +39,8 @@ export function WorkflowInspector({ graph, node, options, issues, onChange, onCl
       {node.type === 'trigger' && <>
         <label><span>When someone…</span><select value={node.trigger ?? ''} onChange={event => update({ trigger: event.target.value })}><option value="">Choose a QA action</option>{TRIGGERS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <p className="workflow-help">{TRIGGERS.find(([key]) => key === node.trigger)?.[2]}. This path runs after the action's existing permission checks.</p>
-        <details className="workflow-advanced"><summary>Limit this action by group</summary><p className="workflow-help">Optionally require membership in one of these QA groups as well as the existing button permission. Leave all unchecked to use existing permissions.</p>
-          {options.groups.map(group => <label className="workflow-check" key={group.id}><input type="checkbox" checked={node.allowedGroupIds?.includes(group.id) ?? false} onChange={event => update({ allowedGroupIds: event.target.checked ? [...(node.allowedGroupIds ?? []), group.id] : node.allowedGroupIds?.filter(id => id !== group.id) })} /><span>{group.name}</span></label>)}
+        <details className="workflow-advanced"><summary>Limit this action by permission group</summary><p className="workflow-help">Optionally require membership in one of these permission groups as well as the existing button permission. Leave all unchecked to use existing permissions.</p>
+          {permissionGroups.map(group => <label className="workflow-check" key={group.id}><input type="checkbox" checked={node.allowedGroupIds?.includes(group.id) ?? false} onChange={event => update({ allowedGroupIds: event.target.checked ? [...(node.allowedGroupIds ?? []), group.id] : node.allowedGroupIds?.filter(id => id !== group.id) })} /><span>{group.name}</span></label>)}
         </details>
       </>}
       {node.type === 'condition' && <>
@@ -49,10 +50,10 @@ export function WorkflowInspector({ graph, node, options, issues, onChange, onCl
         <p className="workflow-help">Text comparisons ignore capitalization. Work follows exactly one branch.</p>
       </>}
       {node.type === 'route' && <>
-        <label><span>Destination group</span><select value={node.targetGroupId || ''} onChange={event => update({ targetGroupId: Number(event.target.value) || null, targetUserId: null })}><option value="">Choose a QA group</option>{options.groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
+        <label><span>Destination team</span><select value={node.targetGroupId || ''} onChange={event => update({ targetGroupId: Number(event.target.value) || null, targetUserId: null })}><option value="">Choose a Quality team</option>{options.groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
         <label><span>Assign work to</span><select value={node.assignmentMode ?? 'GroupOnly'} onChange={event => update({ assignmentMode: event.target.value, targetUserId: null })}>{MODES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-        {node.assignmentMode === 'SpecificUser' && <label><span>Person</span><select value={node.targetUserId ?? ''} onChange={event => update({ targetUserId: Number(event.target.value) || null })}><option value="">Choose a group member</option>{users.map(user => <option key={user.id} value={user.id}>{user.displayName}</option>)}</select></label>}
-        <p className="workflow-help">{node.assignmentMode === 'LeastLoaded' ? 'The eligible person with the fewest open shipments receives the work. Their live queue is checked when the action runs.' : node.assignmentMode === 'SpecificUser' ? 'Only active people eligible for QA assignment appear here.' : 'The shipment goes to the group queue without a named assignee.'}</p>
+        {node.assignmentMode === 'SpecificUser' && <label><span>Person</span><select value={node.targetUserId ?? ''} onChange={event => update({ targetUserId: Number(event.target.value) || null })}><option value="">Choose a team member</option>{users.map(user => <option key={user.id} value={user.id}>{user.displayName}</option>)}</select></label>}
+        <p className="workflow-help">{node.assignmentMode === 'LeastLoaded' ? 'The team member with the fewest open shipments receives the work. Their live queue is checked when the action runs.' : node.assignmentMode === 'SpecificUser' ? 'Only active members of the selected Quality team appear here.' : 'The shipment goes to the team queue without a named assignee.'}</p>
       </>}
       {node.type === 'end' && <p className="workflow-help">Finish this path and keep the assignment established by the action or an earlier destination block.</p>}
       {node.type !== 'end' && <div className="workflow-connections"><h4><GitBranch size={15} /> Connections</h4>{node.type === 'condition' ? <>{nextStep('yes')}{nextStep('no')}</> : nextStep()}</div>}

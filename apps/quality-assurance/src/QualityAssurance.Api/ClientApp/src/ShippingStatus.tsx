@@ -233,7 +233,7 @@ function actionOwner(shipment: Shipment, canViewAssignment: boolean) {
   }
   if (shipment.assignedGroupName) {
     return {
-      primary: 'Group Queue',
+      primary: 'Team Queue',
       secondary: shipment.assignedGroupName,
       isUnassigned: false,
     }
@@ -659,7 +659,7 @@ function DetailDrawer({
             <span className={`due-pill ${shipment.dueState.toLowerCase().replaceAll(' ', '-')}`}><span />{shipment.dueState}</span>
             <span className="age-badge"><Clock3 size={13} /> {ageInDays(shipment.createdAt)} days in queue</span>
           </section>
-          {(canViewAssignment || visible('nextAction')) && <section className="detail-section"><h3>Action</h3><dl><div><dt>Current Owner</dt><dd>{owner.primary}</dd></div><div><dt>{owner.isUnassigned && shipment.nextAction ? 'Assignment Status' : 'Responsible Group'}</dt><dd>{owner.secondary}</dd></div></dl></section>}
+          {(canViewAssignment || visible('nextAction')) && <section className="detail-section"><h3>Action</h3><dl><div><dt>Current Owner</dt><dd>{owner.primary}</dd></div><div><dt>{owner.isUnassigned && shipment.nextAction ? 'Assignment Status' : 'Responsible Team'}</dt><dd>{owner.secondary}</dd></div></dl></section>}
           <section className="detail-section"><h3>Shipment Details</h3><dl>
             {visible('qaArrivalDate') && <div><dt>Shipment Arrival</dt><dd>{formatDate(shipment.qaArrivalDate)}</dd></div>}
             {visible('shipDate') && <div><dt>Ship By</dt><dd>{formatDate(shipment.shipDate)}</dd></div>}
@@ -1137,7 +1137,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
         <div className="filter-row">
           <label className="search-box"><Search size={16} /><span className="sr-only">Search Shipments</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search shipper, part, customer, action..." />{search && <button type="button" onClick={() => setSearch('')} aria-label="Clear search"><X size={14} /></button>}</label>
           <div className="segmented" aria-label="Shipment status"><button className={status === 'open' ? 'active' : ''} type="button" onClick={() => setStatus('open')}>Open</button><button className={status === 'closed' ? 'active' : ''} type="button" onClick={() => setStatus('closed')}>Closed</button>{canAll && <button className={status === 'all' ? 'active' : ''} type="button" onClick={() => setStatus('all')}>All</button>}</div>
-          <label className="compact-select"><SlidersHorizontal size={15} /><span className="compact-select-label">Queue</span><select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)} aria-label="Queue scope"><option value="mine">{canReviewUnassigned ? 'Mine + Unassigned' : 'My Queue'}</option>{canTeam && <option value="team">My Groups</option>}{canAll && <option value="all">All Shipments</option>}</select></label>
+          <label className="compact-select"><SlidersHorizontal size={15} /><span className="compact-select-label">Queue</span><select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)} aria-label="Queue scope"><option value="mine">{canReviewUnassigned ? 'Mine + Unassigned' : 'My Queue'}</option>{canTeam && <option value="team">My Teams</option>}{canAll && <option value="all">All Shipments</option>}</select></label>
           <button className={`control-button ${filtersOpen || activeFilterCount ? 'active' : ''}`} type="button" onClick={() => setFiltersOpen((current) => !current)} aria-expanded={filtersOpen} aria-controls="shipping-filter-panel"><ListFilter size={15} /><span>Filters</span>{activeFilterCount > 0 && <b>{activeFilterCount}</b>}</button>
           {hasResettableState && <button className="control-button reset-control" type="button" onClick={resetFiltersAndSort}><RotateCcw size={14} /><span>Reset Filters</span></button>}
           <button className="control-button" type="button" onClick={() => void resetColumns()}><RotateCcw size={14} /><span>Reset Columns</span></button>

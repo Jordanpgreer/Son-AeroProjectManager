@@ -321,7 +321,7 @@ public sealed class QualityShipmentImportServiceTests
         Assert.Equal(["Imported", "AutoAssigned", "WorkflowExecuted"], audit.Select(entry => entry.EventType));
         Assert.Equal("Quality / Julia Santos", audit[1].NewValue);
         Assert.Equal("Quality / Julia Santos", audit[2].OldValue);
-        Assert.Contains("Shipper / Group queue", audit[2].NewValue);
+        Assert.Contains("Shipper / Team queue", audit[2].NewValue);
         Assert.Equal(20, (await fixture.Db.Shipments.SingleAsync()).AssignedGroupId);
     }
 

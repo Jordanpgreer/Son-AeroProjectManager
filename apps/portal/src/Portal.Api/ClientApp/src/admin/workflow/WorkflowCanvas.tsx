@@ -28,7 +28,7 @@ interface WorkflowCanvasProps {
 const KINDS = {
   trigger: { label: 'Action', icon: CirclePlay, description: 'Start with a QA action' },
   condition: { label: 'Condition', icon: GitBranch, description: 'Split a path with a yes or no question' },
-  route: { label: 'Queue', icon: Inbox, description: 'Send work to a group or person' },
+  route: { label: 'Queue', icon: Inbox, description: 'Send work to a team or person' },
   end: { label: 'Keep assignment', icon: CircleCheck, description: 'Finish without changing the assignment' },
 } as const
 const STEP_MIME = 'application/arda-workflow-step'
@@ -46,9 +46,9 @@ function describeNode(node: WorkflowNode, options: QualityAssignmentOptions) {
     const operator = OPERATORS.find(([key]) => key === node.operator)?.[1] ?? 'matches'
     return `${field} ${operator}${node.operator === 'IsEmpty' ? '' : ` ${node.value?.trim() ? `“${node.value}”` : '…'}`}`
   }
-  if (node.type === 'end') return 'The current group and person stay assigned'
+  if (node.type === 'end') return 'The current team and person stay assigned'
   const group = options.groups.find(group => group.id === node.targetGroupId)
-  if (!group) return 'Choose the group that will receive this work'
+  if (!group) return 'Choose the team that will receive this work'
   if (node.assignmentMode === 'SpecificUser') {
     const user = options.users.find(user => user.id === node.targetUserId)
     return `${group.name} · ${user?.displayName ?? 'Choose a person'}`
@@ -80,7 +80,7 @@ function WorkflowCard({ data, selected, isConnectable }: NodeProps<CanvasNode>) 
       <footer>
         {!configured ? <span className="workflow-block-setup"><TriangleAlert size={12} /> Set up this step</span>
           : traced ? <span className="workflow-block-trace"><Check size={12} /> Test path</span>
-            : step.type === 'trigger' ? <span><LockKeyhole size={11} /> {step.allowedGroupIds?.length ? `${step.allowedGroupIds.length} permitted group${step.allowedGroupIds.length === 1 ? '' : 's'}` : 'Existing QA permissions'}</span>
+            : step.type === 'trigger' ? <span><LockKeyhole size={11} /> {step.allowedGroupIds?.length ? `${step.allowedGroupIds.length} permitted permission group${step.allowedGroupIds.length === 1 ? '' : 's'}` : 'Existing QA permissions'}</span>
               : step.type === 'route' ? <span><Inbox size={11} /> Assignment destination</span>
                 : step.type === 'end' ? <span><Check size={11} /> Path complete</span> : <span>Follow the matching path</span>}
       </footer>

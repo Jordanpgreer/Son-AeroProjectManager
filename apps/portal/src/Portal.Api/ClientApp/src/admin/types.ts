@@ -279,6 +279,7 @@ export interface QualityDirectoryUser {
 export interface QualityAssignmentOptions {
   groups: QualityDirectoryGroup[]
   users: QualityDirectoryUser[]
+  permissionGroups?: QualityDirectoryGroup[]
 }
 
 export interface QualityAssignmentRule {

@@ -29,11 +29,21 @@ export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: Q
   const [selectedTeam, setSelectedTeam] = useState<TeamSelection>(null)
   const [queueFilter, setQueueFilter] = useState<QueueFilter>('open')
   const [requestedPage, setRequestedPage] = useState(1)
+  const apiQueue = queueFilter === 'average'
+    ? 'completed'
+    : selectedTeam === 'unassigned'
+      ? 'unassigned'
+      : selectedTeam === 'group'
+        ? 'group'
+        : typeof selectedTeam === 'number'
+          ? 'person'
+          : queueFilter
 
   useEffect(() => {
     let active = true
     setError(null)
-    const query = new URLSearchParams({ page: String(requestedPage), pageSize: String(queuePageSize) })
+    const query = new URLSearchParams({ queue: apiQueue, page: String(requestedPage), pageSize: String(queuePageSize) })
+    if (typeof selectedTeam === 'number') query.set('userId', String(selectedTeam))
     void qualityApi<DashboardData>(`/api/dashboard?${query}`)
       .then((next) => {
         if (!active) return
@@ -41,7 +51,7 @@ export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: Q
       })
       .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : 'Dashboard unavailable.') })
     return () => { active = false }
-  }, [reloadKey, refreshKey, requestedPage, user.permissions, user.workflowRestrictedActions])
+  }, [apiQueue, reloadKey, refreshKey, requestedPage, selectedTeam, user.permissions, user.workflowRestrictedActions])
 
   const teamTotals = useMemo(() => {
     if (!data) return { open: 0, overdue: 0, openDollarValue: null as number | null }
@@ -73,20 +83,9 @@ export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: Q
   const selectedLabel = selectedTeam === 'unassigned'
     ? 'Needs Assignment'
     : selectedTeam === 'group'
-      ? 'Group Queue'
+      ? 'Team Queue'
       : selectedPerson?.displayName ?? 'Select a Team Member'
-  const selectedShipments = selectedTeam === 'unassigned'
-    ? data.unassignedShipments
-    : selectedTeam === 'group'
-      ? data.groupShipments
-      : selectedPerson?.openShipments ?? data.queue
-  const visibleQueue = queueFilter === 'completed' || queueFilter === 'average'
-    ? selectedTeam === null ? data.completedShipments : []
-    : queueFilter === 'unassigned'
-      ? data.unassignedShipments
-    : queueFilter === 'overdue'
-      ? selectedShipments.filter((shipment) => shipment.dueState === 'Past due')
-      : selectedShipments
+  const visibleQueue = data.queue
   const queueTitle = queueFilter === 'unassigned'
     ? 'Needs Assignment'
     : queueFilter === 'overdue'
@@ -94,18 +93,7 @@ export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: Q
     : queueFilter === 'completed' || queueFilter === 'average'
       ? 'Completed Shipments'
       : 'Queue Priority'
-  const selectedMetrics = selectedTeam === 'unassigned'
-    ? data.unassignedQueue
-    : selectedTeam === 'group'
-      ? data.groupQueue
-      : selectedPerson?.metrics ?? data.myQueue
-  const activeQueueTotal = queueFilter === 'completed' || queueFilter === 'average'
-    ? selectedTeam === null ? data.myQueue.completed : 0
-    : queueFilter === 'overdue'
-      ? selectedMetrics.overdue
-      : queueFilter === 'unassigned'
-        ? data.unassignedQueue.open
-        : selectedTeam === null ? data.queueTotal ?? data.myQueue.open : selectedMetrics.open
+  const activeQueueTotal = data.queueTotal
   const activePage = data.queuePage ?? requestedPage
   const activePageSize = data.queuePageSize ?? queuePageSize
   const totalPages = Math.max(1, Math.ceil(activeQueueTotal / activePageSize))
@@ -178,7 +166,7 @@ export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: Q
               <div><span>Team Open</span><strong>{teamTotals.open.toLocaleString()}</strong></div>
               <div className={teamTotals.overdue ? 'is-risk' : ''}><span>Team Past Due</span><strong>{teamTotals.overdue.toLocaleString()}</strong></div>
               <div><span>Open Dollar Value</span><strong>{teamTotals.openDollarValue == null ? 'Restricted' : formatCurrency(teamTotals.openDollarValue)}</strong></div>
-              <div><span>Group Queue</span><strong>{data.groupQueue.open.toLocaleString()}</strong></div>
+              <div><span>Team Queue</span><strong>{data.groupQueue.open.toLocaleString()}</strong></div>
               {data.canReviewUnassigned && <div><span>Needs Assignment</span><strong>{data.unassignedQueue.open.toLocaleString()}</strong></div>}
             </div>
 
