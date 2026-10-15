@@ -24,13 +24,21 @@ public static class QualityWorkflowEndpoints
             QualityWorkflowService service, CancellationToken cancellationToken) =>
             Results.Ok(await service.SimulateAsync(dto, Access(context), cancellationToken)))
             .RequireAuthorization(QualityAssurancePermissions.RulesManage);
-        workflow.MapGet("/options", async (IQualityAssuranceAccessStore accessStore, CancellationToken cancellationToken) =>
+        workflow.MapGet("/options", async (
+            IQualityAssuranceAccessStore accessStore,
+            QualityTeamService teams,
+            CancellationToken cancellationToken) =>
         {
-            var groups = await accessStore.GetGroupsWithPermissionAsync(QualityAssurancePermissions.ResponsibleGroupEligible, cancellationToken);
-            var users = await accessStore.GetUsersWithPermissionAsync(QualityAssurancePermissions.AssignmentEligible, cancellationToken);
-            return Results.Ok(new QualityAssignmentOptionsDto(
-                groups.Select(group => new QualityDirectoryGroupDto(group.Id, group.Name, group.Description, group.ActiveUserCount)).ToList(),
-                users.Select(user => new QualityDirectoryUserDto(user.Id, user.AccountName, user.DisplayName, user.GroupIds)).ToList()));
+            var options = await teams.GetAssignmentOptionsAsync(cancellationToken);
+            var permissionGroups = await accessStore.GetGroupsAsync(cancellationToken);
+            return Results.Ok(options with
+            {
+                PermissionGroups = permissionGroups.Select(group => new QualityDirectoryGroupDto(
+                    group.Id,
+                    group.Name,
+                    group.Description,
+                    group.ActiveUserCount)).ToList()
+            });
         });
         return api;
     }

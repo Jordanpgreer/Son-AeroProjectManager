@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using QualityAssurance.Api.Auth;
 using QualityAssurance.Api.Data;
 using QualityAssurance.Api.Dtos;
+using QualityAssurance.Api.Models;
 using QualityAssurance.Api.Services;
 using SonAero.Platform.Security;
 
@@ -387,8 +388,9 @@ public sealed class QualityShipmentImportServiceTests
         {
             this.connection = connection;
             Db = db;
-            Importer = new QualityShipmentImportService(db, accessStore);
-            Workflows = new QualityWorkflowService(db, accessStore);
+            var teams = new QualityTeamService(db, accessStore);
+            Importer = new QualityShipmentImportService(db, accessStore, teams);
+            Workflows = new QualityWorkflowService(db, accessStore, teams);
             Admin = new QualityAssuranceAccessProfile(
                 99,
                 "TEST\\admin",
@@ -413,7 +415,31 @@ public sealed class QualityShipmentImportServiceTests
                 .UseSqlite(connection)
                 .Options);
             await db.Database.EnsureCreatedAsync();
-            return new ImportFixture(connection, db, new TestAccessStore(groups, users));
+            var accessStore = new TestAccessStore(groups, users);
+            foreach (var group in groups ?? [new QualityDirectoryGroup(10, "Quality", null, 1)])
+            {
+                db.Teams.Add(new QualityTeam
+                {
+                    Id = group.Id,
+                    Name = group.Name,
+                    Description = group.Description,
+                    Version = 1,
+                    CreatedBy = "TEST\\admin",
+                    UpdatedBy = "TEST\\admin",
+                    Members = (users ?? [])
+                        .Where(user => user.GroupIds.Contains(group.Id))
+                        .Select(user => new QualityTeamMember
+                        {
+                            AppUserId = user.Id,
+                            AccountName = user.AccountName,
+                            DisplayName = user.DisplayName,
+                            AddedBy = "TEST\\admin"
+                        })
+                        .ToList()
+                });
+            }
+            await db.SaveChangesAsync();
+            return new ImportFixture(connection, db, accessStore);
         }
 
         public async ValueTask DisposeAsync()

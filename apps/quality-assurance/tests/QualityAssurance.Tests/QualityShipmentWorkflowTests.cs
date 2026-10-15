@@ -302,7 +302,7 @@ public sealed class QualityShipmentWorkflowTests
     }
 
     [Fact]
-    public async Task CreatingWorkDoesNotAssignAnIneligibleCreatorAsTheOwner()
+    public async Task CreatingWorkUsesTeamMembershipRatherThanLegacyEligibilityPermission()
     {
         await using var fixture = await WorkflowFixture.CreateAsync();
         var permissions = fixture.Admin.Permissions
@@ -317,8 +317,8 @@ public sealed class QualityShipmentWorkflowTests
             default);
 
         Assert.Equal(10, created.AssignedGroupId);
-        Assert.Null(created.AssignedUserId);
-        Assert.Null(created.AssignedDisplayName);
+        Assert.Equal(99, created.AssignedUserId);
+        Assert.Equal("Quality Admin", created.AssignedDisplayName);
     }
 
     [Fact]
@@ -1074,15 +1074,17 @@ public sealed class QualityShipmentWorkflowTests
             this.connection = connection;
             Db = db;
             Directory = new TestAccessStore();
-            Assignments = new QualityAssignmentService(db, Directory);
+            Teams = new QualityTeamService(db, Directory);
+            Assignments = new QualityAssignmentService(db, Teams);
             var legacyAssignments = new QualityLegacyAssignmentReconciler(
                 db,
-                Directory,
+                Teams,
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<QualityLegacyAssignmentReconciler>.Instance);
             Shipments = new QualityShipmentService(
                 db,
                 Directory,
                 Assignments,
+                Teams,
                 legacyAssignments,
                 configuration);
             Admin = new QualityAssuranceAccessProfile(
@@ -1096,6 +1098,7 @@ public sealed class QualityShipmentWorkflowTests
 
         public QualityAssuranceDbContext Db { get; }
         public TestAccessStore Directory { get; }
+        public QualityTeamService Teams { get; }
         public QualityAssignmentService Assignments { get; }
         public QualityShipmentService Shipments { get; }
         public QualityAssuranceAccessProfile Admin { get; }
@@ -1108,6 +1111,37 @@ public sealed class QualityShipmentWorkflowTests
                 .UseSqlite(connection)
                 .Options);
             await db.Database.EnsureCreatedAsync();
+            db.Teams.AddRange(
+                new QualityTeam
+                {
+                    Id = 10,
+                    Name = "Quality",
+                    Description = "Quality team",
+                    Version = 1,
+                    CreatedBy = "TEST\\admin",
+                    UpdatedBy = "TEST\\admin",
+                    Members =
+                    [
+                        new QualityTeamMember { AppUserId = 1, AccountName = "TEST\\one", DisplayName = "Person One", AddedBy = "TEST\\admin" },
+                        new QualityTeamMember { AppUserId = 2, AccountName = "TEST\\two", DisplayName = "Person Two", AddedBy = "TEST\\admin" },
+                        new QualityTeamMember { AppUserId = 50, AccountName = "TEST\\manager", DisplayName = "Quality Manager", IsManager = true, AddedBy = "TEST\\admin" },
+                        new QualityTeamMember { AppUserId = 99, AccountName = "TEST\\admin", DisplayName = "Quality Admin", IsManager = true, AddedBy = "TEST\\admin" }
+                    ]
+                },
+                new QualityTeam
+                {
+                    Id = 20,
+                    Name = ApplicationGroups.Shipper,
+                    Description = "Shipping team",
+                    Version = 1,
+                    CreatedBy = "TEST\\admin",
+                    UpdatedBy = "TEST\\admin",
+                    Members =
+                    [
+                        new QualityTeamMember { AppUserId = 40, AccountName = "TEST\\shipping", DisplayName = "Shipping User", AddedBy = "TEST\\admin" }
+                    ]
+                });
+            await db.SaveChangesAsync();
             return new WorkflowFixture(connection, db, configuration);
         }
 
@@ -1129,6 +1163,8 @@ public sealed class QualityShipmentWorkflowTests
         [
             new QualityDirectoryUser(1, "TEST\\one", "Person One", [10]),
             new QualityDirectoryUser(2, "TEST\\two", "Person Two", [10]),
+            new QualityDirectoryUser(40, "TEST\\shipping", "Shipping User", [20]),
+            new QualityDirectoryUser(50, "TEST\\manager", "Quality Manager", [10]),
             new QualityDirectoryUser(99, "TEST\\admin", "Quality Admin", [10])
         ];
 

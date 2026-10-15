@@ -1,7 +1,11 @@
 namespace QualityAssurance.Api.Dtos;
 
 public sealed record QualityWorkflowGraph(
-    string Module, string Name, IReadOnlyList<QualityWorkflowNode> Nodes, IReadOnlyList<QualityWorkflowEdge> Edges);
+    string Module,
+    string Name,
+    IReadOnlyList<QualityWorkflowNode> Nodes,
+    IReadOnlyList<QualityWorkflowEdge> Edges,
+    string? AssignmentDirectory = null);
 
 public sealed record QualityWorkflowNode(
     string Id, string Type, string Label, double X, double Y,

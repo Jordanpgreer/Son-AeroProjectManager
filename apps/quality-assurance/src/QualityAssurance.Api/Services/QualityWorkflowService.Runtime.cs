@@ -39,20 +39,24 @@ public sealed partial class QualityWorkflowService
         var oldAssignment = Assignment(shipment);
         if (outcome.Outcome == "route")
         {
-            var groups = await accessStore.GetGroupsWithPermissionAsync(QualityAssurancePermissions.ResponsibleGroupEligible, cancellationToken);
-            var group = groups.SingleOrDefault(group => group.Id == outcome.TargetGroupId)
-                ?? throw new ArgumentException("The workflow destination is no longer an eligible Quality Responsible Group. Ask a workflow administrator to update it.");
-            QualityDirectoryUser? selected = null;
+            if (!string.Equals(graph.AssignmentDirectory, OperationalTeamDirectory, StringComparison.Ordinal))
+                throw new ArgumentException(
+                    "This workflow predates operational Quality teams. Ask a workflow administrator to update and republish it.");
+            var team = outcome.TargetGroupId.HasValue
+                ? await teams.FindActiveTeamAsync(outcome.TargetGroupId.Value, cancellationToken)
+                : null;
+            if (team is null)
+                throw new ArgumentException("The workflow destination is no longer an active Quality team. Ask a workflow administrator to update it.");
+            QualityTeamMember? selected = null;
             if (outcome.AssignmentMode is "SpecificUser" or "LeastLoaded")
             {
-                var users = (await accessStore.GetUsersWithPermissionAsync(QualityAssurancePermissions.AssignmentEligible, cancellationToken))
-                    .Where(user => user.GroupIds.Contains(group.Id)).ToList();
+                var users = await teams.GetActiveMembersAsync(team.Id, cancellationToken);
                 if (outcome.AssignmentMode == "SpecificUser")
-                    selected = users.SingleOrDefault(user => user.Id == outcome.TargetUserId)
-                        ?? throw new ArgumentException("The workflow recipient is no longer eligible for this queue. Ask a workflow administrator to update it.");
+                    selected = users.SingleOrDefault(user => user.AppUserId == outcome.TargetUserId)
+                        ?? throw new ArgumentException("The workflow recipient is no longer an active member of this Quality team. Ask a workflow administrator to update it.");
                 else if (users.Count > 0)
                 {
-                    var ids = users.Select(user => user.Id).ToList();
+                    var ids = users.Select(user => user.AppUserId).ToList();
                     var loads = await db.Shipments.AsNoTracking()
                         .Where(item => !item.IsShipped && item.Id != shipment.Id
                             && item.AssignedUserId.HasValue && ids.Contains(item.AssignedUserId.Value))
@@ -68,18 +72,21 @@ public sealed partial class QualityWorkflowService
                         var userId = pending.AssignedUserId!.Value;
                         loads[userId] = loads.GetValueOrDefault(userId) + 1;
                     }
-                    selected = users.OrderBy(user => loads.GetValueOrDefault(user.Id)).ThenBy(user => user.Id).First();
+                    selected = users.OrderBy(user => loads.GetValueOrDefault(user.AppUserId))
+                        .ThenBy(user => user.AppUserId)
+                        .First();
                 }
             }
-            shipment.AssignedGroupId = group.Id;
-            shipment.AssignedGroupName = group.Name;
-            shipment.AssignedUserId = selected?.Id;
+            shipment.AssignedGroupId = team.Id;
+            shipment.AssignedGroupName = team.Name;
+            shipment.AssignedUserId = selected?.AppUserId;
             shipment.AssignedAccountName = selected?.AccountName;
             shipment.AssignedDisplayName = selected?.DisplayName;
+            shipment.IsOperationalTeamAssignment = true;
             shipment.LegacyAssigneeTag = null;
-            shipment.NextAction = selected?.DisplayName ?? group.Name;
+            shipment.NextAction = selected?.DisplayName ?? team.Name;
             if (selected is not null)
-                shipment.Status = QualityShipmentStatusRules.ForAssignedGroup(group.Name)
+                shipment.Status = QualityShipmentStatusRules.ForAssignedGroup(team.Name)
                     ?? shipment.Status;
         }
         shipment.AuditEntries.Add(new QualityShipmentAuditEntry

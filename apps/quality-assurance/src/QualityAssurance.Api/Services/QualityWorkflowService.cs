@@ -9,8 +9,12 @@ using SonAero.Platform.Security;
 namespace QualityAssurance.Api.Services;
 
 public sealed partial class QualityWorkflowService(
-    QualityAssuranceDbContext db, IQualityAssuranceAccessStore accessStore, IConfiguration? configuration = null)
+    QualityAssuranceDbContext db,
+    IQualityAssuranceAccessStore accessStore,
+    QualityTeamService teams,
+    IConfiguration? configuration = null)
 {
+    public const string OperationalTeamDirectory = "quality-teams-v1";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public async Task<QualityWorkflowDto> GetAsync(QualityAssuranceAccessProfile actor, CancellationToken cancellationToken)
@@ -45,7 +49,11 @@ public sealed partial class QualityWorkflowService(
             db.Workflows.Add(workflow);
         }
         else db.Entry(workflow).Property(item => item.Version).OriginalValue = dto.Version;
-        workflow.DraftJson = JsonSerializer.Serialize(dto.Graph with { Name = dto.Graph.Name.Trim() }, JsonOptions);
+        workflow.DraftJson = JsonSerializer.Serialize(dto.Graph with
+        {
+            Name = dto.Graph.Name.Trim(),
+            AssignmentDirectory = OperationalTeamDirectory
+        }, JsonOptions);
         workflow.Version++;
         workflow.UpdatedAt = DateTimeOffset.UtcNow;
         workflow.UpdatedBy = actor.AccountName;
@@ -105,19 +113,21 @@ public sealed partial class QualityWorkflowService(
     {
         var result = QualityWorkflowGraphEngine.Validate(graph);
         var issues = result.Issues.ToList();
-        var groups = await accessStore.GetGroupsWithPermissionAsync(QualityAssurancePermissions.ResponsibleGroupEligible, cancellationToken);
-        var users = await accessStore.GetUsersWithPermissionAsync(QualityAssurancePermissions.AssignmentEligible, cancellationToken);
+        var options = await teams.GetAssignmentOptionsAsync(cancellationToken);
         var allGroups = await accessStore.GetGroupsAsync(cancellationToken);
+        if (graph.Nodes.Any(node => node.Type == "route")
+            && !string.Equals(graph.AssignmentDirectory, OperationalTeamDirectory, StringComparison.Ordinal))
+            issues.Add(new(null, "Republish this workflow using operational Quality teams before enabling route nodes."));
         foreach (var node in graph.Nodes)
         {
             if (node.Type == "trigger" && node.AllowedGroupIds?.Any(id => allGroups.All(group => group.Id != id)) == true)
                 issues.Add(new(node.Id, "A trigger access group no longer exists."));
             if (node.Type != "route") continue;
-            if (groups.All(group => group.Id != node.TargetGroupId))
-                issues.Add(new(node.Id, "Select an active Quality Responsible Group for this queue."));
-            if (node.AssignmentMode == "SpecificUser" && !users.Any(user => user.Id == node.TargetUserId
+            if (options.Groups.All(group => group.Id != node.TargetGroupId))
+                issues.Add(new(node.Id, "Select an active Quality team for this queue."));
+            if (node.AssignmentMode == "SpecificUser" && !options.Users.Any(user => user.Id == node.TargetUserId
                 && node.TargetGroupId.HasValue && user.GroupIds.Contains(node.TargetGroupId.Value)))
-                issues.Add(new(node.Id, "The selected person must be eligible for Quality assignment and belong to the destination group."));
+                issues.Add(new(node.Id, "The selected person must be active and belong to the destination Quality team."));
         }
         return new(issues.Count == 0, issues);
     }

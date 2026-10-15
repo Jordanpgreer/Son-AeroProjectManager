@@ -45,6 +45,9 @@ namespace QualityAssurance.Api.Data.Migrations
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("bit");
 
+                    b.Property<bool>("UsesOperationalTeam")
+                        .HasColumnType("bit");
+
                     b.Property<string>("MatchField")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -245,6 +248,9 @@ namespace QualityAssurance.Api.Data.Migrations
                     b.Property<bool>("IsShipped")
                         .HasColumnType("bit");
 
+                    b.Property<bool>("IsOperationalTeamAssignment")
+                        .HasColumnType("bit");
+
                     b.Property<DateTimeOffset?>("LastWorkedAt")
                         .HasColumnType("datetimeoffset");
 
@@ -332,9 +338,9 @@ namespace QualityAssurance.Api.Data.Migrations
 
                     b.HasIndex("TaskType");
 
-                    b.HasIndex("IsShipped", "AssignedGroupId", "ShipDate");
+                    b.HasIndex("IsShipped", "IsOperationalTeamAssignment", "AssignedGroupId", "ShipDate");
 
-                    b.HasIndex("IsShipped", "AssignedUserId", "CreatedAt");
+                    b.HasIndex("IsShipped", "IsOperationalTeamAssignment", "AssignedUserId", "CreatedAt");
 
                     b.ToTable("QualityShipments", (string)null);
                 });
@@ -510,6 +516,90 @@ namespace QualityAssurance.Api.Data.Migrations
                     b.ToTable("QualityShippingLayoutPreferences", (string)null);
                 });
 
+            modelBuilder.Entity("QualityAssurance.Api.Models.QualityTeam", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("UpdatedBy")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("QualityTeams", (string)null);
+                });
+
+            modelBuilder.Entity("QualityAssurance.Api.Models.QualityTeamMember", b =>
+                {
+                    b.Property<int>("QualityTeamId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("AppUserId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("AccountName")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<DateTimeOffset>("AddedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("AddedBy")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<bool>("IsManager")
+                        .HasColumnType("bit");
+
+                    b.HasKey("QualityTeamId", "AppUserId");
+
+                    b.HasIndex("AppUserId", "IsManager");
+
+                    b.ToTable("QualityTeamMembers", (string)null);
+                });
+
             modelBuilder.Entity("QualityAssurance.Api.Models.QualityWorkflow", b =>
                 {
                     b.Property<int>("Id")
@@ -649,6 +739,17 @@ namespace QualityAssurance.Api.Data.Migrations
                     b.Navigation("Shipment");
                 });
 
+            modelBuilder.Entity("QualityAssurance.Api.Models.QualityTeamMember", b =>
+                {
+                    b.HasOne("QualityAssurance.Api.Models.QualityTeam", "Team")
+                        .WithMany("Members")
+                        .HasForeignKey("QualityTeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Team");
+                });
+
             modelBuilder.Entity("QualityAssurance.Api.Models.QualityShipment", b =>
                 {
                     b.Navigation("AuditEntries");
@@ -661,6 +762,11 @@ namespace QualityAssurance.Api.Data.Migrations
             modelBuilder.Entity("QualityAssurance.Api.Models.QualityShipmentComment", b =>
                 {
                     b.Navigation("MentionNotifications");
+                });
+
+            modelBuilder.Entity("QualityAssurance.Api.Models.QualityTeam", b =>
+                {
+                    b.Navigation("Members");
                 });
 #pragma warning restore 612, 618
         }

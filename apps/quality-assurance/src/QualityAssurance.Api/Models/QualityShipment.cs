@@ -26,6 +26,7 @@ public sealed class QualityShipment
     public int? AssignedUserId { get; set; }
     public string? AssignedAccountName { get; set; }
     public string? AssignedDisplayName { get; set; }
+    public bool IsOperationalTeamAssignment { get; set; } = true;
     public bool IsShipped { get; set; }
     public DateTimeOffset? ShippedAt { get; set; }
     public string? ShippedByAccountName { get; set; }
@@ -91,6 +92,7 @@ public sealed class QualityAssignmentRule
     public int? TargetUserId { get; set; }
     public string? TargetAccountName { get; set; }
     public string? TargetDisplayName { get; set; }
+    public bool UsesOperationalTeam { get; set; } = true;
     public long Version { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public string CreatedBy { get; set; } = string.Empty;

@@ -22,16 +22,19 @@ public sealed class QualityLegacyAssignmentReconcilerTests
                 .Options);
         await db.Database.EnsureCreatedAsync();
         var directory = new MutableAccessStore();
+        db.Teams.Add(Team(42));
+        await db.SaveChangesAsync();
+        var teams = new QualityTeamService(db, directory);
         var reconciler = new QualityLegacyAssignmentReconciler(
             db,
-            directory,
+            teams,
             NullLogger<QualityLegacyAssignmentReconciler>.Instance);
         var shipment = Shipment("QA-rOrIe");
         db.Shipments.Add(shipment);
         await db.SaveChangesAsync();
 
         Assert.Equal(1, await reconciler.ReconcileAsync());
-        Assert.Equal("rOrIe", shipment.NextAction);
+        Assert.Equal("Needs assignment", shipment.NextAction);
         Assert.Equal("rOrIe", shipment.LegacyAssigneeTag);
         Assert.Null(shipment.AssignedUserId);
 
@@ -68,9 +71,11 @@ public sealed class QualityLegacyAssignmentReconcilerTests
                 new QualityDirectoryUser(2, "TEST\\julia-two", "Julia Two", [10])
             ]
         };
+        db.Teams.Add(Team(1, 2));
+        await db.SaveChangesAsync();
         var reconciler = new QualityLegacyAssignmentReconciler(
             db,
-            directory,
+            new QualityTeamService(db, directory),
             NullLogger<QualityLegacyAssignmentReconciler>.Instance);
         var shipment = Shipment("QA-Julia");
         db.Shipments.Add(shipment);
@@ -78,7 +83,7 @@ public sealed class QualityLegacyAssignmentReconcilerTests
 
         Assert.Equal(1, await reconciler.ReconcileAsync());
 
-        Assert.Equal("Julia", shipment.NextAction);
+        Assert.Equal("Needs assignment", shipment.NextAction);
         Assert.Equal("Julia", shipment.LegacyAssigneeTag);
         Assert.Null(shipment.AssignedUserId);
     }
@@ -94,6 +99,22 @@ public sealed class QualityLegacyAssignmentReconcilerTests
         CreatedByDisplayName = "Import",
         UpdatedByAccountName = "TEST\\import",
         UpdatedByDisplayName = "Import",
+    };
+
+    private static QualityTeam Team(params int[] userIds) => new()
+    {
+        Id = 10,
+        Name = "Quality",
+        CreatedBy = "TEST\\admin",
+        UpdatedBy = "TEST\\admin",
+        Version = 1,
+        Members = userIds.Select(userId => new QualityTeamMember
+        {
+            AppUserId = userId,
+            AccountName = $"TEST\\user-{userId}",
+            DisplayName = $"User {userId}",
+            AddedBy = "TEST\\admin"
+        }).ToList()
     };
 
     private sealed class MutableAccessStore : IQualityAssuranceAccessStore

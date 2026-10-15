@@ -96,11 +96,14 @@ public sealed class QualityWorkflowServiceTests
     {
         await using var f = await Fixture.CreateAsync();
         var saved = await f.Workflows.SaveAsync(new(0, QualityWorkflowGraphEngineTests.Graph()), f.Admin, default);
-        f.Directory.Enabled = false;
+        (await f.Db.Teams.SingleAsync(team => team.Id == 20)).IsActive = false;
+        await f.Db.SaveChangesAsync();
         await Assert.ThrowsAsync<ArgumentException>(() => f.Workflows.PublishAsync(saved.Version, f.Admin, default));
-        f.Directory.Enabled = true;
+        (await f.Db.Teams.SingleAsync(team => team.Id == 20)).IsActive = true;
+        await f.Db.SaveChangesAsync();
         await f.Workflows.PublishAsync(saved.Version, f.Admin, default);
-        f.Directory.Enabled = false;
+        (await f.Db.Teams.SingleAsync(team => team.Id == 20)).IsActive = false;
+        await f.Db.SaveChangesAsync();
         await Assert.ThrowsAsync<ArgumentException>(() => f.Shipments.CreateAsync(CreateDto(), f.Admin, default));
         Assert.Equal(0, await f.Db.Shipments.CountAsync());
     }
@@ -260,7 +263,7 @@ public sealed class QualityWorkflowServiceTests
         };
         f.Db.Shipments.Add(shipment);
         await f.Db.SaveChangesAsync();
-        var reconciler = new QualityLegacyAssignmentReconciler(f.Db, f.Directory, NullLogger<QualityLegacyAssignmentReconciler>.Instance);
+        var reconciler = new QualityLegacyAssignmentReconciler(f.Db, f.Teams, NullLogger<QualityLegacyAssignmentReconciler>.Instance);
         Assert.Equal(0, await reconciler.ReconcileAsync());
         Assert.Equal(20, (await f.Db.Shipments.SingleAsync()).AssignedGroupId);
     }
@@ -293,6 +296,7 @@ public sealed class QualityWorkflowServiceTests
         private readonly SqliteConnection connection;
         public QualityAssuranceDbContext Db { get; }
         public DirectoryStore Directory { get; } = new();
+        public QualityTeamService Teams { get; }
         public QualityWorkflowService Workflows { get; }
         public QualityShipmentService Shipments { get; }
         public QualityAssuranceAccessProfile Admin { get; } = new(99, "TEST\\admin", "Admin", ApplicationRoles.Admin,
@@ -302,8 +306,15 @@ public sealed class QualityWorkflowServiceTests
         {
             this.connection = connection;
             Db = db;
-            Workflows = new(db, Directory);
-            Shipments = new(db, Directory, new(db, Directory), new(db, Directory, NullLogger<QualityLegacyAssignmentReconciler>.Instance), workflows: Workflows);
+            Teams = new(db, Directory);
+            Workflows = new(db, Directory, Teams);
+            Shipments = new(
+                db,
+                Directory,
+                new QualityAssignmentService(db, Teams),
+                Teams,
+                new QualityLegacyAssignmentReconciler(db, Teams, NullLogger<QualityLegacyAssignmentReconciler>.Instance),
+                workflows: Workflows);
         }
 
         public static async Task<Fixture> CreateAsync()
@@ -312,6 +323,33 @@ public sealed class QualityWorkflowServiceTests
             await connection.OpenAsync();
             var db = new QualityAssuranceDbContext(new DbContextOptionsBuilder<QualityAssuranceDbContext>().UseSqlite(connection).Options);
             await db.Database.EnsureCreatedAsync();
+            db.Teams.AddRange(
+                new QualityTeam
+                {
+                    Id = 10,
+                    Name = "Quality",
+                    Version = 1,
+                    CreatedBy = "TEST\\admin",
+                    UpdatedBy = "TEST\\admin",
+                    Members =
+                    [
+                        new QualityTeamMember { AppUserId = 1, AccountName = "TEST\\one", DisplayName = "One", AddedBy = "TEST\\admin" },
+                        new QualityTeamMember { AppUserId = 99, AccountName = "TEST\\admin", DisplayName = "Admin", IsManager = true, AddedBy = "TEST\\admin" }
+                    ]
+                },
+                new QualityTeam
+                {
+                    Id = 20,
+                    Name = ApplicationGroups.Shipper,
+                    Version = 1,
+                    CreatedBy = "TEST\\admin",
+                    UpdatedBy = "TEST\\admin",
+                    Members =
+                    [
+                        new QualityTeamMember { AppUserId = 1, AccountName = "TEST\\one", DisplayName = "One", AddedBy = "TEST\\admin" }
+                    ]
+                });
+            await db.SaveChangesAsync();
             return new(connection, db);
         }
 

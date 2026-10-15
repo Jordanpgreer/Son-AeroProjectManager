@@ -13,10 +13,16 @@ public static class QualityShippingEndpoints
     public static RouteGroupBuilder MapQualityShippingEndpoints(this RouteGroupBuilder api)
     {
         api.MapGet("/dashboard", async (
+            string? queue,
+            int? page,
+            int? pageSize,
+            int? teamId,
+            int? userId,
             HttpContext context,
             QualityShipmentService shipments,
             CancellationToken cancellationToken) =>
-            Results.Ok(await shipments.DashboardAsync(Access(context), cancellationToken)))
+            Results.Ok(await shipments.DashboardAsync(
+                Access(context), queue, page, pageSize, teamId, userId, cancellationToken)))
             .RequireAuthorization(QualityAssurancePermissions.DashboardView);
 
         api.MapGet("/dashboard/report", async (
@@ -25,7 +31,8 @@ public static class QualityShippingEndpoints
             CancellationToken cancellationToken) =>
         {
             var access = Access(context);
-            var dashboard = await shipments.DashboardAsync(access, cancellationToken);
+            var dashboard = await shipments.DashboardAsync(
+                access, "open", 1, 100, null, null, cancellationToken);
             var bytes = new QualityDashboardReportService().Generate(
                 dashboard,
                 access.DisplayName,
@@ -229,17 +236,17 @@ public static class QualityShippingEndpoints
         }).RequireAuthorization(QualityAssurancePermissions.ShipmentsView, QualityAssurancePermissions.AuditView);
 
         api.MapGet("/assignment-options", async (
-            IQualityAssuranceAccessStore accessStore,
+            QualityTeamService teams,
             CancellationToken cancellationToken) =>
-            Results.Ok(await OptionsAsync(accessStore, cancellationToken)))
+            Results.Ok(await teams.GetAssignmentOptionsAsync(cancellationToken)))
             .RequireAuthorization(QualityAssurancePermissions.AssignmentView);
 
         var rules = api.MapGroup("/admin/assignment-rules")
             .RequireAuthorization(QualityAssurancePermissions.SettingsView);
         rules.MapGet("/", async (QualityAssignmentService service, CancellationToken cancellationToken) =>
             Results.Ok(await service.GetRulesAsync(cancellationToken)));
-        rules.MapGet("/options", async (IQualityAssuranceAccessStore accessStore, CancellationToken cancellationToken) =>
-            Results.Ok(await OptionsAsync(accessStore, cancellationToken)));
+        rules.MapGet("/options", async (QualityTeamService teams, CancellationToken cancellationToken) =>
+            Results.Ok(await teams.GetAssignmentOptionsAsync(cancellationToken)));
         rules.MapPost("/", async (
             QualityAssignmentRuleUpsertDto dto,
             HttpContext context,
@@ -323,20 +330,4 @@ public static class QualityShippingEndpoints
         return decimal.ToInt32(value.Value);
     }
 
-    private static async Task<QualityAssignmentOptionsDto> OptionsAsync(
-        IQualityAssuranceAccessStore accessStore,
-        CancellationToken cancellationToken)
-    {
-        var groups = await accessStore.GetGroupsWithPermissionAsync(
-            QualityAssurancePermissions.ResponsibleGroupEligible,
-            cancellationToken);
-        var users = await accessStore.GetUsersWithPermissionAsync(
-            QualityAssurancePermissions.AssignmentEligible,
-            cancellationToken);
-        return new QualityAssignmentOptionsDto(
-            groups.Select(group => new QualityDirectoryGroupDto(
-                group.Id, group.Name, group.Description, group.ActiveUserCount)).ToList(),
-            users.Select(user => new QualityDirectoryUserDto(
-                user.Id, user.AccountName, user.DisplayName, user.GroupIds)).ToList());
-    }
 }

@@ -19,6 +19,7 @@ public static class QualityAssurancePermissions
     public const string AuditView = "quality-assurance.audit.view";
     public const string SettingsView = "quality-assurance.settings.view";
     public const string RulesManage = "quality-assurance.rules.manage";
+    public const string TeamsManage = "quality-assurance.teams.manage";
 
     public const string StatusView = "quality-assurance.fields.status.view";
     public const string StatusEdit = "quality-assurance.fields.status.edit";
@@ -107,7 +108,8 @@ public static class QualityAssurancePermissions
         Permission(MarkShipped, "Mark shipments shipped", "Complete a shipment and move it to Past Shipments.", "Shipping workflow"),
         Permission(AuditView, "View shipment audit history", "View permanent field, assignment, and completion changes.", "Audit"),
         Permission(SettingsView, "View Quality Settings", "Open Quality workflow and assignment settings in the Admin Console.", "Pages"),
-        Permission(RulesManage, "Manage Quality workflows", "Design, test, and publish Quality action paths, conditions, queue routing, and group restrictions.", "Administration")
+        Permission(RulesManage, "Manage Quality workflows", "Design, test, and publish Quality action paths, conditions, queue routing, and group restrictions.", "Administration"),
+        Permission(TeamsManage, "Manage Quality teams", "Create Quality teams, manage membership, and designate team managers without changing permission groups.", "Administration")
     ];
 
     public static readonly IReadOnlyList<PermissionDefinition> All =

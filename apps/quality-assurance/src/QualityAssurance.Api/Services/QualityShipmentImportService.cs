@@ -12,7 +12,8 @@ namespace QualityAssurance.Api.Services;
 
 public sealed class QualityShipmentImportService(
     QualityAssuranceDbContext db,
-    IQualityAssuranceAccessStore accessStore)
+    IQualityAssuranceAccessStore accessStore,
+    QualityTeamService teams)
 {
     private const string WorksheetName = "Complete List";
     private const int MaximumRows = 5000;
@@ -41,16 +42,13 @@ public sealed class QualityShipmentImportService(
         QualityAssuranceAccessProfile actor,
         CancellationToken cancellationToken)
     {
-        var workflows = new QualityWorkflowService(db, accessStore);
+        var workflows = new QualityWorkflowService(db, accessStore, teams);
         if ((await workflows.GetRestrictedActionsAsync(actor, cancellationToken)).Contains("shipment-imported"))
             throw new UnauthorizedAccessException("Your access groups cannot run this workflow action.");
         var rows = Parse(stream);
-        var groups = await accessStore.GetGroupsWithPermissionAsync(
-            QualityAssurancePermissions.ResponsibleGroupEligible,
-            cancellationToken);
-        var users = await accessStore.GetUsersWithPermissionAsync(
-            QualityAssurancePermissions.AssignmentEligible,
-            cancellationToken);
+        var directory = await teams.GetOperationalDirectoryAsync(cancellationToken);
+        var groups = directory.Teams;
+        var users = directory.Users;
         var existing = await db.Shipments
             .Include(shipment => shipment.AuditEntries)
             .ToListAsync(cancellationToken);
@@ -177,6 +175,7 @@ public sealed class QualityShipmentImportService(
         shipment.AssignedUserId = owner?.User.Id;
         shipment.AssignedAccountName = owner?.User.AccountName;
         shipment.AssignedDisplayName = owner?.User.DisplayName;
+        shipment.IsOperationalTeamAssignment = owner is not null;
         shipment.NextAction = owner?.User.DisplayName ?? legacyTag ?? Clean(uploadedAction);
         shipment.LegacyAssigneeTag = owner is null ? legacyTag : null;
     }
