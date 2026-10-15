@@ -288,7 +288,8 @@ public sealed record TaskUpsertDto(
     string? Notes,
     IReadOnlyList<TaskOvertimeDayUpsertDto>? OvertimeDays,
     long Version,
-    long ProjectVersion);
+    long ProjectVersion,
+    bool DetachConflictingDependencies = false);
 
 public sealed record TaskOvertimeDayDto(int Id, DateOnly Date, string? Note);
 
@@ -347,6 +348,21 @@ public sealed record OperationDependencyConflictDto(
     string Message,
     int OperationId,
     IReadOnlyList<OperationDependentDto> Dependents);
+
+public sealed record OperationDependencyRemovalDto(
+    int DependentOperationId,
+    int DependentSequence,
+    string DependentTitle,
+    int DependencyOperationId,
+    int DependencySequence,
+    string DependencyTitle,
+    string Reason);
+
+public sealed record OperationDateDependencyConflictDto(
+    string Code,
+    string Message,
+    int OperationId,
+    IReadOnlyList<OperationDependencyRemovalDto> DependenciesToRemove);
 
 public sealed record ProjectMessageDto(
     int Id,

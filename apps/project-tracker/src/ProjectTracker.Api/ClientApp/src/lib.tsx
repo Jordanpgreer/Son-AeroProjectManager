@@ -41,6 +41,22 @@ function defaultHubUrl() {
 
 export const hubUrl = defaultHubUrl()
 
+export class ApiResponseError extends Error {
+  readonly status: number
+  readonly payload: unknown
+
+  constructor(
+    message: string,
+    status: number,
+    payload: unknown,
+  ) {
+    super(message)
+    this.name = 'ApiResponseError'
+    this.status = status
+    this.payload = payload
+  }
+}
+
 export async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)
   if (init?.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
@@ -69,7 +85,11 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
     if (response.status === 409 && typeof payload === 'object' && payload !== null && 'code' in payload && payload.code === 'ConcurrencyConflict') {
       window.dispatchEvent(new CustomEvent<ConcurrencyConflict>('project-tracker:concurrency-conflict', { detail: payload as ConcurrencyConflict }))
     }
-    throw new Error(message || `${response.status} ${response.statusText}`)
+    throw new ApiResponseError(
+      message || `${response.status} ${response.statusText}`,
+      response.status,
+      payload,
+    )
   }
 
   if (response.status === 204) {

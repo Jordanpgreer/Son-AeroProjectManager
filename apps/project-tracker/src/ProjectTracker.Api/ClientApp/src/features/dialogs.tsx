@@ -34,6 +34,7 @@ import type {
   MentionableUser,
   ProjectTask,
   OperationDependent,
+  OperationDateDependencyConflict,
   ProjectMetadataChange,
 } from '../types'
 import {
@@ -226,7 +227,7 @@ export function OperationDeleteDialog({
             <>
               <p>
                 {dependents.length} later operation{dependents.length === 1 ? '' : 's'} currently depend{dependents.length === 1 ? 's' : ''} on this operation.
-                Deleting it will reset those dependencies to the normal previous-operation sequence and recalculate the remaining schedule.
+                Continuing will remove those dependency links, delete this operation, and recalculate the remaining schedule.
               </p>
               <ul className="confirmation-dependent-list">
                 {dependents.map((dependent) => (
@@ -242,7 +243,53 @@ export function OperationDeleteDialog({
         <div className="modal-actions confirmation-actions">
           <button className="button ghost" type="button" onClick={onCancel} disabled={pending}>Cancel</button>
           <button className="button danger-solid" type="button" onClick={onConfirm} disabled={pending} autoFocus>
-            <Trash2 size={15} /> {pending ? 'Deleting...' : dependents.length > 0 ? 'Delete & Reset Dependencies' : 'Delete Operation'}
+            <Trash2 size={15} /> {pending ? 'Deleting...' : dependents.length > 0 ? 'Delete & Remove Dependencies' : 'Delete Operation'}
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+export function OperationDateDependencyDialog({
+  conflict,
+  onCancel,
+  onConfirm,
+}: {
+  conflict: OperationDateDependencyConflict
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCancel()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [onCancel])
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <section className="modal confirmation-modal" role="alertdialog" aria-modal="true" aria-labelledby="operation-date-dependency-title" onClick={(event) => event.stopPropagation()}>
+        <div className="confirmation-icon danger"><AlertTriangle size={22} /></div>
+        <div className="confirmation-copy">
+          <span className="kicker">Dependency Warning</span>
+          <h2 id="operation-date-dependency-title">Remove blocking dependencies and save these dates?</h2>
+          <p>{conflict.message}</p>
+          <ul className="confirmation-dependent-list">
+            {conflict.dependenciesToRemove.map((dependency) => (
+              <li key={`${dependency.dependentOperationId}-${dependency.dependencyOperationId}`}>
+                <strong>Operation {dependency.dependentSequence}: {dependency.dependentTitle}</strong>
+                {' '}will no longer depend on operation {dependency.dependencySequence}: {dependency.dependencyTitle}. {dependency.reason}
+              </li>
+            ))}
+          </ul>
+          <p>The entered dates will be kept. Affected operations with current start dates will be locked so recalculation does not immediately move them again.</p>
+        </div>
+        <div className="modal-actions confirmation-actions">
+          <button className="button ghost" type="button" onClick={onCancel}>Cancel</button>
+          <button className="button danger-solid" type="button" onClick={onConfirm} autoFocus>
+            <Save size={15} /> Remove Dependencies &amp; Save
           </button>
         </div>
       </section>

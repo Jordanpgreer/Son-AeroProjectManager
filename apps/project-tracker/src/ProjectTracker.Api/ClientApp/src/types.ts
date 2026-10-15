@@ -238,6 +238,23 @@ export type ConcurrencyConflict = {
   resourceId: number
 }
 
+export type OperationDependencyRemoval = {
+  dependentOperationId: number
+  dependentSequence: number
+  dependentTitle: string
+  dependencyOperationId: number
+  dependencySequence: number
+  dependencyTitle: string
+  reason: string
+}
+
+export type OperationDateDependencyConflict = {
+  code: 'OperationDateDependencyConflict'
+  message: string
+  operationId: number
+  dependenciesToRemove: OperationDependencyRemoval[]
+}
+
 export type ProjectAuditChange = {
   field: string
   oldValue: string | null

@@ -682,6 +682,21 @@ api.MapPost("/projects/{projectId:int}/tasks", async (int projectId, TaskUpsertD
     var desiredPosition = dto.Sequence > 0 ? dto.Sequence : project.Tasks.Count;
     ResequenceTasks(project, task, desiredPosition);
     BumpSequenceVersions(project.Tasks, previousSequences, task.Id);
+    var dateConflicts = OperationDependencyPolicy.FindDateConflicts(project, task, dto);
+    if (dateConflicts.Count > 0 && !dto.DetachConflictingDependencies)
+    {
+        return DateDependencyConflict(task, dateConflicts);
+    }
+    if (dateConflicts.Count > 0)
+    {
+        var effectiveDto = OperationDependencyPolicy.DetachDateConflicts(
+            task,
+            dto,
+            dateConflicts,
+            DateTimeOffset.UtcNow);
+        task.DependencyTaskId = effectiveDto.DependencyTaskId;
+        task.StartDateLocked = effectiveDto.StartDateLocked;
+    }
     if (ValidateProjectDependencies(project) is { } dependencyError)
     {
         return Results.BadRequest(dependencyError);
@@ -749,10 +764,26 @@ api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectT
         return Results.BadRequest(dateError);
     }
 
+    var datesChanged = task.StartDate != dto.StartDate || task.EndDate != dto.EndDate;
+    var dateConflicts = datesChanged
+        ? OperationDependencyPolicy.FindDateConflicts(task.Project, task, dto)
+        : [];
+    if (dateConflicts.Count > 0 && !dto.DetachConflictingDependencies)
+    {
+        return DateDependencyConflict(task, dateConflicts);
+    }
+    var effectiveDto = dateConflicts.Count > 0
+        ? OperationDependencyPolicy.DetachDateConflicts(
+            task,
+            dto,
+            dateConflicts,
+            DateTimeOffset.UtcNow)
+        : dto;
+
     var before = ProjectAuditService.CaptureTask(task);
     var previousNote = task.Notes;
     var previousSequences = task.Project.Tasks.ToDictionary(candidate => candidate.Id, candidate => candidate.Sequence);
-    ApplyTaskDto(task, dto);
+    ApplyTaskDto(task, effectiveDto);
     task.Version++;
     ResequenceTasks(task.Project, task, dto.Sequence);
     BumpSequenceVersions(task.Project.Tasks, previousSequences, task.Id);
@@ -764,7 +795,14 @@ api.MapPut("/tasks/{taskId:int}", async (int taskId, TaskUpsertDto dto, ProjectT
     task.Project.UpdatedAt = DateTimeOffset.UtcNow;
     await EnsurePhaseAsync(db, task.Phase, cancellationToken);
     await metrics.RefreshProjectAsync(db, task.Project, cancellationToken, recalculateDates: true);
-    var changes = ProjectAuditService.Diff(before, ProjectAuditService.CaptureTask(task));
+    var changes = ProjectAuditService.Diff(before, ProjectAuditService.CaptureTask(task)).ToList();
+    foreach (var conflict in dateConflicts.Where(conflict => !ReferenceEquals(conflict.Dependent, task)))
+    {
+        changes.Add(new ProjectAuditChange(
+            $"Operation {conflict.Dependent.Sequence} dependency",
+            $"Operation {conflict.Dependency.Sequence}",
+            null));
+    }
     if (changes.Count > 0)
     {
         audit.Record(db, task.Project, "OperationUpdated", $"Updated operation {task.Sequence}: {task.Title}", changes, task.Id);
@@ -832,7 +870,7 @@ api.MapDelete("/tasks/{taskId:int}", async (int taskId, long version, long proje
         var deletedSequence = task.Sequence;
         var deletedTitle = task.Title;
         var deletedValues = ProjectAuditService.CaptureTask(task);
-        await taskReferenceCleanup.PrepareForRemovalAsync([task], now, cancellationToken);
+        var cleanup = await taskReferenceCleanup.PrepareForRemovalAsync([task], now, cancellationToken);
         project.Tasks.Remove(task);
         db.Tasks.Remove(task);
         RenumberTasks(project);
@@ -840,15 +878,23 @@ api.MapDelete("/tasks/{taskId:int}", async (int taskId, long version, long proje
         project.Version++;
         project.UpdatedAt = now;
         await metrics.RefreshProjectAsync(db, project, cancellationToken, recalculateDates: true);
+        var deletionChanges = deletedValues
+            .Where(field => !string.IsNullOrWhiteSpace(field.Value))
+            .Select(field => new ProjectAuditChange(field.Key, field.Value, null))
+            .ToList();
+        if (cleanup.DependenciesCleared > 0)
+        {
+            deletionChanges.Add(new ProjectAuditChange(
+                "Dependent operation links removed",
+                cleanup.DependenciesCleared.ToString(),
+                null));
+        }
         audit.Record(
             db,
             project,
             "OperationDeleted",
             $"Deleted operation {deletedSequence}: {deletedTitle}",
-            deletedValues
-                .Where(field => !string.IsNullOrWhiteSpace(field.Value))
-                .Select(field => new ProjectAuditChange(field.Key, field.Value, null))
-                .ToList(),
+            deletionChanges,
             taskId);
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -1137,6 +1183,22 @@ static IResult ConcurrencyConflict(string resourceType, int resourceId) => Resul
         $"This {resourceType.ToLowerInvariant()} was changed by another user. Reload the latest version before saving again.",
         resourceType,
         resourceId));
+
+static IResult DateDependencyConflict(
+    ProjectTask operation,
+    IReadOnlyCollection<OperationDateDependencyLink> conflicts) => Results.Conflict(
+    new OperationDateDependencyConflictDto(
+        "OperationDateDependencyConflict",
+        $"The requested dates conflict with {conflicts.Count} operation dependenc{(conflicts.Count == 1 ? "y" : "ies")}. Continue to remove only those links and keep the requested dates.",
+        operation.Id,
+        conflicts.Select(conflict => new OperationDependencyRemovalDto(
+            conflict.Dependent.Id,
+            conflict.Dependent.Sequence,
+            conflict.Dependent.Title,
+            conflict.Dependency.Id,
+            conflict.Dependency.Sequence,
+            conflict.Dependency.Title,
+            conflict.Reason)).ToList()));
 
 static void BumpSequenceVersions(
     IEnumerable<ProjectTask> tasks,

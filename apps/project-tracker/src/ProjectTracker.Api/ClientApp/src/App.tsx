@@ -9,6 +9,7 @@ import {
   isPortalDashboardLaunch,
   isPortalEmbedded,
   api,
+  ApiResponseError,
   buildWorkCenterConflictSet,
   readStoredScreen,
   dayNameToIndex,
@@ -44,6 +45,7 @@ import type {
   ProjectQuantityLookupResult,
   ProjectQuantitySyncResult,
   MentionNotification,
+  OperationDateDependencyConflict,
 } from './types'
 import {
   ErrorState,
@@ -60,6 +62,7 @@ import {
 import {
   ProjectConfirmationDialog,
   OperationDeleteDialog,
+  OperationDateDependencyDialog,
   ConcurrencyConflictDialog,
   ProjectChatDrawer,
   ProjectActivityDrawer,
@@ -164,6 +167,24 @@ type NotificationDestination = {
   taskId: number | null
 }
 
+type PendingOperationDependencyWarning = {
+  conflict: OperationDateDependencyConflict
+  resolve: (confirmed: boolean) => void
+}
+
+function readOperationDateDependencyConflict(error: unknown): OperationDateDependencyConflict | null {
+  if (!(error instanceof ApiResponseError) || error.status !== 409) return null
+  if (typeof error.payload !== 'object' || error.payload === null) return null
+
+  const payload = error.payload as Partial<OperationDateDependencyConflict>
+  return payload.code === 'OperationDateDependencyConflict'
+    && typeof payload.message === 'string'
+    && typeof payload.operationId === 'number'
+    && Array.isArray(payload.dependenciesToRemove)
+    ? payload as OperationDateDependencyConflict
+    : null
+}
+
 function readNotificationDestination(): NotificationDestination | null {
   const url = new URL(window.location.href)
   const projectId = Number(url.searchParams.get('notificationProjectId'))
@@ -229,6 +250,7 @@ function App() {
   const [taskDeleteTarget, setTaskDeleteTarget] = useState<ProjectTask | null>(null)
   const [taskDeletePending, setTaskDeletePending] = useState(false)
   const [taskDeleteError, setTaskDeleteError] = useState<string | null>(null)
+  const [operationDependencyWarning, setOperationDependencyWarning] = useState<PendingOperationDependencyWarning | null>(null)
   const [editMode, setEditMode] = useState(false)
   const [projectMetadata, setProjectMetadata] = useState<ProjectMetadataDraft>(emptyProjectMetadata)
   const [projectMetadataSaving, setProjectMetadataSaving] = useState(false)
@@ -658,10 +680,7 @@ function App() {
           projectVersion: project.version,
         }
         const url = form.id ? `/api/tasks/${form.id}` : `/api/projects/${project.id}/tasks`
-        await api<ProjectTask>(url, {
-          method: form.id ? 'PUT' : 'POST',
-          body: JSON.stringify(payload),
-        })
+        await saveTaskWithDependencyWarning(url, form.id ? 'PUT' : 'POST', payload)
         await refreshProjectWorkspace(project.id)
       })
       setTaskForm(null)
@@ -988,6 +1007,42 @@ function App() {
     }
   }
 
+  function confirmOperationDependencyRemoval(conflict: OperationDateDependencyConflict) {
+    return new Promise<boolean>((resolve) => {
+      setOperationDependencyWarning({ conflict, resolve })
+    })
+  }
+
+  function resolveOperationDependencyWarning(confirmed: boolean) {
+    const pending = operationDependencyWarning
+    setOperationDependencyWarning(null)
+    pending?.resolve(confirmed)
+  }
+
+  async function saveTaskWithDependencyWarning(
+    url: string,
+    method: 'POST' | 'PUT',
+    payload: Record<string, unknown>,
+  ): Promise<ProjectTask> {
+    try {
+      return await api<ProjectTask>(url, {
+        method,
+        body: JSON.stringify(payload),
+      })
+    } catch (error) {
+      const conflict = readOperationDateDependencyConflict(error)
+      if (!conflict) throw error
+
+      const confirmed = await confirmOperationDependencyRemoval(conflict)
+      if (!confirmed) throw new Error('The operation change was canceled. No dependencies were removed.')
+
+      return api<ProjectTask>(url, {
+        method,
+        body: JSON.stringify({ ...payload, detachConflictingDependencies: true }),
+      })
+    }
+  }
+
   async function saveTaskRow(row: ProjectTask): Promise<ProjectTask> {
     return enqueueProjectMutation(async () => {
       const project = selectedProjectRef.current
@@ -995,10 +1050,11 @@ function App() {
       const latestTask = project.tasks.find((task) => task.id === row.id)
       if (!latestTask) throw new Error('This operation no longer exists.')
       const pendingRow = { ...taskWithAuthorizedChanges(row, latestTask), version: latestTask.version }
-      const updated = await api<ProjectTask>(`/api/tasks/${row.id}`, {
-        method: 'PUT',
-        body: JSON.stringify(taskToPayload(pendingRow, project.version)),
-      })
+      const updated = await saveTaskWithDependencyWarning(
+        `/api/tasks/${row.id}`,
+        'PUT',
+        taskToPayload(pendingRow, project.version),
+      )
       const refreshed = await api<ProjectDetail>(`/api/projects/${updated.projectId}`)
       setSelectedProject(refreshed)
       selectedProjectRef.current = refreshed
@@ -1576,6 +1632,13 @@ function App() {
             setTaskDeleteError(null)
           }}
           onConfirm={confirmDeleteTask}
+        />
+      )}
+      {operationDependencyWarning && (
+        <OperationDateDependencyDialog
+          conflict={operationDependencyWarning.conflict}
+          onCancel={() => resolveOperationDependencyWarning(false)}
+          onConfirm={() => resolveOperationDependencyWarning(true)}
         />
       )}
       {unsavedProjectDetailsOpen && selectedProject && (
