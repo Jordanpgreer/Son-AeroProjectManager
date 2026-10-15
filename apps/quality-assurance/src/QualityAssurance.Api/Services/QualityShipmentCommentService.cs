@@ -11,6 +11,7 @@ namespace QualityAssurance.Api.Services;
 public sealed partial class QualityShipmentCommentService(
     QualityAssuranceDbContext db,
     IQualityAssuranceAccessStore accessStore,
+    QualityTeamService teams,
     IArdaPushNotificationPublisher? pushPublisher = null)
 {
     public async Task<IReadOnlyList<QualityShipmentCommentDto>?> ListAsync(
@@ -96,9 +97,10 @@ public sealed partial class QualityShipmentCommentService(
             foreach (var recipient in candidates)
             {
                 var recipientAccess = await accessStore.FindAccessAsync(recipient.AccountName, cancellationToken);
+                var recipientTeams = await teams.GetContextAsync(recipient.Id, cancellationToken);
                 if (recipientAccess is null
                     || !recipientAccess.HasPermission(QualityAssurancePermissions.CommentsView)
-                    || !HasRecordAccess(shipment, recipientAccess)) continue;
+                    || !HasRecordAccess(shipment, recipientAccess, recipientTeams)) continue;
                 var notification = new QualityMentionNotification
                 {
                     RecipientUserId = recipient.Id,
@@ -152,7 +154,8 @@ public sealed partial class QualityShipmentCommentService(
         {
             if (WindowsAccountNames.Equals(user.AccountName, access.AccountName)) continue;
             var candidateAccess = await accessStore.FindAccessAsync(user.AccountName, cancellationToken);
-            if (candidateAccess is null || !HasRecordAccess(shipment, candidateAccess)) continue;
+            var candidateTeams = await teams.GetContextAsync(user.Id, cancellationToken);
+            if (candidateAccess is null || !HasRecordAccess(shipment, candidateAccess, candidateTeams)) continue;
             mentionable.Add(new QualityMentionableUserDto(
                 user.Id,
                 user.AccountName,
@@ -169,7 +172,10 @@ public sealed partial class QualityShipmentCommentService(
     {
         EnsurePermission(access, QualityAssurancePermissions.ShipmentsView, "view the shipping queue");
         EnsurePermission(access, QualityAssurancePermissions.CommentsView, "view shipment comments");
-        var query = VisibleNotifications(db.MentionNotifications.AsNoTracking(), access)
+        var query = VisibleNotifications(
+                db.MentionNotifications.AsNoTracking(),
+                access,
+                await teams.GetContextAsync(access.UserId, cancellationToken))
             .Where(notification => notification.RecipientUserId == access.UserId);
         if (unreadOnly) query = query.Where(notification => notification.ReadAt == null);
         return await query
@@ -197,7 +203,10 @@ public sealed partial class QualityShipmentCommentService(
     {
         EnsurePermission(access, QualityAssurancePermissions.ShipmentsView, "view the shipping queue");
         EnsurePermission(access, QualityAssurancePermissions.CommentsView, "view shipment comments");
-        var notification = await VisibleNotifications(db.MentionNotifications, access)
+        var notification = await VisibleNotifications(
+                db.MentionNotifications,
+                access,
+                await teams.GetContextAsync(access.UserId, cancellationToken))
             .SingleOrDefaultAsync(
                 candidate => candidate.Id == notificationId && candidate.RecipientUserId == access.UserId,
                 cancellationToken);
@@ -216,7 +225,10 @@ public sealed partial class QualityShipmentCommentService(
     {
         EnsurePermission(access, QualityAssurancePermissions.ShipmentsView, "view the shipping queue");
         EnsurePermission(access, QualityAssurancePermissions.CommentsView, "view shipment comments");
-        var unread = await VisibleNotifications(db.MentionNotifications, access)
+        var unread = await VisibleNotifications(
+                db.MentionNotifications,
+                access,
+                await teams.GetContextAsync(access.UserId, cancellationToken))
             .Where(notification => notification.RecipientUserId == access.UserId && notification.ReadAt == null)
             .ToListAsync(cancellationToken);
         if (unread.Count == 0) return;
@@ -273,7 +285,11 @@ public sealed partial class QualityShipmentCommentService(
         var shipment = await db.Shipments.SingleOrDefaultAsync(
             candidate => candidate.Id == shipmentId,
             cancellationToken);
-        if (shipment is not null) EnsureRecordAccess(shipment, access);
+        if (shipment is not null)
+            EnsureRecordAccess(
+                shipment,
+                access,
+                await teams.GetContextAsync(access.UserId, cancellationToken));
         return shipment;
     }
 
@@ -288,45 +304,54 @@ public sealed partial class QualityShipmentCommentService(
 
     private static void EnsureRecordAccess(
         QualityShipment shipment,
-        QualityAssuranceAccessProfile access)
+        QualityAssuranceAccessProfile access,
+        QualityTeamContext teamContext)
     {
-        if (HasRecordAccess(shipment, access)) return;
+        if (HasRecordAccess(shipment, access, teamContext)) return;
         throw new UnauthorizedAccessException("This shipment is not in your permitted queue.");
     }
 
     private static bool HasRecordAccess(
         QualityShipment shipment,
-        QualityAssuranceAccessProfile access)
+        QualityAssuranceAccessProfile access,
+        QualityTeamContext teamContext)
     {
         if (!access.HasPermission(QualityAssurancePermissions.ShipmentsView)) return false;
         if (access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll)) return true;
-        if (shipment.AssignedUserId == access.UserId) return true;
-        if (!shipment.AssignedGroupId.HasValue
+        if (shipment.IsOperationalTeamAssignment && shipment.AssignedUserId == access.UserId) return true;
+        if (shipment.IsOperationalTeamAssignment
             && !shipment.AssignedUserId.HasValue
-            && access.HasPermission(QualityAssurancePermissions.ManagerReview)) return true;
-        if (access.HasPermission(QualityAssurancePermissions.TeamDashboardView)
             && shipment.AssignedGroupId.HasValue
-            && access.Groups.Any(group => group.Id == shipment.AssignedGroupId.Value)) return true;
+            && teamContext.IsMember(shipment.AssignedGroupId.Value)) return true;
+        if ((!shipment.IsOperationalTeamAssignment || !shipment.AssignedGroupId.HasValue)
+            && access.HasPermission(QualityAssurancePermissions.ManagerReview)) return true;
+        if (shipment.IsOperationalTeamAssignment
+            && shipment.AssignedGroupId.HasValue
+            && teamContext.IsManager(shipment.AssignedGroupId.Value)) return true;
         return false;
     }
 
     private IQueryable<QualityMentionNotification> VisibleNotifications(
         IQueryable<QualityMentionNotification> query,
-        QualityAssuranceAccessProfile access)
+        QualityAssuranceAccessProfile access,
+        QualityTeamContext teamContext)
     {
         if (access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll)) return query;
-        var groupIds = access.Groups.Select(group => group.Id).ToList();
+        var memberTeamIds = teamContext.TeamIds.ToList();
+        var managedTeamIds = teamContext.ManagedTeamIds.ToList();
         var canReviewUnassigned = access.HasPermission(QualityAssurancePermissions.ManagerReview);
-        var canViewTeam = access.HasPermission(QualityAssurancePermissions.TeamDashboardView);
         return query.Where(notification => db.Shipments.Any(shipment =>
             shipment.Id == notification.ShipmentId
-            && (shipment.AssignedUserId == access.UserId
-                || (canReviewUnassigned
-                    && !shipment.AssignedGroupId.HasValue
-                    && !shipment.AssignedUserId.HasValue)
-                || (canViewTeam
+            && ((shipment.IsOperationalTeamAssignment && shipment.AssignedUserId == access.UserId)
+                || (shipment.IsOperationalTeamAssignment
+                    && !shipment.AssignedUserId.HasValue
                     && shipment.AssignedGroupId.HasValue
-                    && groupIds.Contains(shipment.AssignedGroupId.Value)))));
+                    && memberTeamIds.Contains(shipment.AssignedGroupId.Value))
+                || (canReviewUnassigned
+                    && (!shipment.IsOperationalTeamAssignment || !shipment.AssignedGroupId.HasValue))
+                || (shipment.IsOperationalTeamAssignment
+                    && shipment.AssignedGroupId.HasValue
+                    && managedTeamIds.Contains(shipment.AssignedGroupId.Value)))));
     }
 
     private static string NormalizeBody(string? body)

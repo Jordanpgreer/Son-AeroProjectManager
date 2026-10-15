@@ -10,8 +10,9 @@ public sealed partial class QualityWorkflowService
     {
         var nodes = new List<QualityWorkflowNode>();
         var edges = new List<QualityWorkflowEdge>();
-        var groups = await accessStore.GetGroupsWithPermissionAsync(QualityAssurancePermissions.ResponsibleGroupEligible, cancellationToken);
-        var rules = await db.AssignmentRules.AsNoTracking().Where(rule => rule.IsEnabled)
+        var options = await teams.GetAssignmentOptionsAsync(cancellationToken);
+        var groups = options.Groups;
+        var rules = await db.AssignmentRules.AsNoTracking().Where(rule => rule.IsEnabled && rule.UsesOperationalTeam)
             .OrderBy(rule => rule.Priority).ThenBy(rule => rule.Id).ToListAsync(cancellationToken);
         // Preserve the ordered creation rules in an editable branch chain.
         nodes.Add(new("created", "trigger", "Shipment created", 80, 80, Trigger: "shipment-created"));
@@ -44,6 +45,11 @@ public sealed partial class QualityWorkflowService
                 TargetGroupId: shipping.Id, AssignmentMode: "GroupOnly"));
             edges.Add(new("qa-route", "qa-completed", "shipping-queue"));
         }
-        return new(QualityWorkflowGraphEngine.Module, "Quality Assurance workflow", nodes, edges);
+        return new(
+            QualityWorkflowGraphEngine.Module,
+            "Quality Assurance workflow",
+            nodes,
+            edges,
+            OperationalTeamDirectory);
     }
 }

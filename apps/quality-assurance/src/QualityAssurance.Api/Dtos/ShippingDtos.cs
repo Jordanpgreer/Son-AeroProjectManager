@@ -41,7 +41,8 @@ public sealed record QualityShipmentDto(
     string? ExternalShipmentStatus,
     string? ExternalSyncProvider,
     string? ExternalSyncError,
-    DateTimeOffset? ExternalSyncedAt);
+    DateTimeOffset? ExternalSyncedAt,
+    double? CompletionDays);
 
 public sealed record QualityShipmentPartDto(
     int Id,
@@ -160,7 +161,11 @@ public sealed record QualityDashboardDto(
     bool CanAssignGroup,
     bool CanAssignUser,
     bool CanViewDollarValue,
-    IReadOnlyList<QualityFieldAccessDto> Fields);
+    IReadOnlyList<QualityFieldAccessDto> Fields,
+    string SelectedQueue,
+    int QueuePage,
+    int QueuePageSize,
+    int QueueTotal);
 
 public sealed record QualityDirectoryGroupDto(
     int Id,
@@ -176,7 +181,8 @@ public sealed record QualityDirectoryUserDto(
 
 public sealed record QualityAssignmentOptionsDto(
     IReadOnlyList<QualityDirectoryGroupDto> Groups,
-    IReadOnlyList<QualityDirectoryUserDto> Users);
+    IReadOnlyList<QualityDirectoryUserDto> Users,
+    IReadOnlyList<QualityDirectoryGroupDto>? PermissionGroups = null);
 
 public sealed record QualityAssignmentRuleDto(
     int Id,

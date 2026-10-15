@@ -15,6 +15,8 @@ public sealed class QualityAssuranceDbContext(
     public DbSet<QualityWorkflow> Workflows => Set<QualityWorkflow>();
     public DbSet<QualityWorkflowAuditEntry> WorkflowAuditEntries => Set<QualityWorkflowAuditEntry>();
     public DbSet<QualityShippingLayoutPreference> ShippingLayoutPreferences => Set<QualityShippingLayoutPreference>();
+    public DbSet<QualityTeam> Teams => Set<QualityTeam>();
+    public DbSet<QualityTeamMember> TeamMembers => Set<QualityTeamMember>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -64,8 +66,8 @@ public sealed class QualityAssuranceDbContext(
             entity.HasIndex(shipment => shipment.CreationRequestId)
                 .IsUnique()
                 .HasFilter("[CreationRequestId] IS NOT NULL");
-            entity.HasIndex(shipment => new { shipment.IsShipped, shipment.AssignedUserId, shipment.CreatedAt });
-            entity.HasIndex(shipment => new { shipment.IsShipped, shipment.AssignedGroupId, shipment.ShipDate });
+            entity.HasIndex(shipment => new { shipment.IsShipped, shipment.IsOperationalTeamAssignment, shipment.AssignedUserId, shipment.CreatedAt });
+            entity.HasIndex(shipment => new { shipment.IsShipped, shipment.IsOperationalTeamAssignment, shipment.AssignedGroupId, shipment.ShipDate });
             entity.HasIndex(shipment => shipment.Customer);
             entity.HasIndex(shipment => shipment.TaskType);
             entity.HasIndex(shipment => shipment.ExternalShipmentId);
@@ -158,6 +160,32 @@ public sealed class QualityAssuranceDbContext(
             entity.Property(preference => preference.LayoutJson).HasMaxLength(12000);
             entity.Property(preference => preference.Version).IsConcurrencyToken();
             entity.HasIndex(preference => preference.AppUserId).IsUnique();
+        });
+
+        modelBuilder.Entity<QualityTeam>(entity =>
+        {
+            entity.ToTable("QualityTeams");
+            entity.HasKey(team => team.Id);
+            entity.Property(team => team.Name).HasMaxLength(120);
+            entity.Property(team => team.Description).HasMaxLength(500);
+            entity.Property(team => team.CreatedBy).HasMaxLength(160);
+            entity.Property(team => team.UpdatedBy).HasMaxLength(160);
+            entity.Property(team => team.Version).IsConcurrencyToken();
+            entity.HasIndex(team => team.Name).IsUnique();
+        });
+
+        modelBuilder.Entity<QualityTeamMember>(entity =>
+        {
+            entity.ToTable("QualityTeamMembers");
+            entity.HasKey(member => new { member.QualityTeamId, member.AppUserId });
+            entity.Property(member => member.AccountName).HasMaxLength(160);
+            entity.Property(member => member.DisplayName).HasMaxLength(160);
+            entity.Property(member => member.AddedBy).HasMaxLength(160);
+            entity.HasIndex(member => new { member.AppUserId, member.IsManager });
+            entity.HasOne(member => member.Team)
+                .WithMany(team => team.Members)
+                .HasForeignKey(member => member.QualityTeamId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

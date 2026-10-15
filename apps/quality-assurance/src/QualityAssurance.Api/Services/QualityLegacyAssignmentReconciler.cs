@@ -2,13 +2,12 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using QualityAssurance.Api.Data;
 using QualityAssurance.Api.Models;
-using SonAero.Platform.Security;
 
 namespace QualityAssurance.Api.Services;
 
 public sealed class QualityLegacyAssignmentReconciler(
     QualityAssuranceDbContext db,
-    IQualityAssuranceAccessStore accessStore,
+    QualityTeamService teams,
     ILogger<QualityLegacyAssignmentReconciler> logger)
 {
     private const string SystemAccount = "ARDA\\QualityAssignmentReconciler";
@@ -16,12 +15,9 @@ public sealed class QualityLegacyAssignmentReconciler(
 
     public async Task<int> ReconcileAsync(CancellationToken cancellationToken = default)
     {
-        var groups = await accessStore.GetGroupsWithPermissionAsync(
-            QualityAssurancePermissions.ResponsibleGroupEligible,
-            cancellationToken);
-        var users = await accessStore.GetUsersWithPermissionAsync(
-            QualityAssurancePermissions.AssignmentEligible,
-            cancellationToken);
+        var directory = await teams.GetOperationalDirectoryAsync(cancellationToken);
+        var groups = directory.Teams;
+        var users = directory.Users;
         var candidates = await db.Shipments
             .Include(shipment => shipment.AuditEntries)
             .Where(shipment => shipment.LegacyAssigneeTag != null
@@ -64,7 +60,7 @@ public sealed class QualityLegacyAssignmentReconciler(
     {
         var oldAction = shipment.NextAction;
         var oldAssignment = AssignmentLabel(shipment);
-        var nextAction = owner?.User.DisplayName ?? tag;
+        var nextAction = owner?.User.DisplayName ?? "Needs assignment";
         var nextTag = owner is null ? tag : null;
         if (shipment.AssignedGroupId == owner?.Group.Id
             && shipment.AssignedUserId == owner?.User.Id
@@ -76,6 +72,7 @@ public sealed class QualityLegacyAssignmentReconciler(
         shipment.AssignedUserId = owner?.User.Id;
         shipment.AssignedAccountName = owner?.User.AccountName;
         shipment.AssignedDisplayName = owner?.User.DisplayName;
+        shipment.IsOperationalTeamAssignment = owner is not null;
         shipment.NextAction = nextAction;
         shipment.LegacyAssigneeTag = nextTag;
         shipment.LastWorkedAt = now;

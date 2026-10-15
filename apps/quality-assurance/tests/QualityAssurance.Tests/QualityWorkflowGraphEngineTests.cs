@@ -11,7 +11,8 @@ public sealed class QualityWorkflowGraphEngineTests
         new("check", "condition", "Customer is Acme", 200, 0, Field: "customer", Operator: "Equals", Value: "Acme"),
         new("queue", "route", "Inspection queue", 400, 0, TargetGroupId: 20, AssignmentMode: "GroupOnly"),
         new("done", "end", "Keep assignment", 400, 200)
-    ], [new("a", "start", "check"), new("b", "check", "queue", "yes"), new("c", "check", "done", "no")]);
+    ], [new("a", "start", "check"), new("b", "check", "queue", "yes"), new("c", "check", "done", "no")],
+        QualityWorkflowService.OperationalTeamDirectory);
 
     [Theory]
     [InlineData("ACME", "route", "queue")]

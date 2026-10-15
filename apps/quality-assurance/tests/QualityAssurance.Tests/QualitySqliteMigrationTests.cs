@@ -53,6 +53,8 @@ public sealed class QualitySqliteMigrationTests
                     "QualityShipmentParts",
                     "QualityShipments",
                     "QualityShippingLayoutPreferences",
+                    "QualityTeamMembers",
+                    "QualityTeams",
                     "QualityWorkflowAuditEntries",
                     "QualityWorkflows",
                     "__EFMigrationsHistory"

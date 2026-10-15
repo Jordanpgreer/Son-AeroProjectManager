@@ -17,6 +17,7 @@ builder.Services.AddScoped<QualityAssuranceUserService>();
 builder.Services.AddScoped<IQualityAssuranceAccessStore, QualityAssuranceAccessStore>();
 builder.Services.AddScoped<QualityAssuranceAccessPreviewService>();
 builder.Services.AddScoped<QualityAssignmentService>();
+builder.Services.AddScoped<QualityTeamService>();
 builder.Services.AddScoped<QualityWorkflowService>();
 builder.Services.AddScoped<QualityLegacyAssignmentReconciler>();
 builder.Services.AddScoped<QualityShipmentService>();
@@ -285,6 +286,7 @@ api.MapGet("/benny/idle-settings", async (
 api.RequireAuthorization(QualityAssurancePolicies.ModuleView)
     .MapQualityShippingEndpoints()
     .MapQualityWorkflowEndpoints()
+    .MapQualityTeamEndpoints()
     .MapQualityCommentEndpoints();
 
 app.MapFallback("/api/{**path}", async context =>

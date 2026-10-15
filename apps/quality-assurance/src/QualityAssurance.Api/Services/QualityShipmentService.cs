@@ -14,12 +14,13 @@ public sealed class QualityShipmentService(
     QualityAssuranceDbContext db,
     IQualityAssuranceAccessStore accessStore,
     QualityAssignmentService assignments,
+    QualityTeamService teams,
     QualityLegacyAssignmentReconciler legacyAssignments,
     IConfiguration? configuration = null,
     IQualityShipmentSyncService? integrationSync = null,
     QualityWorkflowService? workflows = null)
 {
-    private QualityWorkflowService Workflows => workflows ?? new QualityWorkflowService(db, accessStore, configuration);
+    private QualityWorkflowService Workflows => workflows ?? new QualityWorkflowService(db, accessStore, teams, configuration);
     public async Task<QualityShipmentDto?> GetAsync(
         int id,
         QualityAssuranceAccessProfile access,
@@ -31,7 +32,7 @@ public sealed class QualityShipmentService(
             .Include(candidate => candidate.Parts)
             .SingleOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
         if (shipment is null) return null;
-        EnsureRecordAccess(shipment, access);
+        EnsureRecordAccess(shipment, access, await teams.GetContextAsync(access.UserId, cancellationToken));
         return ToDto(shipment, access);
     }
 
@@ -49,11 +50,12 @@ public sealed class QualityShipmentService(
     {
         await legacyAssignments.ReconcileAsync(cancellationToken);
         var normalizedStatus = NormalizeStatus(status);
-        var normalizedScope = NormalizeScope(access, scope);
+        var teamContext = await teams.GetContextAsync(access.UserId, cancellationToken);
+        var normalizedScope = NormalizeScope(access, teamContext, scope);
         var normalizedSort = NormalizeSort(access, sort);
         var normalizedDirection = NormalizeDirection(direction);
 
-        var query = ApplyVisibility(db.Shipments.AsNoTracking().Include(shipment => shipment.Parts), access, normalizedScope);
+        var query = ApplyVisibility(db.Shipments.AsNoTracking().Include(shipment => shipment.Parts), access, normalizedScope, teamContext);
         query = normalizedStatus switch
         {
             "shipped" => query.Where(shipment => shipment.IsShipped),
@@ -95,8 +97,9 @@ public sealed class QualityShipmentService(
     {
         await legacyAssignments.ReconcileAsync(cancellationToken);
         var normalizedStatus = NormalizeStatus(status);
-        var normalizedScope = NormalizeScope(access, scope);
-        var query = ApplyVisibility(db.Shipments.AsNoTracking().Include(shipment => shipment.Parts), access, normalizedScope);
+        var teamContext = await teams.GetContextAsync(access.UserId, cancellationToken);
+        var normalizedScope = NormalizeScope(access, teamContext, scope);
+        var query = ApplyVisibility(db.Shipments.AsNoTracking().Include(shipment => shipment.Parts), access, normalizedScope, teamContext);
         query = normalizedStatus switch
         {
             "shipped" => query.Where(shipment => shipment.IsShipped),
@@ -126,8 +129,9 @@ public sealed class QualityShipmentService(
             return [];
 
         var normalizedStatus = NormalizeStatus(status);
-        var normalizedScope = NormalizeScope(access, scope);
-        var query = ApplyVisibility(db.Shipments.AsNoTracking(), access, normalizedScope);
+        var teamContext = await teams.GetContextAsync(access.UserId, cancellationToken);
+        var normalizedScope = NormalizeScope(access, teamContext, scope);
+        var query = ApplyVisibility(db.Shipments.AsNoTracking(), access, normalizedScope, teamContext);
         query = normalizedStatus switch
         {
             "shipped" => query.Where(shipment => shipment.IsShipped),
@@ -148,118 +152,171 @@ public sealed class QualityShipmentService(
             .ToList();
     }
 
+    public Task<QualityDashboardDto> DashboardAsync(
+        QualityAssuranceAccessProfile access,
+        CancellationToken cancellationToken) =>
+        DashboardAsync(access, "open", 1, 12, null, null, cancellationToken);
+
     public async Task<QualityDashboardDto> DashboardAsync(
         QualityAssuranceAccessProfile access,
+        string? queue,
+        int? page,
+        int? pageSize,
+        int? teamId,
+        int? userId,
         CancellationToken cancellationToken)
     {
         await legacyAssignments.ReconcileAsync(cancellationToken);
         var restrictedActions = await Workflows.GetRestrictedActionsAsync(access, cancellationToken);
-        var canViewTeam = access.HasPermission(QualityAssurancePermissions.TeamDashboardView)
-            || access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll);
+        var teamContext = await teams.GetContextAsync(access.UserId, cancellationToken);
+        var canViewAll = access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll);
+        var canViewTeam = canViewAll || teamContext.ManagedTeamIds.Count > 0;
         var canReviewUnassigned = CanReviewUnassigned(access);
-        var canAssignGroup = access.HasPermission(QualityAssurancePermissions.AssignmentGroup)
-            && !restrictedActions.Contains("assignment-changed");
-        var canAssignUser = access.HasPermission(QualityAssurancePermissions.AssignmentUser)
-            && !restrictedActions.Contains("assignment-changed");
+        var workflowAllowsAssignment = !restrictedActions.Contains("assignment-changed");
+        var canAssignGroup = workflowAllowsAssignment
+            && (access.HasPermission(QualityAssurancePermissions.AssignmentGroup)
+                || teamContext.ManagedTeamIds.Count > 0);
+        var canAssignUser = workflowAllowsAssignment
+            && (access.HasPermission(QualityAssurancePermissions.AssignmentUser)
+                || teamContext.ManagedTeamIds.Count > 0);
         var canViewAssignment = access.HasPermission(QualityAssurancePermissions.AssignmentView);
-        var canAssign = canViewAssignment
-            && (canAssignGroup || canAssignUser);
+        var canAssign = canViewAssignment && (canAssignGroup || canAssignUser);
         var canViewDollarValue = access.HasPermission(QualityAssurancePermissions.DollarValueView);
-        var groupIds = access.Groups.Select(group => group.Id).ToList();
-        IQueryable<QualityShipment> dashboardQuery = db.Shipments
+        var memberTeamIds = teamContext.TeamIds.ToList();
+        var managedTeamIds = teamContext.ManagedTeamIds.ToList();
+
+        IQueryable<QualityShipment> visibleQuery = db.Shipments
             .AsNoTracking()
             .Include(shipment => shipment.Parts);
-        if (!access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll))
+        if (!canViewAll)
         {
-            dashboardQuery = dashboardQuery.Where(shipment => shipment.AssignedUserId == access.UserId
-                || (!shipment.AssignedUserId.HasValue
+            visibleQuery = visibleQuery.Where(shipment =>
+                (shipment.IsOperationalTeamAssignment && shipment.AssignedUserId == access.UserId)
+                || (shipment.IsOperationalTeamAssignment
+                    && !shipment.AssignedUserId.HasValue
                     && shipment.AssignedGroupId.HasValue
-                    && groupIds.Contains(shipment.AssignedGroupId.Value))
-                || (canViewTeam
+                    && memberTeamIds.Contains(shipment.AssignedGroupId.Value))
+                || (shipment.IsOperationalTeamAssignment
                     && shipment.AssignedGroupId.HasValue
-                    && groupIds.Contains(shipment.AssignedGroupId.Value))
-                || (canReviewUnassigned && !shipment.AssignedGroupId.HasValue && !shipment.AssignedUserId.HasValue));
+                    && managedTeamIds.Contains(shipment.AssignedGroupId.Value))
+                || (canReviewUnassigned && (!shipment.IsOperationalTeamAssignment || !shipment.AssignedGroupId.HasValue)));
         }
-        var all = await dashboardQuery.ToListAsync(cancellationToken);
-        var reviewQueue = all.Where(shipment => shipment.AssignedUserId == access.UserId
-            || (!shipment.AssignedUserId.HasValue
+        var all = await visibleQuery.ToListAsync(cancellationToken);
+        var reviewQueue = all.Where(shipment =>
+            (shipment.IsOperationalTeamAssignment && shipment.AssignedUserId == access.UserId)
+            || (shipment.IsOperationalTeamAssignment
+                && !shipment.AssignedUserId.HasValue
                 && shipment.AssignedGroupId.HasValue
-                && groupIds.Contains(shipment.AssignedGroupId.Value))
-            || (canReviewUnassigned && !shipment.AssignedGroupId.HasValue && !shipment.AssignedUserId.HasValue));
-        var queue = reviewQueue.Where(shipment => !shipment.IsShipped)
-            .OrderBy(shipment => shipment.CreatedAt)
-            .ThenBy(shipment => shipment.QaArrivalDate ?? DateOnly.MaxValue)
-            .Take(12)
-            .Select(shipment => ToDto(shipment, access))
-            .ToList();
-        var completedShipments = reviewQueue.Where(shipment => shipment.IsShipped)
-            .OrderBy(shipment => shipment.CreatedAt)
-            .ThenBy(shipment => shipment.ShippedAt ?? DateTimeOffset.MaxValue)
-            .Take(12)
-            .Select(shipment => ToDto(shipment, access))
+                && teamContext.IsMember(shipment.AssignedGroupId.Value))
+            || (canReviewUnassigned && (!shipment.IsOperationalTeamAssignment || !shipment.AssignedGroupId.HasValue)))
             .ToList();
         var unassigned = canReviewUnassigned
-            ? all.Where(shipment => !shipment.AssignedGroupId.HasValue
-                    && !shipment.AssignedUserId.HasValue)
-                .ToList()
+            ? all.Where(shipment => !shipment.IsOperationalTeamAssignment || !shipment.AssignedGroupId.HasValue).ToList()
             : [];
-        var groupQueue = all.Where(shipment => shipment.AssignedGroupId.HasValue
-                && !shipment.AssignedUserId.HasValue)
+        var groupQueue = all.Where(shipment => shipment.IsOperationalTeamAssignment
+                && shipment.AssignedGroupId.HasValue
+                && !shipment.AssignedUserId.HasValue
+                && teamContext.IsMember(shipment.AssignedGroupId.Value))
             .ToList();
+
         var team = new List<QualityPersonQueueDto>();
         if (canViewTeam)
         {
-            var users = await accessStore.GetUsersWithPermissionAsync(
-                QualityAssurancePermissions.AssignmentEligible,
-                cancellationToken);
-            if (!access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll))
-            {
-                var permittedGroupIds = groupIds.ToHashSet();
-                users = users.Where(user => user.GroupIds.Any(permittedGroupIds.Contains)).ToList();
-            }
-            team = users.Select(user =>
+            var options = await teams.GetAssignmentOptionsAsync(cancellationToken);
+            var permittedTeamIds = canViewAll
+                ? options.Groups.Select(group => group.Id).ToHashSet()
+                : teamContext.ManagedTeamIds;
+            team = options.Users
+                .Where(user => user.GroupIds.Any(permittedTeamIds.Contains))
+                .Select(user =>
                 {
-                    var personShipments = all.Where(shipment => shipment.AssignedUserId == user.Id).ToList();
-                    var openShipments = personShipments.Where(shipment => !shipment.IsShipped)
-                        .OrderBy(shipment => shipment.CreatedAt)
-                        .ThenBy(shipment => shipment.QaArrivalDate ?? DateOnly.MaxValue)
-                        .ThenBy(shipment => shipment.Id)
-                        .Take(20)
-                        .Select(shipment => ToDto(shipment, access))
-                        .ToList();
+                    var personShipments = all.Where(shipment => shipment.IsOperationalTeamAssignment
+                        && shipment.AssignedUserId == user.Id
+                        && shipment.AssignedGroupId.HasValue
+                        && permittedTeamIds.Contains(shipment.AssignedGroupId.Value)).ToList();
                     return new QualityPersonQueueDto(
                         user.Id,
                         user.DisplayName,
                         user.AccountName,
                         Metrics(personShipments, canViewDollarValue),
-                        openShipments);
+                        personShipments.Where(shipment => !shipment.IsShipped)
+                            .OrderBy(shipment => shipment.ShipDate ?? DateOnly.MaxValue)
+                            .ThenBy(shipment => shipment.QaArrivalDate ?? DateOnly.MaxValue)
+                            .ThenBy(shipment => shipment.Id)
+                            .Select(shipment => ToDto(shipment, access))
+                            .ToList());
                 })
                 .OrderByDescending(user => user.Metrics.Overdue)
                 .ThenByDescending(user => user.Metrics.Open)
                 .ThenBy(user => user.DisplayName)
                 .ToList();
         }
+
+        var normalizedQueue = NormalizeDashboardQueue(queue);
+        var normalizedPage = Math.Max(1, page ?? 1);
+        var normalizedPageSize = Math.Clamp(pageSize ?? 12, 1, 100);
+        IQueryable<QualityShipment> selectedQuery = visibleQuery;
+        switch (normalizedQueue)
+        {
+            case "completed":
+                selectedQuery = ReviewQueueQuery(selectedQuery, access, teamContext, canReviewUnassigned)
+                    .Where(shipment => shipment.IsShipped);
+                break;
+            case "overdue":
+                var today = DateOnly.FromDateTime(DateTime.UtcNow);
+                selectedQuery = ReviewQueueQuery(selectedQuery, access, teamContext, canReviewUnassigned)
+                    .Where(shipment => !shipment.IsShipped && shipment.ShipDate.HasValue && shipment.ShipDate < today);
+                break;
+            case "unassigned":
+                if (!canReviewUnassigned) throw new UnauthorizedAccessException("You cannot review unassigned shipments.");
+                selectedQuery = selectedQuery.Where(shipment =>
+                    !shipment.IsOperationalTeamAssignment || !shipment.AssignedGroupId.HasValue);
+                break;
+            case "team":
+                if (!teamId.HasValue || (!canViewAll && !teamContext.IsManager(teamId.Value)))
+                    throw new UnauthorizedAccessException("You cannot view this Quality team queue.");
+                selectedQuery = selectedQuery.Where(shipment => shipment.IsOperationalTeamAssignment
+                    && shipment.AssignedGroupId == teamId.Value);
+                break;
+            case "person":
+                if (!teamId.HasValue || !userId.HasValue
+                    || (!canViewAll && !teamContext.IsManager(teamId.Value)))
+                    throw new UnauthorizedAccessException("You cannot view this Quality team member queue.");
+                selectedQuery = selectedQuery.Where(shipment => shipment.IsOperationalTeamAssignment
+                    && shipment.AssignedGroupId == teamId.Value
+                    && shipment.AssignedUserId == userId.Value);
+                break;
+            default:
+                selectedQuery = ReviewQueueQuery(selectedQuery, access, teamContext, canReviewUnassigned)
+                    .Where(shipment => !shipment.IsShipped);
+                break;
+        }
+        var queueTotal = await selectedQuery.CountAsync(cancellationToken);
+        selectedQuery = normalizedQueue == "completed"
+            ? selectedQuery.OrderByDescending(shipment => shipment.ShippedAt).ThenByDescending(shipment => shipment.Id)
+            : selectedQuery.OrderBy(shipment => shipment.ShipDate == null)
+                .ThenBy(shipment => shipment.ShipDate)
+                .ThenBy(shipment => shipment.QaArrivalDate)
+                .ThenBy(shipment => shipment.Id);
+        var selectedShipments = await selectedQuery
+            .Skip((normalizedPage - 1) * normalizedPageSize)
+            .Take(normalizedPageSize)
+            .ToListAsync(cancellationToken);
+        var selectedDtos = selectedShipments.Select(shipment => ToDto(shipment, access)).ToList();
+
         return new QualityDashboardDto(
             Metrics(reviewQueue, canViewDollarValue),
-            queue,
-            completedShipments,
+            selectedDtos,
+            normalizedQueue == "completed" ? selectedDtos : [],
             team,
             Metrics(groupQueue, canViewDollarValue),
             groupQueue.Where(shipment => !shipment.IsShipped)
-                .OrderBy(shipment => shipment.CreatedAt)
-                .ThenBy(shipment => shipment.QaArrivalDate ?? DateOnly.MaxValue)
+                .OrderBy(shipment => shipment.ShipDate ?? DateOnly.MaxValue)
                 .ThenBy(shipment => shipment.Id)
-                .Take(20)
                 .Select(shipment => ToDto(shipment, access))
                 .ToList(),
             Metrics(unassigned, canViewDollarValue),
-            unassigned.Where(shipment => !shipment.IsShipped)
-                .OrderBy(shipment => shipment.CreatedAt)
-                .ThenBy(shipment => shipment.QaArrivalDate ?? DateOnly.MaxValue)
-                .ThenBy(shipment => shipment.Id)
-                .Take(20)
-                .Select(shipment => ToDto(shipment, access))
-                .ToList(),
+            normalizedQueue == "unassigned" ? selectedDtos : [],
             canReviewUnassigned,
             canViewTeam,
             canViewAssignment,
@@ -267,7 +324,11 @@ public sealed class QualityShipmentService(
             canAssignGroup,
             canAssignUser,
             canViewDollarValue,
-            RestrictEditableFields(access, restrictedActions));
+            RestrictEditableFields(access, restrictedActions),
+            normalizedQueue,
+            normalizedPage,
+            normalizedPageSize,
+            queueTotal);
     }
 
     public async Task<QualityShipmentDto> CreateAsync(
@@ -298,17 +359,6 @@ public sealed class QualityShipmentService(
                 return ToDto(replay, access);
             }
         }
-
-        EnsureEditable(access, "status", dto.Status);
-        EnsureEditable(access, "taskType", dto.TaskType);
-        EnsureEditable(access, "dollarValue", dto.DollarValue);
-        EnsureEditable(access, "holdReason", dto.HoldReason);
-        EnsureEditable(access, "sourceRequestedDate", dto.SourceRequestedDate);
-        EnsureEditable(access, "nextAction", dto.NextAction);
-        EnsureEditable(access, "comments", dto.Comments);
-        if (dto.Parts?.Any(part => part.UnitPrice.HasValue) == true
-            && !access.HasPermission(QualityAssurancePermissions.DollarValueEdit))
-            throw new UnauthorizedAccessException("You do not have permission to set unit prices.");
 
         var normalizedParts = NormalizeParts(dto.Parts, dto.PartNumber, dto.Quantity, dto.DollarValue);
         var missingQuantity = normalizedParts.FirstOrDefault(part => !part.Quantity.HasValue);
@@ -344,6 +394,7 @@ public sealed class QualityShipmentService(
         };
         ApplyParts(shipment, normalizedParts);
         var rule = await assignments.ApplyFirstMatchingRuleAsync(shipment, cancellationToken);
+        var assignmentApplied = rule is not null;
         if (!string.IsNullOrWhiteSpace(shipment.Comments))
         {
             shipment.CommentThread.Add(new QualityShipmentComment
@@ -357,31 +408,33 @@ public sealed class QualityShipmentService(
         }
         if (rule is null)
         {
-            var responsibleGroupIds = (await accessStore.GetGroupsWithPermissionAsync(
-                    QualityAssurancePermissions.ResponsibleGroupEligible,
-                    cancellationToken))
-                .Select(group => group.Id)
-                .ToHashSet();
-            var group = access.Groups.FirstOrDefault(candidate => responsibleGroupIds.Contains(candidate.Id));
-            shipment.AssignedGroupId = group?.Id;
-            shipment.AssignedGroupName = group?.Name;
-            if (group is not null && access.HasPermission(QualityAssurancePermissions.AssignmentEligible))
+            var teamContext = await teams.GetContextAsync(access.UserId, cancellationToken);
+            foreach (var teamId in teamContext.TeamIds.OrderBy(id => id))
             {
-                shipment.AssignedUserId = access.UserId;
-                shipment.AssignedAccountName = access.AccountName;
-                shipment.AssignedDisplayName = access.DisplayName;
+                var team = await teams.FindActiveTeamAsync(teamId, cancellationToken);
+                var member = team?.Members.SingleOrDefault(candidate => candidate.AppUserId == access.UserId);
+                if (team is null || member is null) continue;
+                shipment.AssignedGroupId = team.Id;
+                shipment.AssignedGroupName = team.Name;
+                shipment.AssignedUserId = member.AppUserId;
+                shipment.AssignedAccountName = member.AccountName;
+                shipment.AssignedDisplayName = member.DisplayName;
+                shipment.IsOperationalTeamAssignment = true;
+                assignmentApplied = true;
+                break;
             }
         }
         if (shipment.AssignedUserId.HasValue)
             shipment.Status = QualityShipmentStatusRules.ForAssignedGroup(shipment.AssignedGroupName)
                 ?? shipment.Status;
         await Workflows.ApplyAsync("shipment-created", shipment, access, cancellationToken);
+        assignmentApplied |= shipment.AssignedGroupId.HasValue;
         db.Shipments.Add(shipment);
         AddAudit(shipment, access, "Created", "salesOrderNumber", null, shipment.SalesOrderNumber, now);
         AddAudit(
             shipment,
             access,
-            rule is null && shipment.AssignedGroupId is null ? "AssignmentPending" : rule is null ? "Assigned" : "AutoAssigned",
+            assignmentApplied ? "AutoAssigned" : "AssignmentPending",
             "assignment",
             null,
             AssignmentLabel(shipment),
@@ -430,7 +483,7 @@ public sealed class QualityShipmentService(
             .Include(candidate => candidate.Parts)
             .SingleOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
         if (shipment is null) return null;
-        EnsureRecordAccess(shipment, access);
+        EnsureRecordAccess(shipment, access, await teams.GetContextAsync(access.UserId, cancellationToken));
         PrepareVersion(shipment, dto.Version);
         var now = DateTimeOffset.UtcNow;
         var changedRoutingInput = false;
@@ -469,7 +522,7 @@ public sealed class QualityShipmentService(
             ApplyChange(shipment, field.Key, change.Value, access, now);
         }
         if (!db.ChangeTracker.HasChanges()) return ToDto(shipment, access);
-        if (changedRoutingInput && shipment.AssignedGroupId is null)
+        if (changedRoutingInput && !shipment.IsOperationalTeamAssignment)
             await assignments.ApplyFirstMatchingRuleAsync(shipment, cancellationToken);
         await Workflows.ApplyAsync("shipment-updated", shipment, access, cancellationToken);
         shipment.LastWorkedAt = now;
@@ -493,76 +546,65 @@ public sealed class QualityShipmentService(
             .Include(candidate => candidate.Parts)
             .SingleOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
         if (shipment is null) return null;
-        EnsureRecordAccess(shipment, access);
+        var teamContext = await teams.GetContextAsync(access.UserId, cancellationToken);
+        EnsureRecordAccess(shipment, access, teamContext);
         PrepareVersion(shipment, dto.Version);
-        if (dto.GroupId != shipment.AssignedGroupId
-            && !access.HasPermission(QualityAssurancePermissions.AssignmentGroup))
-            throw new UnauthorizedAccessException("You do not have permission to move shipments between groups.");
-        if (dto.UserId != shipment.AssignedUserId
-            && !access.HasPermission(QualityAssurancePermissions.AssignmentUser))
-            throw new UnauthorizedAccessException("You do not have permission to assign individual users.");
-
-        if (dto.GroupId == shipment.AssignedGroupId && dto.UserId == shipment.AssignedUserId)
-        {
-            if (string.IsNullOrWhiteSpace(shipment.LegacyAssigneeTag)) return ToDto(shipment, access);
-            if (!access.HasPermission(QualityAssurancePermissions.AssignmentGroup)
-                && !access.HasPermission(QualityAssurancePermissions.AssignmentUser))
-                throw new UnauthorizedAccessException("You do not have permission to confirm legacy assignments.");
-            var legacyTag = shipment.LegacyAssigneeTag;
-            var decisionAt = DateTimeOffset.UtcNow;
-            shipment.LegacyAssigneeTag = null;
-            shipment.LastWorkedAt = decisionAt;
-            shipment.UpdatedAt = decisionAt;
-            shipment.UpdatedByAccountName = access.AccountName;
-            shipment.UpdatedByDisplayName = access.DisplayName;
-            shipment.Version++;
-            await Workflows.ApplyAsync("assignment-changed", shipment, access, cancellationToken);
-            AddAudit(
-                shipment,
-                access,
-                "Assigned",
-                "assignment",
-                $"Legacy tag: {legacyTag}",
-                AssignmentValue(shipment),
-                decisionAt);
-            await db.SaveChangesAsync(cancellationToken);
-            return ToDto(shipment, access);
-        }
-
-        var groups = await accessStore.GetGroupsWithPermissionAsync(
-            QualityAssurancePermissions.ResponsibleGroupEligible,
-            cancellationToken);
-        var group = dto.GroupId.HasValue
-            ? groups.SingleOrDefault(candidate => candidate.Id == dto.GroupId.Value)
-                ?? throw new ArgumentException("Select a Responsible Group enabled for Quality assignment in Arda Access.")
+        var team = dto.GroupId.HasValue
+            ? await teams.FindActiveTeamAsync(dto.GroupId.Value, cancellationToken)
+                ?? throw new ArgumentException("Select an active Quality team.")
             : null;
-        QualityDirectoryUser? user = null;
+        var managesTargetTeam = team is not null && teamContext.IsManager(team.Id);
+        var managesCurrentTeam = shipment.IsOperationalTeamAssignment
+            && shipment.AssignedGroupId.HasValue
+            && teamContext.IsManager(shipment.AssignedGroupId.Value);
+        var confirmsLegacyAssignment = !string.IsNullOrWhiteSpace(shipment.LegacyAssigneeTag)
+            && dto.GroupId == (shipment.IsOperationalTeamAssignment ? shipment.AssignedGroupId : null)
+            && dto.UserId == (shipment.IsOperationalTeamAssignment ? shipment.AssignedUserId : null);
+        if (confirmsLegacyAssignment
+            && !access.HasPermission(QualityAssurancePermissions.AssignmentGroup)
+            && !access.HasPermission(QualityAssurancePermissions.AssignmentUser)
+            && !managesTargetTeam
+            && !managesCurrentTeam)
+            throw new UnauthorizedAccessException("You do not have permission to confirm legacy assignments.");
+        if ((dto.GroupId != (shipment.IsOperationalTeamAssignment ? shipment.AssignedGroupId : null))
+            && !access.HasPermission(QualityAssurancePermissions.AssignmentGroup)
+            && !managesTargetTeam
+            && !managesCurrentTeam)
+            throw new UnauthorizedAccessException("You do not have permission to move this shipment between Quality teams.");
+        if ((dto.UserId != (shipment.IsOperationalTeamAssignment ? shipment.AssignedUserId : null))
+            && !access.HasPermission(QualityAssurancePermissions.AssignmentUser)
+            && !managesTargetTeam)
+            throw new UnauthorizedAccessException("You do not have permission to assign users in this Quality team.");
+
+        QualityTeamMember? user = null;
         if (dto.UserId.HasValue)
         {
-            if (group is null) throw new ArgumentException("Select a group before assigning a user.");
-            if (!access.HasPermission(QualityAssurancePermissions.AssignmentGroup)
-                && !access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll)
-                && access.Groups.All(candidate => candidate.Id != group.Id))
-                throw new UnauthorizedAccessException("Group leads can assign users only within their own groups.");
-            user = (await accessStore.GetUsersWithPermissionAsync(
-                    QualityAssurancePermissions.AssignmentEligible,
-                    cancellationToken))
-                .Where(candidate => candidate.GroupIds.Contains(group.Id))
-                .SingleOrDefault(candidate => candidate.Id == dto.UserId.Value)
-                ?? throw new ArgumentException("The selected user must be active, eligible for Quality assignment, and assigned to the selected group.");
+            if (team is null) throw new ArgumentException("Select a Quality team before assigning a user.");
+            user = (await teams.GetActiveMembersAsync(team.Id, cancellationToken))
+                .SingleOrDefault(candidate => candidate.AppUserId == dto.UserId.Value)
+                ?? throw new ArgumentException("The selected user must be active and belong to the selected Quality team.");
         }
 
-        var old = AssignmentLabel(shipment);
+        if (shipment.IsOperationalTeamAssignment
+            && dto.GroupId == shipment.AssignedGroupId
+            && dto.UserId == shipment.AssignedUserId
+            && string.IsNullOrWhiteSpace(shipment.LegacyAssigneeTag))
+            return ToDto(shipment, access);
+
+        var old = !string.IsNullOrWhiteSpace(shipment.LegacyAssigneeTag)
+            ? $"Legacy tag: {shipment.LegacyAssigneeTag}"
+            : AssignmentValue(shipment);
         var oldAction = shipment.NextAction;
         var oldStatus = shipment.Status;
-        shipment.AssignedGroupId = group?.Id;
-        shipment.AssignedGroupName = group?.Name;
-        shipment.AssignedUserId = user?.Id;
+        shipment.AssignedGroupId = team?.Id;
+        shipment.AssignedGroupName = team?.Name;
+        shipment.AssignedUserId = user?.AppUserId;
         shipment.AssignedAccountName = user?.AccountName;
         shipment.AssignedDisplayName = user?.DisplayName;
+        shipment.IsOperationalTeamAssignment = team is not null;
         shipment.LegacyAssigneeTag = null;
         if (user is not null) shipment.NextAction = user.DisplayName;
-        var assignmentStatus = user is null ? null : QualityShipmentStatusRules.ForAssignedGroup(group?.Name);
+        var assignmentStatus = user is null ? null : QualityShipmentStatusRules.ForAssignedGroup(team?.Name);
         if (assignmentStatus is not null) shipment.Status = assignmentStatus;
         var now = DateTimeOffset.UtcNow;
         shipment.LastWorkedAt = now;
@@ -571,7 +613,7 @@ public sealed class QualityShipmentService(
         shipment.UpdatedByDisplayName = access.DisplayName;
         shipment.Version++;
         await Workflows.ApplyAsync("assignment-changed", shipment, access, cancellationToken);
-        AddAudit(shipment, access, "Assigned", "assignment", old, AssignmentLabel(shipment), now);
+        AddAudit(shipment, access, "Assigned", "assignment", old, AssignmentValue(shipment), now);
         if (oldAction != shipment.NextAction)
             AddAudit(shipment, access, "Updated", "nextAction", oldAction, shipment.NextAction, now);
         if (oldStatus != shipment.Status)
@@ -590,7 +632,7 @@ public sealed class QualityShipmentService(
             .Include(candidate => candidate.Parts)
             .SingleOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
         if (shipment is null) return null;
-        EnsureRecordAccess(shipment, access);
+        EnsureRecordAccess(shipment, access, await teams.GetContextAsync(access.UserId, cancellationToken));
         PrepareVersion(shipment, version);
         if (shipment.IsShipped) return ToDto(shipment, access);
         var now = DateTimeOffset.UtcNow;
@@ -621,7 +663,7 @@ public sealed class QualityShipmentService(
             .Include(candidate => candidate.Parts)
             .SingleOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
         if (shipment is null) return null;
-        EnsureRecordAccess(shipment, access);
+        EnsureRecordAccess(shipment, access, await teams.GetContextAsync(access.UserId, cancellationToken));
         PrepareVersion(shipment, version);
         if (shipment.IsShipped)
             throw new ArgumentException("A shipped record cannot be returned to the Shipper queue.");
@@ -638,16 +680,15 @@ public sealed class QualityShipmentService(
                     ? ApplicationGroups.Shipper : configuredShippingGroupName;
             if (string.Equals(shipment.AssignedGroupName, shippingGroupName, StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException($"This record is already in the {shippingGroupName} queue.");
-            var shippingGroup = (await accessStore.GetGroupsWithPermissionAsync(
-                    QualityAssurancePermissions.ResponsibleGroupEligible, cancellationToken))
-                .FirstOrDefault(group => string.Equals(group.Name, shippingGroupName, StringComparison.OrdinalIgnoreCase))
+            var shippingGroup = await teams.FindActiveTeamByNameAsync(shippingGroupName, cancellationToken)
                 ?? throw new InvalidOperationException(
-                    $"The {shippingGroupName} group must be enabled as a Quality Responsible Group before QA Complete can route work to it.");
+                    $"The {shippingGroupName} Quality team must be active before QA Complete can route work to it.");
             shipment.AssignedGroupId = shippingGroup.Id;
             shipment.AssignedGroupName = shippingGroup.Name;
             shipment.AssignedUserId = null;
             shipment.AssignedAccountName = null;
             shipment.AssignedDisplayName = null;
+            shipment.IsOperationalTeamAssignment = true;
             shipment.NextAction = shippingGroup.Name;
         }
         shipment.LastWorkedAt = now;
@@ -668,7 +709,7 @@ public sealed class QualityShipmentService(
     {
         var shipment = await db.Shipments.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
         if (shipment is null) return null;
-        EnsureRecordAccess(shipment, access);
+        EnsureRecordAccess(shipment, access, await teams.GetContextAsync(access.UserId, cancellationToken));
         var entries = await db.ShipmentAuditEntries
             .AsNoTracking()
             .Where(entry => entry.ShipmentId == id)
@@ -706,35 +747,42 @@ public sealed class QualityShipmentService(
     private IQueryable<QualityShipment> ApplyVisibility(
         IQueryable<QualityShipment> query,
         QualityAssuranceAccessProfile access,
-        string scope)
+        string scope,
+        QualityTeamContext teamContext)
     {
         if (scope == "all" && access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll)) return query;
-        if (scope == "team" && (access.HasPermission(QualityAssurancePermissions.TeamDashboardView)
-            || access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll)))
+        var memberTeamIds = teamContext.TeamIds.ToList();
+        var managedTeamIds = teamContext.ManagedTeamIds.ToList();
+        if (scope == "team" && managedTeamIds.Count > 0)
         {
-            var groupIds = access.Groups.Select(group => group.Id).ToList();
-            return access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll)
-                ? query
-                : query.Where(shipment => shipment.AssignedUserId == access.UserId
-                    || (shipment.AssignedGroupId.HasValue && groupIds.Contains(shipment.AssignedGroupId.Value))
-                    || (CanReviewUnassigned(access)
-                        && !shipment.AssignedGroupId.HasValue
-                        && !shipment.AssignedUserId.HasValue));
+            return query.Where(shipment =>
+                (shipment.IsOperationalTeamAssignment && shipment.AssignedUserId == access.UserId)
+                || (shipment.IsOperationalTeamAssignment
+                    && !shipment.AssignedUserId.HasValue
+                    && shipment.AssignedGroupId.HasValue
+                    && memberTeamIds.Contains(shipment.AssignedGroupId.Value))
+                || (shipment.IsOperationalTeamAssignment
+                    && shipment.AssignedGroupId.HasValue
+                    && managedTeamIds.Contains(shipment.AssignedGroupId.Value))
+                || (CanReviewUnassigned(access)
+                    && (!shipment.IsOperationalTeamAssignment || !shipment.AssignedGroupId.HasValue)));
         }
         if (CanReviewUnassigned(access))
         {
-            var groupIds = access.Groups.Select(group => group.Id).ToList();
-            return query.Where(shipment => shipment.AssignedUserId == access.UserId
-                || (!shipment.AssignedUserId.HasValue
+            return query.Where(shipment =>
+                (shipment.IsOperationalTeamAssignment && shipment.AssignedUserId == access.UserId)
+                || (shipment.IsOperationalTeamAssignment
+                    && !shipment.AssignedUserId.HasValue
                     && shipment.AssignedGroupId.HasValue
-                    && groupIds.Contains(shipment.AssignedGroupId.Value))
-                || (!shipment.AssignedGroupId.HasValue && !shipment.AssignedUserId.HasValue));
+                    && memberTeamIds.Contains(shipment.AssignedGroupId.Value))
+                || (!shipment.IsOperationalTeamAssignment || !shipment.AssignedGroupId.HasValue));
         }
-        var mineGroupIds = access.Groups.Select(group => group.Id).ToList();
-        return query.Where(shipment => shipment.AssignedUserId == access.UserId
-            || (!shipment.AssignedUserId.HasValue
+        return query.Where(shipment =>
+            (shipment.IsOperationalTeamAssignment && shipment.AssignedUserId == access.UserId)
+            || (shipment.IsOperationalTeamAssignment
+                && !shipment.AssignedUserId.HasValue
                 && shipment.AssignedGroupId.HasValue
-                && mineGroupIds.Contains(shipment.AssignedGroupId.Value)));
+                && memberTeamIds.Contains(shipment.AssignedGroupId.Value)));
     }
 
     private static IQueryable<QualityShipment> ApplySearch(
@@ -829,13 +877,15 @@ public sealed class QualityShipmentService(
         if (string.IsNullOrWhiteSpace(normalizedAssignee)
             || !access.HasPermission(QualityAssurancePermissions.AssignmentView)) return query;
         if (normalizedAssignee == "unassigned")
-            return query.Where(shipment => !shipment.AssignedGroupId.HasValue && !shipment.AssignedUserId.HasValue);
+            return query.Where(shipment => !shipment.IsOperationalTeamAssignment || !shipment.AssignedGroupId.HasValue);
         if (normalizedAssignee.StartsWith("user:", StringComparison.Ordinal)
             && int.TryParse(normalizedAssignee[5..], out var userId))
             return query.Where(shipment => shipment.AssignedUserId == userId);
         if (normalizedAssignee.StartsWith("group:", StringComparison.Ordinal)
             && int.TryParse(normalizedAssignee[6..], out var groupId))
-            return query.Where(shipment => shipment.AssignedGroupId == groupId && !shipment.AssignedUserId.HasValue);
+            return query.Where(shipment => shipment.IsOperationalTeamAssignment
+                && shipment.AssignedGroupId == groupId
+                && !shipment.AssignedUserId.HasValue);
         return query;
     }
 
@@ -969,29 +1019,62 @@ public sealed class QualityShipmentService(
     private static bool CanReviewUnassigned(QualityAssuranceAccessProfile access) =>
         access.HasPermission(QualityAssurancePermissions.ManagerReview);
 
-    private static string NormalizeScope(QualityAssuranceAccessProfile access, string? scope)
+    private static IQueryable<QualityShipment> ReviewQueueQuery(
+        IQueryable<QualityShipment> query,
+        QualityAssuranceAccessProfile access,
+        QualityTeamContext teamContext,
+        bool canReviewUnassigned)
+    {
+        var memberTeamIds = teamContext.TeamIds.ToList();
+        return query.Where(shipment =>
+            (shipment.IsOperationalTeamAssignment && shipment.AssignedUserId == access.UserId)
+            || (shipment.IsOperationalTeamAssignment
+                && !shipment.AssignedUserId.HasValue
+                && shipment.AssignedGroupId.HasValue
+                && memberTeamIds.Contains(shipment.AssignedGroupId.Value))
+            || (canReviewUnassigned && (!shipment.IsOperationalTeamAssignment || !shipment.AssignedGroupId.HasValue)));
+    }
+
+    private static string NormalizeDashboardQueue(string? queue) =>
+        queue?.Trim().ToLowerInvariant() switch
+        {
+            "overdue" => "overdue",
+            "completed" => "completed",
+            "unassigned" => "unassigned",
+            "team" => "team",
+            "person" => "person",
+            _ => "open"
+        };
+
+    private static string NormalizeScope(
+        QualityAssuranceAccessProfile access,
+        QualityTeamContext teamContext,
+        string? scope)
     {
         if (string.Equals(scope, "all", StringComparison.OrdinalIgnoreCase)
             && access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll)) return "all";
         if (string.Equals(scope, "team", StringComparison.OrdinalIgnoreCase)
-            && (access.HasPermission(QualityAssurancePermissions.TeamDashboardView)
+            && (teamContext.ManagedTeamIds.Count > 0
                 || access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll))) return "team";
         return "mine";
     }
 
-    private static void EnsureRecordAccess(QualityShipment shipment, QualityAssuranceAccessProfile access)
+    private static void EnsureRecordAccess(
+        QualityShipment shipment,
+        QualityAssuranceAccessProfile access,
+        QualityTeamContext teamContext)
     {
         if (access.HasPermission(QualityAssurancePermissions.ShipmentsViewAll)) return;
-        if (shipment.AssignedUserId == access.UserId) return;
-        if (!shipment.AssignedUserId.HasValue
-            && shipment.AssignedGroupId.HasValue
-            && access.Groups.Any(group => group.Id == shipment.AssignedGroupId.Value)) return;
-        if (!shipment.AssignedGroupId.HasValue
+        if (shipment.IsOperationalTeamAssignment && shipment.AssignedUserId == access.UserId) return;
+        if (shipment.IsOperationalTeamAssignment
             && !shipment.AssignedUserId.HasValue
-            && CanReviewUnassigned(access)) return;
-        if (access.HasPermission(QualityAssurancePermissions.TeamDashboardView)
             && shipment.AssignedGroupId.HasValue
-            && access.Groups.Any(group => group.Id == shipment.AssignedGroupId.Value)) return;
+            && teamContext.IsMember(shipment.AssignedGroupId.Value)) return;
+        if ((!shipment.IsOperationalTeamAssignment || !shipment.AssignedGroupId.HasValue)
+            && CanReviewUnassigned(access)) return;
+        if (shipment.IsOperationalTeamAssignment
+            && shipment.AssignedGroupId.HasValue
+            && teamContext.IsManager(shipment.AssignedGroupId.Value)) return;
         throw new UnauthorizedAccessException("This shipment is not in your permitted queue.");
     }
 
@@ -1257,13 +1340,16 @@ public sealed class QualityShipmentService(
             Visible(access, QualityAssurancePermissions.ShipDateView, shipment.ShipDate),
             Visible(access, QualityAssurancePermissions.HoldReasonView, shipment.HoldReason),
             Visible(access, QualityAssurancePermissions.SourceRequestedDateView, shipment.SourceRequestedDate),
-            Visible(access, QualityAssurancePermissions.ActionView, shipment.NextAction),
+            Visible(
+                access,
+                QualityAssurancePermissions.ActionView,
+                shipment.IsOperationalTeamAssignment ? shipment.NextAction : "Needs assignment"),
             Visible(access, QualityAssurancePermissions.LastWorkedView, shipment.LastWorkedAt),
             Visible(access, QualityAssurancePermissions.CommentsView, shipment.Comments),
-            canAssignment ? shipment.AssignedGroupId : null,
-            canAssignment ? shipment.AssignedGroupName : null,
-            canAssignment ? shipment.AssignedUserId : null,
-            canAssignment ? shipment.AssignedDisplayName : null,
+            canAssignment && shipment.IsOperationalTeamAssignment ? shipment.AssignedGroupId : null,
+            canAssignment && shipment.IsOperationalTeamAssignment ? shipment.AssignedGroupName : null,
+            canAssignment && shipment.IsOperationalTeamAssignment ? shipment.AssignedUserId : null,
+            canAssignment && shipment.IsOperationalTeamAssignment ? shipment.AssignedDisplayName : null,
             shipment.IsShipped,
             canShipDate ? DueState(shipment) : "Hidden",
             shipment.CreatedAt,
@@ -1273,7 +1359,8 @@ public sealed class QualityShipmentService(
             shipment.ExternalShipmentStatus,
             shipment.ExternalSyncProvider,
             shipment.ExternalSyncError,
-            shipment.ExternalSyncedAt);
+            shipment.ExternalSyncedAt,
+            CompletionDays(shipment));
     }
 
     private static T? Visible<T>(QualityAssuranceAccessProfile access, string permission, T? value) =>
@@ -1285,6 +1372,14 @@ public sealed class QualityShipmentService(
         if (!shipment.ShipDate.HasValue) return "No date";
         var days = shipment.ShipDate.Value.DayNumber - DateOnly.FromDateTime(DateTime.UtcNow).DayNumber;
         return days < 0 ? "Past due" : days == 0 ? "Due today" : days <= 3 ? "Due soon" : "On track";
+    }
+
+    private static double? CompletionDays(QualityShipment shipment)
+    {
+        if (!shipment.IsShipped || !shipment.ShippedAt.HasValue || !shipment.QaArrivalDate.HasValue)
+            return null;
+        var shippedDate = DateOnly.FromDateTime(shipment.ShippedAt.Value.UtcDateTime);
+        return Math.Max(0, shippedDate.DayNumber - shipment.QaArrivalDate.Value.DayNumber);
     }
 
     private static QualityQueueMetricsDto Metrics(

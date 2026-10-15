@@ -200,7 +200,11 @@ public sealed class QualityShipmentCommentServiceTests
             this.connection = connection;
             Db = db;
             directory = new TestAccessStore();
-            Service = new QualityShipmentCommentService(db, directory, pushPublisher);
+            Service = new QualityShipmentCommentService(
+                db,
+                directory,
+                new QualityTeamService(db, directory),
+                pushPublisher);
             Admin = Access(99, "TEST\\admin", "Quality Admin", canEdit: true, viewAll: true);
         }
 
@@ -217,6 +221,20 @@ public sealed class QualityShipmentCommentServiceTests
                 .UseSqlite(connection)
                 .Options);
             await db.Database.EnsureCreatedAsync();
+            db.Teams.Add(new QualityTeam
+            {
+                Id = 10,
+                Name = "Quality",
+                Version = 1,
+                CreatedBy = "TEST\\admin",
+                UpdatedBy = "TEST\\admin",
+                Members =
+                [
+                    new QualityTeamMember { AppUserId = 2, AccountName = "TEST\\two", DisplayName = "Person Two", IsManager = true, AddedBy = "TEST\\admin" },
+                    new QualityTeamMember { AppUserId = 99, AccountName = "TEST\\admin", DisplayName = "Quality Admin", IsManager = true, AddedBy = "TEST\\admin" }
+                ]
+            });
+            await db.SaveChangesAsync();
             return new CommentFixture(connection, db, pushPublisher);
         }
 
@@ -230,7 +248,9 @@ public sealed class QualityShipmentCommentServiceTests
                 TaskType = "General",
                 Comments = comments,
                 AssignedGroupId = 10,
+                AssignedGroupName = "Quality",
                 AssignedUserId = assignedUserId,
+                IsOperationalTeamAssignment = true,
                 Version = 1,
                 CreatedByAccountName = Admin.AccountName,
                 CreatedByDisplayName = Admin.DisplayName,

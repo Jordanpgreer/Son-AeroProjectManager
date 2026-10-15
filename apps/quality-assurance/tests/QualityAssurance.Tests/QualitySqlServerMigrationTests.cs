@@ -20,7 +20,8 @@ public sealed class QualitySqlServerMigrationTests
         "20260908210000_AddQualityMentionPortalPushDelivery",
         "20260909200000_AddQualityShipmentCreationRequestId",
         "20260910165911_AddQualityWorkflows",
-        "20261013090000_AddQualityShipmentLineItemNumbers"
+        "20261013090000_AddQualityShipmentLineItemNumbers",
+        "20261015130000_SeparateQualityOperationalTeams"
     ];
 
     [Fact]
@@ -63,7 +64,8 @@ public sealed class QualitySqlServerMigrationTests
             ["QualityMentionNotifications"] = "bigint",
             ["QualityShipmentParts"] = "int",
             ["QualityWorkflows"] = "int",
-            ["QualityWorkflowAuditEntries"] = "bigint"
+            ["QualityWorkflowAuditEntries"] = "bigint",
+            ["QualityTeams"] = "int"
         };
         foreach (var (table, identityType) in identityTypes)
         {

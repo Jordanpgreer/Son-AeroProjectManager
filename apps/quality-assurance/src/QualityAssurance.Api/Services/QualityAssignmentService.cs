@@ -9,7 +9,7 @@ namespace QualityAssurance.Api.Services;
 
 public sealed class QualityAssignmentService(
     QualityAssuranceDbContext qualityDb,
-    IQualityAssuranceAccessStore accessStore)
+    QualityTeamService teams)
 {
     public async Task<QualityAssignmentRule?> ApplyFirstMatchingRuleAsync(
         QualityShipment shipment,
@@ -20,38 +20,38 @@ public sealed class QualityAssignmentService(
             return null;
         var rules = await qualityDb.AssignmentRules
             .AsNoTracking()
-            .Where(rule => rule.IsEnabled)
+            .Where(rule => rule.IsEnabled && rule.UsesOperationalTeam)
             .OrderBy(rule => rule.Priority)
             .ThenBy(rule => rule.Id)
             .ToListAsync(cancellationToken);
-        var eligibleGroups = await accessStore.GetGroupsWithPermissionAsync(
-            QualityAssurancePermissions.ResponsibleGroupEligible,
-            cancellationToken);
-        var eligibleGroupIds = eligibleGroups.Select(group => group.Id).ToHashSet();
-        var rule = rules.FirstOrDefault(candidate =>
-            eligibleGroupIds.Contains(candidate.TargetGroupId) && Matches(candidate, shipment));
+        QualityAssignmentRule? rule = null;
+        QualityTeam? team = null;
+        foreach (var candidate in rules.Where(candidate => Matches(candidate, shipment)))
+        {
+            team = await teams.FindActiveTeamAsync(candidate.TargetGroupId, cancellationToken);
+            if (team is null) continue;
+            rule = candidate;
+            break;
+        }
         if (rule is null) return null;
 
-        shipment.AssignedGroupId = rule.TargetGroupId;
-        shipment.AssignedGroupName = rule.TargetGroupName;
+        shipment.AssignedGroupId = team!.Id;
+        shipment.AssignedGroupName = team.Name;
         shipment.AssignedUserId = null;
         shipment.AssignedAccountName = null;
         shipment.AssignedDisplayName = null;
+        shipment.IsOperationalTeamAssignment = true;
 
-        var users = (await accessStore.GetUsersWithPermissionAsync(
-                QualityAssurancePermissions.AssignmentEligible,
-                cancellationToken))
-            .Where(user => user.GroupIds.Contains(rule.TargetGroupId))
-            .ToList();
-        QualityDirectoryUser? selected = null;
+        var users = await teams.GetActiveMembersAsync(team.Id, cancellationToken);
+        QualityTeamMember? selected = null;
         if (string.Equals(rule.AssignmentMode, "SpecificUser", StringComparison.OrdinalIgnoreCase))
         {
-            selected = users.SingleOrDefault(user => user.Id == rule.TargetUserId);
+            selected = users.SingleOrDefault(user => user.AppUserId == rule.TargetUserId);
         }
         else if (string.Equals(rule.AssignmentMode, "LeastLoaded", StringComparison.OrdinalIgnoreCase)
             && users.Count > 0)
         {
-            var userIds = users.Select(user => user.Id).ToList();
+            var userIds = users.Select(user => user.AppUserId).ToList();
             var queueCounts = await qualityDb.Shipments
                 .AsNoTracking()
                 .Where(candidate => !candidate.IsShipped
@@ -61,14 +61,14 @@ public sealed class QualityAssignmentService(
                 .Select(group => new { UserId = group.Key, Count = group.Count() })
                 .ToDictionaryAsync(item => item.UserId, item => item.Count, cancellationToken);
             selected = users
-                .OrderBy(user => queueCounts.GetValueOrDefault(user.Id))
+                .OrderBy(user => queueCounts.GetValueOrDefault(user.AppUserId))
                 .ThenBy(user => user.DisplayName)
                 .First();
         }
 
         if (selected is not null)
         {
-            shipment.AssignedUserId = selected.Id;
+            shipment.AssignedUserId = selected.AppUserId;
             shipment.AssignedAccountName = selected.AccountName;
             shipment.AssignedDisplayName = selected.DisplayName;
         }
@@ -157,21 +157,15 @@ public sealed class QualityAssignmentService(
         if (dto.MatchOperator is not ("Equals" or "Contains" or "StartsWith")) throw new ArgumentException("Unsupported match operator.");
         if (dto.AssignmentMode is not ("GroupOnly" or "SpecificUser" or "LeastLoaded")) throw new ArgumentException("Unsupported assignment mode.");
 
-        var groups = await accessStore.GetGroupsWithPermissionAsync(
-            QualityAssurancePermissions.ResponsibleGroupEligible,
-            cancellationToken);
-        var group = groups.SingleOrDefault(candidate => candidate.Id == dto.TargetGroupId)
-            ?? throw new ArgumentException("Select an existing shared access group.");
-        QualityDirectoryUser? user = null;
+        var team = await teams.FindActiveTeamAsync(dto.TargetGroupId, cancellationToken)
+            ?? throw new ArgumentException("Select an active Quality team.");
+        QualityTeamMember? user = null;
         if (dto.AssignmentMode == "SpecificUser")
         {
             if (!dto.TargetUserId.HasValue) throw new ArgumentException("Select a user for specific-user assignment.");
-            user = (await accessStore.GetUsersWithPermissionAsync(
-                    QualityAssurancePermissions.AssignmentEligible,
-                    cancellationToken))
-                .Where(candidate => candidate.GroupIds.Contains(group.Id))
-                .SingleOrDefault(candidate => candidate.Id == dto.TargetUserId.Value)
-                ?? throw new ArgumentException("The selected user must be active, eligible for Quality assignment, and assigned to the target group.");
+            user = (await teams.GetActiveMembersAsync(team.Id, cancellationToken))
+                .SingleOrDefault(candidate => candidate.AppUserId == dto.TargetUserId.Value)
+                ?? throw new ArgumentException("The selected user must be active and belong to the destination Quality team.");
         }
 
         rule.Name = name;
@@ -180,12 +174,13 @@ public sealed class QualityAssignmentService(
         rule.MatchField = dto.MatchField;
         rule.MatchOperator = dto.MatchOperator;
         rule.MatchValue = value;
-        rule.TargetGroupId = group.Id;
-        rule.TargetGroupName = group.Name;
+        rule.TargetGroupId = team.Id;
+        rule.TargetGroupName = team.Name;
         rule.AssignmentMode = dto.AssignmentMode;
-        rule.TargetUserId = user?.Id;
+        rule.TargetUserId = user?.AppUserId;
         rule.TargetAccountName = user?.AccountName;
         rule.TargetDisplayName = user?.DisplayName;
+        rule.UsesOperationalTeam = true;
         rule.Version++;
         rule.UpdatedAt = DateTimeOffset.UtcNow;
         rule.UpdatedBy = actor.AccountName;
