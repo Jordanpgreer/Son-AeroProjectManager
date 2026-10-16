@@ -1,3 +1,4 @@
+import { useArdaSidebar, ArdaSidebarPin } from './ArdaSidebar'
 import { useEffect, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import {
@@ -119,6 +120,7 @@ function capabilityLabels(application: PortalApp) {
 }
 
 export default function App() {
+  const sidebar = useArdaSidebar()
   const [theme, setTheme] = useState(() => readThemePreference())
   const [me, setMe] = useState<Me | null>(null)
   const [apps, setApps] = useState<PortalApp[] | null>(null)
@@ -429,14 +431,15 @@ export default function App() {
           onPreviewWalkthrough={startWalkthroughPreview}
         />
       ) : (
-        <div className={`arda-workspace ${accessPreview ? 'is-access-preview' : ''}`.trim()}>
+        <div className={`arda-workspace ${accessPreview ? 'is-access-preview' : ''} ${sidebar.collapsed ? 'is-sidebar-collapsed' : ''}`.trim()}>
         {!accessPreview && (
-          <aside className="arda-workspace-sidebar">
+          <aside className="arda-workspace-sidebar" {...sidebar.sidebarProps}>
             <ArdaGlobalNavigation
               currentApplicationId="portal"
               hubUrl={window.location.origin}
               applications={catalogApps ?? []}
             />
+            <ArdaSidebarPin pinned={sidebar.pinned} onToggle={sidebar.togglePinned} />
           </aside>
         )}
         <main className="portal-main catalog-main">

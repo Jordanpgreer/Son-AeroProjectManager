@@ -1,3 +1,4 @@
+import { useArdaAutoRefresh } from './useArdaAutoRefresh'
 import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import {
   ArrowDownToLine,
@@ -18,11 +19,10 @@ import {
 } from 'lucide-react'
 import { api, queryString } from './api'
 import { highlight } from './highlight'
-import type { AppUser, SyncResult, VendorDetail, VendorSummary } from './types'
+import type { AppUser, VendorDetail, VendorSummary } from './types'
 
 const compliancePermission = 'small-business-subcontracting.compliance.manage'
 const documentPermission = 'small-business-subcontracting.documents.manage'
-const syncPermission = 'small-business-subcontracting.fulcrum.sync'
 
 interface VendorsPageProps {
   user: AppUser
@@ -43,8 +43,6 @@ export default function VendorsPage({
   const deferredQuery = useDeferredValue(query)
   const [vendors, setVendors] = useState<VendorSummary[]>([])
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
-  const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
   const [detail, setDetail] = useState<VendorDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
@@ -118,19 +116,7 @@ export default function VendorsPage({
     }
   }
 
-  async function synchronize() {
-    setSyncing(true)
-    setSyncResult(null)
-    try {
-      const result = await api<SyncResult>('/api/vendors/sync', { method: 'POST' })
-      setSyncResult(result)
-      setRefreshKey((value) => value + 1)
-    } catch (error) {
-      onError(error instanceof Error ? error.message : 'Vendor synchronization failed.')
-    } finally {
-      setSyncing(false)
-    }
-  }
+  useArdaAutoRefresh(() => setRefreshKey(value => value + 1), !loading && selectedVendorId === null)
 
   const activeVendors = vendors.filter((vendor) => vendor.active).length
   const classifiedVendors = vendors.filter((vendor) => vendor.businessSizes.length > 0).length
@@ -144,19 +130,10 @@ export default function VendorsPage({
           <h1>Fulcrum vendors, local compliance context</h1>
           <p className="page-intro">Identity and contacts refresh from Fulcrum. Business-size records and documents remain controlled in Arda.</p>
         </div>
-        {user.permissions.includes(syncPermission) && (
-          <button className="primary-button" type="button" onClick={synchronize} disabled={syncing}>
-            <RefreshCw size={16} className={syncing ? 'spin' : ''} />
-            {syncing ? 'Syncing vendors' : 'Sync Fulcrum'}
-          </button>
-        )}
+
       </section>
 
-      {syncResult && (
-        <div className="success-banner" role="status">
-          Sync complete: {syncResult.added} added, {syncResult.updated} updated, {syncResult.unchanged} unchanged, {syncResult.contactCount} contacts.
-        </div>
-      )}
+
 
       <section className="summary-strip vendor-summary" aria-label="Vendor registry summary" aria-busy={loading}>
         <div><span className="metric-icon"><UsersRound size={17} aria-hidden="true" /></span><span>Visible vendors</span><strong>{vendors.length}</strong><small>{query ? 'Matching this search' : 'Current register'}</small></div>
@@ -227,7 +204,7 @@ export default function VendorsPage({
                 )
               })}
               {loading && <tr className="state-row"><td colSpan={6}><div className="table-state" role="status"><RefreshCw className="spin" size={22} aria-hidden="true" /><strong>Loading vendor records</strong><span>Checking the current Arda register…</span></div></td></tr>}
-              {!loading && vendors.length === 0 && <tr className="state-row"><td colSpan={6}><div className="table-state"><Building2 size={25} aria-hidden="true" /><strong>{query ? 'No matching vendors' : 'No vendors have been synchronized yet'}</strong><span>{query ? 'Try a broader vendor, contact, code, or classification search.' : 'Bring the Fulcrum vendor directory into Arda to begin managing compliance.'}</span>{!query && user.permissions.includes(syncPermission) && <button className="secondary-button" type="button" onClick={synchronize} disabled={syncing}><RefreshCw size={15} className={syncing ? 'spin' : ''} />{syncing ? 'Syncing vendors' : 'Sync Fulcrum vendors'}</button>}</div></td></tr>}
+              {!loading && vendors.length === 0 && <tr className="state-row"><td colSpan={6}><div className="table-state"><Building2 size={25} aria-hidden="true" /><strong>{query ? 'No matching vendors' : 'No vendors have been synchronized yet'}</strong><span>{query ? 'Try a broader vendor, contact, code, or classification search.' : 'Vendor records will appear after the next automatic Fulcrum sync.'}</span></div></td></tr>}
             </tbody>
           </table>
         </div>

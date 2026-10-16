@@ -30,7 +30,7 @@ internal sealed class FulcrumQuoteGenerationService(EstimatingAccessDbContext db
             throw new FulcrumQuoteGenerationAlreadyRunningException();
         try
         {
-            await client.InitializeAsync(cancellationToken);
+            await client.InitializeAsync(cancellationToken, fresh: true);
             var quoteId = FulcrumQuoteGenerationClient.Identifier(record.SourceId);
             var quote = await client.GetAsync($"api/quotes/{quoteId}", cancellationToken);
             if (Number(quote, "number") != record.QuoteNumber)

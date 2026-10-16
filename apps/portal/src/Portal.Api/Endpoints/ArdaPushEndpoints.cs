@@ -29,6 +29,8 @@ public static class ArdaPushEndpoints
         authenticated.MapGet("/open/{notificationId:long}", OpenAsync);
         authenticated.MapGet("/inbox", GetInboxAsync).RequireCors("ArdaModules");
         authenticated.MapPost("/inbox/{id}/read", MarkInboxReadAsync).RequireCors("ArdaModules");
+        authenticated.MapPost("/inbox/{id}/dismiss", DismissInboxAsync).RequireCors("ArdaModules");
+        authenticated.MapPost("/inbox/clear", ClearInboxAsync).RequireCors("ArdaModules");
         authenticated.MapGet("/inbox/{id}/open", OpenInboxAsync);
 
         endpoints.MapPost("/api/push/producers/{sourceModule}/notifications", EnqueueAsync);
@@ -156,16 +158,48 @@ public static class ArdaPushEndpoints
         return Results.Ok(await inbox.GetAsync(user, cancellationToken));
     }
 
-    private static async Task<IResult> MarkInboxReadAsync(
+    internal static async Task<IResult> MarkInboxReadAsync(
         string id,
+        HttpRequest request,
+        ApplicationRegistry registry,
         PortalUserService users,
         ArdaGlobalInboxService inbox,
         CancellationToken cancellationToken)
     {
+        if (!ArdaInboxRequestIntegrity.IsTrustedOrigin(request, registry)) return Results.BadRequest();
         var user = await users.CurrentAsync(cancellationToken);
         if (user.AccountStatus != Portal.Api.Dtos.PortalAccountStatus.Configured) return Results.Forbid();
         return await inbox.MarkReadAsync(id, user, cancellationToken)
             ? Results.NoContent() : Results.NotFound();
+    }
+
+    internal static async Task<IResult> DismissInboxAsync(
+        string id,
+        HttpRequest request,
+        ApplicationRegistry registry,
+        PortalUserService users,
+        ArdaGlobalInboxService inbox,
+        CancellationToken cancellationToken)
+    {
+        if (!ArdaInboxRequestIntegrity.IsTrustedOrigin(request, registry)) return Results.BadRequest();
+        var user = await users.CurrentAsync(cancellationToken);
+        if (user.AccountStatus != PortalAccountStatus.Configured) return Results.Forbid();
+        return await inbox.DismissAsync(id, user, cancellationToken)
+            ? Results.NoContent() : Results.NotFound();
+    }
+
+    internal static async Task<IResult> ClearInboxAsync(
+        HttpRequest request,
+        ApplicationRegistry registry,
+        PortalUserService users,
+        ArdaGlobalInboxService inbox,
+        CancellationToken cancellationToken)
+    {
+        if (!ArdaInboxRequestIntegrity.IsTrustedOrigin(request, registry)) return Results.BadRequest();
+        var user = await users.CurrentAsync(cancellationToken);
+        if (user.AccountStatus != PortalAccountStatus.Configured) return Results.Forbid();
+        var count = await inbox.ClearAsync(user, cancellationToken);
+        return Results.Ok(new { clearedCount = count });
     }
 
     private static async Task<IResult> OpenInboxAsync(

@@ -158,6 +158,30 @@ public sealed class FulcrumQuoteSyncTests
     }
 
     [Fact]
+    public async Task Expired_credential_is_rejected_before_decryption_or_cached_reads()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = new EstimatingAccessDbContext(new DbContextOptionsBuilder<EstimatingAccessDbContext>()
+            .UseSqlite(connection).Options);
+        await db.Database.EnsureCreatedAsync();
+        db.IntegrationCredentials.Add(new EstimatingIntegrationCredentialRecord
+        {
+            CredentialKey = SonAero.Platform.Security.IntegrationCredentialNames.FulcrumPublicApi,
+            DisplayName = "Expired API", EncryptedSecret = "must-not-be-decrypted",
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+            UpdatedBy = "TEST", ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1)
+        });
+        await db.SaveChangesAsync();
+        var reader = new IntegrationCredentialReader(db,
+            new SonAero.Platform.Security.MachineIntegrationSecretProtector(), TimeProvider.System);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => reader.GetSecretAsync(
+            SonAero.Platform.Security.IntegrationCredentialNames.FulcrumPublicApi, default));
+        Assert.Contains("expired", error.Message);
+        Assert.Null((await db.IntegrationCredentials.SingleAsync()).LastUsedAt);
+    }
+
+    [Fact]
     public async Task Mapping_and_automated_import_populate_the_current_log_and_are_idempotent()
     {
         var customFields = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>("""

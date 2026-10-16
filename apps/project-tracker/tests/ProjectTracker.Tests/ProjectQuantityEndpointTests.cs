@@ -20,6 +20,7 @@ public sealed class ProjectQuantityEndpointTests
         builder.Services.AddDbContext<ProjectTrackerDbContext>(options =>
             options.UseSqlite("Data Source=:memory:"));
         builder.Services.AddScoped<ProjectAuditService>();
+        builder.Services.AddScoped<ProjectQuantitySyncApplicationService>();
         builder.Services.AddSingleton<ScheduleCalculator>();
         builder.Services.AddScoped<ProjectMetricsService>();
         builder.Services.AddScoped<ProjectRoutingSyncService>();
@@ -52,6 +53,7 @@ public sealed class ProjectQuantityEndpointTests
         builder.Services.AddDbContext<ProjectTrackerDbContext>(options =>
             options.UseSqlite("Data Source=:memory:"));
         builder.Services.AddScoped<ProjectAuditService>();
+        builder.Services.AddScoped<ProjectQuantitySyncApplicationService>();
         builder.Services.AddSingleton<ScheduleCalculator>();
         builder.Services.AddScoped<ProjectMetricsService>();
         builder.Services.AddScoped<ProjectRoutingSyncService>();
@@ -81,6 +83,7 @@ public sealed class ProjectQuantityEndpointTests
         builder.Services.AddDbContext<ProjectTrackerDbContext>(options =>
             options.UseSqlite("Data Source=:memory:"));
         builder.Services.AddScoped<ProjectAuditService>();
+        builder.Services.AddScoped<ProjectQuantitySyncApplicationService>();
         builder.Services.AddSingleton<ScheduleCalculator>();
         builder.Services.AddScoped<ProjectMetricsService>();
         builder.Services.AddScoped<ProjectRoutingSyncService>();
@@ -110,6 +113,7 @@ public sealed class ProjectQuantityEndpointTests
         builder.Services.AddDbContext<ProjectTrackerDbContext>(options =>
             options.UseSqlite("Data Source=:memory:"));
         builder.Services.AddScoped<ProjectAuditService>();
+        builder.Services.AddScoped<ProjectQuantitySyncApplicationService>();
         builder.Services.AddSingleton<ScheduleCalculator>();
         builder.Services.AddScoped<ProjectMetricsService>();
         builder.Services.AddScoped<ProjectRoutingSyncService>();

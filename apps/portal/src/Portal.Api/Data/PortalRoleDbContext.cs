@@ -13,6 +13,7 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
     public DbSet<PortalNotificationMessageRecord> NotificationMessages => Set<PortalNotificationMessageRecord>();
     public DbSet<ArdaPushSubscriptionRecord> ArdaPushSubscriptions => Set<ArdaPushSubscriptionRecord>();
     public DbSet<ArdaPushNotificationRecord> ArdaPushNotifications => Set<ArdaPushNotificationRecord>();
+    public DbSet<ArdaInboxDismissalRecord> ArdaInboxDismissals => Set<ArdaInboxDismissalRecord>();
     public DbSet<PortalEngineeringGroupRecord> EngineeringGroups => Set<PortalEngineeringGroupRecord>();
     public DbSet<PortalProjectTrackerGroupRecord> ProjectTrackerGroups => Set<PortalProjectTrackerGroupRecord>();
     public DbSet<PortalEngineeringMembershipRecord> EngineeringUserGroupMemberships => Set<PortalEngineeringMembershipRecord>();
@@ -35,6 +36,7 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.ApplyConfiguration(new ArdaInboxDismissalConfiguration());
         modelBuilder.Entity<Portal.Api.Services.ApiCustomizer.CustomizerReportRecord>(entity =>
         {
             entity.ToTable("ApiCustomizerReports");

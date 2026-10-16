@@ -174,6 +174,7 @@ public static class QualityShippingEndpoints
 
         api.MapPost("/shipments/import", ImportAsync)
             .DisableAntiforgery()
+            .RequireCors("HubAdmin")
             .WithMetadata(new RequestSizeLimitAttribute(MaxWorkbookBytes + 128 * 1024))
             .RequireAuthorization(QualityAssurancePermissions.ShipmentsView, QualityAssurancePermissions.ShipmentImport);
 
@@ -284,13 +285,17 @@ public static class QualityShippingEndpoints
         IFormFile file,
         HttpContext context,
         QualityShipmentImportService importer,
+        Microsoft.AspNetCore.Cors.Infrastructure.ICorsPolicyProvider corsPolicies,
         CancellationToken cancellationToken)
     {
-        if (!QualityRequestIntegrity.IsTrustedMultipartAjaxRequest(request))
+        var allowedOrigins = request.Headers.Origin.Count == 1
+            ? (await corsPolicies.GetPolicyAsync(context, "HubAdmin"))?.Origins
+            : null;
+        if (!QualityRequestIntegrity.IsTrustedMultipartRequest(request, allowedOrigins))
         {
             return Results.BadRequest(new ErrorDto(
                 "UntrustedImportRequest",
-                "Shipping Status imports must be submitted from the Quality Assurance application."));
+                "Shipping Status imports must be submitted from Arda's Admin Console or Quality Assurance application."));
         }
         if (file is null || file.Length == 0)
             return Results.BadRequest(new ErrorDto("EmptyWorkbook", "Choose a non-empty Excel workbook."));

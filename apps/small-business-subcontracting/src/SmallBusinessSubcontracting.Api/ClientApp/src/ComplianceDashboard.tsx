@@ -1,3 +1,4 @@
+import { useArdaAutoRefresh } from './useArdaAutoRefresh'
 import { useDeferredValue, useEffect, useState } from 'react'
 import { ArrowDown, ArrowUp, Building2, CalendarCheck2, Download, Files, RefreshCw, Search, Tags, X } from 'lucide-react'
 import { api, queryString } from './api'
@@ -21,6 +22,7 @@ export default function ComplianceDashboard({ canOpenVendors, canExport, onOpenV
   const [sortDirection, setSortDirection] = useState('asc')
   const [data, setData] = useState<DashboardData>({ vendors: [], businessSizes: [], lastFulcrumSyncAt: null })
   const [loading, setLoading] = useState(true)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const values = {
     query: deferredQuery,
@@ -44,7 +46,9 @@ export default function ComplianceDashboard({ canOpenVendors, canExport, onOpenV
       active = false
       window.clearTimeout(timer)
     }
-  }, [businessSize, deferredQuery, from, onError, sortBy, sortDirection, to])
+  }, [businessSize, deferredQuery, from, onError, sortBy, sortDirection, to, refreshKey])
+
+  useArdaAutoRefresh(() => setRefreshKey(value => value + 1), !loading)
 
   function toggleSort(column: string) {
     if (sortBy === column) setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc')

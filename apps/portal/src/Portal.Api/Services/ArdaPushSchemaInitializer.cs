@@ -35,6 +35,15 @@ public sealed class ArdaPushSchemaInitializer(PortalRoleDbContext db)
     }
 
     internal const string SqliteSchema = """
+        CREATE TABLE IF NOT EXISTS "ArdaInboxDismissals" (
+            "AccountName" TEXT NOT NULL,
+            "SourceKind" TEXT NOT NULL,
+            "SourceNotificationId" INTEGER NOT NULL,
+            "DismissedAt" TEXT NOT NULL,
+            CONSTRAINT "PK_ArdaInboxDismissals" PRIMARY KEY ("AccountName", "SourceKind", "SourceNotificationId")
+        );
+        CREATE INDEX IF NOT EXISTS "IX_ArdaInboxDismissals_SourceKind_SourceNotificationId"
+            ON "ArdaInboxDismissals" ("SourceKind", "SourceNotificationId");
         CREATE TABLE IF NOT EXISTS "ArdaPushSubscriptions" (
             "Id" INTEGER NOT NULL CONSTRAINT "PK_ArdaPushSubscriptions" PRIMARY KEY AUTOINCREMENT,
             "AppUserId" INTEGER NOT NULL,
@@ -71,6 +80,18 @@ public sealed class ArdaPushSchemaInitializer(PortalRoleDbContext db)
         """;
 
     internal const string SqlServerSchema = """
+        IF OBJECT_ID(N'[dbo].[ArdaInboxDismissals]', N'U') IS NULL
+        BEGIN
+            CREATE TABLE [dbo].[ArdaInboxDismissals] (
+                [AccountName] nvarchar(160) NOT NULL,
+                [SourceKind] nvarchar(32) NOT NULL,
+                [SourceNotificationId] bigint NOT NULL,
+                [DismissedAt] datetimeoffset NOT NULL,
+                CONSTRAINT [PK_ArdaInboxDismissals] PRIMARY KEY ([AccountName], [SourceKind], [SourceNotificationId])
+            );
+            CREATE INDEX [IX_ArdaInboxDismissals_SourceKind_SourceNotificationId]
+                ON [dbo].[ArdaInboxDismissals] ([SourceKind], [SourceNotificationId]);
+        END;
         IF OBJECT_ID(N'[dbo].[ArdaPushSubscriptions]', N'U') IS NULL
         BEGIN
             CREATE TABLE [dbo].[ArdaPushSubscriptions] (

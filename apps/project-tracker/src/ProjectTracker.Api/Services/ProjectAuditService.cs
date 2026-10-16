@@ -17,7 +17,9 @@ public sealed class ProjectAuditService(CurrentUserService currentUser)
         string action,
         string summary,
         IReadOnlyCollection<ProjectAuditChange>? changes = null,
-        int? projectTaskId = null)
+        int? projectTaskId = null,
+        string? actorAccountName = null,
+        string? actorDisplayName = null)
     {
         db.ProjectAuditEntries.Add(new ProjectAuditEntry
         {
@@ -26,8 +28,8 @@ public sealed class ProjectAuditService(CurrentUserService currentUser)
             Action = action,
             Summary = summary,
             ChangesJson = JsonSerializer.Serialize(changes ?? [], JsonOptions),
-            ChangedByAccountName = currentUser.AccountName,
-            ChangedByDisplayName = currentUser.DisplayName
+            ChangedByAccountName = actorAccountName ?? currentUser.AccountName,
+            ChangedByDisplayName = actorDisplayName ?? currentUser.DisplayName
         });
     }
 

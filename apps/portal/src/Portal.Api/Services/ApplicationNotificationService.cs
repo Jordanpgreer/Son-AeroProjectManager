@@ -32,6 +32,7 @@ public sealed class ApplicationNotificationService(
             }
 
             var selfLookupKeys = WindowsAccountNames.LookupKeys(user.AccountName);
+            var accountKey = WindowsAccountNames.Normalize(user.AccountName)!.ToUpperInvariant();
             var unreadCount = await db.UserNotifications
                 .AsNoTracking()
                 .Join(
@@ -43,6 +44,9 @@ public sealed class ApplicationNotificationService(
                     notification =>
                         notification.RecipientUserId == user.Id
                         && notification.ReadAt == null
+                        && !db.ArdaInboxDismissals.Any(dismissal => dismissal.AccountName == accountKey
+                            && dismissal.SourceKind == ProjectTrackerApplicationId
+                            && dismissal.SourceNotificationId == notification.Id)
                         && !selfLookupKeys.Contains(notification.ActorAccountName.ToUpper())
                         && ((notification.Kind == ProjectChatMention
                                 && notification.ProjectMessageId != null

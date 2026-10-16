@@ -133,6 +133,8 @@ public sealed class QualityShipmentSyncService(
     {
         var now = timeProvider.GetUtcNow();
         var changed = false;
+        changed |= Change(shipment, "salesOrderNumber", shipment.SalesOrderNumber, external.ShipperNumber, value => shipment.SalesOrderNumber = value, providerName, now);
+        changed |= Change(shipment, "shipperNumber", shipment.ShipperNumber, external.ShipperNumber, value => shipment.ShipperNumber = value, providerName, now);
         changed |= Change(shipment, "externalShipmentId", shipment.ExternalShipmentId, external.ExternalId, value => shipment.ExternalShipmentId = value, providerName, now);
         changed |= Change(shipment, "externalShipmentUrl", shipment.ExternalShipmentUrl, external.RecordUrl, value => shipment.ExternalShipmentUrl = value, providerName, now);
         changed |= Change(shipment, "externalShipmentStatus", shipment.ExternalShipmentStatus, external.Status, value => shipment.ExternalShipmentStatus = value, providerName, now);
@@ -336,35 +338,21 @@ public sealed class QualityShipmentSyncService(
 
 public sealed class QualityShipmentSyncWorker(
     IServiceScopeFactory scopeFactory,
-    IOptions<QualityIntegrationOptions> options,
+    IOptions<QualityIntegrationOptions> moduleOptions,
+    IOptions<UniversalFulcrumSyncOptions> options,
+    FulcrumScheduledRunCoordinator coordinator,
     TimeProvider timeProvider,
-    ILogger<QualityShipmentSyncWorker> logger) : BackgroundService
+    ILogger<QualityShipmentSyncWorker> logger)
+    : UniversalFulcrumSyncWorker(options, coordinator, timeProvider, logger)
 {
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override string ModuleName => "quality-shipments";
+    protected override bool IsEnabled => moduleOptions.Value.Enabled;
+
+    protected override async Task PullAsync(CancellationToken cancellationToken)
     {
-        if (!options.Value.Enabled) return;
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            try
-            {
-                await Task.Delay(
-                    TimeSpan.FromMinutes(Math.Clamp(options.Value.SyncIntervalMinutes, 1, 1440)),
-                    timeProvider,
-                    stoppingToken);
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var sync = scope.ServiceProvider.GetRequiredService<IQualityShipmentSyncService>();
-                var changed = await sync.SyncAllAsync(stoppingToken);
-                if (changed > 0)
-                    logger.LogInformation("Synchronized {ShipmentCount} Quality shipments from the active ERP provider.", changed);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception exception)
-            {
-                logger.LogWarning(exception, "The scheduled Quality shipment synchronization failed.");
-            }
-        }
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var changed = await scope.ServiceProvider.GetRequiredService<IQualityShipmentSyncService>()
+            .SyncAllAsync(cancellationToken);
+        if (changed > 0) Log.LogInformation("Synchronized {ShipmentCount} Quality shipments.", changed);
     }
 }

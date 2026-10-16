@@ -13,6 +13,7 @@ $source = Join-Path $repoRoot 'shared\branding\web'
 $tokens = Join-Path $repoRoot 'shared\branding\brand-tokens.css'
 $shellStyles = Join-Path $repoRoot 'shared\branding\arda-shell.css'
 $globalNavigation = Join-Path $repoRoot 'shared\branding\ArdaGlobalNavigation.tsx'
+$interactionFiles = @('ArdaNotificationInbox.tsx', 'ArdaSidebar.tsx', 'arda-interactions.css', 'useArdaAutoRefresh.ts')
 $assetNames = @(
     'arda-lockup.png',
     'arda-mark.png',
@@ -31,11 +32,10 @@ $liveClientApps = @(
     (Join-Path $repoRoot 'apps\portal\src\Portal.Api\ClientApp'),
     (Join-Path $repoRoot 'apps\estimating-dashboard\src\EstimatingDashboard.Api\ClientApp'),
     (Join-Path $repoRoot 'apps\engineering-hub\src\EngineeringHub.Api\ClientApp'),
-    (Join-Path $repoRoot 'apps\quality-assurance\src\QualityAssurance.Api\ClientApp')
-)
-$clientApps = $liveClientApps + @(
+    (Join-Path $repoRoot 'apps\quality-assurance\src\QualityAssurance.Api\ClientApp'),
     (Join-Path $repoRoot 'apps\small-business-subcontracting\src\SmallBusinessSubcontracting.Api\ClientApp')
 )
+$clientApps = $liveClientApps
 
 foreach ($clientApp in $clientApps) {
     if (-not (Test-Path -LiteralPath $clientApp)) {
@@ -59,7 +59,7 @@ foreach ($clientApp in $clientApps) {
         Copy-Item -LiteralPath $tokens -Destination (Join-Path $clientApp 'src') -Force
     }
 
-    # Subcontracting is not live yet. Leave its shell and navigation untouched.
+    # Every local module consumes the same Arda shell and notification inbox.
     if ($clientApp -in $liveClientApps -and (Test-Path -LiteralPath $shellStyles)) {
         Copy-Item -LiteralPath $shellStyles -Destination (Join-Path $clientApp 'src') -Force
     }
@@ -69,6 +69,10 @@ foreach ($clientApp in $clientApps) {
             throw "Canonical Arda navigation not found: $globalNavigation"
         }
         Copy-Item -LiteralPath $globalNavigation -Destination (Join-Path $clientApp 'src') -Force
+    }
+
+    foreach ($interactionFile in $interactionFiles) {
+        Copy-Item -LiteralPath (Join-Path (Join-Path $repoRoot 'shared\branding') $interactionFile) -Destination (Join-Path $clientApp 'src') -Force
     }
 
     Write-Host "Synced branding -> $brandDir"

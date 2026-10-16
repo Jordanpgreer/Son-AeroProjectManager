@@ -1,0 +1,77 @@
+.arda-sidebar-pin {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  width: 100%;
+  min-height: 44px;
+  margin-top: auto;
+  padding: 12px;
+  border: 0;
+  border-top: 1px solid var(--line-2, #cbd8e2);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted, #66788a);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.arda-sidebar-pin svg { flex: none; }
+.arda-sidebar-pin:hover, .arda-sidebar-pin[aria-pressed='true'] { color: var(--steel, #2f679b); background: var(--surface-2, #eef4f8); }
+.arda-sidebar-pin:focus-visible { outline: 2px solid var(--steel, #2f679b); outline-offset: -3px; }
+.is-sidebar-collapsed .arda-sidebar-pin { justify-content: center; padding-inline: 0; }
+.is-sidebar-collapsed .arda-sidebar-pin span { display: none; }
+.arda-workspace-sidebar { display: flex; flex-direction: column; gap: 12px; }
+
+@media (min-width: 981px) {
+  .small-business-subcontracting-app:not(.is-sidebar-collapsed) { grid-template-columns: 302px minmax(0, 1fr); }
+}
+@media (min-width: 761px) {
+  .admin-main.portal-main:has(> .admin-sidebar.is-sidebar-collapsed) { grid-template-columns: 72px minmax(0, 1fr); }
+  .admin-sidebar.is-sidebar-collapsed .admin-sidebar-heading { padding: 12px; justify-content: center; }
+  .admin-sidebar.is-sidebar-collapsed .admin-sidebar-heading > div,
+  .admin-sidebar.is-sidebar-collapsed .admin-sidebar-footer { display: none; }
+  .admin-sidebar.is-sidebar-collapsed .admin-sidebar-body { padding: 12px 8px; }
+}
+@media (min-width: 681px) {
+  .arda-workspace.is-sidebar-collapsed:not(.is-access-preview) { grid-template-columns: 72px minmax(0, 1fr); }
+  .arda-workspace.is-sidebar-collapsed .arda-workspace-sidebar { padding-inline: 8px; }
+}
+@media (min-width: 761px) {
+  .is-sidebar-collapsed :is(.arda-global-navigation__module-name, .arda-global-navigation__chevron, .arda-global-navigation__panel, .arda-global-navigation__status) { display: none; }
+  .is-sidebar-collapsed .arda-global-navigation__module-toggle { justify-content: center; padding-inline: 0; }
+  .is-sidebar-collapsed .arda-global-navigation__home { justify-content: center; font-size: 0; gap: 0; padding-inline: 0; }
+}
+@media (min-width: 681px) and (max-width: 760px) {
+  .arda-workspace.is-sidebar-collapsed :is(.arda-global-navigation__module-name, .arda-global-navigation__chevron, .arda-global-navigation__panel, .arda-global-navigation__status) { display: none; }
+  .arda-workspace.is-sidebar-collapsed .arda-global-navigation__home { font-size: 0; justify-content: center; }
+}
+
+.arda-global-navigation__inbox-trigger.has-unread {
+  animation: arda-unread-pulse 1.8s ease-in-out infinite;
+  border-color: var(--steel, #2f679b);
+}
+@keyframes arda-unread-pulse {
+  0%, 100% { background-color: var(--surface, #fff); color: var(--steel, #2f679b); box-shadow: 0 0 0 0 transparent; }
+  50% { background-color: var(--steel, #2f679b); color: #fff; box-shadow: 0 0 0 4px color-mix(in srgb, var(--steel, #2f679b) 22%, transparent); }
+}
+.arda-global-inbox__header .arda-global-inbox__clear { width: auto; height: auto; min-height: 36px; margin-left: auto; padding: 6px 10px; font-size: 12px; color: var(--steel, #2f679b); }
+.arda-global-inbox__list li { position: relative; }
+.arda-global-inbox__list li > a { padding-right: 44px; }
+.arda-global-inbox__dismiss {
+  position: absolute; top: 8px; right: 7px; display: grid; place-items: center;
+  width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px;
+  color: var(--muted, #66788a); background: transparent; cursor: pointer; opacity: 0;
+}
+.arda-global-inbox__list li:hover .arda-global-inbox__dismiss,
+.arda-global-inbox__list li:focus-within .arda-global-inbox__dismiss { opacity: 1; }
+.arda-global-inbox__dismiss:hover { color: var(--ink, #172b3a); background: var(--surface-2, #eef4f8); }
+.arda-global-inbox button:disabled { opacity: .5; cursor: wait; }
+.arda-global-inbox__operation-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 12px; }
+.arda-global-inbox__operation-actions button { border: 1px solid var(--line-2); border-radius: 5px; padding: 6px 8px; background: var(--surface); color: var(--steel); font-size: 11px; cursor: pointer; }
+.arda-global-inbox__operation-actions p { width: 100%; margin: 0; font-size: 12px; }
+@media (hover: none) { .arda-global-inbox__dismiss { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .arda-global-navigation__inbox-trigger.has-unread { animation: none; background: var(--steel, #2f679b); color: #fff; box-shadow: 0 0 0 3px color-mix(in srgb, var(--steel, #2f679b) 25%, transparent); }
+}

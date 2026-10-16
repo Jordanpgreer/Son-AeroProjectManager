@@ -27,7 +27,7 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
     private async Task<MaterialRequirementsDto> InspectCoreAsync(int historyId, int quoteNumber, string sourceId,
         CancellationToken cancellationToken, IReadOnlyDictionary<string, IReadOnlyList<decimal>>? quantityOverrides)
     {
-        await client.InitializeAsync(cancellationToken);
+        await client.InitializeAsync(cancellationToken, fresh: true);
         var quoteId = FulcrumQuoteGenerationClient.Identifier(sourceId);
         var quote = await client.GetAsync($"api/quotes/{quoteId}", cancellationToken);
         if (Number(quote, "number") != quoteNumber)

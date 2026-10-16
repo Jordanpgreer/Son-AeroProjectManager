@@ -38,7 +38,7 @@ internal sealed class FulcrumQuoteLinkResolver(
             // Keep the status page usable if the external system is slow or unavailable.
             using var checkTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             checkTimeout.CancelAfter(TimeSpan.FromSeconds(5));
-            await client.InitializeAsync(checkTimeout.Token);
+            await client.InitializeAsync(checkTimeout.Token, fresh: true);
             var quote = await client.GetAsync(
                 $"api/quotes/{FulcrumQuoteGenerationClient.Identifier(sourceId)}", checkTimeout.Token);
             if (quote.ValueKind != JsonValueKind.Object

@@ -6,52 +6,21 @@ namespace ProjectTracker.Api.Services;
 public sealed class FulcrumProjectLookupRefreshWorker(
     IServiceScopeFactory scopeFactory,
     TimeProvider timeProvider,
-    IOptions<ProjectQuantitySyncOptions> options,
-    ILogger<FulcrumProjectLookupRefreshWorker> logger) : BackgroundService
+    IOptions<UniversalFulcrumSyncOptions> options,
+    FulcrumScheduledRunCoordinator coordinator,
+    ILogger<FulcrumProjectLookupRefreshWorker> logger)
+    : UniversalFulcrumSyncWorker(options, coordinator, timeProvider, logger)
 {
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        var timeZone = ResolveTimeZone(options.Value.LookupCatalogTimeZoneId);
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            var nextRefresh = NextRefreshUtc(
-                timeProvider.GetUtcNow(),
-                timeZone,
-                options.Value.LookupCatalogRefreshHours);
-            var delay = nextRefresh - timeProvider.GetUtcNow();
-            if (delay > TimeSpan.Zero)
-                await Task.Delay(delay, timeProvider, stoppingToken);
+    protected override string ModuleName => "project-tracker";
 
-            try
-            {
-                await RefreshAsync(stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception exception)
-            {
-                logger.LogWarning(exception, "The scheduled Fulcrum project lookup catalogue refresh failed.");
-            }
-
-            await Task.Delay(TimeSpan.FromMinutes(1), timeProvider, stoppingToken);
-        }
-    }
-
-    private async Task RefreshAsync(CancellationToken cancellationToken)
+    protected override async Task PullAsync(CancellationToken cancellationToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
-        var providerSource = scope.ServiceProvider.GetRequiredService<IEnterpriseProviderSource>();
-        var activeProvider = await providerSource.GetActiveProviderAsync(cancellationToken);
-        if (!string.Equals(activeProvider, EnterpriseProviderNames.Fulcrum, StringComparison.OrdinalIgnoreCase))
-            return;
-
-        var provider = scope.ServiceProvider.GetRequiredService<FulcrumProjectQuantityProvider>();
-        await provider.RefreshLookupCatalogAsync(cancellationToken);
-        logger.LogInformation("Refreshed the Fulcrum project lookup catalogue.");
+        await scope.ServiceProvider.GetRequiredService<FulcrumProjectQuantityProvider>()
+            .RefreshLookupCatalogAsync(cancellationToken);
+        await scope.ServiceProvider.GetRequiredService<ProjectQuantityScheduledSyncService>()
+            .RunAsync(cancellationToken);
     }
-
     internal static DateTimeOffset NextRefreshUtc(
         DateTimeOffset nowUtc,
         TimeZoneInfo timeZone,
@@ -80,25 +49,4 @@ public sealed class FulcrumProjectLookupRefreshWorker(
         throw new InvalidOperationException("A lookup catalogue refresh time could not be calculated.");
     }
 
-    private TimeZoneInfo ResolveTimeZone(string configuredId)
-    {
-        try
-        {
-            return TimeZoneInfo.FindSystemTimeZoneById(configuredId);
-        }
-        catch (TimeZoneNotFoundException)
-        {
-            logger.LogWarning(
-                "Project lookup time zone {TimeZoneId} was not found. The server local time zone will be used.",
-                configuredId);
-            return TimeZoneInfo.Local;
-        }
-        catch (InvalidTimeZoneException)
-        {
-            logger.LogWarning(
-                "Project lookup time zone {TimeZoneId} is invalid. The server local time zone will be used.",
-                configuredId);
-            return TimeZoneInfo.Local;
-        }
-    }
 }

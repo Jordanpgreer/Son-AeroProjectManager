@@ -34,6 +34,8 @@ internal sealed class IntegrationCredentialReader(
                 candidate => candidate.CredentialKey == credentialKey,
                 cancellationToken);
         if (credential is null) return null;
+        if (credential.ExpiresAt is { } expiry && expiry <= timeProvider.GetUtcNow())
+            throw new InvalidOperationException("The saved integration credential has expired. Replace it in Admin Hub.");
 
         string secret;
         try

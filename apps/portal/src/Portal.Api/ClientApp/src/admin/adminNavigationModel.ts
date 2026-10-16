@@ -94,7 +94,7 @@ export const ADMIN_MODULES: {
   {
     key: 'quality-assurance',
     label: 'Quality Assurance',
-    description: 'Actions, conditions, and queue routing',
+    description: 'Shipping imports, actions, teams, and queue routing',
     icon: ClipboardCheck,
     href: '#/admin/quality-assurance/assignment-rules',
     openUrl: resolveModuleApplicationUrl(window.location, 5170),
@@ -148,4 +148,5 @@ export const QUALITY_SECTIONS: {
 }[] = [
   { key: 'assignment-rules', label: 'Workflow', icon: Waypoints },
   { key: 'teams', label: 'Teams', icon: Users },
+  { key: 'shipping-import', label: 'Shipping Excel Import', icon: UploadCloud },
 ]

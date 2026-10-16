@@ -551,21 +551,12 @@ public static class UserEndpoints
         return Results.NoContent();
     }
 
-    public static async Task TouchLastSeenAsync(
+    public static Task TouchLastSeenAsync(
         ProjectTrackerDbContext db,
         int userId,
         DateTimeOffset seenAt,
-        CancellationToken cancellationToken)
-    {
-        var user = await db.Users.FindAsync([userId], cancellationToken);
-        if (user is null)
-        {
-            return;
-        }
-
-        user.LastSeenAt = seenAt;
-        await db.SaveChangesAsync(cancellationToken);
-    }
+        CancellationToken cancellationToken) =>
+        UserActivityService.TouchLastSeenAsync(db, userId, seenAt, cancellationToken);
 
     public static bool IsPendingSetup(AppUser user)
     {

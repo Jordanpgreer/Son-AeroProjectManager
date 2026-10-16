@@ -1,4 +1,11 @@
 {
+  "UniversalFulcrumSync": {
+    "Enabled": true,
+    "IntervalMinutes": 20,
+    "MaximumConcurrentRequests": 2,
+    "MinimumRequestSpacingMilliseconds": 250,
+    "MaximumStaleMinutes": 1440
+  },
   "Authentication": { "Mode": "Windows" },
   "Database": { "Provider": "SqlServer" },
   "ConnectionStrings": {

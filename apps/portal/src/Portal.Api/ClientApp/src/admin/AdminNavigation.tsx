@@ -1,3 +1,4 @@
+import { useArdaSidebar, ArdaSidebarPin } from '../ArdaSidebar'
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, Menu, ShieldCheck } from 'lucide-react'
 import ArdaGlobalNavigation from '../ArdaGlobalNavigation'
@@ -19,9 +20,11 @@ interface AdminNavigationProps {
   canViewEngineeringSettings: boolean
   canViewQualitySettings: boolean
   canManageQualityTeams: boolean
+  canImportQualityShipments: boolean
 }
 
 export default function AdminNavigation(props: AdminNavigationProps) {
+  const sidebar = useArdaSidebar()
   const [expanded, setExpanded] = useState(false)
   const sidebarRef = useRef<HTMLElement>(null)
   const toggleRef = useRef<HTMLButtonElement>(null)
@@ -29,7 +32,7 @@ export default function AdminNavigation(props: AdminNavigationProps) {
   const modules = ADMIN_MODULES.filter((module) => {
     if (module.key === 'benny') return canSeeBenny
     if (module.key === 'engineering') return props.canViewEngineeringSettings
-    if (module.key === 'quality-assurance') return props.canViewQualitySettings
+    if (module.key === 'quality-assurance') return props.canViewQualitySettings || props.canImportQualityShipments
     return canSeeAdminOnly || !module.adminOnly
   })
 
@@ -51,14 +54,14 @@ export default function AdminNavigation(props: AdminNavigationProps) {
     if (module.key === 'quality-assurance') return QUALITY_SECTIONS.map((item) => ({
       ...item,
       href: `#/admin/quality-assurance/${item.key}`,
-      allowed: props.canViewQualitySettings
-        && (item.key !== 'teams' || props.canManageQualityTeams),
+      allowed: item.key === 'shipping-import' ? props.canImportQualityShipments
+        : props.canViewQualitySettings && (item.key !== 'teams' || props.canManageQualityTeams),
     }))
     return [{ key: module.href.split('/').at(-1)!, label: module.label, icon: module.icon, href: module.href, allowed: true }]
   }
 
   return (
-    <aside className={`admin-sidebar${expanded ? ' is-expanded' : ''}`} ref={sidebarRef} aria-label="Administration navigation" onKeyDown={(event) => {
+    <aside className={`admin-sidebar${expanded ? ' is-expanded' : ''}${sidebar.collapsed ? ' is-sidebar-collapsed' : ''}`} {...sidebar.sidebarProps} ref={sidebarRef} aria-label="Administration navigation" onKeyDown={(event) => {
       if (event.key === 'Escape' && expanded) {
         setExpanded(false)
         toggleRef.current?.focus()
@@ -103,6 +106,7 @@ export default function AdminNavigation(props: AdminNavigationProps) {
         </nav>} />
         <div className="admin-sidebar-footer"><ShieldCheck size={14} aria-hidden="true" /><span>Permission-controlled access</span></div>
       </div>
+      <ArdaSidebarPin pinned={sidebar.pinned} onToggle={sidebar.togglePinned} />
     </aside>
   )
 }

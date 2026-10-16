@@ -43,10 +43,12 @@ builder.Services.AddSingleton<IIntegrationSecretProtector, MachineIntegrationSec
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<IQualityIntegrationCredentialReader, QualityIntegrationCredentialReader>();
 builder.Services.AddScoped<IEnterpriseProviderSource, QualityEnterpriseProviderSource>();
+builder.Services.AddUniversalFulcrumSync(builder.Configuration,
+    services => services.GetRequiredService<QualityAssuranceAccessDbContext>().Database.GetDbConnection());
 builder.Services.AddHttpClient<FulcrumQualityShipmentProvider>(client =>
 {
     client.Timeout = TimeSpan.FromMinutes(5);
-});
+}).UseSharedFulcrumSnapshots();
 builder.Services.AddScoped<IQualityShipmentProvider>(serviceProvider =>
     serviceProvider.GetRequiredService<FulcrumQualityShipmentProvider>());
 builder.Services.AddScoped<IQualityShipmentProvider, AcumaticaQualityShipmentProvider>();

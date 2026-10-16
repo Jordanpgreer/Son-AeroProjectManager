@@ -13,6 +13,7 @@ import { qualityApi } from './api'
 import DashboardShipmentQuickView from './DashboardShipmentQuickView'
 import { ageInDays, formatCurrency, formatDate, formatDuration } from './format'
 import { canRunQualityAction } from './workflowPermissions'
+import { useArdaAutoRefresh } from './useArdaAutoRefresh'
 import type { DashboardData, PersonQueue, QualityAssuranceUser, Shipment } from './types'
 import './Dashboard.css'
 
@@ -29,6 +30,7 @@ export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: Q
   const [selectedTeam, setSelectedTeam] = useState<TeamSelection>(null)
   const [queueFilter, setQueueFilter] = useState<QueueFilter>('open')
   const [requestedPage, setRequestedPage] = useState(1)
+  useArdaAutoRefresh(() => setRefreshKey((value) => value + 1))
   const apiQueue = selectedTeam === 'unassigned'
     ? 'unassigned'
     : selectedTeam === 'group'

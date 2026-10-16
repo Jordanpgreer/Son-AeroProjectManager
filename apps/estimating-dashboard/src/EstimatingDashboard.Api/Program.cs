@@ -38,16 +38,19 @@ builder.Services.AddSingleton<SonAero.Platform.Security.IIntegrationSecretProtec
     SonAero.Platform.Security.MachineIntegrationSecretProtector>();
 builder.Services.AddScoped<IIntegrationCredentialReader, IntegrationCredentialReader>();
 builder.Services.AddScoped<IEnterpriseProviderSource, EstimatingEnterpriseProviderSource>();
+builder.Services.AddUniversalFulcrumSync(builder.Configuration,
+    services => services.GetRequiredService<EstimatingAccessDbContext>().Database.GetDbConnection());
 builder.Services.AddHttpClient<FulcrumQuoteClient>(client =>
 {
     client.Timeout = TimeSpan.FromMinutes(5);
-});
+}).UseSharedFulcrumSnapshots();
 builder.Services.AddScoped<IEstimatingQuoteProvider, FulcrumEstimatingQuoteProvider>();
 builder.Services.AddScoped<IEstimatingQuoteProvider, AcumaticaEstimatingQuoteProvider>();
 builder.Services.AddScoped<EnterpriseQuoteSyncService>();
 builder.Services.AddScoped<FulcrumQuoteInspectionService>();
 builder.Services.AddScoped<FulcrumEstimateImportService>();
-builder.Services.AddHttpClient<FulcrumQuoteGenerationClient>(client => client.Timeout = TimeSpan.FromMinutes(5));
+builder.Services.AddHttpClient<FulcrumQuoteGenerationClient>(client => client.Timeout = TimeSpan.FromMinutes(5))
+    .UseSharedFulcrumSnapshots();
 builder.Services.AddScoped<IQuoteSourceLinkResolver, FulcrumQuoteLinkResolver>();
 builder.Services.AddScoped<FulcrumQuoteGenerationService>();
 builder.Services.AddScoped<IFulcrumMaterialRequirementsReader, FulcrumMaterialRequirementsService>();

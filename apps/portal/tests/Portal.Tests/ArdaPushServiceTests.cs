@@ -192,6 +192,40 @@ public sealed class ArdaPushServiceTests
         Assert.Equal("WebPush", notification.DeliveryMethod);
     }
 
+    [Fact]
+    public async Task DismissedNotifications_AreNotRedisplayedOrSentAsWebPush()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var notification = Notification();
+        fixture.Db.ArdaPushNotifications.Add(notification);
+        fixture.Db.ArdaPushSubscriptions.Add(new ArdaPushSubscriptionRecord
+        {
+            AppUserId = fixture.Recipient.Id,
+            Endpoint = "https://fcm.googleapis.com/fcm/send/subscription",
+            P256dh = "p256dh", Auth = "auth"
+        });
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.ArdaInboxDismissals.Add(new ArdaInboxDismissalRecord
+        {
+            AccountName = notification.RecipientAccountName.ToUpperInvariant(), SourceKind = "push",
+            SourceNotificationId = notification.Id, DismissedAt = DateTimeOffset.UtcNow
+        });
+        await fixture.Db.SaveChangesAsync();
+        var presence = new ArdaPresenceTracker();
+        presence.Record(notification.RecipientAccountName, "portal", "tab-1", true);
+        var foreground = new ArdaPushForegroundService(fixture.Db, presence);
+        Assert.Empty((await foreground.ClaimAsync(notification.RecipientAccountName,
+            new ArdaPushForegroundRequest("portal", "tab-1")))!);
+
+        presence.Record(notification.RecipientAccountName, "portal", "tab-1", false);
+        var sender = new RecordingSender(ArdaPushSendStatus.Delivered);
+        var worker = fixture.Worker(sender, presence);
+        await worker.DeliverPendingAsync(default);
+        await worker.DeliverAsync(notification.Id, default);
+        Assert.Empty(sender.Payloads);
+        Assert.Single(await fixture.Db.ArdaPushNotifications.ToListAsync());
+    }
+
     private static ArdaPushNotificationRecord Notification() => new()
     {
         RecipientAccountName = @"SON4L\recipient",

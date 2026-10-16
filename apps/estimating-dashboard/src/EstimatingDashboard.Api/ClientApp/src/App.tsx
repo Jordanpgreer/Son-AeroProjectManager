@@ -1,3 +1,4 @@
+import { useArdaSidebar, ArdaSidebarPin } from './ArdaSidebar'
 import { lazy, Suspense, useEffect, useState } from 'react'
 import {
   AlertTriangle,
@@ -9,8 +10,6 @@ import {
   ListChecks,
   MessagesSquare,
   LockKeyhole,
-  PanelLeftClose,
-  PanelLeftOpen,
   ShieldCheck,
 } from 'lucide-react'
 import EstimateCalculatorPage from './EstimateCalculatorPage'
@@ -104,13 +103,8 @@ function ThemeSwitch({
 export default function App() {
   const [theme, setTheme] = useState(() => readThemePreference())
   const [page, setPage] = useState<EstimatingPage>(() => pageFromHash() ?? 'quotes')
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    try {
-      return window.localStorage.getItem('sonaero-estimating-sidebar') === 'collapsed'
-    } catch {
-      return false
-    }
-  })
+  const sidebar = useArdaSidebar()
+  const sidebarCollapsed = sidebar.collapsed
   const [me, setMe] = useState<EstimatingMe | null>(null)
   const [accessLoading, setAccessLoading] = useState(true)
   const [accessError, setAccessError] = useState<string | null>(null)
@@ -151,16 +145,6 @@ export default function App() {
     if (page === 'rates' || page === 'operation-rules') setReferencesOpen(true)
   }, [page])
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        'sonaero-estimating-sidebar',
-        sidebarCollapsed ? 'collapsed' : 'expanded',
-      )
-    } catch {
-      // Sidebar state persistence is optional.
-    }
-  }, [sidebarCollapsed])
 
   useEffect(() => {
     persistTheme(theme)
@@ -296,7 +280,7 @@ export default function App() {
     <div className={`estimating-shell estimating-app ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${me.isPreview ? 'access-preview-active' : ''}`.trim()}>
       <a className="skip-link" href="#main-content">Skip to main content</a>
 
-      <aside className="sidebar" id="estimating-sidebar">
+      <aside className="sidebar" id="estimating-sidebar" {...sidebar.sidebarProps}>
         <a
           className="brand brand-hub-link"
           href={hubUrl}
@@ -310,22 +294,7 @@ export default function App() {
           <img className="brand-mark brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" />
         </a>
 
-        <button
-          type="button"
-          className="sidebar-rail-toggle"
-          aria-label={sidebarCollapsed ? 'Expand estimating navigation' : 'Collapse estimating navigation'}
-          aria-expanded={!sidebarCollapsed}
-          aria-controls="estimating-sidebar"
-          title={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
-          onClick={() => setSidebarCollapsed((current) => !current)}
-        >
-          {sidebarCollapsed
-            ? <PanelLeftOpen size={18} aria-hidden="true" />
-            : <PanelLeftClose size={18} aria-hidden="true" />}
-          <span className="sidebar-rail-toggle-label">{sidebarCollapsed ? 'Expand menu' : 'Collapse menu'}</span>
-        </button>
-
-        <ArdaGlobalNavigation
+<ArdaGlobalNavigation
           currentApplicationId="estimating-dashboard"
           hubUrl={hubUrl}
           disabled={me.isPreview}
@@ -377,7 +346,7 @@ export default function App() {
             aria-controls="references-nav-links"
             title="References"
             onClick={() => {
-              if (sidebarCollapsed) setSidebarCollapsed(false)
+              if (sidebarCollapsed) sidebar.expand()
               setReferencesOpen((current) => !current || sidebarCollapsed)
             }}
           >
@@ -398,6 +367,7 @@ export default function App() {
         </section>}
           </>}
         />
+        <ArdaSidebarPin pinned={sidebar.pinned} onToggle={sidebar.togglePinned} />
       </aside>
 
       <main className="main-area">

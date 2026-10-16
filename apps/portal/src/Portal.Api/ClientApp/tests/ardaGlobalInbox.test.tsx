@@ -101,25 +101,62 @@ describe('global Arda inbox', () => {
     expect(link?.href).toBe('https://hub.son4l.local/api/push/inbox/project-tracker%3A37/open')
   })
 
-  it('marks an item read without discarding the rest of the inbox', async () => {
+  it('removes one item explicitly while keeping previously opened notifications', async () => {
+    const readItem = { ...projectMention, id: 'quality-assurance:11', sourceModule: 'quality-assurance', title: 'Previously opened', readAt: '2026-10-15T10:00:00Z' }
+    let dismissed = false
     const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
-      if (url.endsWith('/read') && options?.method === 'POST') return Promise.resolve({ ok: true, status: 204 })
-      return Promise.resolve(inboxResponse([projectMention], 1))
+      if (url.endsWith('/dismiss') && options?.method === 'POST') { dismissed = true; return Promise.resolve({ ok: true, status: 204 }) }
+      return Promise.resolve(inboxResponse(dismissed ? [readItem] : [projectMention, readItem], dismissed ? 0 : 1))
     })
     vi.stubGlobal('fetch', fetchMock)
     await mount()
     await openInbox()
-    const markRead = document.querySelector<HTMLButtonElement>('.arda-global-inbox__mark-read')
-    expect(markRead?.textContent).toBe('Mark read')
-    await act(async () => { markRead!.click() })
+    expect(document.querySelector('.arda-global-navigation__inbox-trigger')?.classList.contains('has-unread')).toBe(true)
+    const dismiss = document.querySelector<HTMLButtonElement>('.arda-global-inbox__dismiss')
+    await act(async () => { dismiss!.click() })
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://hub.son4l.local/api/push/inbox/project-tracker%3A37/read',
+      'https://hub.son4l.local/api/push/inbox/project-tracker%3A37/dismiss',
       { method: 'POST', credentials: 'include' },
     )
-    expect(document.querySelector('.arda-global-inbox__list a')?.textContent).toContain('Jordan mentioned you')
+    expect(document.querySelector('.arda-global-inbox__list')?.textContent).not.toContain('Jordan mentioned you')
+    expect(document.querySelector('.arda-global-inbox__list')?.textContent).toContain('Previously opened')
     expect(document.querySelector('.arda-global-inbox__mark-read')).toBeNull()
     expect(document.querySelector('.arda-global-navigation__inbox-count')).toBeNull()
+  })
+
+  it('does not resurrect cleared notifications when an older inbox request finishes later', async () => {
+    let resolveOld!: (value: Response) => void
+    const oldResponse = new Promise<Response>(resolve => { resolveOld = resolve })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(inboxResponse([projectMention], 1))
+      .mockReturnValueOnce(oldResponse)
+      .mockResolvedValueOnce({ ok: true, status: 204 })
+      .mockResolvedValueOnce(inboxResponse([], 0))
+    vi.stubGlobal('fetch', fetchMock)
+    await mount()
+    await openInbox()
+    await act(async () => document.querySelector<HTMLButtonElement>('.arda-global-inbox__clear')!.click())
+    await act(async () => resolveOld(inboxResponse([projectMention], 1)))
+
+    expect(document.querySelector('.arda-global-inbox__list')).toBeNull()
+    expect(document.querySelector('.arda-global-navigation__inbox-trigger')?.classList.contains('has-unread')).toBe(false)
+    expect(document.querySelector('.arda-global-inbox__empty')?.textContent).toContain('caught up')
+  })
+
+  it('stops blinking after successful clear even if the following refresh fails', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(inboxResponse([projectMention], 1))
+      .mockResolvedValueOnce(inboxResponse([projectMention], 1))
+      .mockResolvedValueOnce({ ok: true, status: 204 })
+      .mockRejectedValueOnce(new Error('Offline'))
+    vi.stubGlobal('fetch', fetchMock)
+    await mount()
+    await openInbox()
+    await act(async () => document.querySelector<HTMLButtonElement>('.arda-global-inbox__clear')!.click())
+    expect(document.querySelector('.arda-global-inbox__list')).toBeNull()
+    expect(document.querySelector('.arda-global-navigation__inbox-count')).toBeNull()
+    expect(document.querySelector('.arda-global-inbox__error')).not.toBeNull()
   })
 
   it('shows a retryable error without claiming the inbox is empty', async () => {
@@ -127,7 +164,7 @@ describe('global Arda inbox', () => {
     await mount()
     await openInbox()
 
-    expect(document.querySelector('.arda-global-inbox__error')?.textContent).toContain('Could not refresh')
+    expect(document.querySelector('.arda-global-inbox__error')?.textContent).toContain('Notifications could not be updated')
     expect(document.querySelector('.arda-global-inbox__empty')).toBeNull()
     expect(document.querySelector('.arda-global-inbox__error button')?.textContent).toBe('Retry')
   })

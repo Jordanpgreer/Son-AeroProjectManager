@@ -68,81 +68,18 @@ internal static class FulcrumQuoteSchedule
 
 internal sealed class FulcrumQuoteSyncWorker(
     IServiceScopeFactory scopeFactory,
-    IOptions<EnterpriseQuoteSyncScheduleOptions> options,
+    IOptions<SonAero.Platform.Integrations.UniversalFulcrumSyncOptions> options,
+    SonAero.Platform.Integrations.FulcrumScheduledRunCoordinator coordinator,
     TimeProvider timeProvider,
-    ILogger<FulcrumQuoteSyncWorker> logger) : BackgroundService
+    ILogger<FulcrumQuoteSyncWorker> logger)
+    : SonAero.Platform.Integrations.UniversalFulcrumSyncWorker(options, coordinator, timeProvider, logger)
 {
-    private static readonly TimeSpan MaximumStartDelay = TimeSpan.FromMinutes(15);
+    protected override string ModuleName => "estimating-quotes";
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task PullAsync(CancellationToken cancellationToken)
     {
-        var settings = options.Value;
-        if (!settings.Enabled)
-        {
-            logger.LogInformation("Scheduled enterprise quote synchronization is disabled.");
-            return;
-        }
-        TimeZoneInfo timeZone;
-        try
-        {
-            timeZone = FulcrumQuoteSchedule.ResolveTimeZone(settings.TimeZoneId);
-        }
-        catch (TimeZoneNotFoundException exception)
-        {
-            logger.LogError(
-                exception,
-                "Scheduled enterprise quote synchronization cannot start because timezone '{TimeZoneId}' is unavailable.",
-                settings.TimeZoneId);
-            return;
-        }
-
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            var now = timeProvider.GetUtcNow();
-            var scheduledForUtc = FulcrumQuoteSchedule.NextRunUtc(now, settings.Interval);
-            var localSchedule = TimeZoneInfo.ConvertTime(scheduledForUtc, timeZone);
-            logger.LogInformation(
-                "Next enterprise quote synchronization is scheduled for {ScheduledLocalTime} ({TimeZoneId}).",
-                localSchedule,
-                timeZone.Id);
-
-            try
-            {
-                await Task.Delay(scheduledForUtc - now, timeProvider, stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                return;
-            }
-
-            var startedAt = timeProvider.GetUtcNow();
-            if (startedAt - scheduledForUtc > MaximumStartDelay)
-            {
-                logger.LogWarning(
-                    "Skipped the enterprise quote synchronization scheduled for {ScheduledForUtc} because the application resumed more than {MaximumDelayMinutes} minutes late.",
-                    scheduledForUtc,
-                    MaximumStartDelay.TotalMinutes);
-                continue;
-            }
-
-            try
-            {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var sync = scope.ServiceProvider.GetRequiredService<EnterpriseQuoteSyncService>();
-                await sync.RunScheduledAsync(scheduledForUtc, stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception exception)
-            {
-                logger.LogError(
-                    exception,
-                    "The enterprise quote synchronization scheduled for {ScheduledForUtc} failed. The next pull remains scheduled for the next {IntervalMinutes}-minute boundary.",
-                    scheduledForUtc,
-                    settings.IntervalMinutes);
-            }
-        }
+        await using var scope = scopeFactory.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<EnterpriseQuoteSyncService>()
+            .RunScheduledAsync(Clock.GetUtcNow(), cancellationToken);
     }
 }

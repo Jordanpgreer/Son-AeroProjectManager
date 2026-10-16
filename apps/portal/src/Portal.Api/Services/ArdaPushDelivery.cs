@@ -101,7 +101,9 @@ public sealed class ArdaPushDeliveryWorker(
         if ((db.Database.ProviderName ?? string.Empty).Contains("Sqlite", StringComparison.OrdinalIgnoreCase))
         {
             var candidates = await db.ArdaPushNotifications
-                .Where(notification => notification.DeliveredAt == null)
+                .Where(notification => notification.DeliveredAt == null
+                    && !db.ArdaInboxDismissals.Any(dismissal => dismissal.SourceKind == "push"
+                        && dismissal.SourceNotificationId == notification.Id))
                 .OrderBy(notification => notification.Id)
                 .ToListAsync(cancellationToken);
             ids = candidates
@@ -116,6 +118,8 @@ public sealed class ArdaPushDeliveryWorker(
         {
             ids = await db.ArdaPushNotifications
                 .Where(notification => notification.DeliveredAt == null
+                    && !db.ArdaInboxDismissals.Any(dismissal => dismissal.SourceKind == "push"
+                        && dismissal.SourceNotificationId == notification.Id)
                     && notification.NextAttemptAt <= now
                     && (notification.ForegroundClaimExpiresAt == null
                         || notification.ForegroundClaimExpiresAt <= now))
@@ -135,6 +139,8 @@ public sealed class ArdaPushDeliveryWorker(
         var notification = await db.ArdaPushNotifications.SingleOrDefaultAsync(
             candidate => candidate.Id == notificationId, cancellationToken);
         if (notification is null || notification.DeliveredAt is not null) return;
+        if (await db.ArdaInboxDismissals.AnyAsync(dismissal => dismissal.SourceKind == "push"
+            && dismissal.SourceNotificationId == notificationId, cancellationToken)) return;
 
         var now = DateTimeOffset.UtcNow;
         if (notification.ForegroundClaimExpiresAt > now) return;

@@ -14,8 +14,8 @@ public sealed class QualityIntegrationOptions
 
     public bool Enabled { get; set; } = true;
     public string FulcrumBaseUrl { get; set; } = FulcrumApiEndpoint.ItarBaseUrl;
-    public string FulcrumShipmentUrlTemplate { get; set; } = string.Empty;
-    public int SyncIntervalMinutes { get; set; } = 60;
+    public string FulcrumShipmentUrlTemplate { get; set; } = "https://son-aero.fulcrumpro.com/ui/ship/{id}/details";
+    public int SyncIntervalMinutes { get; set; } = 20;
     public int PageSize { get; set; } = 5000;
 }
 
@@ -68,6 +68,8 @@ public sealed class FulcrumQualityShipmentProvider(
             .ToArray();
         if (requested.Length == 0)
             return new Dictionary<string, QualityExternalShipment>(StringComparer.OrdinalIgnoreCase);
+        var canonicalNumbers = requested.Select(QualityShipmentNumber.Normalize)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 
         var settings = options.Value;
         httpClient.BaseAddress = FulcrumApiEndpoint.ResolveItarBaseUri(
@@ -81,7 +83,7 @@ public sealed class FulcrumQualityShipmentProvider(
                 "The Fulcrum Public API credential is not configured. Add it in Admin Hub under API Keys.");
 
         var shipments = new List<FulcrumShipmentDto>();
-        foreach (var batch in requested.Chunk(500))
+        foreach (var batch in canonicalNumbers.Chunk(500))
         {
             var page = await PostAsync<FulcrumPage<FulcrumShipmentDto>>(
                 $"api/shipments/list?Skip=0&Take=5000&Sort.Field=Name&Sort.Dir={FulcrumApiEndpoint.AscendingSortDirection}",
@@ -92,7 +94,7 @@ public sealed class FulcrumQualityShipmentProvider(
         }
 
         var exactShipments = shipments
-            .Where(shipment => requested.Contains(shipment.Name, StringComparer.OrdinalIgnoreCase))
+            .Where(shipment => canonicalNumbers.Contains(shipment.Name, StringComparer.OrdinalIgnoreCase))
             .GroupBy(shipment => shipment.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         if (exactShipments.Count == 0)
@@ -128,7 +130,7 @@ public sealed class FulcrumQualityShipmentProvider(
             .GroupBy(line => line.ShipmentId!, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
 
-        return exactShipments.ToDictionary(
+        var mapped = exactShipments.ToDictionary(
             pair => pair.Key,
             pair => Map(
                 pair.Value,
@@ -137,6 +139,8 @@ public sealed class FulcrumQualityShipmentProvider(
                 salesOrderLines,
                 settings.FulcrumShipmentUrlTemplate),
             StringComparer.OrdinalIgnoreCase);
+        return requested.Where(number => mapped.ContainsKey(QualityShipmentNumber.Normalize(number)))
+            .ToDictionary(number => number, number => mapped[QualityShipmentNumber.Normalize(number)], StringComparer.OrdinalIgnoreCase);
     }
 
     private async Task<IReadOnlyList<FulcrumShipmentLineItemDto>> GetShipmentLinesAsync(
@@ -288,11 +292,16 @@ public sealed class FulcrumQualityShipmentProvider(
     private static string? BuildRecordUrl(string template, string id, string shipperNumber)
     {
         if (string.IsNullOrWhiteSpace(template)) return null;
+        if (!template.Contains("{id}", StringComparison.OrdinalIgnoreCase)
+            && !template.Contains("{shipperNumber}", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("QualityIntegration:FulcrumShipmentUrlTemplate must identify a shipment using {id} or {shipperNumber}.");
         var value = template.Trim()
             .Replace("{id}", Uri.EscapeDataString(id), StringComparison.OrdinalIgnoreCase)
             .Replace("{shipperNumber}", Uri.EscapeDataString(shipperNumber), StringComparison.OrdinalIgnoreCase);
         return Uri.TryCreate(value, UriKind.Absolute, out var uri)
             && uri.Scheme == Uri.UriSchemeHttps
+            && string.IsNullOrEmpty(uri.UserInfo)
+            && !value.Contains('{') && !value.Contains('}')
             ? uri.ToString()
             : throw new InvalidOperationException(
                 "QualityIntegration:FulcrumShipmentUrlTemplate must produce an absolute HTTPS URL.");

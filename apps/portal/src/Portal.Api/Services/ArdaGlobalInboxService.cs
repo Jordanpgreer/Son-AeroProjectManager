@@ -19,6 +19,7 @@ public sealed class ArdaGlobalInboxService(
     private const string OperationFinishConfirmation = "OperationFinishConfirmation";
     private const string OperationStartResponse = "OperationStartResponse";
     private const string OperationFinishResponse = "OperationFinishResponse";
+    private const string OperationScheduleConfirmPermission = "notifications.operationSchedule.confirm";
     private const int PageSize = 50;
 
     public async Task<IReadOnlySet<string>> AuthorizedSourceIdsAsync(
@@ -37,12 +38,17 @@ public sealed class ArdaGlobalInboxService(
         return ids.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
-    public async Task<ArdaGlobalInboxDto> GetAsync(MeDto currentUser, CancellationToken cancellationToken)
+    public Task<ArdaGlobalInboxDto> GetAsync(MeDto currentUser, CancellationToken cancellationToken) =>
+        ReadAsync(currentUser, PageSize, cancellationToken);
+
+    private async Task<ArdaGlobalInboxDto> ReadAsync(
+        MeDto currentUser, int? limit, CancellationToken cancellationToken)
     {
         var visible = VisibleApplications(currentUser);
         if (visible.Count == 0) return new([], 0);
 
         var lookupKeys = WindowsAccountNames.LookupKeys(currentUser.AccountName);
+        var accountKey = AccountKey(currentUser);
         var pushItems = new List<ArdaGlobalInboxItemDto>();
         var pushCount = 0;
         foreach (var source in visible.Values.Where(app => app.Id != ProjectTracker))
@@ -53,9 +59,13 @@ public sealed class ArdaGlobalInboxService(
             var query = db.ArdaPushNotifications.AsNoTracking()
                 .Where(item => lookupKeys.Contains(item.RecipientAccountName.ToUpper())
                     && item.SourceModule == sourceId
-                    && item.TargetUrl.StartsWith(originPrefix));
+                    && item.TargetUrl.StartsWith(originPrefix)
+                    && !db.ArdaInboxDismissals.Any(dismissal => dismissal.AccountName == accountKey
+                        && dismissal.SourceKind == "push" && dismissal.SourceNotificationId == item.Id));
             pushCount += await query.CountAsync(item => item.ReadAt == null, cancellationToken);
-            var candidates = await query.OrderByDescending(item => item.Id).Take(PageSize)
+            var ordered = query.OrderByDescending(item => item.Id).AsQueryable();
+            if (limit is { } take) ordered = ordered.Take(take);
+            var candidates = await ordered
                 .Select(item => new ArdaGlobalInboxItemDto(
                     $"push:{item.Id}", item.SourceModule, item.Title, item.Body,
                     item.TargetUrl, item.CreatedAt, item.ReadAt))
@@ -76,10 +86,13 @@ public sealed class ArdaGlobalInboxService(
                     .FirstOrDefaultAsync(cancellationToken);
                 if (user is not null && await CanViewTrackerProjectAsync(user.Id, cancellationToken))
                 {
-                    var query = ValidTrackerRows(user.Id, user.AccountName);
+                    var query = ValidTrackerRows(user.Id, user.AccountName)
+                        .Where(item => !db.ArdaInboxDismissals.Any(dismissal => dismissal.AccountName == accountKey
+                            && dismissal.SourceKind == ProjectTracker && dismissal.SourceNotificationId == item.Id));
                     trackerCount = await query.CountAsync(item => item.ReadAt == null, cancellationToken);
-                    var rows = await query.OrderByDescending(item => item.Id)
-                        .Take(PageSize).ToListAsync(cancellationToken);
+                    var ordered = query.OrderByDescending(item => item.Id).AsQueryable();
+                    if (limit is { } take) ordered = ordered.Take(take);
+                    var rows = await ordered.ToListAsync(cancellationToken);
                     trackerItems = rows.Select(item => new ArdaGlobalInboxItemDto(
                         $"project-tracker:{item.Id}", ProjectTracker, item.Title, item.BodyPreview,
                         TrackerTargetUrl(tracker.Url, item), item.CreatedAt, item.ReadAt)).ToList();
@@ -91,9 +104,10 @@ public sealed class ArdaGlobalInboxService(
             }
         }
 
-        return new ArdaGlobalInboxDto(pushItems.Concat(trackerItems)
-            .OrderByDescending(item => item.CreatedAt).ThenByDescending(item => item.Id)
-            .Take(PageSize).ToList(), pushCount + trackerCount);
+        var combined = pushItems.Concat(trackerItems)
+            .OrderByDescending(item => item.CreatedAt).ThenByDescending(item => item.Id).AsEnumerable();
+        if (limit is { } total) combined = combined.Take(total);
+        return new ArdaGlobalInboxDto(combined.ToList(), pushCount + trackerCount);
     }
 
     public async Task<string?> OpenAsync(string id, MeDto currentUser, CancellationToken cancellationToken)
@@ -106,6 +120,7 @@ public sealed class ArdaGlobalInboxService(
 
     public async Task<bool> MarkReadAsync(string id, MeDto currentUser, CancellationToken cancellationToken)
     {
+        if (await IsDismissedAsync(id, currentUser, cancellationToken)) return false;
         var visible = VisibleApplications(currentUser);
         var lookupKeys = WindowsAccountNames.LookupKeys(currentUser.AccountName);
         if (TryId(id, "push:", out var pushId))
@@ -132,6 +147,66 @@ public sealed class ArdaGlobalInboxService(
         rowTracker.ReadAt ??= DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
         return true;
+    }
+
+    public async Task<bool> DismissAsync(string id, MeDto currentUser, CancellationToken cancellationToken)
+    {
+        // Resolve authorization and safe navigation from the source before storing any state.
+        if (await FindAsync(id, currentUser, cancellationToken) is null) return false;
+        await StoreDismissalAsync(id, currentUser, cancellationToken);
+        return true;
+    }
+
+    public async Task<int> ClearAsync(MeDto currentUser, CancellationToken cancellationToken)
+    {
+        // Clear the complete authorized inbox, including read rows beyond the visible 50-item page.
+        // New notifications arriving after this snapshot remain available.
+        var snapshot = await ReadAsync(currentUser, null, cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        foreach (var item in snapshot.Items)
+            await StoreDismissalAsync(item.Id, currentUser, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return snapshot.Items.Count;
+    }
+
+    private Task<bool> IsDismissedAsync(string id, MeDto user, CancellationToken cancellationToken)
+    {
+        if (!TrySource(id, out var source, out var number)) return Task.FromResult(false);
+        var accountKey = AccountKey(user);
+        return db.ArdaInboxDismissals.AnyAsync(item => item.AccountName == accountKey
+            && item.SourceKind == source && item.SourceNotificationId == number, cancellationToken);
+    }
+
+    private async Task StoreDismissalAsync(string id, MeDto user, CancellationToken cancellationToken)
+    {
+        if (!TrySource(id, out var source, out var number)) return;
+        var accountKey = AccountKey(user);
+        var dismissedAt = DateTimeOffset.UtcNow;
+        // Parameterized, atomic insert-if-missing makes simultaneous tabs and retries idempotent.
+        if (db.Database.IsSqlite())
+            await db.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "ArdaInboxDismissals" ("AccountName", "SourceKind", "SourceNotificationId", "DismissedAt")
+                VALUES ({accountKey}, {source}, {number}, {dismissedAt})
+                ON CONFLICT ("AccountName", "SourceKind", "SourceNotificationId") DO NOTHING;
+                """, cancellationToken);
+        else
+            await db.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO [dbo].[ArdaInboxDismissals] ([AccountName], [SourceKind], [SourceNotificationId], [DismissedAt])
+                SELECT {accountKey}, {source}, {number}, {dismissedAt}
+                WHERE NOT EXISTS (SELECT 1 FROM [dbo].[ArdaInboxDismissals] WITH (UPDLOCK, HOLDLOCK)
+                    WHERE [AccountName] = {accountKey} AND [SourceKind] = {source} AND [SourceNotificationId] = {number});
+                """, cancellationToken);
+    }
+
+    private static string AccountKey(MeDto user) =>
+        WindowsAccountNames.Normalize(user.AccountName)?.ToUpperInvariant() ?? string.Empty;
+
+    private static bool TrySource(string id, out string source, out long number)
+    {
+        source = "push";
+        if (TryId(id, "push:", out number)) return true;
+        source = ProjectTracker;
+        return TryId(id, "project-tracker:", out number) && number <= int.MaxValue;
     }
 
     private async Task<ArdaGlobalInboxItemDto?> FindAsync(
@@ -180,6 +255,9 @@ public sealed class ArdaGlobalInboxService(
                     && db.NotificationTasks.Any(task => task.Id == item.ProjectTaskId
                         && task.ProjectId == item.ProjectId)
                 || item.Kind == OperationStartConfirmation && item.ProjectTaskId != null
+                    && db.Set<PortalProjectTrackerMembershipRecord>().Any(membership =>
+                        membership.AppUserId == userId && membership.Group.Permissions.Any(permission =>
+                            permission.PermissionKey == OperationScheduleConfirmPermission))
                     && item.RespondedAt == null && item.SnoozedUntil == null
                     && db.NotificationTasks.Any(task => task.Id == item.ProjectTaskId
                         && task.ProjectId == item.ProjectId
@@ -188,6 +266,9 @@ public sealed class ArdaGlobalInboxService(
                         && task.PercentCompleteManual
                         && task.ExternalActualStartDate == null)
                 || item.Kind == OperationFinishConfirmation && item.ProjectTaskId != null
+                    && db.Set<PortalProjectTrackerMembershipRecord>().Any(membership =>
+                        membership.AppUserId == userId && membership.Group.Permissions.Any(permission =>
+                            permission.PermissionKey == OperationScheduleConfirmPermission))
                     && item.RespondedAt == null && item.SnoozedUntil == null
                     && db.NotificationTasks.Any(task => task.Id == item.ProjectTaskId
                         && task.ProjectId == item.ProjectId

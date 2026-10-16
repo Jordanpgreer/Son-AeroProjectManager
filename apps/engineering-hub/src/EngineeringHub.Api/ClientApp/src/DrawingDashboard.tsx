@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react'
 import HighlightedText from './HighlightedText'
+import { useArdaAutoRefresh } from './useArdaAutoRefresh'
 import { engineeringPermissionKeys, hasEngineeringPermission } from './permissions'
 
 interface DrawingRecord {
@@ -84,6 +85,8 @@ export default function DrawingDashboard({ permissions, onEditDrawing, onCreateD
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [previewId, setPreviewId] = useState<number | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+  useArdaAutoRefresh(() => setRefreshKey(value => value + 1), !loading && previewId === null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -100,7 +103,7 @@ export default function DrawingDashboard({ permissions, onEditDrawing, onCreateD
         if (!controller.signal.aborted) setLoading(false)
       })
     return () => controller.abort()
-  }, [query])
+  }, [query, refreshKey])
 
   useEffect(() => {
     if (previewId === null) return

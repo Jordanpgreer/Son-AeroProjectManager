@@ -31,10 +31,11 @@ identity; production uses Windows Authentication.
 
 ## Scheduled Fulcrum quote log synchronization
 
-Production enables an automatic Fulcrum quote synchronization every 30 minutes, aligned to the
-top and bottom of each hour. The application does not call Fulcrum at startup. Each scheduled run
-is claimed in the shared database, which prevents duplicate calls after an IIS recycle or when
-more than one application process is active.
+Arda schedules Fulcrum synchronization every 20 minutes at :00, :20, and :40 through
+`UniversalFulcrumSync`. The application does not call Fulcrum at startup. Each module's scheduled
+run is claimed in the shared database, and identical read requests share credential-scoped snapshots
+across modules and IIS processes. See [the shared synchronization guide](../../docs/universal-fulcrum-sync.md)
+for pacing, failure handling, live quote/material safety checks, and deployment settings.
 
 The **Quotes** dashboard routes the Fulcrum quote number, quote status, Estimating Rep custom
 field, and RFQ Due Date custom field into each estimator's personal queue. Arda status, Arda notes,

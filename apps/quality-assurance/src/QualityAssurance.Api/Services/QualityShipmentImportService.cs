@@ -45,7 +45,8 @@ public sealed class QualityShipmentImportService(
         var workflows = new QualityWorkflowService(db, accessStore, teams);
         if ((await workflows.GetRestrictedActionsAsync(actor, cancellationToken)).Contains("shipment-imported"))
             throw new UnauthorizedAccessException("Your access groups cannot run this workflow action.");
-        var rows = Parse(stream);
+        var parsed = Parse(stream);
+        var rows = parsed.Rows;
         var directory = await teams.GetOperationalDirectoryAsync(cancellationToken);
         var groups = directory.Teams;
         var users = directory.Users;
@@ -114,7 +115,7 @@ public sealed class QualityShipmentImportService(
 
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        return new QualityShippingImportResultDto(rows.Count, created, skipped, reconciled, WorksheetName);
+        return new QualityShippingImportResultDto(rows.Count + parsed.SkippedWithoutShipmentSuffix, created, skipped, reconciled, WorksheetName, parsed.SkippedWithoutShipmentSuffix);
     }
 
     private static bool ReconcileLegacyAssignment(
@@ -199,7 +200,7 @@ public sealed class QualityShipmentImportService(
             : QualityLegacyAssignmentIdentity.ResolveOwnerByFirstName(tag, users, groups);
     }
 
-    private static IReadOnlyList<ImportRow> Parse(Stream stream)
+    private static ParsedImport Parse(Stream stream)
     {
         XLWorkbook workbook;
         try
@@ -228,11 +229,20 @@ public sealed class QualityShipmentImportService(
                 throw new ArgumentException($"The '{WorksheetName}' worksheet cannot exceed {MaximumRows:N0} data rows.");
 
             var rows = new List<ImportRow>();
+            var skippedWithoutShipmentSuffix = 0;
             var issues = new List<ImportIssue>();
             for (var rowNumber = 2; rowNumber <= lastRow; rowNumber++)
             {
                 if (IsBlank(sheet, rowNumber, columns)) continue;
                 var rowIssues = new List<ImportIssue>();
+                var shipperNumber = TextIfPresent(sheet, rowNumber, columns, ShipperNumberHeader, 80, rowIssues);
+                var legacySalesOrder = TextIfPresent(sheet, rowNumber, columns, LegacySalesOrderHeader, 80, rowIssues);
+                var resolvedShipperNumber = shipperNumber ?? legacySalesOrder;
+                if (resolvedShipperNumber is null || !QualityShipmentNumber.HasShipmentSuffix(resolvedShipperNumber))
+                {
+                    skippedWithoutShipmentSuffix++;
+                    continue;
+                }
                 foreach (var header in Headers.Concat([ShipperNumberHeader, LegacySalesOrderHeader]))
                 {
                     if (!HasColumn(columns, header)) continue;
@@ -242,12 +252,9 @@ public sealed class QualityShipmentImportService(
                 }
 
                 var status = Text(sheet, rowNumber, columns, "Status", 80, rowIssues) ?? "WIP";
-                var shipperNumber = TextIfPresent(sheet, rowNumber, columns, ShipperNumberHeader, 80, rowIssues);
-                var legacySalesOrder = TextIfPresent(sheet, rowNumber, columns, LegacySalesOrderHeader, 80, rowIssues);
                 if (shipperNumber is not null && legacySalesOrder is not null
-                    && !shipperNumber.Equals(legacySalesOrder, StringComparison.OrdinalIgnoreCase))
+                    && !QualityShipmentNumber.Normalize(shipperNumber).Equals(QualityShipmentNumber.Normalize(legacySalesOrder), StringComparison.OrdinalIgnoreCase))
                     rowIssues.Add(new ImportIssue(rowNumber, ShipperNumberHeader, $"value must match {LegacySalesOrderHeader} when both columns are populated"));
-                var resolvedShipperNumber = shipperNumber ?? legacySalesOrder;
                 if (resolvedShipperNumber is null)
                     rowIssues.Add(new ImportIssue(rowNumber, ShipperNumberHeader, "value is required"));
                 var qaArrival = Date(sheet, rowNumber, columns, "QA Arrival Date", rowIssues);
@@ -272,7 +279,7 @@ public sealed class QualityShipmentImportService(
                 rows.Add(new ImportRow(
                     rowNumber,
                     status,
-                    resolvedShipperNumber ?? string.Empty,
+                    resolvedShipperNumber is null ? string.Empty : QualityShipmentNumber.Normalize(resolvedShipperNumber),
                     qaArrival,
                     partNumber ?? string.Empty,
                     purchaseOrder,
@@ -288,7 +295,7 @@ public sealed class QualityShipmentImportService(
                 issues.AddRange(rowIssues);
             }
 
-            if (rows.Count == 0)
+            if (rows.Count == 0 && skippedWithoutShipmentSuffix == 0)
                 throw new ArgumentException($"The '{WorksheetName}' worksheet does not contain any shipment rows.");
             if (issues.Count > 0)
             {
@@ -297,7 +304,7 @@ public sealed class QualityShipmentImportService(
                 var remainder = issues.Count > 12 ? $"; plus {issues.Count - 12} more error(s)" : string.Empty;
                 throw new ArgumentException($"The workbook was not imported because validation failed: {details}{remainder}.");
             }
-            return rows;
+            return new ParsedImport(rows, skippedWithoutShipmentSuffix);
         }
     }
 
@@ -542,7 +549,7 @@ public sealed class QualityShipmentImportService(
         string? comments) => string.Join('\u001f',
     [
         FingerprintText(status),
-        FingerprintText(salesOrder),
+        FingerprintText(salesOrder is null ? null : QualityShipmentNumber.Normalize(salesOrder)),
         DateValue(qaArrival),
         FingerprintText(partNumber),
         FingerprintText(purchaseOrder),
@@ -569,6 +576,7 @@ public sealed class QualityShipmentImportService(
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private sealed record ImportIssue(int RowNumber, string Column, string Message);
+    private sealed record ParsedImport(IReadOnlyList<ImportRow> Rows, int SkippedWithoutShipmentSuffix);
     private sealed record ImportRow(
         int RowNumber,
         string Status,

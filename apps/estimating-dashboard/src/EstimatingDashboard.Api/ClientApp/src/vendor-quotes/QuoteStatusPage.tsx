@@ -1,4 +1,5 @@
-import { AlertTriangle, ArrowLeft, ArrowRight, CalendarDays, ChevronRight, Clock3, GitBranch, Inbox, LoaderCircle, Mail, Plus, RefreshCw, Search, UserRound, X } from 'lucide-react'
+import { useArdaAutoRefresh } from '../useArdaAutoRefresh'
+import { AlertTriangle, ArrowLeft, ArrowRight, CalendarDays, ChevronRight, Clock3, GitBranch, Inbox, LoaderCircle, Mail, Plus, Search, UserRound, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { estimatingPermissions, hasEstimatingPermission, type EstimatingMe } from '../authorization'
 import { createEstimateDefaults } from '../estimateDefaults'
@@ -106,6 +107,27 @@ export default function QuoteStatusPage({ me }: { me: EstimatingMe }) {
     }).catch(() => { /* Retry on the next connection check without interrupting the quote workspace. */ })
     return () => controller.abort()
   }, [selectedId, sync, syncError, dirty, detailLoading])
+  const automaticRefreshKey = JSON.stringify([search, query, status, fulcrumStatus, quoteFilter, page, requestScope, selectedId])
+  const automaticRefreshAllowed = !dirty && !loading && !detailLoading && !connect && !pending
+  const automaticRefreshState = useRef({ key: automaticRefreshKey, allowed: automaticRefreshAllowed, detail })
+  automaticRefreshState.current = { key: automaticRefreshKey, allowed: automaticRefreshAllowed, detail }
+  useArdaAutoRefresh(async () => {
+    const requested = automaticRefreshState.current
+    const stillCurrent = () => automaticRefreshState.current.allowed
+      && automaticRefreshState.current.key === requested.key
+      && automaticRefreshState.current.detail === requested.detail
+    const result = await loadQuoteStatuses(quoteFilter ? '' : query, quoteFilter ? '' : status,
+      quoteFilter ? '' : fulcrumStatus, quoteFilter, page, requestScope)
+    if (!stillCurrent()) return
+    setData(result)
+    if (selectedId) {
+      const updated = await loadQuoteStatusDetail(selectedId)
+      if (!stillCurrent() || updated.quote.quoteHistoryId !== selectedId) return
+      setDetail(updated)
+      setDetailError(null)
+      setData(previous => previous ? { ...previous, items: previous.items.map(item => item.quoteHistoryId === selectedId ? updated.quote : item) } : previous)
+    }
+  }, automaticRefreshAllowed)
   function refresh() {
     guard(() => { setRevision(value => value + 1); if (selectedId) void changed().catch(reason => setDetailError(reason instanceof Error ? reason.message : 'Quote could not be refreshed.')) })
   }
@@ -126,7 +148,7 @@ export default function QuoteStatusPage({ me }: { me: EstimatingMe }) {
   const hasSearchFilters = Boolean(query || status || fulcrumStatus || quoteFilter)
   return <div className="vq-page qs-request-page">
     <header className="vq-page-heading">
-      <div className="vq-page-actions"><button type="button" className="vq-button" onClick={refresh} disabled={loading} aria-label="Refresh quote records"><RefreshCw size={16} /><span>Refresh</span></button><button type="button" className={`vq-button qs-outlook-status is-${outlookHealth.tone}`} onClick={() => setConnect(true)}><Mail size={16} />{syncLoaded && !syncError && sync.length === 0 ? 'Connect Outlook' : outlookHealth.label}</button><button type="button" className="vq-button vq-button-primary" disabled={!canManage || Boolean(storageError)} title={storageError ?? (canManage ? 'Create a quote' : 'Editor access is required')} onClick={createQuote}><Plus size={16} aria-hidden="true" />Create Quote</button></div>
+      <div className="vq-page-actions"><button type="button" className={`vq-button qs-outlook-status is-${outlookHealth.tone}`} onClick={() => setConnect(true)}><Mail size={16} />{syncLoaded && !syncError && sync.length === 0 ? 'Connect Outlook' : outlookHealth.label}</button><button type="button" className="vq-button vq-button-primary" disabled={!canManage || Boolean(storageError)} title={storageError ?? (canManage ? 'Create a quote' : 'Editor access is required')} onClick={createQuote}><Plus size={16} aria-hidden="true" />Create Quote</button></div>
     </header>
     {(storageError || createError) && <p className="vq-create-error" role="alert">{storageError ?? createError}</p>}
     <div className={`vq-workspace${!selectedId && !quoteFilter ? ' vq-browse' : ''}${selectedId ? ' vq-has-selection' : ''}${quoteFilter || selectedId ? ' vq-focused' : ''}`}>

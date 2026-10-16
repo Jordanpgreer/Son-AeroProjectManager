@@ -40,7 +40,7 @@ public sealed class QualityIntegrationCredentialReader(
             string? displayName = null;
             await using (var command = connection.CreateCommand())
             {
-                command.CommandText = "SELECT EncryptedSecret, DisplayName FROM IntegrationCredentials WHERE CredentialKey = @credentialKey";
+                command.CommandText = "SELECT EncryptedSecret, DisplayName, ExpiresAt FROM IntegrationCredentials WHERE CredentialKey = @credentialKey";
                 var parameter = command.CreateParameter();
                 parameter.ParameterName = "@credentialKey";
                 parameter.Value = credentialKey;
@@ -50,6 +50,9 @@ public sealed class QualityIntegrationCredentialReader(
                 {
                     encryptedSecret = reader.GetString(0);
                     displayName = reader.GetString(1);
+                    if (!reader.IsDBNull(2) && (!DateTimeOffset.TryParse(Convert.ToString(reader.GetValue(2)), out var expiry)
+                        || expiry <= timeProvider.GetUtcNow()))
+                        throw new InvalidOperationException("The saved integration credential has expired. Replace it in Admin Hub.");
                 }
             }
 

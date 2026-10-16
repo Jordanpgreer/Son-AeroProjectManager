@@ -15,8 +15,10 @@ internal sealed class FulcrumQuoteGenerationClient(HttpClient http,
     private const int MaxResponseBytes = 16 * 1024 * 1024;
     private string? token;
     private Uri? baseUri;
-    public async Task InitializeAsync(CancellationToken cancellationToken)
+    private bool requireFresh;
+    public async Task InitializeAsync(CancellationToken cancellationToken, bool fresh = false)
     {
+        requireFresh = fresh;
         baseUri = FulcrumApiEndpoint.ResolveItarBaseUri(options.Value.BaseUrl, "FulcrumQuoteSync:BaseUrl");
         token = (await credentials.GetSecretAsync(IntegrationCredentialNames.FulcrumPublicApi, cancellationToken))?.Trim();
         if (string.IsNullOrWhiteSpace(token)) throw new InvalidOperationException(
@@ -55,6 +57,7 @@ internal sealed class FulcrumQuoteGenerationClient(HttpClient http,
     {
         if (baseUri is null || token is null) throw new InvalidOperationException("Fulcrum connection has not been initialized.");
         using var request = new HttpRequestMessage(method, new Uri(baseUri, path));
+        request.Options.Set(FulcrumReadSnapshotHandler.RequireFresh, requireFresh);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         if (method == HttpMethod.Post) request.Content = JsonContent.Create(new { });
         using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);

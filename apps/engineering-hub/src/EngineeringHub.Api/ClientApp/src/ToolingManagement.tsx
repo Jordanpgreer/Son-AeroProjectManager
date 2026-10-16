@@ -16,7 +16,6 @@ import {
   MapPin,
   PackageCheck,
   Plus,
-  RefreshCw,
   RotateCcw,
   Search,
   ShieldCheck,
@@ -27,6 +26,7 @@ import {
   X,
 } from 'lucide-react'
 import HighlightedText from './HighlightedText'
+import { useArdaAutoRefresh } from './useArdaAutoRefresh'
 import { SearchableToolLocation, ToolOverview } from './ToolingRecordComponents'
 import { engineeringPermissionKeys, hasEngineeringPermission } from './permissions'
 import './tooling.css'
@@ -330,6 +330,26 @@ export default function ToolingManagement({
   const handledEditRequest = useRef(0)
   const handledAuditRequest = useRef(0)
   const handledArchiveRequest = useRef(0)
+  const automaticRefreshState = useRef({ toolId, query, includeArchived, paused: true })
+  const automaticRefreshPaused = loading || busy || dialog !== null || auditOpen || previewId !== null
+  automaticRefreshState.current = { toolId, query, includeArchived, paused: automaticRefreshPaused }
+  useArdaAutoRefresh(async () => {
+    const requested = automaticRefreshState.current
+    const parameters = new URLSearchParams()
+    if (requested.query.trim()) parameters.set('query', requested.query.trim())
+    if (requested.includeArchived) parameters.set('includeArchived', 'true')
+    const path = requested.toolId ? `/api/tools/${requested.toolId}` : `/api/tools?${parameters}`
+    const [next, nextLocations] = await Promise.all([
+      api<ToolDetail | ToolDashboard>(path),
+      api<ToolLocation[]>('/api/tool-locations'),
+    ])
+    const current = automaticRefreshState.current
+    if (current.paused || current.toolId !== requested.toolId || current.query !== requested.query
+      || current.includeArchived !== requested.includeArchived) return
+    if (requested.toolId) setDetail(next as ToolDetail)
+    else setDashboard(next as ToolDashboard)
+    setLocations(nextLocations)
+  }, !automaticRefreshPaused)
   const can = (permission: string) => hasEngineeringPermission(permissions, permission)
 
   async function loadLocations() {
@@ -755,7 +775,6 @@ export default function ToolingManagement({
       <header className="tool-register-toolbar">
         <label className="tool-search"><Search size={17}/><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search tool, part number, owner, location, vendor, document, or note" aria-label="Search the tool register"/></label>
         <label className="tool-archive-filter"><input type="checkbox" checked={includeArchived} onChange={event => setIncludeArchived(event.target.checked)}/> Include archived</label>
-        <button type="button" className="tool-refresh" onClick={() => void refreshDashboard()} aria-label="Refresh tool register"><RefreshCw size={15}/></button>
       </header>
       <div className="tool-result-summary"><span>{loading ? 'Searching tool records...' : `${visibleTools.length} matching tool${visibleTools.length === 1 ? '' : 's'} · ${filterLabel}`}</span>{query && <small>Matching text is highlighted in every result row.</small>}</div>
       <div className="tool-table-wrap">

@@ -11,7 +11,9 @@ The applications use one provider-neutral integration boundary so module code do
 5. The adapter handles provider authentication, endpoints, paging, and field mapping, then returns the module's existing internal data shape.
 6. The module applies the data using its normal validation, permissions, concurrency checks, and audit workflow.
 
-The Estimating job schedule is provider-neutral under `EnterpriseQuoteSync`. Existing deployments that still use schedule values under `FulcrumQuoteSync` remain compatible until their configuration file is updated.
+Automatic Fulcrum work now uses the shared `UniversalFulcrumSync` 20-minute schedule, credential-scoped
+read snapshots, pacing, and database leases. Legacy `EnterpriseQuoteSync`/`FulcrumQuoteSync` interval
+settings no longer control these workers. See [shared synchronization](universal-fulcrum-sync.md).
 
 Engineering remains reserved in the shared contract. Quality uses the provider-neutral `quality-records` route for read-only shipment synchronization.
 

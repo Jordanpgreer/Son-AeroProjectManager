@@ -60,6 +60,8 @@ builder.Services.AddScoped<ModuleAccessService>();
 builder.Services.AddSingleton<ScheduleCalculator>();
 builder.Services.AddScoped<ProjectMetricsService>();
 builder.Services.AddScoped<ProjectRoutingSyncService>();
+builder.Services.AddScoped<ProjectQuantitySyncApplicationService>();
+builder.Services.AddScoped<ProjectQuantityScheduledSyncService>();
 builder.Services.AddScoped<ProjectTaskReferenceCleanupService>();
 builder.Services.AddScoped<ProjectReadService>();
 builder.Services.Configure<ProjectQuantitySyncOptions>(
@@ -69,10 +71,12 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<IProjectTrackerIntegrationCredentialReader, ProjectTrackerIntegrationCredentialReader>();
 builder.Services.AddScoped<IEnterpriseProviderSource, ProjectTrackerEnterpriseProviderSource>();
 builder.Services.AddSingleton<FulcrumProjectLookupCatalog>();
+builder.Services.AddUniversalFulcrumSync(builder.Configuration,
+    services => services.GetRequiredService<ProjectTrackerDbContext>().Database.GetDbConnection());
 builder.Services.AddHttpClient<FulcrumProjectQuantityProvider>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(45);
-});
+}).UseSharedFulcrumSnapshots();
 builder.Services.AddScoped<IProjectQuantityProvider>(serviceProvider =>
     serviceProvider.GetRequiredService<FulcrumProjectQuantityProvider>());
 builder.Services.AddScoped<IProjectQuantityProvider, AcumaticaProjectQuantityProvider>();
@@ -1370,6 +1374,7 @@ static async Task InitializeDatabaseAsync(WebApplication app)
 
     if (isSqlite)
     {
+        await SqliteRuntimeConfiguration.EnableConcurrentReadsAsync(db, cancellationToken: default);
         await SqliteCompatibility.RepairLegacySchemaAsync(db, cancellationToken: default);
     }
 

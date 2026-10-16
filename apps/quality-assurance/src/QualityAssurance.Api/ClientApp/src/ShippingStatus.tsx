@@ -10,9 +10,7 @@ import {
   Clock3,
   Download,
   ExternalLink,
-  FileSpreadsheet,
   FileClock,
-  FileUp,
   GripVertical,
   ListFilter,
   MessageSquare,
@@ -32,6 +30,8 @@ import { ageInDays, formatCompletionDays, formatCurrency, formatDate, formatDate
 import ShipmentCommentsDrawer from './ShipmentCommentsDrawer'
 import { readShipmentDeepLink } from './shippingDeepLink'
 import { normalizeShippingScope } from './shippingScope'
+import { displayShipmentNumber } from './shipmentNumber'
+import { useArdaAutoRefresh } from './useArdaAutoRefresh'
 import { canRunQualityAction } from './workflowPermissions'
 import type { ShippingScope } from './shippingScope'
 import type {
@@ -49,7 +49,6 @@ import type {
 
 const PERMISSIONS = {
   create: 'quality-assurance.shipments.create',
-  import: 'quality-assurance.shipments.import',
   assignmentView: 'quality-assurance.assignments.view',
   assignmentGroup: 'quality-assurance.assignments.group',
   assignmentUser: 'quality-assurance.assignments.user',
@@ -92,14 +91,6 @@ interface ShipmentPartDraft {
   quantity: string
   unitPrice: string
   lineItemNumber: string
-}
-
-interface ShippingImportResult {
-  rowsRead: number
-  createdRecords: number
-  skippedDuplicates: number
-  reconciledAssignments: number
-  worksheet: string
 }
 
 type ScalarDraftKey = Exclude<keyof ShipmentDraft, 'parts'>
@@ -243,66 +234,6 @@ function actionOwner(shipment: Shipment, canViewAssignment: boolean) {
     secondary: shipment.nextAction ? 'Not Linked To An Active User' : 'Needs Assignment',
     isUnassigned: true,
   }
-}
-
-function ShippingImportDialog({
-  onClose,
-  onImported,
-}: {
-  onClose: () => void
-  onImported: () => void
-}) {
-  const [file, setFile] = useState<File | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<ShippingImportResult | null>(null)
-
-  async function importWorkbook() {
-    if (!file) return
-    setBusy(true)
-    setError(null)
-    try {
-      const form = new FormData()
-      form.append('file', file)
-      const next = await qualityApi<ShippingImportResult>('/api/shipments/import', {
-        method: 'POST',
-        body: form,
-      })
-      setResult(next)
-      onImported()
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The Shipping Status workbook could not be imported.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="modal-backdrop" role="presentation">
-      <section className="modal shipping-import-modal" role="dialog" aria-modal="true" aria-labelledby="shipping-import-title">
-        <header>
-          <div><span className="eyebrow">Controlled Bulk Entry</span><h2 id="shipping-import-title">Import Shipping Status</h2><p>Only the <b>Complete List</b> worksheet is read. Existing exact records are skipped.</p></div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close"><X size={18} /></button>
-        </header>
-        <div className="shipping-import-body">
-          {!result && <label className="shipping-file-picker">
-            <FileSpreadsheet size={24} aria-hidden="true" />
-            <span><strong>{file?.name ?? 'Choose An Excel Workbook'}</strong><small>Accepted format: .xlsx, up to 25 MB</small></span>
-            <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { setFile(event.currentTarget.files?.[0] ?? null); setError(null) }} />
-          </label>}
-          {result && <div className="shipping-import-result">
-            <FileSpreadsheet size={28} aria-hidden="true" />
-            <div><strong>Import Complete</strong><p>{result.createdRecords} records created, {result.skippedDuplicates} exact duplicates skipped, and {result.reconciledAssignments} legacy assignments corrected from {result.rowsRead} rows in <b>{result.worksheet}</b>.</p></div>
-          </div>}
-          {error && <p className="notice error"><AlertTriangle size={16} />{error}</p>}
-        </div>
-        <footer>
-          <button className="button ghost" type="button" onClick={onClose}>{result ? 'Close' : 'Cancel'}</button>
-          {!result && <button className="button primary" type="button" disabled={!file || busy} onClick={() => void importWorkbook()}><FileUp size={15} />{busy ? 'Importing...' : 'Import workbook'}</button>}
-        </footer>
-      </section>
-    </div>
-  )
 }
 
 function ShipmentForm({
@@ -646,7 +577,7 @@ function DetailDrawer({
   return (
     <div className="drawer-layer" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <aside className="detail-drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
-        <header className="drawer-head"><div><span className="eyebrow">Shipping Record</span><h2 id="drawer-title">{shipment.externalShipmentUrl && shipment.salesOrderNumber ? <a className="external-record-link" href={shipment.externalShipmentUrl} target="_blank" rel="noreferrer">{shipment.salesOrderNumber}<ExternalLink size={15} /></a> : shipment.salesOrderNumber ?? `Shipment ${shipment.id}`}</h2><p>{shipment.customer ?? 'Customer hidden'} · {shipment.partNumber ?? 'Part number hidden'}</p></div><button className="icon-button" type="button" onClick={onClose} aria-label="Close"><X size={19} /></button></header>
+        <header className="drawer-head"><div><span className="eyebrow">Shipping Record</span><h2 id="drawer-title">{shipment.externalShipmentUrl && shipment.salesOrderNumber ? <a className="external-record-link" href={shipment.externalShipmentUrl} target="_blank" rel="noreferrer">{displayShipmentNumber(shipment.salesOrderNumber)}<ExternalLink size={15} /></a> : displayShipmentNumber(shipment.salesOrderNumber) ?? `Shipment ${shipment.id}`}</h2><p>{shipment.customer ?? 'Customer hidden'} · {shipment.partNumber ?? 'Part number hidden'}</p></div><button className="icon-button" type="button" onClick={onClose} aria-label="Close"><X size={19} /></button></header>
         <div className="drawer-actions">
           {canEdit && <button className="button ghost" type="button" onClick={onEdit}><Pencil size={14} /> Edit</button>}
           {canAssign && <button className="button ghost" type="button" onClick={onAssign}><UserRoundCheck size={14} /> Assign</button>}
@@ -673,7 +604,6 @@ function DetailDrawer({
             {shipment.isShipped && <div><dt>Days To Completion</dt><dd>{formatCompletionDays(shipment.completionDays)}</dd></div>}
           </dl></section>
           {visible('partNumber') && <section className="detail-section"><h3>Part Lines</h3><div className="shipment-part-list"><div className="shipment-part-list-head"><span>Line</span><span>Part Number</span>{visible('quantity') && <span>Quantity</span>}{visible('dollarValue') && <><span>Unit Price</span><span>Total</span></>}</div>{shipment.parts.map((part) => <div className="shipment-part-list-row" key={part.id || `${part.displayOrder}-${part.partNumber}`}><span>{part.lineItemNumber ?? '—'}</span><strong>{part.partNumber}</strong>{visible('quantity') && <span>{part.quantity?.toLocaleString() ?? 'Not Set'}</span>}{visible('dollarValue') && <><span>{formatCurrency(part.unitPrice)}</span><span>{formatCurrency(part.totalValue)}</span></>}</div>)}</div></section>}
-          {(shipment.externalSyncProvider || shipment.externalSyncError) && <section className="detail-section"><h3>Fulcrum Sync</h3><dl><div><dt>Provider</dt><dd>{shipment.externalSyncProvider ?? 'Not Set'}</dd></div><div><dt>Fulcrum Status</dt><dd>{shipment.externalShipmentStatus ?? 'No Match'}</dd></div><div><dt>Last Checked</dt><dd>{formatDateTime(shipment.externalSyncedAt)}</dd></div></dl>{shipment.externalSyncError && <p className="sync-warning"><AlertTriangle size={14} /> {shipment.externalSyncError}</p>}</section>}
           {visible('holdReason') && <section className="detail-section narrative"><h3>Hold Reason</h3><p>{shipment.holdReason || 'No hold reason recorded.'}</p></section>}
           {visible('comments') && <section className="detail-section narrative"><h3>Comments</h3><p>{shipment.comments || 'No comments yet.'}</p><button className="button ghost" type="button" onClick={onOpenComments}><MessageSquare size={14} /> Open Conversation</button></section>}
           {auditError && <p className="notice error"><AlertTriangle size={15} />{auditError}</p>}
@@ -718,8 +648,8 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   const [editing, setEditing] = useState(false)
   const [assigning, setAssigning] = useState(false)
   const [assignmentOrigin, setAssignmentOrigin] = useState<'list' | 'detail'>('detail')
-  const [importOpen, setImportOpen] = useState(false)
   const [refresh, setRefresh] = useState(0)
+  useArdaAutoRefresh(() => setRefresh((value) => value + 1), !creating && !editing && !assigning && !loading)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [layout, setLayout] = useState<ShippingLayout | null>(null)
   const layoutRef = useRef<ShippingLayout | null>(null)
@@ -787,12 +717,6 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   }
 
   useEffect(() => {
-    const openImport = () => { if (canRunQualityAction(user, 'shipment-imported', user.permissions.includes(PERMISSIONS.import))) setImportOpen(true) }
-    window.addEventListener('quality:open-shipping-import', openImport)
-    return () => window.removeEventListener('quality:open-shipping-import', openImport)
-  }, [user.permissions, user.workflowRestrictedActions])
-
-  useEffect(() => {
     if (!user.permissions.includes(PERMISSIONS.assignmentView)) return
     void qualityApi<AssignmentOptions>('/api/assignment-options')
       .then(setAssignmentOptions)
@@ -851,7 +775,6 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
 
   const fields = data?.fields ?? []
   const canCreate = canRunQualityAction(user, 'shipment-created', user.permissions.includes(PERMISSIONS.create))
-  const canImport = canRunQualityAction(user, 'shipment-imported', user.permissions.includes(PERMISSIONS.import))
   const canEdit = canRunQualityAction(user, 'shipment-updated', fields.some((field) => field.canEdit))
   const canReviewUnassigned = user.permissions.includes(PERMISSIONS.managerReview)
   const visibleFields = useMemo(() => new Set(
@@ -1186,7 +1109,6 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
       {creating && <ShipmentForm fields={fields} canSave={canCreate} onClose={() => setCreating(false)} onSaved={created} />}
       {editing && selected && <ShipmentForm shipment={selected} fields={fields} canSave={canEdit} onClose={() => setEditing(false)} onSaved={accepted} />}
       {assigning && selected && <AssignmentDialog shipment={selected} user={user} onClose={closeAssignment} onSaved={assignmentAccepted} />}
-      {importOpen && canImport && <ShippingImportDialog onClose={() => setImportOpen(false)} onImported={() => setRefresh((value) => value + 1)} />}
       {successMessage && <div className="shipment-success-toast" role="status" aria-live="polite"><CheckCircle2 size={17} /><span>{successMessage}</span><button type="button" onClick={() => setSuccessMessage(null)} aria-label="Dismiss success message"><X size={14} /></button></div>}
     </div>
   )

@@ -20,12 +20,20 @@ param(
 
     [switch]$RetainVerifiedQuality,
     [switch]$IncludeSmallBusinessSubcontracting,
+    [switch]$EnableUniversalFulcrumSync,
 
     [ValidateRange(30, 600)]
     [int]$HealthTimeoutSeconds = 180
 )
 
 $ErrorActionPreference = 'Stop'
+$fulcrumConsumerNames = @('ProjectTracker', 'EstimatingDashboard', 'QualityAssurance', 'SmallBusinessSubcontracting')
+if ($EnableUniversalFulcrumSync -and $RetainVerifiedQuality) {
+    throw 'Enabling shared Fulcrum synchronization requires deploying Quality; RetainVerifiedQuality is incompatible.'
+}
+if ($EnableUniversalFulcrumSync) {
+    Import-Module (Join-Path $PSScriptRoot 'ArdaFulcrumReleaseConfiguration.psm1') -Force -ErrorAction Stop
+}
 $qualityBlockedOverrideNames = @(
     'Authentication__Mode',
     'Authentication:Mode',
@@ -49,6 +57,18 @@ $qualityBlockedOverrideNames = @(
     'CUSTOMCONNSTR_QualityStore'
 )
 $environmentSelectorNames = @('ASPNETCORE_ENVIRONMENT', 'DOTNET_ENVIRONMENT')
+$fulcrumOverrideNames = @(
+    'UniversalFulcrumSync__Enabled', 'UniversalFulcrumSync__IntervalMinutes',
+    'UniversalFulcrumSync__MaximumConcurrentRequests', 'UniversalFulcrumSync__MinimumRequestSpacingMilliseconds',
+    'UniversalFulcrumSync__MaximumStaleMinutes', 'QualityIntegration__Enabled',
+    'QualityIntegration__FulcrumShipmentUrlTemplate'
+)
+function Assert-NoFulcrumEnvironmentOverride {
+    param([string]$Name, [string]$Label)
+    if ($EnableUniversalFulcrumSync -and $Name.Replace(':', '__') -in $fulcrumOverrideNames) {
+        throw "$Label contains '$Name', which would override the reviewed candidate Fulcrum configuration."
+    }
+}
 
 $portalCatalogModule = Join-Path $PSScriptRoot 'PortalApplicationCatalog.psm1'
 if (-not (Test-Path -LiteralPath $portalCatalogModule -PathType Leaf)) {
@@ -188,6 +208,7 @@ function Assert-ValidWebConfig {
             '//aspNetCore/environmentVariables/environmentVariable'))) {
         $name = [string]$environmentNode.name
         $value = [string]$environmentNode.value
+        Assert-NoFulcrumEnvironmentOverride -Name $name -Label $Path
         if ([string]::IsNullOrWhiteSpace($name)) {
             throw "'$Path' contains an environment variable without a name."
         }
@@ -517,6 +538,13 @@ if ($env:COMPUTERNAME -ine $ExpectedComputerName) {
     throw "This script is for $ExpectedComputerName; the current computer is $env:COMPUTERNAME."
 }
 Assert-DeploymentIdentity
+if ($EnableUniversalFulcrumSync) {
+    foreach ($target in @('Machine', 'Process')) {
+        foreach ($name in [Environment]::GetEnvironmentVariables([EnvironmentVariableTarget]$target).Keys) {
+            Assert-NoFulcrumEnvironmentOverride -Name ([string]$name) -Label $target
+        }
+    }
+}
 if ($IncludeSmallBusinessSubcontracting) {
     foreach ($target in @('Machine', 'Process')) {
         $variables = [Environment]::GetEnvironmentVariables([EnvironmentVariableTarget]$target)
@@ -664,6 +692,25 @@ try {
             throw "Current production settings are missing: $productionSettings"
         }
         Assert-JsonFile -Path $productionSettings
+        if ($EnableUniversalFulcrumSync -and $application.Name -in $fulcrumConsumerNames) {
+            [void](Test-ArdaFulcrumProductionConfiguration -ApplicationName $application.Name -ProductionSettingsPath $productionSettings)
+            $fulcrumIisConfig = $serverManager.GetApplicationHostConfiguration()
+            $fulcrumAspNetCore = $fulcrumIisConfig.GetSection('system.webServer/aspNetCore', $application.Name)
+            $fulcrumPools = $fulcrumIisConfig.GetSection('system.applicationHost/applicationPools')
+            $fulcrumPool = @($fulcrumPools.GetCollection() | Where-Object {
+                [string]$_.GetAttributeValue('name') -ieq $application.Name
+            })
+            if ($fulcrumPool.Count -ne 1) { throw 'Fulcrum consumer pool configuration is ambiguous or missing.' }
+            foreach ($collection in @(
+                ,$fulcrumAspNetCore.GetCollection('environmentVariables')
+                ,$fulcrumPool[0].GetCollection('environmentVariables')
+                ,$fulcrumPools.GetChildElement('applicationPoolDefaults').GetCollection('environmentVariables')
+            )) {
+                foreach ($variable in $collection) {
+                    Assert-NoFulcrumEnvironmentOverride -Name ([string]$variable.GetAttributeValue('name')) -Label $application.Name
+                }
+            }
+        }
         if ($application.Name -eq 'SmallBusinessSubcontracting') {
             [void](Read-SubcontractingProductionConfiguration -Path $productionSettings)
             Assert-SubcontractingWebConfig -Path (Join-Path $currentPath 'web.config')
@@ -810,6 +857,9 @@ else {
     'Create a sanitized immutable release, switch IIS paths including the Project Tracker gateway, and verify health with rollback on failure'
 }
 Write-Host "Selected applications ($($applications.Count)): $($applications.Name -join ', ')"
+if ($EnableUniversalFulcrumSync) {
+    Write-Host 'Candidate configuration: enable shared Fulcrum synchronization every 20 minutes and Quality shipment links; preserve all other settings.'
+}
 if (-not $PSCmdlet.ShouldProcess(
         "$ExpectedComputerName release '$releasePath'",
         $deploymentAction)) {
@@ -847,6 +897,11 @@ try {
         $copiedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $candidateProductionSettings).Hash
         if ($oldHash -ne $copiedHash) {
             throw "Copied production settings hash mismatch for '$($application.Name)'."
+        }
+        if ($EnableUniversalFulcrumSync -and $application.Name -in $fulcrumConsumerNames) {
+            Set-ArdaFulcrumCandidateConfiguration -ApplicationName $application.Name `
+                -CandidateApplicationPath $candidatePath -ActiveApplicationPath $currentPaths[$application.Name] `
+                -ReleasePath $releasePath -EnableUniversalFulcrumSync:$EnableUniversalFulcrumSync
         }
         if ($application.Name -eq 'SonAeroPortal') {
             $portalProductionTemplate = Join-Path $PSScriptRoot 'templates\portal.appsettings.Production.json'

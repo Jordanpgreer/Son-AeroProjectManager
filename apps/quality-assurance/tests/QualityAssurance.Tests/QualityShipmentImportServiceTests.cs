@@ -10,7 +10,7 @@ using SonAero.Platform.Security;
 
 namespace QualityAssurance.Tests;
 
-public sealed class QualityShipmentImportServiceTests
+public sealed partial class QualityShipmentImportServiceTests
 {
     [Fact]
     public void ImportPermissionDefaultsToAdministratorsOnly()
@@ -37,8 +37,8 @@ public sealed class QualityShipmentImportServiceTests
         Assert.Equal(0, first.SkippedDuplicates);
         var saved = await fixture.Db.Shipments.Include(shipment => shipment.AuditEntries).OrderBy(shipment => shipment.QaArrivalDate).ToListAsync();
         Assert.Equal(2, saved.Count);
-        Assert.All(saved, shipment => Assert.Equal("2195-3", shipment.SalesOrderNumber));
-        Assert.All(saved, shipment => Assert.Equal("2195-3", shipment.ShipperNumber));
+        Assert.All(saved, shipment => Assert.Equal("SHP-SO2195-3", shipment.SalesOrderNumber));
+        Assert.All(saved, shipment => Assert.Equal("SHP-SO2195-3", shipment.ShipperNumber));
         Assert.Equal(["SN 0000241", "SN 0000244"], saved.Select(shipment => shipment.Comments));
         Assert.Equal(new DateOnly(2026, 7, 15), saved[0].QaArrivalDate);
         Assert.Equal(new DateOnly(2026, 8, 20), saved[0].ShipDate);

@@ -1,21 +1,16 @@
+import { useArdaSidebar, ArdaSidebarPin } from './ArdaSidebar'
 import { useEffect, useState } from 'react'
 import {
   AlertTriangle,
-  FileUp,
   LayoutDashboard,
   LockKeyhole,
-  PanelLeftClose,
-  PanelLeftOpen,
-  RefreshCw,
   Settings2,
   ShieldCheck,
   Truck,
 } from 'lucide-react'
 import { qualityApi, QualityApiError } from './api'
 import Dashboard from './Dashboard'
-import QualityNotificationCenter from './QualityNotificationCenter'
 import ShippingStatus from './ShippingStatus'
-import { canRunQualityAction } from './workflowPermissions'
 import { persistTheme, readThemePreference } from './theme'
 import type { AppTheme } from './theme'
 import type { QualityAssuranceUser } from './types'
@@ -68,32 +63,15 @@ function ThemeSwitch({ theme, onToggleTheme }: { theme: AppTheme; onToggleTheme:
 
 export default function App() {
   const [theme, setTheme] = useState<AppTheme>(() => readThemePreference())
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    try {
-      return window.localStorage.getItem('sonaero-quality-sidebar') === 'collapsed'
-    } catch {
-      return false
-    }
-  })
+  const sidebar = useArdaSidebar()
+  const sidebarCollapsed = sidebar.collapsed
   const [user, setUser] = useState<QualityAssuranceUser | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [route, setRoute] = useState(routeFromHash)
   const [reloadKey, setReloadKey] = useState(0)
   const [accessReloadKey, setAccessReloadKey] = useState(0)
-  const [refreshingFulcrum, setRefreshingFulcrum] = useState(false)
-  const [refreshNotice, setRefreshNotice] = useState<string | null>(null)
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        'sonaero-quality-sidebar',
-        sidebarCollapsed ? 'collapsed' : 'expanded',
-      )
-    } catch {
-      // Sidebar state persistence is optional.
-    }
-  }, [sidebarCollapsed])
 
   useEffect(() => {
     let active = true
@@ -185,34 +163,12 @@ export default function App() {
     setReloadKey((value) => value + 1)
   }
 
-  async function refreshPage() {
-    if (activeRoute !== 'shipping-status') {
-      setReloadKey((value) => value + 1)
-      return
-    }
-    setRefreshingFulcrum(true)
-    setRefreshNotice(null)
-    try {
-      const result = await qualityApi<{ updatedRecords: number }>('/api/shipments/refresh', { method: 'POST' })
-      setRefreshNotice(`Fulcrum refresh complete. ${result.updatedRecords} shipment${result.updatedRecords === 1 ? '' : 's'} updated.`)
-      setReloadKey((value) => value + 1)
-    } catch (cause) {
-      setRefreshNotice(cause instanceof Error ? cause.message : 'Fulcrum shipping data could not be refreshed.')
-    } finally {
-      setRefreshingFulcrum(false)
-    }
-  }
-
   return (
     <div className={`qa-shell quality-assurance-app ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
       <a className="skip-link" href="#main-content">Skip to main content</a>
-      <aside className="sidebar" id="quality-sidebar">
+      <aside className="sidebar" id="quality-sidebar" {...sidebar.sidebarProps}>
         <a className="brand brand-hub-link" href={hubUrl} target="_top" aria-label="Return to Arda applications" title="Return to Arda applications"><img className="brand-lockup brand-lockup-standard" src="/brand/arda-lockup.png" alt="" /><img className="brand-lockup brand-lockup-reversed" src="/brand/arda-lockup-reversed.png" alt="" /><img className="brand-mark brand-mark-standard" src="/brand/arda-mark.png" alt="" /><img className="brand-mark brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" /></a>
-        <button type="button" className="sidebar-rail-toggle" aria-label={sidebarCollapsed ? 'Expand Quality Assurance navigation' : 'Collapse Quality Assurance navigation'} aria-expanded={!sidebarCollapsed} aria-controls="quality-sidebar" title={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'} onClick={() => setSidebarCollapsed((current) => !current)}>
-          {sidebarCollapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}
-          <span className="sidebar-rail-toggle-label">{sidebarCollapsed ? 'Expand menu' : 'Collapse menu'}</span>
-        </button>
-        <ArdaGlobalNavigation
+<ArdaGlobalNavigation
           currentApplicationId="quality-assurance"
           hubUrl={hubUrl}
           disabled={user.isPreview}
@@ -224,6 +180,7 @@ export default function App() {
           {userPermissions.includes('quality-assurance.settings.view') && <nav className="foot-nav" aria-label="Quality Assurance administration"><a className="nav-button" href={qualityAdminUrl} target="_top" title="Quality Admin / Settings"><span className="nav-icon"><Settings2 size={17} /></span><span className="nav-label">Quality Admin / Settings</span></a></nav>}
           </>}
         />
+        <ArdaSidebarPin pinned={sidebar.pinned} onToggle={sidebar.togglePinned} />
       </aside>
 
       <main className="main-area" id="main-content">
@@ -241,12 +198,8 @@ export default function App() {
           <div className="topbar-actions">
             <a className="topbar-brand-link" href={hubUrl} target="_top" aria-label="Return to Arda applications" title="Return to Arda applications"><img className="topbar-brand-mark-standard" src="/brand/arda-mark.png" alt="" /><img className="topbar-brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" /></a>
             <div className="topbar-identity"><ThemeSwitch theme={theme} onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} /><div className="user-chip topbar-user-chip" title={`${user.displayName}\n${user.groups.join(', ')}`}><span className="user-copy"><strong>{user.displayName}</strong></span><span className="avatar">{initials(user.displayName)}</span></div></div>
-            {userPermissions.includes('quality-assurance.shipments.view') && userPermissions.includes('quality-assurance.fields.comments.view') && <QualityNotificationCenter onOpenShipment={(shipmentId, isShipped) => openShippingShipment(shipmentId, isShipped, true)} />}
-            {activeRoute === 'shipping-status' && canRunQualityAction(user, 'shipment-imported', userPermissions.includes('quality-assurance.shipments.import')) && <button className="button ghost" type="button" onClick={() => window.dispatchEvent(new Event('quality:open-shipping-import'))}><FileUp size={15} /> Import Excel</button>}
-            <button className="button ghost" type="button" disabled={refreshingFulcrum} onClick={() => void refreshPage()}><RefreshCw className={refreshingFulcrum ? 'is-spinning' : undefined} size={15} /> {refreshingFulcrum ? 'Refreshing Fulcrum...' : 'Refresh'}</button>
           </div>
         </header>
-        {refreshNotice && <p className="topbar-refresh-notice" role="status">{refreshNotice}<button type="button" onClick={() => setRefreshNotice(null)} aria-label="Dismiss refresh result">×</button></p>}
         <div className="main-scroll">{activeRoute === 'dashboard' ? <Dashboard user={user} reloadKey={reloadKey} onOpenShipment={canViewQualityPage(userPermissions, 'shipping-status') ? (shipment) => openShippingShipment(shipment.id, shipment.isShipped) : undefined} /> : <ShippingStatus user={user} reloadKey={reloadKey} />}</div>
       </main>
     </div>

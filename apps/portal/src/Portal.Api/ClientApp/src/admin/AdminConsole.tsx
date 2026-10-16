@@ -12,6 +12,8 @@ import IntegrationCredentialsPanel from './IntegrationCredentialsPanel'
 import ApiCustomizerPanel from './ApiCustomizerPanel'
 import QualityAssignmentRulesPanel from './QualityAssignmentRulesPanel'
 import QualityTeamsPanel from './QualityTeamsPanel'
+import QualityShippingImportPanel from './QualityShippingImportPanel'
+import { hasQualityImportPermissions } from './qualityShippingImport'
 import RaidLogPanel from './RaidLogPanel'
 import WalkthroughSettingsPanel from './WalkthroughSettingsPanel'
 import { toErrorMessage, trackerApi } from './api'
@@ -183,6 +185,7 @@ export default function AdminConsole({
   const canViewQualitySettings = granted.has('quality-assurance.settings.view')
   const canManageQualityRules = granted.has('quality-assurance.rules.manage')
   const canManageQualityTeams = granted.has('quality-assurance.teams.manage')
+  const canImportQualityShipments = hasQualityImportPermissions(granted)
   const canManageEstimatingSettings = granted.has('estimating.settings.admin')
   const canManageEstimatingImportAccess = canManageGroups
   const canManageWorkCenters = granted.has(PERMISSIONS.workCenters)
@@ -276,6 +279,7 @@ export default function AdminConsole({
         canViewEngineeringSettings={permissionsReady && canViewEngineeringSettings}
         canViewQualitySettings={permissionsReady && canViewQualitySettings}
         canManageQualityTeams={permissionsReady && canManageQualityTeams}
+        canImportQualityShipments={permissionsReady && canImportQualityShipments}
       />
       <section className="admin-module-panel" aria-labelledby="admin-workspace-title">
         <header className="admin-workspace-head">
@@ -324,7 +328,9 @@ export default function AdminConsole({
           {route.module === 'engineering' && !permissionsLoading && !permissionsError && canViewEngineeringSettings && <EngineeringStoragePanel/>}
           {route.module === 'quality-assurance' && permissionsLoading && <div className="admin-loading" role="status">Checking Quality Assurance permissions...</div>}
           {route.module === 'quality-assurance' && !permissionsLoading && permissionsError && <NoAccess detail={permissionsError} />}
-          {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && !canViewQualitySettings && <NoAccess detail="Your groups do not grant permission to view Quality settings." />}
+          {route.module === 'quality-assurance' && route.section !== 'shipping-import' && !permissionsLoading && !permissionsError && !canViewQualitySettings && <NoAccess detail="Your groups do not grant permission to view Quality settings." />}
+          {route.module === 'quality-assurance' && route.section === 'shipping-import' && permissionsReady && !canImportQualityShipments && <NoAccess detail="Shipping Excel Import requires the View Quality Shipments and Import Quality Shipments permissions." />}
+          {route.module === 'quality-assurance' && route.section === 'shipping-import' && permissionsReady && canImportQualityShipments && <QualityShippingImportPanel />}
           {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && canViewQualitySettings && route.section === 'assignment-rules' && <QualityAssignmentRulesPanel canManage={canManageQualityRules} />}
           {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && canViewQualitySettings && route.section === 'teams' && !canManageQualityTeams && <NoAccess detail="Managing Quality teams requires the Manage Quality Teams permission." />}
           {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && canViewQualitySettings && route.section === 'teams' && canManageQualityTeams && <QualityTeamsPanel />}

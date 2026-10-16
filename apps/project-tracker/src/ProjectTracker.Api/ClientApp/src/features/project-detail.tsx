@@ -3,8 +3,7 @@ import './project-detail-progress.css'
 import { useState, useEffect, useMemo, useRef, useCallback, Fragment } from 'react'
 import {
   AlertTriangle,
-  Bell,
-  BellOff,
+  SlidersHorizontal,
   CalendarPlus,
   CheckCircle2,
   ChevronDown,
@@ -341,7 +340,6 @@ export function ProjectView({
   notificationTaskId,
   onBomApplied,
   onSearchQuantityRecords,
-  onSyncQuantities,
   onOverrideRouting,
   showChat = true,
   ganttOpen: controlledGanttOpen,
@@ -398,7 +396,6 @@ export function ProjectView({
   const [savingNoteId, setSavingNoteId] = useState<number | null>(null)
   const [noteSaveError, setNoteSaveError] = useState<string | null>(null)
   const [projectDetailsOpen, setProjectDetailsOpen] = useState(true)
-  const [quantitySyncing, setQuantitySyncing] = useState(false)
   const [quantitySyncMessage, setQuantitySyncMessage] = useState<string | null>(null)
   const [quantitySyncError, setQuantitySyncError] = useState<string | null>(null)
   const [routingOverrideOpen, setRoutingOverrideOpen] = useState(false)
@@ -489,21 +486,6 @@ export function ProjectView({
       setNotificationPreferenceError(error instanceof Error ? error.message : 'Notification preference could not be saved.')
     } finally {
       setNotificationPreferenceSaving(false)
-    }
-  }
-
-  const syncQuantities = async () => {
-    if (quantitySyncing) return
-    setQuantitySyncing(true)
-    setQuantitySyncMessage(null)
-    setQuantitySyncError(null)
-    try {
-      const result = await onSyncQuantities()
-      setQuantitySyncMessage(projectDataSyncSummary(result))
-    } catch (error) {
-      setQuantitySyncError(error instanceof Error ? error.message : 'Project quantities could not be pulled.')
-    } finally {
-      setQuantitySyncing(false)
     }
   }
 
@@ -885,11 +867,10 @@ export function ProjectView({
             aria-pressed={notificationPreference.enabled}
             onClick={() => void toggleProjectNotifications()}
           >
-            {notificationPreference.enabled ? <Bell size={15} /> : <BellOff size={15} />}
-            {notificationPreferenceSaving ? 'Saving...' : `Notifications ${notificationPreference.enabled ? 'On' : 'Off'}`}
+            <SlidersHorizontal size={15} />
+            {notificationPreferenceSaving ? 'Saving...' : `Project alerts ${notificationPreference.enabled ? 'On' : 'Off'}`}
           </button>}
-          {canEditQuantities && <button className="button ghost" type="button" title="Refresh ERP quantities; existing operations are never replaced unless they are all blank" disabled={quantitySyncing || routingOverridePending} onClick={() => void syncQuantities()}><RefreshCw size={15} className={quantitySyncing ? 'spin' : undefined} /> {quantitySyncing ? 'Refreshing ERP Data...' : 'Refresh ERP Data'}</button>}
-          {canOverrideRouting && <button className="button ghost" type="button" title="Administrator-only reset that reloads quantities and rebuilds this project's routing from ERP" disabled={quantitySyncing || routingOverridePending} onClick={() => { setRoutingOverrideError(null); setRoutingOverrideOpen(true) }}><RefreshCw size={15} /> Reset BOM from ERP</button>}
+          {canOverrideRouting && <button className="button ghost" type="button" title="Administrator-only reset that reloads quantities and rebuilds this project's routing from ERP" disabled={routingOverridePending} onClick={() => { setRoutingOverrideError(null); setRoutingOverrideOpen(true) }}><RefreshCw size={15} /> Reset BOM from ERP</button>}
           {canManageBom && <ProjectBomImport project={project} onApplied={onBomApplied} />}
           {showChat && <button className="button ghost" type="button" data-guide-id={chatGuideId} onClick={onOpenChat}><MessageSquare size={15} /> Chat</button>}
           {(isCompleted

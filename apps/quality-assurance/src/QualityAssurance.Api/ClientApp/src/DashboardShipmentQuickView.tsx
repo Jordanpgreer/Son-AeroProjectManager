@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Clock3, ExternalLink, UserRoundCheck, X } from 'lucide-react'
 import { qualityApi } from './api'
 import { assignmentOwnerName } from './assignmentDisplay'
+import { displayShipmentNumber } from './shipmentNumber'
 import { ageInDays, formatCompletionDays, formatCurrency, formatDate, formatDateTime } from './format'
 import type { AssignmentOptions, FieldAccess, Shipment, ShipmentFieldKey } from './types'
 
@@ -110,7 +111,7 @@ export default function DashboardShipmentQuickView({
         <header className="drawer-head">
           <div>
             <span className="eyebrow">Dashboard Quick View</span>
-            <h2 id="dashboard-quick-view-title">{shipment.externalShipmentUrl && shipment.salesOrderNumber ? <a className="external-record-link" href={shipment.externalShipmentUrl} target="_blank" rel="noreferrer">{shipment.salesOrderNumber}<ExternalLink size={15} /></a> : shipment.salesOrderNumber ?? `Shipment ${shipment.id}`}</h2>
+            <h2 id="dashboard-quick-view-title">{shipment.externalShipmentUrl && shipment.salesOrderNumber ? <a className="external-record-link" href={shipment.externalShipmentUrl} target="_blank" rel="noreferrer">{displayShipmentNumber(shipment.salesOrderNumber)}<ExternalLink size={15} /></a> : displayShipmentNumber(shipment.salesOrderNumber) ?? `Shipment ${shipment.id}`}</h2>
             <p>{shipment.customer ?? 'Customer hidden'} · {shipment.partNumber ?? 'Part number hidden'}</p>
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Close quick view"><X size={19} /></button>

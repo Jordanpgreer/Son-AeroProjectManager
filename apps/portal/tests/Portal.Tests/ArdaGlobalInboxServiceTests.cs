@@ -48,8 +48,68 @@ public sealed class ArdaGlobalInboxServiceTests
         Assert.Equal(good.TargetUrl,
             await fixture.Inbox.OpenAsync($"push:{good.Id}", fixture.UserWithQuality, CancellationToken.None));
         Assert.NotNull((await fixture.Db.ArdaPushNotifications.FindAsync(good.Id))!.ReadAt);
+        var afterOpen = await fixture.Inbox.GetAsync(fixture.UserWithQuality, CancellationToken.None);
+        Assert.Single(afterOpen.Items);
+        Assert.Equal(0, afterOpen.UnreadCount);
         Assert.Null(await fixture.Inbox.OpenAsync($"push:{unsafeTarget.Id}", fixture.UserWithQuality,
             CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Dismissal_IsDurableIdempotentAndRecipientScoped_WithoutDeletingSource()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var own = Push(@"SON4L\recipient");
+        var other = Push(@"SON4L\other");
+        var unsafeTarget = Push(@"SON4L\recipient");
+        unsafeTarget.TargetUrl = "http://localhost:5170.attacker.example/";
+        fixture.Db.ArdaPushNotifications.AddRange(own, other, unsafeTarget);
+        await fixture.Db.SaveChangesAsync();
+
+        Assert.False(await fixture.Inbox.DismissAsync($"push:{other.Id}", fixture.UserWithQuality, default));
+        Assert.False(await fixture.Inbox.DismissAsync($"push:{unsafeTarget.Id}", fixture.UserWithQuality, default));
+        Assert.False(await fixture.Inbox.DismissAsync($"push:{own.Id}",
+            fixture.UserWithQuality with { Modules = [] }, default));
+        Assert.True(await fixture.Inbox.DismissAsync($"push:{own.Id}", fixture.UserWithQuality, default));
+        Assert.True(await fixture.Inbox.DismissAsync($"push:00{own.Id}",
+            fixture.UserWithQuality with { AccountName = "son4l/recipient" }, default));
+        fixture.Db.ChangeTracker.Clear();
+
+        Assert.Single(await fixture.Db.ArdaInboxDismissals.ToListAsync());
+        Assert.Equal(3, await fixture.Db.ArdaPushNotifications.CountAsync());
+        Assert.Null((await fixture.Db.ArdaPushNotifications.FindAsync(own.Id))!.ReadAt);
+        var inbox = await fixture.Inbox.GetAsync(fixture.UserWithQuality, default);
+        Assert.Empty(inbox.Items);
+        Assert.Equal(0, inbox.UnreadCount);
+        Assert.Null(await fixture.Inbox.OpenAsync($"push:{own.Id}", fixture.UserWithQuality, default));
+        Assert.False(await fixture.Inbox.MarkReadAsync($"push:{own.Id}", fixture.UserWithQuality, default));
+        Assert.Single((await fixture.Inbox.GetAsync(fixture.UserWithQuality with
+            { AccountName = other.RecipientAccountName }, default)).Items);
+    }
+
+    [Fact]
+    public async Task Clear_RemovesReadAndUnreadBeyondFirstPage_AndKeepsFutureAndOtherRecipients()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var rows = Enumerable.Range(0, 65).Select(_ => Push(@"SON4L\recipient")).ToList();
+        rows[0].ReadAt = DateTimeOffset.UtcNow;
+        fixture.Db.ArdaPushNotifications.AddRange(rows);
+        fixture.Db.ArdaPushNotifications.Add(Push(@"SON4L\other"));
+        await fixture.Db.SaveChangesAsync();
+        Assert.Equal(50, (await fixture.Inbox.GetAsync(fixture.UserWithQuality, default)).Items.Count);
+
+        Assert.Equal(65, await fixture.Inbox.ClearAsync(fixture.UserWithQuality, default));
+        Assert.Equal(0, await fixture.Inbox.ClearAsync(fixture.UserWithQuality, default));
+        Assert.Empty((await fixture.Inbox.GetAsync(fixture.UserWithQuality, default)).Items);
+        Assert.Equal(66, await fixture.Db.ArdaPushNotifications.CountAsync());
+        Assert.Single((await fixture.Inbox.GetAsync(fixture.UserWithQuality with
+            { AccountName = @"SON4L\other" }, default)).Items);
+
+        fixture.Db.ArdaPushNotifications.Add(Push(@"SON4L\recipient"));
+        await fixture.Db.SaveChangesAsync();
+        var afterNew = await fixture.Inbox.GetAsync(fixture.UserWithQuality, default);
+        Assert.Single(afterNew.Items);
+        Assert.Equal(1, afterNew.UnreadCount);
     }
 
     [Fact]
@@ -62,6 +122,11 @@ public sealed class ArdaGlobalInboxServiceTests
         {
             PermissionKey = ApplicationPermissions.ProjectDetailView
         });
+        var confirmationPermission = new PortalProjectTrackerPermissionRecord
+        {
+            PermissionKey = "notifications.operationSchedule.confirm"
+        };
+        group.Permissions.Add(confirmationPermission);
         db.ProjectTrackerGroups.Add(group);
         db.Set<PortalProjectTrackerMembershipRecord>().Add(new PortalProjectTrackerMembershipRecord
         {
@@ -97,12 +162,32 @@ public sealed class ArdaGlobalInboxServiceTests
         var result = await fixture.Inbox.GetAsync(fixture.UserWithQuality, CancellationToken.None);
         Assert.Equal(6, result.UnreadCount);
         Assert.Equal(6, result.Items.Count);
+        var confirmation = result.Items.Single(item => item.Title == "OperationStartConfirmation");
+        db.Set<PortalProjectTrackerPermissionRecord>().Remove(confirmationPermission);
+        await db.SaveChangesAsync();
+        Assert.Equal(4, (await fixture.Inbox.GetAsync(fixture.UserWithQuality, default)).Items.Count);
+        Assert.Null(await fixture.Inbox.OpenAsync(confirmation.Id, fixture.UserWithQuality, default));
+        Assert.False(await fixture.Inbox.DismissAsync(confirmation.Id, fixture.UserWithQuality, default));
+        group.Permissions.Add(new PortalProjectTrackerPermissionRecord
+        {
+            PermissionKey = "notifications.operationSchedule.confirm"
+        });
+        await db.SaveChangesAsync();
         var first = result.Items[0];
         Assert.StartsWith("project-tracker:", first.Id);
         Assert.Contains("notificationProjectId=", first.TargetUrl);
         Assert.True(await fixture.Inbox.MarkReadAsync(first.Id, fixture.UserWithQuality,
             CancellationToken.None));
         Assert.Equal(5, (await fixture.Inbox.GetAsync(fixture.UserWithQuality, CancellationToken.None)).UnreadCount);
+
+        Assert.True(await fixture.Inbox.DismissAsync(first.Id, fixture.UserWithQuality, default));
+        Assert.Equal(5, (await fixture.Inbox.GetAsync(fixture.UserWithQuality, default)).Items.Count);
+        Assert.Equal(7, await db.UserNotifications.CountAsync());
+        Assert.Equal(5, await fixture.Inbox.ClearAsync(fixture.UserWithQuality, default));
+        Assert.Empty((await fixture.Inbox.GetAsync(fixture.UserWithQuality, default)).Items);
+        Assert.Equal(7, await db.UserNotifications.CountAsync());
+        Assert.Equal(1, await db.NotificationTasks.CountAsync());
+        Assert.Equal(1, await db.NotificationMessages.CountAsync());
 
         db.Set<PortalProjectTrackerPermissionRecord>().RemoveRange(group.Permissions);
         await db.SaveChangesAsync();
@@ -132,6 +217,8 @@ public sealed class ArdaGlobalInboxServiceTests
         await initializer.InitializeAsync();
         await initializer.InitializeAsync();
         Assert.Contains("ADD [ReadAt]", ArdaPushSchemaInitializer.SqlServerSchema);
+        Assert.Contains("[ArdaInboxDismissals]", ArdaPushSchemaInitializer.SqlServerSchema);
+        Assert.Equal(0, await fixture.Db.ArdaInboxDismissals.CountAsync());
     }
 
     [Fact]
@@ -162,6 +249,7 @@ public sealed class ArdaGlobalInboxServiceTests
         await using var check = connection.CreateCommand();
         check.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ArdaPushNotifications') WHERE name = 'ReadAt';";
         Assert.Equal(1L, await check.ExecuteScalarAsync());
+        Assert.Equal(0, await db.ArdaInboxDismissals.CountAsync());
     }
 
     private static ArdaPushNotificationRecord Push(string recipient) => new()

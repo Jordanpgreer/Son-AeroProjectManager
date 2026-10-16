@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication.Negotiate;
 using Microsoft.EntityFrameworkCore;
 using SmallBusinessSubcontracting.Api;
 using SonAero.Platform.Security;
+using SonAero.Platform.Integrations;
 
 var builder = WebApplication.CreateBuilder(args);
 SubcontractingDatabaseConfiguration.Validate(builder.Configuration, builder.Environment);
@@ -29,10 +30,13 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<SubcontractingAccessService>();
 builder.Services.AddScoped<VendorService>();
 builder.Services.AddSingleton<VendorDocumentStore>();
+builder.Services.AddUniversalFulcrumSync(builder.Configuration,
+    services => services.GetRequiredService<RoleStoreDbContext>().Database.GetDbConnection());
+builder.Services.AddHostedService<FulcrumVendorSyncWorker>();
 builder.Services.AddHttpClient<IFulcrumVendorClient, FulcrumVendorClient>(client =>
 {
     client.Timeout = TimeSpan.FromMinutes(3);
-}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+}).UseSharedFulcrumSnapshots();
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;

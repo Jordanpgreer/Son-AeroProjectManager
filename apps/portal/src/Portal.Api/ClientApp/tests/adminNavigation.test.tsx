@@ -24,6 +24,8 @@ function renderNavigation(overrides: Partial<NavigationProps> = {}) {
     canOpenTrackerSection={() => true}
     canViewEngineeringSettings
     canViewQualitySettings
+    canManageQualityTeams
+    canImportQualityShipments={false}
     {...overrides}
   />)
 }
@@ -36,6 +38,19 @@ function pageLink(markup: string, label: string) {
 }
 
 describe('AdminNavigation', () => {
+  it('makes Quality shipping import usable independently of settings permissions', () => {
+    const markup = renderNavigation({ selected: 'quality-assurance', section: 'shipping-import', canViewQualitySettings: false, canImportQualityShipments: true })
+    expect(pageLink(markup, 'Shipping Excel Import')).toContain('href="#/admin/quality-assurance/shipping-import"')
+    expect(pageLink(markup, 'Shipping Excel Import')).toContain('aria-current="page"')
+    expect(pageLink(markup, 'Workflow')).toContain('aria-disabled="true"')
+    expect(pageLink(markup, 'Teams')).toContain('aria-disabled="true"')
+  })
+
+  it('does not grant upload navigation with only Quality settings permission', () => {
+    const link = pageLink(renderNavigation(), 'Shipping Excel Import')
+    expect(link).toContain('aria-disabled="true"')
+    expect(link).not.toContain('href=')
+  })
   it('marks only the selected nested page current and preserves direct page URLs', () => {
     const markup = renderNavigation({ selected: 'project-tracker', section: 'work-centers' })
 

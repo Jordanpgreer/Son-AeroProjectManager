@@ -116,7 +116,8 @@ public sealed record QualityShippingImportResultDto(
     int CreatedRecords,
     int SkippedDuplicates,
     int ReconciledAssignments,
-    string Worksheet);
+    string Worksheet,
+    int SkippedWithoutShipmentSuffix = 0);
 
 public sealed record QualityShipmentAuditDto(
     long Id,

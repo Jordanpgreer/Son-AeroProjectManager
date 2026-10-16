@@ -30,6 +30,8 @@ public sealed class ArdaPushForegroundService(
             IsolationLevel.Serializable, cancellationToken);
         var candidates = await db.ArdaPushNotifications
             .Where(notification => notification.DeliveredAt == null
+                && !db.ArdaInboxDismissals.Any(dismissal => dismissal.SourceKind == "push"
+                    && dismissal.SourceNotificationId == notification.Id)
                 && lookupKeys.Contains(notification.RecipientAccountName.ToUpper())
                 && (allowedSourceIds == null || allowedSourceIds.Contains(notification.SourceModule)))
             .OrderBy(notification => notification.Id)

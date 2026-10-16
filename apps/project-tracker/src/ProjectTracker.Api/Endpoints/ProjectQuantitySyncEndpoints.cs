@@ -125,11 +125,7 @@ public static class ProjectQuantitySyncEndpoints
         IEnumerable<IProjectQuantityProvider> providers,
         IEnterpriseProviderSource providerSource,
         ILoggerFactory loggerFactory,
-        ProjectAuditService audit,
-        ProjectRoutingSyncService routingSync,
-        ProjectTaskReferenceCleanupService taskReferenceCleanup,
-        ProjectMetricsService metrics,
-        OperationScheduleReminderService reminders,
+        ProjectQuantitySyncApplicationService syncApplication,
         CancellationToken cancellationToken) =>
         SyncAsync(
             projectId,
@@ -141,11 +137,7 @@ public static class ProjectQuantitySyncEndpoints
             providers,
             providerSource,
             loggerFactory,
-            audit,
-            routingSync,
-            taskReferenceCleanup,
-            metrics,
-            reminders,
+            syncApplication,
             cancellationToken);
 
     private static Task<IResult> SyncLegacyAsync(
@@ -156,11 +148,7 @@ public static class ProjectQuantitySyncEndpoints
         IEnumerable<IProjectQuantityProvider> providers,
         IEnterpriseProviderSource providerSource,
         ILoggerFactory loggerFactory,
-        ProjectAuditService audit,
-        ProjectRoutingSyncService routingSync,
-        ProjectTaskReferenceCleanupService taskReferenceCleanup,
-        ProjectMetricsService metrics,
-        OperationScheduleReminderService reminders,
+        ProjectQuantitySyncApplicationService syncApplication,
         CancellationToken cancellationToken) =>
         SyncAsync(
             projectId,
@@ -172,11 +160,7 @@ public static class ProjectQuantitySyncEndpoints
             providers,
             providerSource,
             loggerFactory,
-            audit,
-            routingSync,
-            taskReferenceCleanup,
-            metrics,
-            reminders,
+            syncApplication,
             cancellationToken);
 
     private static Task<IResult> OverrideRoutingAsync(
@@ -186,11 +170,7 @@ public static class ProjectQuantitySyncEndpoints
         IEnumerable<IProjectQuantityProvider> providers,
         IEnterpriseProviderSource providerSource,
         ILoggerFactory loggerFactory,
-        ProjectAuditService audit,
-        ProjectRoutingSyncService routingSync,
-        ProjectTaskReferenceCleanupService taskReferenceCleanup,
-        ProjectMetricsService metrics,
-        OperationScheduleReminderService reminders,
+        ProjectQuantitySyncApplicationService syncApplication,
         CancellationToken cancellationToken) =>
         SyncAsync(
             projectId,
@@ -202,11 +182,7 @@ public static class ProjectQuantitySyncEndpoints
             providers,
             providerSource,
             loggerFactory,
-            audit,
-            routingSync,
-            taskReferenceCleanup,
-            metrics,
-            reminders,
+            syncApplication,
             cancellationToken);
 
     private static async Task<IResult> SyncAsync(
@@ -219,11 +195,7 @@ public static class ProjectQuantitySyncEndpoints
         IEnumerable<IProjectQuantityProvider> providers,
         IEnterpriseProviderSource providerSource,
         ILoggerFactory loggerFactory,
-        ProjectAuditService audit,
-        ProjectRoutingSyncService routingSync,
-        ProjectTaskReferenceCleanupService taskReferenceCleanup,
-        ProjectMetricsService metrics,
-        OperationScheduleReminderService reminders,
+        ProjectQuantitySyncApplicationService syncApplication,
         CancellationToken cancellationToken)
     {
         var activeProvider = await providerSource.GetActiveProviderAsync(cancellationToken);
@@ -308,133 +280,13 @@ public static class ProjectQuantitySyncEndpoints
                 [],
                 snapshot.Warnings));
 
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         try
         {
-            var before = ProjectAuditService.CaptureProject(project);
-            var pulled = new List<string>();
-            var retained = new List<string>();
-            if (!preserveQuantities && snapshot.RequiredQuantity is not null)
-            {
-                project.RequiredQuantity = snapshot.RequiredQuantity;
-                project.RequiredQuantitySource = quantityProvider.ProviderName;
-                pulled.Add("Required quantity");
-            }
-            else if (project.RequiredQuantity is not null)
-            {
-                retained.Add("Required quantity");
-            }
-
-            if (!preserveQuantities && snapshot.JobQuantity is not null)
-            {
-                project.JobQuantity = snapshot.JobQuantity;
-                project.JobQuantitySource = quantityProvider.ProviderName;
-                pulled.Add("Job quantity");
-            }
-            else if (project.JobQuantity is not null)
-            {
-                retained.Add("Job quantity");
-            }
-
-            var syncTime = DateTimeOffset.UtcNow;
-            var routingResult = routingSync.Apply(
-                project,
-                snapshot.ConfirmedRoutingSteps,
-                quantityProvider.ProviderName,
-                syncTime,
-                routingMode);
-            if (routingResult.RemovedTasks.Count > 0)
-            {
-                await taskReferenceCleanup.PrepareForRemovalAsync(
-                    routingResult.RemovedTasks,
-                    syncTime,
-                    cancellationToken);
-                db.Tasks.RemoveRange(routingResult.RemovedTasks);
-            }
-            var warnings = snapshot.Warnings
-                .Concat(routingResult.Warnings)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            project.QuantityLastSyncProvider = quantityProvider.ProviderName;
-            project.QuantityLastSyncedAt = syncTime;
-            project.UpdatedAt = project.QuantityLastSyncedAt.Value;
-            project.Version++;
-            if (routingResult.Added > 0
-                || routingResult.Updated > 0
-                || routingResult.ProgressUpdated > 0
-                || routingResult.Removed > 0)
-            {
-                await metrics.RefreshProjectAsync(
-                    db,
-                    project,
-                    cancellationToken,
-                    preserveTaskSchedule: true);
-            }
-            var changes = ProjectAuditService.Diff(before, ProjectAuditService.CaptureProject(project)).ToList();
-            if (routingResult.Added > 0)
-                changes.Add(new ProjectAuditChange("Routing operations added", null, routingResult.Added.ToString()));
-            if (routingResult.Updated > 0)
-                changes.Add(new ProjectAuditChange("Routing operations updated", null, routingResult.Updated.ToString()));
-            if (routingResult.ProgressUpdated > 0)
-                changes.Add(new ProjectAuditChange($"{quantityProvider.ProviderName} operation progress updated", null, routingResult.ProgressUpdated.ToString()));
-            if (routingResult.ArdaOnlyRetained > 0)
-                changes.Add(new ProjectAuditChange("Arda-only operations retained", null, routingResult.ArdaOnlyRetained.ToString()));
-            if (routingResult.Removed > 0)
-                changes.Add(new ProjectAuditChange("Operations removed by routing reset", null, routingResult.Removed.ToString()));
-            audit.Record(
-                db,
-                project,
-                routingMode == ProjectRoutingSyncMode.ForceOverride ? "ProjectRoutingReset" : "ProjectQuantitySync",
-                routingMode == ProjectRoutingSyncMode.ForceOverride
-                    ? $"Reset this project's operations and quantities from {quantityProvider.ProviderName}"
-                    : $"Refreshed project quantities from {quantityProvider.ProviderName}",
-                changes);
-            await db.SaveChangesAsync(cancellationToken);
-
-            var startedExternalIds = snapshot.ConfirmedRoutingSteps
-                .Where(step => step.ActualStartDate is not null || step.IsComplete)
-                .Select(step => step.ExternalId)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var completedExternalIds = snapshot.ConfirmedRoutingSteps
-                .Where(step => step.ActualCompletionDate is not null || step.IsComplete)
-                .Select(step => step.ExternalId)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var startedTaskIds = project.Tasks
-                .Where(task => task.Id > 0
-                    && task.ExternalSourceOperationId is not null
-                    && startedExternalIds.Contains(task.ExternalSourceOperationId))
-                .Select(task => task.Id)
-                .ToArray();
-            var completedTaskIds = project.Tasks
-                .Where(task => task.Id > 0
-                    && task.ExternalSourceOperationId is not null
-                    && completedExternalIds.Contains(task.ExternalSourceOperationId))
-                .Select(task => task.Id)
-                .ToArray();
-            await reminders.ResolveFromExternalProgressAsync(
-                startedTaskIds,
-                completedTaskIds,
-                cancellationToken);
-
-            await transaction.CommitAsync(cancellationToken);
-
-            return Results.Ok(new ProjectQuantitySyncResultDto(
-                ProjectDtoMapper.ToDetailDto(project),
-                quantityProvider.ProviderName,
-                pulled,
-                retained,
-                warnings,
-                routingResult.Added,
-                routingResult.Updated,
-                routingResult.ArdaOnlyRetained,
-                routingResult.Removed,
-                routingResult.PreservedExisting,
-                routingResult.ProgressUpdated,
-                routingResult.ResetApplied));
+            return Results.Ok(await syncApplication.ApplyAsync(project, snapshot,
+                quantityProvider.ProviderName, preserveQuantities, routingMode, cancellationToken));
         }
         catch (DbUpdateConcurrencyException)
         {
-            await transaction.RollbackAsync(cancellationToken);
             return Results.Conflict(new ConcurrencyConflictDto(
                 "ConcurrencyConflict",
                 "This project changed while ERP data was being applied. Reload it and try again.",
@@ -443,7 +295,6 @@ public static class ProjectQuantitySyncEndpoints
         }
         catch (DbUpdateException)
         {
-            await transaction.RollbackAsync(cancellationToken);
             return Results.Conflict(new
             {
                 detail = "The ERP data could not be applied because linked project records changed at the same time. Reload the project and try again."

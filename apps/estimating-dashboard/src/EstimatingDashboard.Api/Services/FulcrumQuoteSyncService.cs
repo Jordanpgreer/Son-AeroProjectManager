@@ -196,6 +196,12 @@ internal sealed class EnterpriseQuoteSyncService(
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            db.ChangeTracker.Clear();
+            var cancelledRun = await db.FulcrumQuoteSyncRuns.SingleAsync(candidate => candidate.Id == run.Id, CancellationToken.None);
+            cancelledRun.Status = FulcrumQuoteSyncStatuses.Failed;
+            cancelledRun.CompletedAt = DateTimeOffset.UtcNow;
+            cancelledRun.ErrorMessage = "The synchronization was cancelled before completion.";
+            await db.SaveChangesAsync(CancellationToken.None);
             throw;
         }
         catch (Exception exception)

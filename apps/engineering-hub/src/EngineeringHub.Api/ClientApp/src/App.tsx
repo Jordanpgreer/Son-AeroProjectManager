@@ -1,3 +1,4 @@
+import { useArdaSidebar, ArdaSidebarPin } from './ArdaSidebar'
 import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft,
@@ -12,9 +13,6 @@ import {
   History,
   LoaderCircle,
   Lock,
-  PanelLeftClose,
-  PanelLeftOpen,
-  RefreshCw,
   RotateCcw,
   Settings,
   ShieldCheck,
@@ -205,13 +203,8 @@ function UserProfile({ me, className = '' }: { me: Me | null; className?: string
 
 export default function App() {
   const [theme, setTheme] = useState(() => readThemePreference())
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    try {
-      return window.localStorage.getItem('sonaero-engineering-sidebar') === 'collapsed'
-    } catch {
-      return false
-    }
-  })
+  const sidebar = useArdaSidebar()
+  const sidebarCollapsed = sidebar.collapsed
   const [me, setMe] = useState<Me | null>(null)
   const [moduleData, setModuleData] = useState<EngineeringModule | null>(null)
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null)
@@ -234,16 +227,6 @@ export default function App() {
   const can = (permission: string) => hasEngineeringPermission(permissions, permission)
   const canEditMetadata = !me?.isPreview && (can(engineeringPermissionKeys.drawingMetadataEdit) || can(engineeringPermissionKeys.specificationsEdit))
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        'sonaero-engineering-sidebar',
-        sidebarCollapsed ? 'collapsed' : 'expanded',
-      )
-    } catch {
-      // Sidebar state persistence is optional.
-    }
-  }, [sidebarCollapsed])
 
   useEffect(() => {
     async function load() {
@@ -507,7 +490,7 @@ export default function App() {
 
   return (
     <div className={`engineering-shell engineering-app ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${me?.isPreview ? 'access-preview-active' : ''}`.trim()}>
-      <aside className="sidebar" id="engineering-sidebar">
+      <aside className="sidebar" id="engineering-sidebar" {...sidebar.sidebarProps}>
         <a
           className="brand brand-hub-link"
           href={hubUrl}
@@ -521,22 +504,7 @@ export default function App() {
           <img className="brand-mark brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" />
         </a>
 
-        <button
-          type="button"
-          className="sidebar-rail-toggle"
-          aria-label={sidebarCollapsed ? 'Expand Engineering navigation' : 'Collapse Engineering navigation'}
-          aria-expanded={!sidebarCollapsed}
-          aria-controls="engineering-sidebar"
-          title={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
-          onClick={() => setSidebarCollapsed((current) => !current)}
-        >
-          {sidebarCollapsed
-            ? <PanelLeftOpen size={18} aria-hidden="true" />
-            : <PanelLeftClose size={18} aria-hidden="true" />}
-          <span className="sidebar-rail-toggle-label">{sidebarCollapsed ? 'Expand menu' : 'Collapse menu'}</span>
-        </button>
-
-        <ArdaGlobalNavigation
+<ArdaGlobalNavigation
           currentApplicationId="engineering-hub"
           hubUrl={hubUrl}
           disabled={Boolean(me?.isPreview)}
@@ -593,6 +561,7 @@ export default function App() {
             </a>
           </nav>
         </div>}
+        <ArdaSidebarPin pinned={sidebar.pinned} onToggle={sidebar.togglePinned} />
       </aside>
 
       <main className="main-area">
@@ -714,13 +683,8 @@ export default function App() {
                     >
                       {toolingHeader.isArchived ? <RotateCcw size={14}/> : <Archive size={14}/>} {toolingHeader.isArchived ? 'Restore tool' : 'Archive tool'}
                     </button>}
-                    <button className="button ghost" type="button" onClick={() => window.location.reload()}>
-                      <RefreshCw size={15} /> Refresh
-                    </button>
                   </>
-                : <button className="button ghost" type="button" onClick={() => window.location.reload()}>
-                  <RefreshCw size={15} /> Refresh
-                </button>}
+                : null}
           </div>
         </header>
 

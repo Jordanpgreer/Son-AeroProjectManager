@@ -96,7 +96,9 @@ databases. Arrange backup coverage for the new database and document directory.
 8. Verify the initial migration appears in `dbo.__EFMigrationsHistory` and the expected tables exist.
 
 The provisioning script creates the module database if absent, grants scoped database roles,
-and grants SELECT on required shared authorization/credential tables. It does not assign
+and grants SELECT on required shared authorization/credential/provider-setting tables. It also
+precreates the shared Fulcrum snapshot cache and grants CRUD only on that cache table; it grants
+no shared-database DDL role. It does not assign
 Arda users or groups and does not restart SQL Server. Existing untracked module tables are
 a stop condition requiring DBA reconciliation; do not drop them or fabricate migration history.
 

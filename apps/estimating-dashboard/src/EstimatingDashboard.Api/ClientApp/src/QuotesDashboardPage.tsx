@@ -1,3 +1,4 @@
+import { useArdaAutoRefresh } from './useArdaAutoRefresh'
 import {
   AlertTriangle,
   CalendarDays,
@@ -29,7 +30,6 @@ import { formatQuoteRevision } from './quoteRevision'
 import {
   loadPersonalQuotes,
   loadPersonalQuoteStats,
-  refreshPersonalQuoteAssignments,
   statusSetLabel,
   type PersonalQuote,
   type PersonalQuoteStats,
@@ -63,6 +63,7 @@ export default function QuotesDashboardPage({
   const [generatingQuote, setGeneratingQuote] = useState<PersonalQuote | null>(null)
   const [sourceFilter, setSourceFilter] = useState<number | null>(linkedSourceFromHash)
   const personalQuotesHeading = useRef<HTMLHeadingElement>(null)
+  const personalRequestVersion = useRef(0)
   const localDraftsHeading = useRef<HTMLHeadingElement>(null)
   const quotes = useMemo(
     () => listQuotes(ownerAccountName),
@@ -123,33 +124,25 @@ export default function QuotesDashboardPage({
       ? overduePersonalQuotes
       : activePersonalQuotes
 
-  const refreshPersonalQuotes = useCallback(async (pullFromFulcrum = false) => {
-    setPersonalLoading(true)
-    setPersonalError(null)
-    setPersonalStats(null)
-    let quotesLoaded = false
+  const refreshPersonalQuotes = useCallback(async (quiet = false) => {
+    const version = ++personalRequestVersion.current
+    if (!quiet) setPersonalLoading(true)
     try {
-      const nextQuotes = pullFromFulcrum
-        ? await refreshPersonalQuoteAssignments()
-        : await loadPersonalQuotes()
-      setPersonalQuotes(nextQuotes)
-      quotesLoaded = true
+      const [quotes, stats] = await Promise.all([loadPersonalQuotes(), loadPersonalQuoteStats()])
+      if (version !== personalRequestVersion.current) return
+      setPersonalQuotes(quotes)
+      setPersonalStats(stats)
+      setPersonalError(null)
     } catch (error) {
-      setPersonalError(error instanceof Error ? error.message : 'Your assigned quotes could not be loaded.')
-    }
-    if (!pullFromFulcrum || quotesLoaded) {
-      try {
-        setPersonalStats(await loadPersonalQuoteStats())
-      } catch {
-        setPersonalStats(null)
-      }
-    }
-    setPersonalLoading(false)
+      if (!quiet && version === personalRequestVersion.current) setPersonalError(error instanceof Error ? error.message : 'Your assigned quotes could not be loaded.')
+    } finally { if (!quiet && version === personalRequestVersion.current) setPersonalLoading(false) }
   }, [])
 
   useEffect(() => {
-    void refreshPersonalQuotes(false)
+    void refreshPersonalQuotes()
+    return () => { personalRequestVersion.current++ }
   }, [ownerAccountName, refreshPersonalQuotes])
+  useArdaAutoRefresh(() => refreshPersonalQuotes(true), !personalLoading)
 
   const showPersonalView = (view: PersonalQuoteView) => {
     setPersonalView(view)
@@ -210,16 +203,7 @@ export default function QuotesDashboardPage({
                 : 'Active work is ordered by estimating due date. Open a quote to manage its Arda workflow.'}
             </p>
           </div>
-          <button
-            type="button"
-            className="quote-refresh-button"
-            disabled={personalLoading || !canManageQuotes}
-            title={canManageQuotes ? 'Pull new and updated Fulcrum assignments' : 'Editor access is required'}
-            onClick={() => void refreshPersonalQuotes(true)}
-          >
-            <RefreshCw size={14} aria-hidden="true" />
-            Refresh
-          </button>
+
         </div>
 
         <div className="personal-quote-view-tabs" role="group" aria-label="Choose assigned quote view">

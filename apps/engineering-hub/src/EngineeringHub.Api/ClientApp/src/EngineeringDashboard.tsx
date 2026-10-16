@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AlertCircle, ArrowRight, Boxes, CheckCircle2, ClipboardCheck, FileSearch, Search } from 'lucide-react'
 import HighlightedText from './HighlightedText'
+import { useArdaAutoRefresh } from './useArdaAutoRefresh'
 
 interface SearchCategory { id: string; title: string; count: number }
 export interface EngineeringSearchResult {
@@ -56,6 +57,8 @@ export default function EngineeringDashboard({
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+  useArdaAutoRefresh(() => setRefreshKey(value => value + 1), !loading && !updating)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -88,7 +91,7 @@ export default function EngineeringDashboard({
 
     void loadDashboard()
     return () => controller.abort()
-  }, [query, category, customer, status, quickFilter])
+  }, [query, category, customer, status, quickFilter, refreshKey])
 
   const summary = data?.summary
   const results = data?.results ?? []

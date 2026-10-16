@@ -5,7 +5,8 @@ import { Kpi } from '../components.tsx'
 import { CalendarView } from '../features/calendar.tsx'
 import { DashboardView, PastProjectsTable } from '../features/dashboard.tsx'
 import { ProjectView } from '../features/project-detail.tsx'
-import { Sidebar } from '../features/shell.tsx'
+import { Sidebar, ThemeSwitch } from '../features/shell.tsx'
+import { applyTheme, readThemePreference } from '../theme.ts'
 import type { ProjectDetail, ProjectMetadataDraft, User } from '../types.ts'
 import { permissionKeys, projectMetadataEditPermissions, taskFieldEditPermissions } from '../permissions.ts'
 import {
@@ -99,6 +100,9 @@ function TrainingHeader({
   onGuideTarget,
   onPreviewAction,
 }: Pick<TrainingWorkspaceProps, 'user' | 'permissions' | 'screen' | 'search' | 'notificationsOpen' | 'notifications' | 'exportsOpen' | 'editMode' | 'onSearch' | 'onEditModeChange' | 'onActivityOpen' | 'onGuideTarget' | 'onNotifications' | 'onOpenNotification' | 'onClearNotification' | 'onClearAllNotifications' | 'onExports'> & { onPreviewAction: (message: string) => void }) {
+  const [theme, setTheme] = useState(readThemePreference)
+  useEffect(() => { applyTheme(theme) }, [theme])
+  useEffect(() => () => applyTheme(readThemePreference()), [])
   const copy = screenCopy[screen]
   const unreadCount = notifications.filter((notification) => !notification.read).length
   const normalizedPermissions = new Set(permissions.map((permission) => permission.toLocaleLowerCase('en-US')))
@@ -160,19 +164,19 @@ function TrainingHeader({
           </label>
         )}
         <span className="training-view-only-badge"><GraduationCap size={14} /> Training mode</span>
-        <div className="notifications-menu training-notification-anchor">
+        <div className="notifications-menu training-notification-anchor arda-global-navigation__inbox-slot">
           <button
             data-guide-id="notifications-button"
             data-benny-target="notifications"
             type="button"
-            className={`button ghost notification-trigger ${unreadCount ? 'has-unread' : ''}`}
+            className={`arda-global-navigation__inbox-trigger ${unreadCount ? 'has-unread' : ''}`}
             aria-label={`Training notifications${unreadCount ? `, ${unreadCount} unread` : ''}`}
+            title="Notifications"
             aria-expanded={notificationsOpen}
             onClick={onNotifications}
           >
-            <Bell size={16} />
-            <span className="notification-label">Notifications</span>
-            {unreadCount > 0 && <span className="notification-count">{unreadCount}</span>}
+            <Bell size={18} aria-hidden="true" />
+            {unreadCount > 0 && <span className="arda-global-navigation__inbox-count">{unreadCount}</span>}
           </button>
           {notificationsOpen && (
             <section className="notifications-popover training-notifications-popover" data-guide-id="notifications-popover" role="dialog" aria-label="Training notifications">
@@ -234,6 +238,7 @@ function TrainingHeader({
             </section>
           )}
         </div>
+        <ThemeSwitch theme={theme} onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} />
         {screen !== 'calendar' && (
           <details className="export-menu training-export-anchor" open={exportsOpen}>
             <summary

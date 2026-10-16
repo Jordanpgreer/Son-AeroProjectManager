@@ -1,3 +1,5 @@
+import { useArdaAutoRefresh } from './useArdaAutoRefresh'
+import { useArdaSidebar } from './ArdaSidebar'
 import './App.css'
 import './project-tracker-typography.css'
 import './project-tracker-dark.css'
@@ -221,13 +223,8 @@ function clearNotificationDestination() {
 
 function App() {
   const [theme, setTheme] = useState(() => readThemePreference())
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    try {
-      return window.localStorage.getItem('sonaero-project-tracker-sidebar') === 'collapsed'
-    } catch {
-      return false
-    }
-  })
+  const sidebar = useArdaSidebar()
+  const sidebarCollapsed = sidebar.collapsed
   const [user, setUser] = useState<User | null>(null)
   const [dashboard, setDashboard] = useState<Dashboard>(emptyDashboard)
   const [selectedProject, setSelectedProject] = useState<ProjectDetail | null>(null)
@@ -281,16 +278,6 @@ function App() {
   const pendingNavigationRef = useRef<(() => void | Promise<void>) | null>(null)
   const promptedImportProjectId = useRef<number | null>(null)
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        'sonaero-project-tracker-sidebar',
-        sidebarCollapsed ? 'collapsed' : 'expanded',
-      )
-    } catch {
-      // Sidebar state persistence is optional.
-    }
-  }, [sidebarCollapsed])
 
   const projectPayload = (
     project: ProjectDetail,
@@ -336,6 +323,34 @@ function App() {
       }))
   }, [projectMetadata, selectedProject])
   const projectMetadataDirty = projectMetadataChanges.length > 0
+
+  const automaticRefreshAllowed = Boolean(user) && !loading && !projectLoading && !editMode && !projectMetadataDirty
+    && !taskForm && !taskSaving && !projectMetadataSaving && !projectWizardOpen
+    && !importCompletionOpen && !chatOpen && !activityOpen
+  const automaticRefreshState = useRef({ screen, project: selectedProject, allowed: automaticRefreshAllowed })
+  automaticRefreshState.current = { screen, project: selectedProject, allowed: automaticRefreshAllowed }
+  useArdaAutoRefresh(async () => {
+    const requested = automaticRefreshState.current
+    const stillCurrent = () => automaticRefreshState.current.allowed
+      && automaticRefreshState.current.screen === requested.screen
+      && automaticRefreshState.current.project === requested.project
+    const data = await api<Dashboard>('/api/dashboard')
+    if (!stillCurrent()) return
+    setDashboard(data)
+    if (requested.screen === 'calendar') {
+      const projects = await api<ProjectDetail[]>('/api/calendar')
+      if (!stillCurrent()) return
+      setScheduleProjects(projects)
+      calendarDataLoaded.current = true
+    }
+    if (requested.screen === 'project' && requested.project) {
+      const project = await api<ProjectDetail>(`/api/projects/${requested.project.id}`)
+      if (stillCurrent() && project.id === requested.project.id) {
+        setSelectedProject(project)
+        setProjectChangeNotice(null)
+      }
+    }
+  }, automaticRefreshAllowed)
 
   const selectedProjectMetadataId = selectedProject?.id
   const selectedProjectProgramName = selectedProject?.programName ?? ''
@@ -1441,7 +1456,9 @@ function App() {
     <div className={`app-shell project-tracker-app ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
       <Sidebar
         collapsed={sidebarCollapsed}
-        onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
+        onToggleCollapsed={sidebar.togglePinned}
+        pinned={sidebar.pinned}
+        sidebarProps={sidebar.sidebarProps}
         screen={screen}
         setScreen={(target) => { void requestNavigation(() => setScreen(target)) }}
         selectedProject={selectedProject}
