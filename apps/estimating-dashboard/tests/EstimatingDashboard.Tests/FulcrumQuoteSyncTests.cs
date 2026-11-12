@@ -154,7 +154,36 @@ public sealed class FulcrumQuoteSyncTests
             default);
 
         Assert.Equal("saved-token", secret);
-        Assert.NotNull((await db.IntegrationCredentials.SingleAsync()).LastUsedAt);
+        Assert.NotNull((await db.IntegrationCredentials.AsNoTracking().SingleAsync()).LastUsedAt);
+    }
+
+    [Fact]
+    public async Task Credential_usage_does_not_commit_pending_quote_or_rfq_changes()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        await using var fixture = await VendorQuoteTestFixture.CreateAsync();
+        var protector = new SonAero.Platform.Security.MachineIntegrationSecretProtector();
+        fixture.Db.IntegrationCredentials.Add(new EstimatingIntegrationCredentialRecord
+        {
+            CredentialKey = SonAero.Platform.Security.IntegrationCredentialNames.FulcrumPublicApi,
+            DisplayName = "Fulcrum Public API", EncryptedSecret = protector.Protect("saved-token"),
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, UpdatedBy = "TEST"
+        });
+        await fixture.Db.SaveChangesAsync();
+        var quoteId = fixture.QuoteId();
+        var quote = await fixture.Db.QuoteHistory.SingleAsync(row => row.Id == quoteId);
+        quote.ArdaStatus = EstimatingArdaStatuses.RfqSent;
+        fixture.Db.Add(new MaterialPurchasingState { QuoteHistoryId = quoteId, DraftsJson = "[]" });
+
+        var reader = new IntegrationCredentialReader(fixture.Db, protector, TimeProvider.System);
+        Assert.Equal("saved-token", await reader.GetSecretAsync(
+            SonAero.Platform.Security.IntegrationCredentialNames.FulcrumPublicApi, default));
+
+        await using var persisted = fixture.AnotherContext();
+        Assert.Null((await persisted.QuoteHistory.SingleAsync(row => row.Id == quoteId)).ArdaStatus);
+        Assert.Empty(await persisted.Set<MaterialPurchasingState>().ToListAsync());
+        Assert.NotNull((await persisted.IntegrationCredentials.SingleAsync()).LastUsedAt);
+        Assert.True(fixture.Db.ChangeTracker.HasChanges());
     }
 
     [Fact]

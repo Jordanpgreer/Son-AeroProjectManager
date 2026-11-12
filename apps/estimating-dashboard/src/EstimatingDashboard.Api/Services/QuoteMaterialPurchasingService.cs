@@ -54,23 +54,23 @@ internal sealed class QuoteMaterialPurchasingService(EstimatingAccessDbContext d
             ?? throw new VendorQuoteException(404, "This material is not on the quote's current production BOM.");
         var fingerprint = Fingerprint(material);
         var links = Drafts(state).ToList();
-        var previous = links.SingleOrDefault(x => x.ItemId == itemId);
+        var previous = links.SingleOrDefault(x => x.Kind == "material" && x.ItemId == itemId);
         var sameGeneration = previous is { IsCurrent: true } && previous.Fingerprint == fingerprint
             && previous.QuantitiesFingerprint == MaterialDraftTracking.QuantitiesFingerprint(state)
             && MaterialDraftTracking.ValidToken(previous.Token);
         var token = sameGeneration ? previous!.Token! : Guid.NewGuid().ToString("N");
         var draft = MaterialRfqDraft.Create(review.QuoteNumber, material, token);
         var requests = await db.Set<VendorQuoteRequest>().Where(x => x.QuoteHistoryId == id).ToListAsync(ct);
-        var matching = requests.Where(x => string.Equals(x.PartNumber, material.PartNumber, StringComparison.OrdinalIgnoreCase)
-            && material.VendorEmails.Contains(x.VendorEmail, StringComparer.OrdinalIgnoreCase)).ToList();
-        var existing = matching.FirstOrDefault(x => x.Id == previous?.RequestId)
-            ?? matching.FirstOrDefault(x => string.Equals(x.VendorEmail, material.VendorEmails[0], StringComparison.OrdinalIgnoreCase))
-            ?? matching.OrderBy(x => x.Id).FirstOrDefault();
+        // Only this material's saved link may be reused. Another material or an OP
+        // can share the same part and vendor without sharing its RFQ history.
+        var existing = requests.FirstOrDefault(x => x.Id == previous?.RequestId
+            && string.Equals(x.PartNumber, material.PartNumber, StringComparison.OrdinalIgnoreCase)
+            && material.VendorEmails.Contains(x.VendorEmail, StringComparer.OrdinalIgnoreCase));
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         int requestId;
         if (existing is null)
             requestId = (await vendors.CreateAsync(new(id, material.VendorName ?? "", material.VendorEmails[0],
-                $"Material pricing: {material.PartNumber}", PartNumber: material.PartNumber), access, ct)).Request.Id;
+                MaterialRequestTitle(material), PartNumber: material.PartNumber), access, ct)).Request.Id;
         else
         {
             requestId = existing.Id;
@@ -79,7 +79,7 @@ internal sealed class QuoteMaterialPurchasingService(EstimatingAccessDbContext d
                     VendorQuoteStatuses.Untouched, existing.FollowUpDate,
                     "A new material draft was prepared for the current full requirements. Confirm sending before marking Waiting on vendor."), access, ct);
         }
-        links.RemoveAll(x => x.ItemId == itemId);
+        links.RemoveAll(x => x.Kind == "material" && x.ItemId == itemId);
         links.Add(sameGeneration && previous!.RequestId == requestId ? previous : new(itemId, requestId, fingerprint,
             token, clock.GetUtcNow(), material.PartNumber, $"Quote {review.QuoteNumber} - {material.PartNumber}",
             draft.PlainText, material.VendorEmails.Select(email => email.ToLowerInvariant()).Distinct().ToArray(),
@@ -93,6 +93,14 @@ internal sealed class QuoteMaterialPurchasingService(EstimatingAccessDbContext d
         return draft;
     }
 
+    private static string MaterialRequestTitle(MaterialRequirementDto material)
+    {
+        const string prefix = "Material pricing: ";
+        var suffix = $" [{material.ItemId}]";
+        var numberLength = Math.Max(0, 240 - prefix.Length - suffix.Length);
+        return prefix + material.PartNumber[..Math.Min(material.PartNumber.Length, numberLength)] + suffix;
+    }
+
     private Task<MaterialRequirementsDto> InspectAsync(EstimatingQuoteHistoryRecord quote,
         IReadOnlyList<MaterialQuantitySelectionDto> selections, CancellationToken ct) =>
         requirements.InspectAsync(quote.Id, quote.QuoteNumber, quote.SourceId, ct,
@@ -102,10 +110,10 @@ internal sealed class QuoteMaterialPurchasingService(EstimatingAccessDbContext d
         EstimatingAccessProfile access, CancellationToken ct)
     {
         var links = Drafts(state);
-        if (state is not null && links.Any(link => link.IsCurrent && !result.Materials.Any(material =>
+        if (state is not null && links.Any(link => link.Kind == "material" && link.IsCurrent && !result.Materials.Any(material =>
                 material.ItemId == link.ItemId && Fingerprint(material) == link.Fingerprint)))
         {
-            links = links.Select(link => link.IsCurrent && !result.Materials.Any(material =>
+            links = links.Select(link => link.Kind == "material" && link.IsCurrent && !result.Materials.Any(material =>
                     material.ItemId == link.ItemId && Fingerprint(material) == link.Fingerprint)
                 ? link with { IsCurrent = false } : link).ToArray();
             // Preview/read-only inspection may hide obsolete tracking locally but cannot mutate it.
@@ -119,12 +127,13 @@ internal sealed class QuoteMaterialPurchasingService(EstimatingAccessDbContext d
         var requests = await db.Set<VendorQuoteRequest>().AsNoTracking().Where(x => x.QuoteHistoryId == result.QuoteHistoryId).ToListAsync(ct);
         return result with { QuantityVersion = state?.Version ?? 0, Materials = result.Materials.Select(material =>
         {
-            var link = links.SingleOrDefault(x => x.IsCurrent && x.ItemId == material.ItemId && x.Fingerprint == Fingerprint(material)
+            var link = links.SingleOrDefault(x => x.Kind == "material" && x.IsCurrent && x.ItemId == material.ItemId && x.Fingerprint == Fingerprint(material)
                 && (x.Token is null || x.QuantitiesFingerprint == MaterialDraftTracking.QuantitiesFingerprint(state)));
             var request = requests.SingleOrDefault(x => x.Id == link?.RequestId
                 && string.Equals(x.PartNumber, material.PartNumber, StringComparison.OrdinalIgnoreCase)
                 && material.VendorEmails.Contains(x.VendorEmail, StringComparer.OrdinalIgnoreCase));
-            return material with { RequestId = request?.Id, RequestStatus = request is null ? null : VendorQuoteStatuses.Normalize(request.Status) };
+            return material with { RequestId = request?.Id, RequestStatus = request is null ? null : VendorQuoteStatuses.Normalize(request.Status),
+                SentAt = request is null ? null : link?.SentAt };
         }).ToList() };
     }
 

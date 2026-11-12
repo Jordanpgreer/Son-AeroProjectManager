@@ -48,9 +48,10 @@ internal static class FulcrumMaterialRequirementsPolicy
                 Text(Field(row.Purchase, "vendor"), "name"))).FirstOrDefault();
     }
 
-    public static bool HasCompleteHistory(JsonElement history) =>
+    public static bool HasCompleteHistory(JsonElement history, int minimumMonths = 3) =>
         Field(history, "purchases").ValueKind == JsonValueKind.Array
-        && Number(history, "windowMonths") >= 3
+        && Number(history, "windowMonths") >= minimumMonths
+        && Number(history, "totalPurchaseCount") >= 0
         && Number(history, "totalPurchaseCount") == Field(history, "purchases").GetArrayLength();
 
     public static bool ValidEmail(string value) => value.Length is > 0 and <= 254

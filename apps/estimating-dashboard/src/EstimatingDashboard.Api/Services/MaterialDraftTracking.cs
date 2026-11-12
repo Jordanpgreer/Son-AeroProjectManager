@@ -8,7 +8,8 @@ internal sealed record MaterialDraftLink(string ItemId, int RequestId, string Fi
     string? Token = null, DateTimeOffset? PreparedAt = null, string? PartNumber = null,
     string? Subject = null, string? TemplateText = null, IReadOnlyList<string>? RecipientEmails = null,
     string? QuantitiesFingerprint = null, bool IsCurrent = true, DateTimeOffset? SentAt = null,
-    string? SentSourceId = null, string? ConversationId = null, IReadOnlyList<string>? ConversationIds = null);
+    string? SentSourceId = null, string? ConversationId = null, IReadOnlyList<string>? ConversationIds = null,
+    string Kind = "material");
 
 internal static class MaterialDraftTracking
 {

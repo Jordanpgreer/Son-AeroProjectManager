@@ -39,6 +39,23 @@ public sealed class QuoteMaterialPurchasingTests
     }
 
     [Fact]
+    public async Task Different_material_items_with_same_part_and_vendor_have_separate_threads()
+    {
+        await using var fixture = await VendorQuoteTestFixture.CreateAsync();
+        var provider = new Reader { SecondMaterial = MaterialRfqDraftTests.Material with { ItemId = "material-2" } };
+        var service = new QuoteMaterialPurchasingService(fixture.Db, fixture.Vendors, provider, TimeProvider.System);
+        await service.DraftAsync(fixture.QuoteId(), "material-1", VendorQuoteTestFixture.Editor, default);
+        await service.DraftAsync(fixture.QuoteId(), "material-2", VendorQuoteTestFixture.Editor, default);
+        await service.DraftAsync(fixture.QuoteId(), "material-1", VendorQuoteTestFixture.Editor, default);
+        var requests = await fixture.Db.Set<VendorQuoteRequest>().OrderBy(request => request.Id).ToListAsync();
+        Assert.Equal(2, requests.Count);
+        Assert.NotEqual(requests[0].ThreadKey, requests[1].ThreadKey);
+        var materials = (await service.ReadAsync(fixture.QuoteId(), VendorQuoteTestFixture.Editor, default)).Materials;
+        Assert.NotEqual(materials[0].RequestId, materials[1].RequestId);
+        Assert.All(materials, material => Assert.NotNull(material.RequestId));
+    }
+
+    [Fact]
     public async Task Stock_change_blocks_stale_draft_without_creating_rfq()
     {
         await using var fixture = await VendorQuoteTestFixture.CreateAsync();
@@ -63,6 +80,7 @@ public sealed class QuoteMaterialPurchasingTests
     {
         public int Calls { get; private set; }
         public MaterialRequirementDto Material { get; set; } = MaterialRfqDraftTests.Material;
+        public MaterialRequirementDto? SecondMaterial { get; set; }
         public IReadOnlyDictionary<string, IReadOnlyList<decimal>>? Overrides { get; private set; }
         public Task<MaterialRequirementsDto> InspectAsync(int historyId, int quoteNumber, string sourceId, CancellationToken ct, IReadOnlyDictionary<string, IReadOnlyList<decimal>>? quantityOverrides = null)
         {
@@ -70,7 +88,8 @@ public sealed class QuoteMaterialPurchasingTests
             Overrides = quantityOverrides;
             return Task.FromResult(new MaterialRequirementsDto(historyId, quoteNumber, VendorQuoteTestFixture.Now,
                 [new("line", "top-item", "11488049", "E", quantityOverrides?.GetValueOrDefault("top-item") ?? [1000],
-                    quantityOverrides?.ContainsKey("top-item") == true)], [Material], []));
+                    quantityOverrides?.ContainsKey("top-item") == true)],
+                SecondMaterial is null ? [Material] : [Material, SecondMaterial], []));
         }
     }
 
@@ -95,16 +114,18 @@ public sealed class QuoteMaterialPurchasingTests
     }
 
     [Fact]
-    public async Task Multiple_contact_threads_do_not_block_draft_or_change_unrelated_thread()
+    public async Task Multiple_contact_threads_do_not_block_draft_or_reuse_unrelated_thread()
     {
         await using var fixture = await VendorQuoteTestFixture.CreateAsync();
         var primary = await fixture.ThreadAsync("RM004420", "cheri@example.test", "Quote received");
         var secondary = await fixture.ThreadAsync("RM004420", "mark@example.test", "Quote received");
         var service = new QuoteMaterialPurchasingService(fixture.Db, fixture.Vendors, new Reader(), TimeProvider.System);
         await service.DraftAsync(fixture.QuoteId(), "material-1", VendorQuoteTestFixture.Editor, default);
-        Assert.Equal("Untouched", (await fixture.Vendors.DetailAsync(primary.Request.Id, VendorQuoteTestFixture.Editor, default)).Request.Status);
+        Assert.Equal("Quote received", (await fixture.Vendors.DetailAsync(primary.Request.Id, VendorQuoteTestFixture.Editor, default)).Request.Status);
         Assert.Equal("Quote received", (await fixture.Vendors.DetailAsync(secondary.Request.Id, VendorQuoteTestFixture.Editor, default)).Request.Status);
-        Assert.Equal(2, await fixture.Db.Set<VendorQuoteRequest>().CountAsync());
+        Assert.Equal(3, await fixture.Db.Set<VendorQuoteRequest>().CountAsync());
+        Assert.Single(await fixture.Db.Set<VendorQuoteRequest>().Where(request => request.Title.StartsWith("Material pricing:"))
+            .Where(request => request.Status == VendorQuoteStatuses.Untouched).ToListAsync());
     }
 
     [Fact]

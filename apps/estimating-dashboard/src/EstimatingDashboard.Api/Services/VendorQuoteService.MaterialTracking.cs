@@ -19,16 +19,20 @@ public sealed partial class VendorQuoteService
         var links = MaterialDraftTracking.Read(state);
         var managed = links.Where(link => MaterialDraftTracking.ValidToken(link.Token)).Select(link => link.RequestId).ToHashSet();
         var noMatch = new MaterialMessageMatch(null, state, null, false, managed);
-        if (state is null || subjectItem.Length == 0) return noMatch;
+        if (state is null) return noMatch;
         var matches = new List<(MaterialDraftLink Link, bool Sent)>();
         foreach (var link in links.Where(link => link.IsCurrent && MaterialDraftTracking.ValidToken(link.Token)
             && link.QuantitiesFingerprint == MaterialDraftTracking.QuantitiesFingerprint(state)
-            && string.Equals(link.PartNumber, subjectItem, StringComparison.OrdinalIgnoreCase)
+            && (string.Equals(link.PartNumber, subjectItem, StringComparison.OrdinalIgnoreCase)
+                || direction == "outgoing" && dto.MaterialDraftToken is not null
+                    && string.Equals(dto.MaterialDraftToken, link.Token, StringComparison.OrdinalIgnoreCase))
             && link.RecipientEmails?.Contains(vendor, StringComparer.OrdinalIgnoreCase) == true))
         {
             if (direction == "outgoing" && link.PreparedAt.HasValue
                 && dto.SentAt.ToUnixTimeSeconds() >= link.PreparedAt.Value.ToUnixTimeSeconds()
-                && string.Equals(dto.Subject, link.Subject, StringComparison.Ordinal)
+                && (string.Equals(dto.Subject, link.Subject, StringComparison.Ordinal)
+                    || dto.MaterialDraftToken is not null
+                        && string.Equals(dto.MaterialDraftToken, link.Token, StringComparison.OrdinalIgnoreCase))
                 && link.RecipientEmails!.All(email => recipients.Contains(email, StringComparer.OrdinalIgnoreCase)))
             {
                 // A supplied but obsolete token must never fall back to body matching.

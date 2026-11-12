@@ -43,6 +43,32 @@ public sealed class FulcrumMaterialRequirementsTests
     }
 
     [Fact]
+    public async Task Confirmed_empty_operations_flag_only_the_quoted_part()
+    {
+        using var fixture = new Fixture();
+        fixture.Handler.NoOperations = true;
+        var result = await fixture.Service.InspectAsync(7, 123, "quote", default);
+        Assert.True(Assert.Single(result.Parts).NoFulcrumOperations);
+        fixture.Handler.Failure = "operations";
+        result = await fixture.Service.InspectAsync(7, 123, "quote", default);
+        Assert.False(Assert.Single(result.Parts).NoFulcrumOperations);
+        Assert.Contains(result.Warnings, warning => warning.Contains("could not be verified"));
+    }
+
+    [Fact]
+    public async Task Zero_stock_and_empty_full_api_window_marks_history_with_window_limit()
+    {
+        using var fixture = new Fixture();
+        var material = Assert.Single((await fixture.Service.InspectAsync(7, 123, "quote", default)).Materials);
+        Assert.True(material.NoPurchasesInFulcrumWindow);
+        Assert.Contains(fixture.Handler.Paths, path => path.Contains("purchase-history"));
+        fixture.Handler.LongHistoryPurchases = [new { purchaseOrderNumber = 123, orderDateUtc = "2024-01-01T00:00:00Z",
+            purchaseOrderStatus = "Ordered", effectiveUnitPrice = 1, quantityOrdered = 1 }];
+        material = Assert.Single((await fixture.Service.InspectAsync(7, 123, "quote", default)).Materials);
+        Assert.False(material.NoPurchasesInFulcrumWindow);
+    }
+
+    [Fact]
     public async Task Alternate_quantities_use_lowest_and_largest_without_adding_or_multiplying_them()
     {
         using var fixture = new Fixture();
@@ -318,9 +344,11 @@ public sealed class FulcrumMaterialRequirementsTests
         public List<string> Paths { get; } = [];
         public object[] Lines { get; set; } = [Line("one", "top", 1000)];
         public object[] Purchases { get; set; } = [];
+        public object[]? LongHistoryPurchases { get; set; }
         public decimal Available { get; set; }
         public bool Nested { get; set; }
         public bool NoMaterials { get; set; }
+        public bool NoOperations { get; set; }
         public string VendorName { get; set; } = "Nexeo Plastics LLC";
         public string PartNumber { get; set; } = "RM004420";
         public string Description { get; set; } = "Complete item description\nSecond line";
@@ -336,6 +364,7 @@ public sealed class FulcrumMaterialRequirementsTests
             Paths.Add(path);
             Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
             if (Failure switch { "inventory" => path.Contains("availableByItem"), "history" => path.Contains("purchase-history"),
+                "operations" => path.Contains("routing/operations/list"),
                 "vendor" => path.EndsWith("vendors/list"), "contacts" => path.Contains("contacts"), _ => false })
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden));
             object body = path switch
@@ -350,9 +379,13 @@ public sealed class FulcrumMaterialRequirementsTests
                 "/api/items/top/routing/input-items/list" when Nested => new[] { new { id = "subInput", itemId = "sub", valueType = "requires", valueTypeUnits = 3, fixedUnits = 2 } },
                 "/api/items/top/routing/input-items/list" or "/api/items/other/routing/input-items/list" or "/api/items/sub/routing/input-items/list" =>
                     new[] { new { id = "input", itemId = "material", valueType = InvalidUsage ? "unknown" : "requires", valueTypeUnits = PerUnit, fixedUnits = FixedUnits } },
+                "/api/items/top/routing/operations/list" or "/api/items/other/routing/operations/list" =>
+                    NoOperations ? System.Array.Empty<object>() : new[] { new { id = "operation", name = "Cut" } },
                 "/api/inventory/availableByItem" when BadInventory => new { material = "unknown" },
                 "/api/inventory/availableByItem" => new { material = Available },
                 "/api/items/material/purchase-history" when BadHistory => new { purchases = "unknown" },
+                "/api/items/material/purchase-history" when request.RequestUri.Query.Contains("months=60") =>
+                    new { windowMonths = 60, totalPurchaseCount = (LongHistoryPurchases ?? Purchases).Length, purchases = LongHistoryPurchases ?? Purchases },
                 "/api/items/material/purchase-history" => new { windowMonths = 3, totalPurchaseCount = Purchases.Length, purchases = Purchases },
                 "/api/items/material/vendors/list" => new[] { new { id = "vendor-link", vendorId = "vendor", isPrimary = true } },
                 "/api/vendors/vendor" => new { id = "vendor", name = VendorName, active = true },

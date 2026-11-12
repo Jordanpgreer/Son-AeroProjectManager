@@ -3,7 +3,7 @@ import { Fragment, useId, useLayoutEffect, useRef, useState } from 'react'
 import { dateTime, LEGACY_VENDOR_STATUSES, QUOTE_STATUSES, relativeTime, statusTone, VENDOR_STATUSES } from './model'
 import type { QuoteActivity, VendorActivity, VendorDetail, VendorMessage } from './types'
 import { activityDescription, editableNoteId } from './lifecycleModel'
-import { buildActivityTimeline, isOutgoingEmail, timelineInlineContent, timelineSummary } from './activityTimelineModel'
+import { buildActivityTimeline, isOutgoingEmail, scopeActivityTimeline, timelineCategory, timelineInlineContent, timelineSummary } from './activityTimelineModel'
 import Modal from './Modal'
 import EmailMessages from './EmailMessages'
 import './activity-timeline.css'
@@ -45,9 +45,10 @@ function InlinePreview({ text, entryLabel, onOpen }: { text: string; entryLabel:
 }
 
 export default function ActivityTimeline({ activity, onThread, canEdit = false, canRemove = false, busy = false, onEdit, onRemove,
-  messages = [], threads = [], unassignedIds = new Set<number>(), onAssign, onMoveEmail, onRemoveEmail, onRateRequest }: {
+  messages = [], threads = [], requestId = null, unassignedIds = new Set<number>(), onAssign, onMoveEmail, onRemoveEmail, onRateRequest }: {
   activity: (QuoteActivity | VendorActivity)[]; onThread?: (id: number) => void
   canEdit?: boolean; canRemove?: boolean; busy?: boolean
+  requestId?: number | null
   onEdit?: (item: QuoteActivity | VendorActivity) => void; onRemove?: (item: QuoteActivity | VendorActivity) => void
   messages?: VendorMessage[]; threads?: VendorDetail[]; unassignedIds?: Set<number>
   onAssign?: (messageId: number, requestId: number) => Promise<void>
@@ -57,10 +58,10 @@ export default function ActivityTimeline({ activity, onThread, canEdit = false, 
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
   const timelineId = useId()
-  const entries = buildActivityTimeline(activity, messages, threads)
+  const entries = scopeActivityTimeline(buildActivityTimeline(activity, messages, threads), requestId)
   const visibleEntries = expanded ? entries : entries.slice(0, 5)
   const selected = entries.find(entry => entry.key === selectedKey)
-  if (!entries.length) return <div className="qs-timeline-empty"><Clock3 size={24} /><div><strong>No activity yet</strong><p>Use Add Entry to start the record.</p></div></div>
+  if (!entries.length) return <div className="qs-timeline-empty"><Clock3 size={24} /><div><strong>{requestId === null ? 'No activity yet' : 'No activity in this RFQ yet'}</strong><p>{requestId === null ? 'Use Add Entry to start the record.' : 'Updates and emails assigned to this RFQ will appear here.'}</p></div></div>
   return <>
     <ol id={timelineId} className="qs-activity-timeline" aria-label="Activity timeline">{visibleEntries.map(entry => {
       const item = entry.type === 'activity' ? entry.activity : null
@@ -68,14 +69,15 @@ export default function ActivityTimeline({ activity, onThread, canEdit = false, 
       const outgoing = email && isOutgoingEmail(email)
       const Icon = email ? outgoing ? Send : Mail : item?.kind.includes('note') ? MessageSquare : Clock3
       const author = email ? email.fromName || email.fromAddress : item!.displayName || item!.accountName || 'Arda'
-      const summary = email ? `${outgoing ? 'Sent' : 'Received'} an email${email.subject ? `: ${email.subject}` : '.'}` : timelineSummary(item!)
+      const summary = email ? email.subject || 'No subject' : timelineSummary(item!)
       const inlineContent = email ? email.bodyText.trim() : timelineInlineContent(item!)
       const openDetails = () => setSelectedKey(entry.key)
       const editable = !email && canEdit && !!onEdit && !!editableNoteId(item!)
       const removable = email ? canRemove && !!onRemoveEmail : canRemove && !!onRemove && !!editableNoteId(item!)
-      return <li key={entry.key} className="qs-timeline-entry">
+      return <li key={entry.key} className={`qs-timeline-entry${email ? ' is-email' : item?.kind.includes('note') ? ' is-note' : ' is-status'}`}>
         <span className={`qs-timeline-icon${email ? ' is-email' : ''}`}><Icon size={15} /></span>
         <div className="qs-timeline-body">
+          <span className="qs-timeline-category">{timelineCategory(entry)}</span>
           <span className="qs-timeline-summary"><strong>{author}</strong><span> — {summary}</span></span>
           {inlineContent && <InlinePreview text={inlineContent} entryLabel={`${author} — ${summary}`} onOpen={openDetails} />}
           <span className="qs-timeline-meta"><time dateTime={entry.occurredAt} title={dateTime(entry.occurredAt)}>{relativeTime(entry.occurredAt)}</time>{entry.threadName && <span>{entry.partNumber ? `${entry.partNumber} · ` : ''}{entry.threadName}</span>}{outgoing && email?.isRateRequest && <span className="qs-rate-request-badge"><Tag size={11} />Rates requested</span>}</span>

@@ -11,7 +11,8 @@ using SonAero.Platform.Security;
 
 namespace EstimatingDashboard.Api.Services;
 
-public sealed partial class VendorQuoteService(EstimatingAccessDbContext db, TimeProvider clock)
+public sealed partial class VendorQuoteService(EstimatingAccessDbContext db, TimeProvider clock,
+    IQuoteRfqProgression? progression = null)
 {
     internal static bool Has(EstimatingAccessProfile access, string permission) => access.Permissions.Contains(permission, StringComparer.OrdinalIgnoreCase);
     internal static void Guard(EstimatingAccessProfile access, bool write = false)
@@ -97,8 +98,7 @@ public sealed partial class VendorQuoteService(EstimatingAccessDbContext db, Tim
         var email = string.IsNullOrWhiteSpace(dto.VendorEmail) ? "" : Email(dto.VendorEmail);
         var title = Required(dto.Title, "Title", 240);
         var part = Optional(dto.PartNumber, "Part number", 160);
-        var key = ThreadKey(email, name, part, title);
-        if (await db.Set<VendorQuoteRequest>().AnyAsync(x => x.QuoteHistoryId == quote.Id && x.ThreadKey == key, ct))
+        if (await HasDuplicateThreadAsync(quote.Id, 0, email, name, part, title, ct))
             throw new VendorQuoteException(409, "A thread for this vendor and part already exists.");
         var request = NewRequest(quote, email, name, title, part, access);
         request.Status = Status(dto.Status ?? "Untouched");
@@ -122,7 +122,7 @@ public sealed partial class VendorQuoteService(EstimatingAccessDbContext db, Tim
         var part = dto.PartNumber is null ? request.PartNumber : Optional(dto.PartNumber, "Part number", 160);
         var email = dto.VendorEmail is null ? request.VendorEmail : string.IsNullOrWhiteSpace(dto.VendorEmail) ? "" : Email(dto.VendorEmail);
         var key = ThreadKey(email, name, part, title);
-        if (await db.Set<VendorQuoteRequest>().AnyAsync(x => x.Id != id && x.QuoteHistoryId == request.QuoteHistoryId && x.ThreadKey == key, ct))
+        if (await HasDuplicateThreadAsync(request.QuoteHistoryId, id, email, name, part, title, ct))
             throw new VendorQuoteException(409, "A thread for this vendor and part already exists.");
         if (part != request.PartNumber) AddActivity(request, "details", "Part number updated", access, request.PartNumber, part);
         if (email != request.VendorEmail) AddActivity(request, "details", "Vendor email updated", access, request.VendorEmail, email);
@@ -164,7 +164,24 @@ public sealed partial class VendorQuoteService(EstimatingAccessDbContext db, Tim
         AddActivity(request, "created", "Thread created", access, null, request.Status);
         return request;
     }
-    private static string ThreadKey(string email, string name, string? part, string title) => Hash($"{(email.Length > 0 ? email : name + "|" + title).ToLowerInvariant()}\n{part?.ToLowerInvariant()}");
+    // A quote can need several distinct RFQs for the same vendor and part (for example,
+    // separate material inputs or outside-processing operations). The title identifies
+    // the specific work while preserving duplicate protection for that work.
+    private static string ThreadKey(string email, string name, string? part, string title) =>
+        Hash($"{(email.Length > 0 ? email : name).ToLowerInvariant()}\n{part?.ToLowerInvariant()}\n{title.ToLowerInvariant()}");
+    private async Task<bool> HasDuplicateThreadAsync(int quoteId, int excludedId, string email, string name,
+        string? part, string title, CancellationToken ct)
+    {
+        var key = ThreadKey(email, name, part, title);
+        // Old rows did not include a title when an email was present. Preserve duplicate
+        // protection for that same work without blocking a distinct OP for the same vendor/part.
+        var legacyKey = Hash($"{(email.Length > 0 ? email : name + "|" + title).ToLowerInvariant()}\n{part?.ToLowerInvariant()}");
+        var candidates = await db.Set<VendorQuoteRequest>().AsNoTracking()
+            .Where(row => row.QuoteHistoryId == quoteId && row.Id != excludedId
+                && (row.ThreadKey == key || row.ThreadKey == legacyKey))
+            .Select(row => new { row.ThreadKey, row.Title }).ToListAsync(ct);
+        return candidates.Any(row => row.ThreadKey == key || string.Equals(row.Title, title, StringComparison.OrdinalIgnoreCase));
+    }
     internal static string Hash(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
     private void SetStatus(VendorQuoteRequest request, string status, EstimatingAccessProfile access)
     {

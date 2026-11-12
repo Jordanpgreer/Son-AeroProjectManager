@@ -10,6 +10,7 @@
 .qs-material-parts > div { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-2); }
 .qs-material-parts > div > span { color: var(--steel-700); }
 .qs-material-parts small { color: var(--muted); }
+.qs-material-parts .qs-industrios-label { padding: 2px 6px; border-radius: 4px; background: var(--warn-tint); color: var(--warn-700); font-weight: 650; }
 .qs-material-list { display: grid; gap: 11px; }
 .qs-material-row { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
 .qs-material-row.is-needs-rfq { border-left: 3px solid var(--warn); }
@@ -20,13 +21,17 @@
 .qs-material-state { color: var(--muted); font-size: 10px; }
 .is-needs-rfq .qs-material-state,.is-review-required .qs-material-state { color: var(--warn-700); }
 .is-stock-covered .qs-material-state,.is-recent-po .qs-material-state { color: var(--ok-700); }
-.qs-request-page .qs-material-draft { min-height: 33px; padding: 7px 10px; color: var(--steel-700); font-size: 11px !important; }
-.qs-material-description { margin: 10px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
+.qs-request-page .qs-material-draft { min-height: 35px; padding: 7px 12px; color: var(--steel-700); font-size: 11px !important; }
+.qs-material-description { margin: 10px 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
+.qs-material-recipient { margin: 0 0 12px; color: var(--ink-2); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.qs-material-recipient span { color: var(--muted); }
 .qs-material-quantities { display: flex; flex-wrap: wrap; gap: 9px 30px; margin: 0; }
 .qs-material-quantities > div { display: grid; gap: 4px; }
-.qs-material-quantities dt,.qs-material-email dt { color: var(--muted); font-size: 10px; }
+.qs-material-quantities dt { color: var(--muted); font-size: 10px; }
 .qs-material-quantities dd { margin: 0; color: var(--ink-2); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .qs-material-po { margin: 12px 0 0; color: var(--ok-700); font-size: 11px; line-height: 1.6; }
+.qs-material-history { display: grid; gap: 3px; margin: 12px 0 0; padding: 9px 10px; border-left: 3px solid var(--warn); background: var(--warn-tint); color: var(--ink-2); font-size: 11px; line-height: 1.5; }
+.qs-material-history small { color: var(--muted); }
 .qs-material-breakdown { margin-top: 10px; }
 .qs-material-breakdown > summary { display: flex; align-items: center; gap: 7px; width: fit-content; padding: 4px 0; color: var(--steel-700); font-size: 11px; font-weight: 550; cursor: pointer; list-style: none; }
 .qs-material-breakdown > summary::-webkit-details-marker,.qs-material-covered > summary::-webkit-details-marker { display: none; }
@@ -38,10 +43,6 @@
 .qs-material-rule,.qs-material-hint,.qs-material-message { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.7; }
 .qs-material-hint { margin-top: 13px; }
 .qs-material-message { padding: 5px 0; }
-.qs-material-email { display: grid; gap: 10px; margin: 0; padding-top: 11px; border-top: 1px solid var(--line); }
-.qs-material-email > div { display: grid; gap: 4px; }
-.qs-material-email dd { margin: 0; color: var(--ink-2); font-size: 11px; line-height: 1.65; overflow-wrap: anywhere; }
-.qs-material-full-description { white-space: pre-wrap; }
 .qs-material-covered { margin-top: 14px; border-top: 1px solid var(--line); }
 .qs-material-covered > summary { display: flex; align-items: center; gap: 7px; padding: 13px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; cursor: pointer; list-style: none; }
 .qs-material-covered > summary > svg { flex-shrink: 0; }

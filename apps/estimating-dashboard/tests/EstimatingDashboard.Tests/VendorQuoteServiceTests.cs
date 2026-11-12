@@ -9,6 +9,40 @@ namespace EstimatingDashboard.Tests;
 
 public sealed class VendorQuoteServiceTests
 {
+    [Fact]
+    public async Task Legacy_thread_identity_blocks_duplicate_creation_but_allows_distinct_work()
+    {
+        await using var f = await CreateAsync();
+        var original = await f.ThreadAsync("PART-01");
+        var row = await f.Db.Set<VendorQuoteRequest>().SingleAsync(x => x.Id == original.Request.Id);
+        row.ThreadKey = VendorQuoteService.Hash("quotes@vendor.example\npart-01");
+        await f.Db.SaveChangesAsync();
+
+        var error = await Assert.ThrowsAsync<VendorQuoteException>(() => f.ThreadAsync("PART-01"));
+        Assert.Equal(409, error.StatusCode);
+        await f.Vendors.CreateAsync(new(f.QuoteId(), "Silicone Prime", "quotes@vendor.example",
+            "Outside processing: Anodize", PartNumber: "PART-01"), Editor, default);
+        Assert.Equal(2, await f.Db.Set<VendorQuoteRequest>().CountAsync());
+    }
+
+    [Fact]
+    public async Task Updating_a_thread_cannot_duplicate_legacy_work()
+    {
+        await using var f = await CreateAsync();
+        var original = await f.ThreadAsync("PART-01");
+        var row = await f.Db.Set<VendorQuoteRequest>().SingleAsync(x => x.Id == original.Request.Id);
+        row.ThreadKey = VendorQuoteService.Hash("quotes@vendor.example\npart-01");
+        await f.Db.SaveChangesAsync();
+        var another = await f.Vendors.CreateAsync(new(f.QuoteId(), "Silicone Prime", "quotes@vendor.example",
+            "Outside processing: Anodize", PartNumber: "PART-01"), Editor, default);
+
+        var error = await Assert.ThrowsAsync<VendorQuoteException>(() => f.Vendors.UpdateAsync(another.Request.Id,
+            new(another.Request.Version, "Silicone Prime", "MATERIAL PRICING", "Untouched", null, null), Editor, default));
+        Assert.Equal(409, error.StatusCode);
+        Assert.Equal("Outside processing: Anodize", (await f.Db.Set<VendorQuoteRequest>()
+            .AsNoTracking().SingleAsync(x => x.Id == another.Request.Id)).Title);
+    }
+
     [Theory]
     [InlineData("Quote 4445", 4445)]
     [InlineData("RE: FW: FWD: quote 44450", 44450)]

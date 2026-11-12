@@ -7,10 +7,17 @@
 .qs-request-page .qs-timeline-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; color: var(--steel-700); background: var(--steel-tint); }
 .qs-request-page .qs-timeline-icon.is-email { background: color-mix(in srgb,var(--steel-tint) 55%,var(--surface)); }
 .qs-request-page .qs-timeline-body { display: grid; min-width: 0; gap: 4px; padding-top: 3px; color: var(--muted); }
+.qs-request-page .qs-timeline-entry .qs-timeline-body { padding: 11px 13px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
+.qs-request-page .qs-timeline-entry.is-email .qs-timeline-body { background: var(--surface-2); }
+.qs-request-page .qs-timeline-entry.is-note .qs-timeline-icon { background: var(--steel-tint); }
+.qs-request-page .qs-timeline-entry.is-status .qs-timeline-icon { color: var(--ink-2); background: var(--surface-3); }
+.qs-request-page .qs-timeline-category { width: fit-content; margin-bottom: 2px; padding: 2px 6px; border-radius: 4px; background: var(--surface-3); color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .04em; line-height: 1.4; }
+.qs-request-page .qs-timeline-entry.is-email .qs-timeline-category { background: var(--steel-tint); color: var(--steel-700); }
+.qs-request-page .qs-timeline-entry.is-note .qs-timeline-category { background: var(--warn-tint); color: var(--warn-700); }
 .qs-request-page .qs-timeline-summary { font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
 .qs-request-page .qs-timeline-summary strong { color: var(--ink-2); font-weight: 600; }
 .qs-request-page .qs-timeline-preview { display: grid; justify-items: start; gap: 3px; min-width: 0; }
-.qs-request-page .qs-timeline-preview p { display: -webkit-box; margin: 1px 0; overflow: hidden; color: var(--ink-2); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.qs-request-page .qs-timeline-preview p { display: -webkit-box; margin: 1px 0; overflow: hidden; color: var(--ink-2); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .qs-request-page .qs-timeline-preview a { color: var(--steel-700); text-decoration: underline; text-underline-offset: 2px; }
 .qs-request-page .qs-timeline-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .qs-request-page .qs-timeline-meta > span { display: inline-flex; align-items: center; gap: 3px; }

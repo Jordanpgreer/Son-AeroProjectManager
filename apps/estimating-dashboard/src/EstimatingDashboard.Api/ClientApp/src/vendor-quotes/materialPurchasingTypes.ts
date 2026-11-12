@@ -27,6 +27,8 @@ export interface MaterialRequirement {
   issues: string[]
   requestId?: number | null
   requestStatus?: string | null
+  sentAt?: string | null
+  noPurchasesInFulcrumWindow?: boolean
 }
 
 export interface MaterialRequirements {
@@ -46,6 +48,7 @@ export interface MaterialQuotePart {
   revision: string | null
   quantities: number[]
   quantitiesOverridden: boolean
+  noFulcrumOperations?: boolean
 }
 
 export interface MaterialQuantityOverride { itemId: string; minimum: number; maximum: number | null }

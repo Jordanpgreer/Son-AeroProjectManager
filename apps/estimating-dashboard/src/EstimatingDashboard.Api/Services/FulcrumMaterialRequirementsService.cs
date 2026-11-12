@@ -42,6 +42,7 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
         var hasStaleOverrides = quantityOverrides?.Keys.Any(id => !currentItemIds.Contains(id)) == true;
         var context = new Inspection(client, clock.GetUtcNow());
         var parts = new List<MaterialQuotePartDto>();
+        var warnings = new List<string>();
         foreach (var group in lines.GroupBy(line => Text(line, "itemId"), StringComparer.Ordinal))
         {
             var item = await context.ItemAsync(group.Key, cancellationToken);
@@ -51,13 +52,24 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
             var overridden = quantityOverrides?.ContainsKey(group.Key) == true;
             if (overridden) quantities = quantityOverrides![group.Key].Distinct().Order().ToArray();
             var revision = Field(item, "revision");
+            var noOperations = false;
+            try
+            {
+                var operations = await client.ListAsync(
+                    $"api/items/{FulcrumQuoteGenerationClient.Identifier(group.Key)}/routing/operations/list",
+                    true, cancellationToken);
+                noOperations = operations.Count == 0;
+            }
+            catch (Exception error) when (IsRecoverable(error, cancellationToken))
+            {
+                warnings.Add($"Fulcrum planning operations for {Text(item, "number")} could not be verified.");
+            }
             parts.Add(new(Text(group.First(), "id"), group.Key, Text(item, "number"),
-                revision.ValueKind == JsonValueKind.String ? revision.GetString() : Text(revision, "revision"), quantities, overridden));
+                revision.ValueKind == JsonValueKind.String ? revision.GetString() : Text(revision, "revision"), quantities, overridden, noOperations));
             await context.TraverseAsync(group.Key, Text(item, "number"), "", 0, 1, quantities[0], quantities[^1],
                 quantities.Length > 1, [], [], cancellationToken);
         }
         var materials = await context.CompleteAsync(cancellationToken);
-        var warnings = new List<string>();
         if (materials.Count > 0 && parts.Any(part => !part.QuantitiesOverridden))
             warnings.Add("Fulcrum's public API exposes quote line quantities, but not separate Pricing-panel quantity breaks. Confirm the displayed part quantities before opening a vendor draft.");
         if (hasStaleOverrides)
@@ -69,6 +81,9 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
         }
         return new(historyId, quoteNumber, context.CheckedAt, parts, materials, warnings);
     }
+
+    private static bool IsRecoverable(Exception error, CancellationToken token) => !token.IsCancellationRequested
+        && error is HttpRequestException or InvalidOperationException or JsonException or TaskCanceledException;
 
     private sealed class Inspection(FulcrumQuoteGenerationClient client, DateTimeOffset checkedAt)
     {
@@ -154,6 +169,7 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
                 var status = material.Issues.Count > 0 ? "review-required"
                     : available >= material.Maximum ? "stock-covered" : "needs-rfq";
                 MaterialPurchaseOrderDto? purchase = null;
+                var noPurchasesInFulcrumWindow = false;
                 string? vendorId = null;
                 string? vendorName = null;
                 IReadOnlyList<string> emails = [];
@@ -166,6 +182,17 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
                         if (!HasCompleteHistory(history))
                             material.Issues.Add("Recent purchase-order history is incomplete. Verify it in Fulcrum.");
                         else purchase = RecentPurchase(history, CheckedAt);
+                        if (available == 0 && purchase is null && material.Issues.Count == 0)
+                        {
+                            try
+                            {
+                                var extended = await client.GetAsync(
+                                    $"api/items/{FulcrumQuoteGenerationClient.Identifier(material.Id)}/purchase-history?months=60", token);
+                                noPurchasesInFulcrumWindow = HasCompleteHistory(extended, 60)
+                                    && Number(extended, "totalPurchaseCount") == 0;
+                            }
+                            catch (Exception error) when (Recoverable(error, token)) { }
+                        }
                     }
                     catch (Exception error) when (Recoverable(error, token))
                     { material.Issues.Add("Recent purchase-order history could not be verified. Refresh before requesting pricing."); }
@@ -201,7 +228,7 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
                 results.Add(new(material.Id, Text(material.Item, "number"), Text(material.Item, "description"),
                     Text(material.Item, "unitOfMeasureName"), material.Minimum, material.Maximum, available,
                     quantities, status, vendorId, vendorName, emails, purchase, material.Sources,
-                    material.Issues.Distinct().ToArray()));
+                    material.Issues.Distinct().ToArray(), NoPurchasesInFulcrumWindow: noPurchasesInFulcrumWindow));
             }
             return results;
         }

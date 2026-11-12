@@ -54,16 +54,15 @@ function Test-EstimatingHealth {
 }
 
 function Find-DotNet {
-    $candidates = @()
+    $candidates = @(
+        (Join-Path $env:USERPROFILE '.dotnet\dotnet.exe'),
+        (Join-Path $env:LOCALAPPDATA 'CodexDotnetSdk8\dotnet.exe')
+    )
     $command = Get-Command dotnet.exe -ErrorAction SilentlyContinue
     if ($command) {
         $candidates += $command.Source
     }
-    $candidates += @(
-        (Join-Path $env:USERPROFILE '.dotnet\dotnet.exe'),
-        (Join-Path $env:LOCALAPPDATA 'CodexDotnetSdk8\dotnet.exe'),
-        'C:\Program Files\dotnet\dotnet.exe'
-    )
+    $candidates += 'C:\Program Files\dotnet\dotnet.exe'
 
     foreach ($candidate in $candidates | Select-Object -Unique) {
         if (Test-Path -LiteralPath $candidate) {
@@ -105,7 +104,7 @@ try {
 
     $process = Start-Process `
         -FilePath $dotnet `
-        -ArgumentList @($appDll) `
+        -ArgumentList @('"' + $appDll + '"') `
         -WorkingDirectory $apiRoot `
         -RedirectStandardOutput $outLog `
         -RedirectStandardError $errLog `

@@ -5,6 +5,7 @@ import ActivityTimeline, { StatusBadge } from './ActivityTimeline'
 import NewThreadDialog from './NewThreadDialog'
 import ProcessingMaterials from './ProcessingMaterials'
 import MaterialPurchasing from './MaterialPurchasing'
+import OutsideProcessing from './OutsideProcessing'
 import Modal from './Modal'
 import QuoteOverview from './QuoteOverview'
 import ManualEmailUpload from './ManualEmailUpload'
@@ -45,7 +46,9 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   const [overviewError, setOverviewError] = useState<string | null>(null)
   const [emailDirty, setEmailDirty] = useState(false)
   const [materialDirty, setMaterialDirty] = useState(false)
-  const composerRef = useRef<HTMLElement>(null)
+  const [opDirty, setOpDirty] = useState(false)
+  const [quantityRevision, setQuantityRevision] = useState(0)
+  const activityRef = useRef<HTMLElement>(null)
   const canEdit = target.canEdit && canManage
   const dirty = isUpdateDirty(draft, target.status, target.followUpDate)
   const overviewDirty = quoteDetailsDirty(overviewDraft, overviewBase)
@@ -55,9 +58,9 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   const lifecycle = useRecordLifecycle({ detail, resetToken: draftReset, canRemove, externalBusy: saving || overviewSaving || rfqSaving, onChanged: emailImported, onMoved: onRecordsMoved })
   const writeBusy = saving || overviewSaving || rfqSaving || lifecycle.busy
   const removedCount = (detail.removedMessages?.length || 0) + (detail.removedNotes?.length || 0)
-  useEffect(() => { onDirty(dirty || overviewDirty || emailDirty || materialDirty || saving || overviewSaving || rfqSaving || lifecycle.dirty) }, [dirty, overviewDirty, emailDirty, materialDirty, saving, overviewSaving, rfqSaving, lifecycle.dirty, onDirty])
+  useEffect(() => { onDirty(dirty || overviewDirty || emailDirty || materialDirty || opDirty || saving || overviewSaving || rfqSaving || lifecycle.dirty) }, [dirty, overviewDirty, emailDirty, materialDirty, opDirty, saving, overviewSaving, rfqSaving, lifecycle.dirty, onDirty])
   useEffect(() => () => onDirty(false), [onDirty])
-  useEffect(() => { if (threadId !== null) composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }) }, [threadId])
+  useEffect(() => { if (threadId !== null) activityRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [threadId])
   useEffect(() => {
     const next = { scope: threadId, status: target.status, followUpDate: target.followUpDate?.slice(0, 10) || '' }
     const previous = previousTarget.current
@@ -146,13 +149,14 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
     <div className="qs-request-grid">
       <div className="qs-request-main">
         <QuoteOverview detail={detail} canEdit={quote.canEdit && canManage} draft={overviewDraft} dirty={overviewDirty} saving={overviewSaving} busy={saving || rfqSaving || lifecycle.busy} saved={overviewSaved} error={overviewError} onChange={value => { setOverviewDraft(value); setOverviewSaved(false) }} onSave={() => void saveOverview()} onDiscard={discardOverview} onDetailChanged={emailImported} />
-        <MaterialPurchasing key={quote.quoteHistoryId} quoteHistoryId={quote.quoteHistoryId} canEdit={quote.canEdit && canManage} busy={writeBusy} resetToken={draftReset} outlookConnected={outlookConnected} requestRevision={threads.map(item => `${item.request.id}:${item.request.version}:${item.request.status}`).join('|')} onDraftCreated={() => onChanged()} onDirty={setMaterialDirty} />
-        <section className="qs-request-card qs-activity-card" aria-label="Activity Timeline"><header className="qs-card-heading"><h3>Activity Timeline</h3><span>Newest first</span></header>
-          <ActivityTimeline activity={detail.activity} messages={messages} threads={threads} unassignedIds={new Set(detail.unassignedMessages.map(item => item.id))} onThread={selectThread} canEdit={quote.canEdit && canManage} canRemove={canRemove} busy={writeBusy} onEdit={lifecycle.editNote} onRemove={lifecycle.removeNote} onMoveEmail={lifecycle.moveEmail} onRemoveEmail={lifecycle.removeEmail} onRateRequest={changeRateRequest} onAssign={async (messageId, requestId) => { await assignQuoteMessage(quote.quoteHistoryId, messageId, quote.version, requestId); const updated = await onChanged(); if (updated) setOverviewBase(current => rebaseQuoteDetailsAfterActivity(current, updated.workflow)) }} />
+        <MaterialPurchasing key={quote.quoteHistoryId} quoteHistoryId={quote.quoteHistoryId} canEdit={quote.canEdit && canManage} busy={writeBusy || opDirty} resetToken={draftReset} outlookConnected={outlookConnected} requestRevision={threads.map(item => `${item.request.id}:${item.request.version}:${item.request.status}`).join('|')} onDraftCreated={() => onChanged()} onQuantitiesChanged={() => setQuantityRevision(value => value + 1)} onDirty={setMaterialDirty} />
+        <OutsideProcessing key={`op-${quote.quoteHistoryId}`} quoteHistoryId={quote.quoteHistoryId} canEdit={quote.canEdit && canManage} busy={writeBusy || materialDirty} resetToken={draftReset} outlookConnected={outlookConnected} requestRevision={`${quantityRevision}|${threads.map(item => `${item.request.id}:${item.request.version}:${item.request.status}`).join('|')}`} onDraftCreated={() => onChanged()} onDirty={setOpDirty} />
+        <section ref={activityRef} className="qs-request-card qs-activity-card" aria-label={thread ? `Activity ledger for ${thread.request.title}` : 'Activity ledger'}><header className="qs-card-heading qs-activity-heading"><div><h3>Activity Ledger</h3>{thread && <p>{thread.request.partNumber ? `${thread.request.partNumber} · ` : ''}{thread.request.title} · {thread.request.vendorName}</p>}</div><div className="qs-activity-heading-actions"><span>Newest first</span>{thread && <button type="button" className="qs-text-button" onClick={() => transition(() => setThreadId(null))}><ArrowLeft size={14} />Full quote history</button>}</div></header>
+          <ActivityTimeline key={threadId ?? 'quote'} requestId={threadId} activity={detail.activity} messages={messages} threads={threads} unassignedIds={new Set(detail.unassignedMessages.map(item => item.id))} onThread={selectThread} canEdit={quote.canEdit && canManage} canRemove={canRemove} busy={writeBusy} onEdit={lifecycle.editNote} onRemove={lifecycle.removeNote} onMoveEmail={lifecycle.moveEmail} onRemoveEmail={lifecycle.removeEmail} onRateRequest={changeRateRequest} onAssign={async (messageId, requestId) => { await assignQuoteMessage(quote.quoteHistoryId, messageId, quote.version, requestId); const updated = await onChanged(); if (updated) setOverviewBase(current => rebaseQuoteDetailsAfterActivity(current, updated.workflow)) }} />
         </section>
       </div>
       <div className="qs-request-side">
-        <section ref={composerRef} className="qs-request-card qs-entry-card" aria-label="Add an entry">
+        <section className="qs-request-card qs-entry-card" aria-label="Add an entry">
           <header className="qs-card-heading"><h3>Add Entry</h3></header>
           <div className="qs-entry-target"><label htmlFor="qs-entry-scope">Add entry to</label><select id="qs-entry-scope" value={threadId || ''} disabled={writeBusy} onChange={event => transition(() => setThreadId(event.target.value ? Number(event.target.value) : null))}><option value="">Quote {quote.quoteNumber}</option>{threads.map(item => <option value={item.request.id} key={item.request.id}>{item.request.title}{item.request.vendorName ? ` · ${item.request.vendorName}` : ''}</option>)}</select></div>
           {thread && <div className="qs-entry-context"><span><StatusBadge status={thread.request.status} />{thread.request.partNumber && <small>{thread.request.partNumber}</small>}</span><div>{canEdit && <button className="vq-icon-button" aria-label="Edit RFQ details" disabled={writeBusy} onClick={() => transition(() => setEditingThread(true))}><Pencil size={15} /></button>}{thread.request.vendorEmail && <a className="qs-text-button" href={mailtoVendor(thread.request.vendorEmail, quote.quoteNumber)}><ArrowUpRight size={14} />Open Outlook</a>}<button className="vq-icon-button" aria-label="Return entry to quote" onClick={() => transition(() => setThreadId(null))}><X size={15} /></button></div></div>}

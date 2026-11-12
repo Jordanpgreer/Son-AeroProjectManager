@@ -29,7 +29,7 @@ internal sealed class IntegrationCredentialReader(
         string credentialKey,
         CancellationToken cancellationToken)
     {
-        var credential = await db.IntegrationCredentials
+        var credential = await db.IntegrationCredentials.AsNoTracking()
             .SingleOrDefaultAsync(
                 candidate => candidate.CredentialKey == credentialKey,
                 cancellationToken);
@@ -52,8 +52,11 @@ internal sealed class IntegrationCredentialReader(
                 exception);
         }
 
-        credential.LastUsedAt = timeProvider.GetUtcNow();
-        await db.SaveChangesAsync(cancellationToken);
+        // A provider read may run while email/RFQ changes are still pending in this scope.
+        // Usage telemetry must not commit those changes before their owning operation saves.
+        var usedAt = timeProvider.GetUtcNow();
+        await db.IntegrationCredentials.Where(row => row.CredentialKey == credentialKey)
+            .ExecuteUpdateAsync(update => update.SetProperty(row => row.LastUsedAt, usedAt), cancellationToken);
         return secret;
     }
 }

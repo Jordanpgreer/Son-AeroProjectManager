@@ -157,6 +157,8 @@ public sealed partial class VendorQuoteService
         await RecordMaterialSendAsync(materialMatch, message, access, ct);
         if (manual?.IsRateRequest == true && request is not null)
             await ConfirmMaterialSentAsync(request, message, access, ct);
+        if (materialMatch.IsRateRequest || manual?.IsRateRequest == true)
+            await TryAdvanceQuoteRfqAsync(quote, access, ct);
         // EF wraps the message, blobs, state change, and audit inserts in one transaction.
         await SaveAsync(ct);
         return new(request is null ? "unassigned" : "imported", request?.Id, quoteNumber,

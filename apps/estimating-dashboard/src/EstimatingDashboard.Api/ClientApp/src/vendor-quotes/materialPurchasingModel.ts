@@ -25,11 +25,11 @@ export function canDraftMaterial(material: MaterialRequirement): boolean {
 }
 
 export function materialHasTrackedRequest(material: MaterialRequirement): boolean {
-  return material.status === 'needs-rfq' && ['waiting on vendor', 'quote received'].includes(material.requestStatus?.trim().toLowerCase() ?? '')
+  return material.status === 'needs-rfq' && !!material.sentAt
 }
 
 export function materialStatusLabel(material: MaterialRequirement): string {
-  return materialHasTrackedRequest(material) ? material.requestStatus! : materialStatusLabels[material.status]
+  return materialHasTrackedRequest(material) ? material.requestStatus || 'RFQ sent' : materialStatusLabels[material.status]
 }
 
 export function materialGroups(materials: MaterialRequirement[]) {

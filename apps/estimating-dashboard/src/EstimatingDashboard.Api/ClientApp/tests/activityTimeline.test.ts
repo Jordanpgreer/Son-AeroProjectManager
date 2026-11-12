@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildActivityTimeline, timelineInlineContent, timelineSummary } from '../src/vendor-quotes/activityTimelineModel.ts'
+import { buildActivityTimeline, scopeActivityTimeline, timelineCategory, timelineInlineContent, timelineSummary } from '../src/vendor-quotes/activityTimelineModel.ts'
 import { rateRequestThread } from '../src/vendor-quotes/rateRequestModel.ts'
 import type { QuoteActivity, VendorDetail, VendorMessage } from '../src/vendor-quotes/types.ts'
 
@@ -69,6 +69,19 @@ test('notes and status changes remain independently reviewable even when recorde
   assert.equal(timelineInlineContent(status), '')
 })
 
+test('each ledger entry names its activity category without splitting chronology', () => {
+  const sent = buildActivityTimeline([], [message(1, { direction: 'outgoing' })])[0]
+  const received = buildActivityTimeline([], [message(2)])[0]
+  const note = buildActivityTimeline([activity('quote-1', { kind: 'note', text: 'Checked stock.' })])[0]
+  const status = buildActivityTimeline([activity('quote-2', { kind: 'status', newValue: 'RFQ Sent' })])[0]
+  const created = buildActivityTimeline([activity('quote-3', { kind: 'created' })])[0]
+  const details = buildActivityTimeline([activity('quote-4', { kind: 'details' })])[0]
+  const emailEvent = buildActivityTimeline([activity('quote-5', { kind: 'email-removed' })])[0]
+  const followUp = buildActivityTimeline([activity('quote-6', { kind: 'follow-up' })])[0]
+  assert.deepEqual([sent, received, note, status, created, details, emailEvent, followUp].map(timelineCategory),
+    ['Sent email', 'Received email', 'Internal note', 'Status change', 'RFQ created', 'Quote details', 'Email activity', 'Follow-up'])
+})
+
 test('note edits and current-note workflow changes expose their updated content inline', () => {
   const edited = activity('quote-1', { kind: 'note-edited', text: 'Internal note edited', newValue: 'Supplier confirmed a two-week lead time.' })
   const current = activity('audit-2', { kind: 'details', text: 'Arda status notes updated', newValue: 'Ready for sales review.' })
@@ -83,6 +96,20 @@ test('outgoing messages use their sent timestamp and carry their RFQ context', (
   assert.equal(entries[0].requestId, 8)
   assert.equal(entries[0].threadName, 'Vendor')
   assert.equal(entries[0].partNumber, 'PART-1')
+})
+
+test('an RFQ view contains only its own status, notes and emails while quote history stays complete', () => {
+  const first = message(1)
+  const second = message(2, { fromAddress: 'second@example.test', vendorEmail: 'second@example.test' })
+  const firstThread = thread(8, [first])
+  const secondThread = thread(9, [second])
+  const events = [activity('thread-1', { kind: 'status', text: 'Status updated', requestId: 8, newValue: 'Waiting on vendor' }),
+    activity('thread-2', { kind: 'note', text: 'Second vendor note', requestId: 9, newValue: null }),
+    activity('quote-3', { kind: 'note', text: 'Overall quote note', newValue: null })]
+  const all = buildActivityTimeline(events, [first, second], [firstThread, secondThread])
+  assert.equal(scopeActivityTimeline(all, null).length, 5)
+  assert.deepEqual(scopeActivityTimeline(all, 8).map(entry => entry.key).sort(), ['activity-thread-1', 'email-1'])
+  assert.deepEqual(scopeActivityTimeline(all, 9).map(entry => entry.key).sort(), ['activity-thread-2', 'email-2'])
 })
 
 test('email entries retain only their corresponding attachment metadata for Entry Details', () => {

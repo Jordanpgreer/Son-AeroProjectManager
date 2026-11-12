@@ -37,6 +37,12 @@
 .qs-card-heading h3 { display: flex; align-items: center; gap: 8px; }
 .qs-card-heading h3 svg { flex-shrink: 0; color: var(--muted); }
 .qs-card-heading > span { flex-shrink: 0; font-size: 10px; color: var(--muted); }
+.qs-activity-card { scroll-margin-top: 20px; }
+.qs-activity-heading > div:first-child { min-width: 0; }
+.qs-activity-heading p { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.qs-activity-heading-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px 13px; }
+.qs-activity-heading-actions > span { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.qs-activity-heading-actions .qs-text-button { min-height: 28px; font-size: 11px !important; }
 .qs-request-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 23px 35px; margin-top: 22px; }
 .qs-request-fact { display: flex; align-items: flex-start; gap: 11px; min-width: 0; }
 .qs-fact-icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex: 0 0 32px; color: var(--steel-700); background: var(--steel-tint); border-radius: 9px; }

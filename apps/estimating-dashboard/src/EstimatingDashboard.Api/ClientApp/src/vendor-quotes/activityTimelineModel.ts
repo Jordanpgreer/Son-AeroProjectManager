@@ -10,6 +10,17 @@ export function isOutgoingEmail(message: VendorMessage) {
   return ['outbound', 'outgoing', 'sent'].includes(message.direction.toLowerCase())
 }
 
+export function timelineCategory(entry: TimelineEntry) {
+  if (entry.type === 'email') return isOutgoingEmail(entry.message) ? 'Sent email' : 'Received email'
+  if (entry.activity.kind.includes('note')) return 'Internal note'
+  if (entry.activity.kind === 'status') return 'Status change'
+  if (entry.activity.kind === 'created') return 'RFQ created'
+  if (entry.activity.kind.startsWith('email')) return 'Email activity'
+  if (entry.activity.kind === 'follow-up') return 'Follow-up'
+  if (entry.activity.kind === 'details') return 'Quote details'
+  return 'Other activity'
+}
+
 export function timelineSummary(item: TimelineActivity) {
   if (item.kind === 'note') return 'Added a note.'
   if (item.kind === 'status' && item.newValue) return `Status set to ${item.newValue}.`
@@ -49,4 +60,9 @@ export function buildActivityTimeline(activity: TimelineActivity[], messages: Ve
       threadName: 'vendorName' in item ? item.vendorName : null, partNumber: 'partNumber' in item ? item.partNumber : null })
   }
   return [...events, ...emails].sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt) || a.key.localeCompare(b.key))
+}
+
+/** Keep the quote's complete history available while giving each RFQ its own view. */
+export function scopeActivityTimeline(entries: TimelineEntry[], requestId: number | null): TimelineEntry[] {
+  return requestId === null ? entries : entries.filter(entry => entry.requestId === requestId)
 }
