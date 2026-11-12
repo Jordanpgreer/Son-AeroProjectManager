@@ -459,15 +459,19 @@ function AssignmentDialog({
   const [userId, setUserId] = useState(shipment.assignedUserId?.toString() ?? '')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const canMoveGroup = canRunQualityAction(user, 'assignment-changed', user.permissions.includes(PERMISSIONS.assignmentGroup))
-  const canAssignUser = canRunQualityAction(user, 'assignment-changed', user.permissions.includes(PERMISSIONS.assignmentUser))
+  const canMoveGroup = canRunQualityAction(user, 'assignment-changed',
+    options?.canAssignGroup ?? user.permissions.includes(PERMISSIONS.assignmentGroup))
+  const canAssignUser = canRunQualityAction(user, 'assignment-changed',
+    options?.canAssignUser ?? user.permissions.includes(PERMISSIONS.assignmentUser))
 
   useEffect(() => {
     void qualityApi<AssignmentOptions>('/api/assignment-options').then(setOptions).catch((cause) => setError(cause instanceof Error ? cause.message : 'Assignments unavailable.'))
   }, [])
 
+  const assignableGroupIds = new Set(options?.assignableGroupIds ?? options?.groups.map((group) => group.id) ?? [])
+  const assignmentGroups = options?.groups.filter((group) => assignableGroupIds.has(group.id)) ?? []
   const users = options?.users.filter((candidate) => candidate.groupIds.includes(Number(groupId))) ?? []
-  const currentGroupUnavailable = Boolean(groupId && options && !options.groups.some((group) => group.id === Number(groupId)))
+  const currentGroupUnavailable = Boolean(groupId && options && !assignmentGroups.some((group) => group.id === Number(groupId)))
   const currentUserUnavailable = Boolean(userId && options && !users.some((candidate) => candidate.id === Number(userId)))
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -492,7 +496,7 @@ function AssignmentDialog({
         <form onSubmit={submit}>
           {error && <p className="notice error"><AlertTriangle size={16} />{error}</p>}
           {!options ? <div className="loading-panel compact">Loading Quality teams and members...</div> : <div className="assignment-fields">
-            <label><span>Responsible Team</span><select disabled={!canMoveGroup} value={groupId} onChange={(event) => { setGroupId(event.target.value); setUserId('') }}><option value="">Unassigned - Manager Review</option>{currentGroupUnavailable && <option value={groupId} disabled>{shipment.assignedGroupName ?? 'Current Team'} (not active)</option>}{options.groups.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select><small>Only active teams created in Quality Admin appear here.</small></label>
+            <label><span>Responsible Team</span><select disabled={!canMoveGroup} value={groupId} onChange={(event) => { setGroupId(event.target.value); setUserId('') }}><option value="">Unassigned - Manager Review</option>{currentGroupUnavailable && <option value={groupId} disabled>{shipment.assignedGroupName ?? 'Current Team'} (not available)</option>}{assignmentGroups.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select><small>Only teams you are authorized to manage appear here.</small></label>
             <label><span>Individual Owner</span><select disabled={!canAssignUser || !groupId || currentGroupUnavailable} value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Team Queue / Unassigned</option>{currentUserUnavailable && <option value={userId} disabled>{assignmentOwnerName(shipment.assignedDisplayName ?? 'Current Owner')} (not a team member)</option>}{users.map((candidate) => <option value={candidate.id} key={candidate.id}>{assignmentOwnerName(candidate.displayName, candidate.accountName)}</option>)}</select><small>Only active members of the selected Quality team can receive the shipment.</small></label>
           </div>}
           {!canMoveGroup && !canAssignUser && <p className="notice error"><AlertTriangle size={16} />Your current access does not allow changing assignments.</p>}
@@ -512,6 +516,8 @@ function DetailDrawer({
   onAssign,
   onOpenComments,
   onUpdated,
+  canViewAssignment,
+  canAssign,
 }: {
   shipment: Shipment
   user: QualityAssuranceUser
@@ -521,6 +527,8 @@ function DetailDrawer({
   onAssign: () => void
   onOpenComments: () => void
   onUpdated: (shipment: Shipment) => void
+  canViewAssignment: boolean
+  canAssign: boolean
 }) {
   const [audit, setAudit] = useState<AuditEntry[] | null>(null)
   const [auditError, setAuditError] = useState<string | null>(null)
@@ -529,10 +537,6 @@ function DetailDrawer({
   const drawerScrollRef = useRef<HTMLDivElement>(null)
   const auditSectionRef = useRef<HTMLElement>(null)
   const canEdit = canRunQualityAction(user, 'shipment-updated', fields.some((field) => field.canEdit))
-  const canViewAssignment = user.permissions.includes(PERMISSIONS.assignmentView)
-  const canAssign = canViewAssignment
-    && (user.permissions.includes(PERMISSIONS.assignmentGroup) || user.permissions.includes(PERMISSIONS.assignmentUser))
-    && canRunQualityAction(user, 'assignment-changed', true)
   const canAudit = user.permissions.includes(PERMISSIONS.audit)
   const canCompleteQa = user.permissions.includes(PERMISSIONS.ship)
     && canRunQualityAction(user, 'qa-completed', true)
@@ -717,7 +721,6 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   }
 
   useEffect(() => {
-    if (!user.permissions.includes(PERMISSIONS.assignmentView)) return
     void qualityApi<AssignmentOptions>('/api/assignment-options')
       .then(setAssignmentOptions)
       .catch(() => setAssignmentOptions(null))
@@ -781,9 +784,12 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
     fields.filter((field) => field.canView).map((field) => field.key),
   ), [fields])
   const canViewAssignment = user.permissions.includes(PERMISSIONS.assignmentView)
-  const canAssign = canViewAssignment
-    && (user.permissions.includes(PERMISSIONS.assignmentGroup) || user.permissions.includes(PERMISSIONS.assignmentUser))
-    && canRunQualityAction(user, 'assignment-changed', true)
+    || assignmentOptions?.canViewAssignments === true
+  const canAssignGroup = canRunQualityAction(user, 'assignment-changed',
+    assignmentOptions?.canAssignGroup ?? user.permissions.includes(PERMISSIONS.assignmentGroup))
+  const canAssignUser = canRunQualityAction(user, 'assignment-changed',
+    assignmentOptions?.canAssignUser ?? user.permissions.includes(PERMISSIONS.assignmentUser))
+  const canAssign = canViewAssignment && (canAssignGroup || canAssignUser)
   const availableColumns = useMemo<WorklistColumn[]>(() => [
     visibleFields.has('status') && { key: 'status', label: 'Status', width: 145 },
     visibleFields.has('salesOrderNumber') && { key: 'salesOrderNumber', label: 'Shipper Number', width: 125 },
@@ -1104,7 +1110,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
         ) : <div className="empty-state"><ClipboardList size={28} /><h3>{status === 'open' ? 'No Open Shipments In This Queue' : 'No Closed Shipments In This Queue'}</h3><p>Adjust the scope or search, or add a shipment if you have permission.</p></div>}
       </section>
 
-      {selected && !editing && !assigning && !commentsOpen && <DetailDrawer shipment={selected} user={user} fields={fields} onClose={() => setSelected(null)} onEdit={() => setEditing(true)} onAssign={() => { setAssignmentOrigin('detail'); setAssigning(true) }} onOpenComments={() => setCommentsOpen(true)} onUpdated={accepted} />}
+      {selected && !editing && !assigning && !commentsOpen && <DetailDrawer shipment={selected} user={user} fields={fields} canViewAssignment={canViewAssignment} canAssign={canAssign} onClose={() => setSelected(null)} onEdit={() => setEditing(true)} onAssign={() => { setAssignmentOrigin('detail'); setAssigning(true) }} onOpenComments={() => setCommentsOpen(true)} onUpdated={accepted} />}
       {selected && commentsOpen && <ShipmentCommentsDrawer shipment={selected} currentUser={user} canPost={fields.some((field) => field.key === 'comments' && field.canEdit)} onClose={closeComments} onMessageSent={() => setRefresh((value) => value + 1)} />}
       {creating && <ShipmentForm fields={fields} canSave={canCreate} onClose={() => setCreating(false)} onSaved={created} />}
       {editing && selected && <ShipmentForm shipment={selected} fields={fields} canSave={canEdit} onClose={() => setEditing(false)} onSaved={accepted} />}

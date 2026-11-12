@@ -73,8 +73,12 @@ export default function DashboardShipmentQuickView({
     () => options?.users.filter((candidate) => candidate.groupIds.includes(Number(groupId))) ?? [],
     [groupId, options],
   )
+  const assignmentGroups = useMemo(() => {
+    const assignable = new Set(options?.assignableGroupIds ?? options?.groups.map((group) => group.id) ?? [])
+    return options?.groups.filter((group) => assignable.has(group.id)) ?? []
+  }, [options])
   const currentGroupUnavailable = Boolean(
-    groupId && options && !options.groups.some((group) => group.id === Number(groupId)),
+    groupId && options && !assignmentGroups.some((group) => group.id === Number(groupId)),
   )
   const currentUserUnavailable = Boolean(
     userId && options && !users.some((candidate) => candidate.id === Number(userId)),
@@ -136,7 +140,7 @@ export default function DashboardShipmentQuickView({
               {!options ? <div className="loading-panel compact" role="status">Loading assignment options...</div> : (
                 <form onSubmit={saveAssignment}>
                   <div className="assignment-fields">
-                    <label><span>Responsible Team</span><select disabled={!canAssignGroup} value={groupId} onChange={(event) => { setGroupId(event.target.value); setUserId('') }}><option value="">Unassigned - Manager Review</option>{currentGroupUnavailable && <option value={groupId} disabled>{shipment.assignedGroupName ?? 'Current Team'} (not active)</option>}{options.groups.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select><small>Only active teams created in Quality Admin appear here.</small></label>
+                    <label><span>Responsible Team</span><select disabled={!canAssignGroup} value={groupId} onChange={(event) => { setGroupId(event.target.value); setUserId('') }}><option value="">Unassigned - Manager Review</option>{currentGroupUnavailable && <option value={groupId} disabled>{shipment.assignedGroupName ?? 'Current Team'} (not available)</option>}{assignmentGroups.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select><small>Only teams you are authorized to manage appear here.</small></label>
                     <label><span>Individual Owner</span><select disabled={!canAssignUser || !groupId || currentGroupUnavailable} value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Team Queue / Unassigned</option>{currentUserUnavailable && <option value={userId} disabled>{assignmentOwnerName(shipment.assignedDisplayName ?? 'Current Owner')} (not on this team)</option>}{users.map((candidate) => <option value={candidate.id} key={candidate.id}>{assignmentOwnerName(candidate.displayName, candidate.accountName)}</option>)}</select><small>Only active members of the selected Quality team can be assigned.</small></label>
                   </div>
                   <button className="button primary dashboard-assignment-save" disabled={saving || currentGroupUnavailable || currentUserUnavailable} type="submit">{saving ? 'Saving assignment...' : 'Save Assignment'}</button>

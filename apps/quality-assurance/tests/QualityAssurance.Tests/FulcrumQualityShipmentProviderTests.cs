@@ -26,7 +26,7 @@ public sealed class FulcrumQualityShipmentProviderTests
                 "/api/shipments/list" => Json(
                     """{"data":[{"id":"shipment-id","name":"SHIP-300","status":"open","shipByDate":"2026-10-31T00:00:00Z"}],"hasNextPage":false}"""),
                 "/api/reporting/shipping/list" => Json(
-                    """{"data":[{"shipmentName":"SHIP-300","recipientName":"Customer","customerPoNumber":"PO-300","itemName":"PART-A","quantityToShip":2,"unitPrice":12.5},{"shipmentName":"SHIP-300","recipientName":"Customer","customerPoNumber":"PO-300","itemName":"PART-B","quantityToShip":3,"unitPrice":20}],"hasNextPage":false}"""),
+                    """{"data":[{"shipmentName":"SHIP-300","recipientName":"Customer Full Name","recipientCustomerCode":"CUST-300","customerPoNumber":"PO-300","itemName":"PART-A","quantityToShip":2,"unitPrice":12.5},{"shipmentName":"SHIP-300","recipientName":"Customer Full Name","recipientCustomerCode":"CUST-300","customerPoNumber":"PO-300","itemName":"PART-B","quantityToShip":3,"unitPrice":20}],"hasNextPage":false}"""),
                 "/api/shipment-line-items/list" when query.Contains("Skip=0", StringComparison.Ordinal) => Json(
                     """{"data":[{"id":"shipment-line-a","quantityToShip":2,"itemId":"item-a","shipmentId":"shipment-id","salesOrderId":"sales-order-id","salesOrderLineItemId":"so-line-a"}],"hasNextPage":true}"""),
                 "/api/shipment-line-items/list" when query.Contains("Skip=1", StringComparison.Ordinal) => Json(
@@ -50,6 +50,7 @@ public sealed class FulcrumQualityShipmentProviderTests
 
         var shipment = Assert.Single(results).Value;
         Assert.Equal(new DateOnly(2026, 10, 31), shipment.ShipByDate);
+        Assert.Equal("Customer Full Name", shipment.Customer);
         Assert.Collection(
             shipment.Parts,
             part => Assert.Equal("10", part.LineItemNumber),

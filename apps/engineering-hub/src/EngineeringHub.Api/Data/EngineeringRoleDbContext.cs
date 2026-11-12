@@ -16,6 +16,7 @@ public sealed class EngineeringRoleDbContext(DbContextOptions<EngineeringRoleDbC
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.ApplyConfiguration(new SonAero.Platform.Diagnostics.ArdaErrorEventConfiguration());
         modelBuilder.Entity<EngineeringUserRecord>(entity =>
         {
             entity.ToTable("Users");

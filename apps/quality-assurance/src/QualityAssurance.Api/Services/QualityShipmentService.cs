@@ -32,8 +32,9 @@ public sealed class QualityShipmentService(
             .Include(candidate => candidate.Parts)
             .SingleOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
         if (shipment is null) return null;
-        EnsureRecordAccess(shipment, access, await teams.GetContextAsync(access.UserId, cancellationToken));
-        return ToDto(shipment, access);
+        var teamContext = await teams.GetContextAsync(access.UserId, cancellationToken);
+        EnsureRecordAccess(shipment, access, teamContext);
+        return ToDto(shipment, access, teamContext.ManagedTeamIds.Count > 0);
     }
 
     public async Task<QualityShipmentListDto> ListAsync(
@@ -51,8 +52,9 @@ public sealed class QualityShipmentService(
         await legacyAssignments.ReconcileAsync(cancellationToken);
         var normalizedStatus = NormalizeStatus(status);
         var teamContext = await teams.GetContextAsync(access.UserId, cancellationToken);
+        var canViewAssignments = CanViewAssignments(access, teamContext);
         var normalizedScope = NormalizeScope(access, teamContext, scope);
-        var normalizedSort = NormalizeSort(access, sort);
+        var normalizedSort = NormalizeSort(access, sort, canViewAssignments);
         var normalizedDirection = NormalizeDirection(direction);
 
         var query = ApplyVisibility(db.Shipments.AsNoTracking().Include(shipment => shipment.Parts), access, normalizedScope, teamContext);
@@ -62,19 +64,19 @@ public sealed class QualityShipmentService(
             "all" => query,
             _ => query.Where(shipment => !shipment.IsShipped)
         };
-        query = ApplySearch(query, access, search);
-        query = ApplyFilters(query, access, shipmentStatus, customer, assignee);
+        query = ApplySearch(query, access, search, canViewAssignments);
+        query = ApplyFilters(query, access, shipmentStatus, customer, assignee, canViewAssignments);
         var total = await query.CountAsync(cancellationToken);
         var shipments = RequiresClientSortForSqlite(normalizedSort)
             && string.Equals(db.Database.ProviderName, "Microsoft.EntityFrameworkCore.Sqlite", StringComparison.Ordinal)
                 ? ApplyClientSort(await query.ToListAsync(cancellationToken), normalizedSort, normalizedDirection)
                     .Take(500)
                     .ToList()
-                : await ApplySort(query, normalizedSort, normalizedDirection, access)
+                : await ApplySort(query, normalizedSort, normalizedDirection, access, canViewAssignments)
                     .Take(500)
                     .ToListAsync(cancellationToken);
         return new QualityShipmentListDto(
-            shipments.Select(shipment => ToDto(shipment, access)).ToList(),
+            shipments.Select(shipment => ToDto(shipment, access, teamContext.ManagedTeamIds.Count > 0)).ToList(),
             total,
             normalizedStatus,
             normalizedScope,
@@ -98,6 +100,7 @@ public sealed class QualityShipmentService(
         await legacyAssignments.ReconcileAsync(cancellationToken);
         var normalizedStatus = NormalizeStatus(status);
         var teamContext = await teams.GetContextAsync(access.UserId, cancellationToken);
+        var canViewAssignments = CanViewAssignments(access, teamContext);
         var normalizedScope = NormalizeScope(access, teamContext, scope);
         var query = ApplyVisibility(db.Shipments.AsNoTracking().Include(shipment => shipment.Parts), access, normalizedScope, teamContext);
         query = normalizedStatus switch
@@ -106,16 +109,17 @@ public sealed class QualityShipmentService(
             "all" => query,
             _ => query.Where(shipment => !shipment.IsShipped)
         };
-        query = ApplySearch(query, access, search);
-        query = ApplyFilters(query, access, shipmentStatus, customer, assignee);
-        var normalizedSort = NormalizeSort(access, sort);
+        query = ApplySearch(query, access, search, canViewAssignments);
+        query = ApplyFilters(query, access, shipmentStatus, customer, assignee, canViewAssignments);
+        var normalizedSort = NormalizeSort(access, sort, canViewAssignments);
         var normalizedDirection = NormalizeDirection(direction);
         var rows = RequiresClientSortForSqlite(normalizedSort)
             && string.Equals(db.Database.ProviderName, "Microsoft.EntityFrameworkCore.Sqlite", StringComparison.Ordinal)
                 ? ApplyClientSort(await query.ToListAsync(cancellationToken), normalizedSort, normalizedDirection).ToList()
-                : await ApplySort(query, normalizedSort, normalizedDirection, access).ToListAsync(cancellationToken);
+                : await ApplySort(query, normalizedSort, normalizedDirection, access, canViewAssignments)
+                    .ToListAsync(cancellationToken);
         return rows
-            .Select(shipment => ToDto(shipment, access))
+            .Select(shipment => ToDto(shipment, access, teamContext.ManagedTeamIds.Count > 0))
             .ToList();
     }
 
@@ -179,7 +183,7 @@ public sealed class QualityShipmentService(
         var canAssignUser = workflowAllowsAssignment
             && (access.HasPermission(QualityAssurancePermissions.AssignmentUser)
                 || teamContext.ManagedTeamIds.Count > 0);
-        var canViewAssignment = access.HasPermission(QualityAssurancePermissions.AssignmentView);
+        var canViewAssignment = CanViewAssignments(access, teamContext);
         var canAssign = canViewAssignment && (canAssignGroup || canAssignUser);
         var canViewDollarValue = access.HasPermission(QualityAssurancePermissions.DollarValueView);
         var memberTeamIds = teamContext.TeamIds.ToList();
@@ -244,7 +248,7 @@ public sealed class QualityShipmentService(
                             .OrderBy(shipment => shipment.ShipDate ?? DateOnly.MaxValue)
                             .ThenBy(shipment => shipment.QaArrivalDate ?? DateOnly.MaxValue)
                             .ThenBy(shipment => shipment.Id)
-                            .Select(shipment => ToDto(shipment, access))
+                            .Select(shipment => ToDto(shipment, access, canViewAssignment))
                             .ToList());
                 })
                 .OrderByDescending(user => user.Metrics.Overdue)
@@ -316,7 +320,7 @@ public sealed class QualityShipmentService(
             .Skip((normalizedPage - 1) * normalizedPageSize)
             .Take(normalizedPageSize)
             .ToListAsync(cancellationToken);
-        var selectedDtos = selectedShipments.Select(shipment => ToDto(shipment, access)).ToList();
+        var selectedDtos = selectedShipments.Select(shipment => ToDto(shipment, access, canViewAssignment)).ToList();
 
         return new QualityDashboardDto(
             Metrics(reviewQueue, canViewDollarValue),
@@ -327,7 +331,7 @@ public sealed class QualityShipmentService(
             groupQueue.Where(shipment => !shipment.IsShipped)
                 .OrderBy(shipment => shipment.ShipDate ?? DateOnly.MaxValue)
                 .ThenBy(shipment => shipment.Id)
-                .Select(shipment => ToDto(shipment, access))
+                .Select(shipment => ToDto(shipment, access, canViewAssignment))
                 .ToList(),
             Metrics(unassigned, canViewDollarValue),
             normalizedQueue == "unassigned" ? selectedDtos : [],
@@ -580,11 +584,14 @@ public sealed class QualityShipmentService(
             && !managesTargetTeam
             && !managesCurrentTeam)
             throw new UnauthorizedAccessException("You do not have permission to confirm legacy assignments.");
-        if ((dto.GroupId != (shipment.IsOperationalTeamAssignment ? shipment.AssignedGroupId : null))
-            && !access.HasPermission(QualityAssurancePermissions.AssignmentGroup)
-            && !managesTargetTeam
-            && !managesCurrentTeam)
-            throw new UnauthorizedAccessException("You do not have permission to move this shipment between Quality teams.");
+        if (dto.GroupId != (shipment.IsOperationalTeamAssignment ? shipment.AssignedGroupId : null)
+            && !access.HasPermission(QualityAssurancePermissions.AssignmentGroup))
+        {
+            var managerCanMove = managesTargetTeam || (team is null && managesCurrentTeam);
+            if (!managerCanMove)
+                throw new UnauthorizedAccessException(
+                    "Team managers can route shipments only within teams they manage.");
+        }
         if ((dto.UserId != (shipment.IsOperationalTeamAssignment ? shipment.AssignedUserId : null))
             && !access.HasPermission(QualityAssurancePermissions.AssignmentUser)
             && !managesTargetTeam)
@@ -603,7 +610,7 @@ public sealed class QualityShipmentService(
             && dto.GroupId == shipment.AssignedGroupId
             && dto.UserId == shipment.AssignedUserId
             && string.IsNullOrWhiteSpace(shipment.LegacyAssigneeTag))
-            return ToDto(shipment, access);
+            return ToDto(shipment, access, teamContext.ManagedTeamIds.Count > 0);
 
         var old = !string.IsNullOrWhiteSpace(shipment.LegacyAssigneeTag)
             ? $"Legacy tag: {shipment.LegacyAssigneeTag}"
@@ -633,7 +640,7 @@ public sealed class QualityShipmentService(
         if (oldStatus != shipment.Status)
             AddAudit(shipment, access, "Updated", "status", oldStatus, shipment.Status, now);
         await db.SaveChangesAsync(cancellationToken);
-        return ToDto(shipment, access);
+        return ToDto(shipment, access, teamContext.ManagedTeamIds.Count > 0);
     }
 
     public async Task<QualityShipmentDto?> MarkShippedAsync(
@@ -688,15 +695,12 @@ public sealed class QualityShipmentService(
         shipment.Status = "Ready to Ship";
         if (!await Workflows.ApplyAsync("qa-completed", shipment, access, cancellationToken))
         {
-            var configuredShippingGroupName = configuration?["QualityWorkflow:ShippingGroupName"]?.Trim();
-            var shippingGroupName = string.IsNullOrWhiteSpace(configuredShippingGroupName)
-                || string.Equals(configuredShippingGroupName, "Shipping", StringComparison.OrdinalIgnoreCase)
-                    ? ApplicationGroups.Shipper : configuredShippingGroupName;
+            var shippingGroupName = QualityOperationalTeamNames.Shipping(configuration);
             if (string.Equals(shipment.AssignedGroupName, shippingGroupName, StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException($"This record is already in the {shippingGroupName} queue.");
             var shippingGroup = await teams.FindActiveTeamByNameAsync(shippingGroupName, cancellationToken)
-                ?? throw new InvalidOperationException(
-                    $"The {shippingGroupName} Quality team must be active before QA Complete can route work to it.");
+                ?? throw new QualityWorkflowConfigurationException(
+                    $"The {shippingGroupName} Quality team is inactive or unavailable. Ask a Quality administrator to reactivate it before completing QA.");
             shipment.AssignedGroupId = shippingGroup.Id;
             shipment.AssignedGroupName = shippingGroup.Name;
             shipment.AssignedUserId = null;
@@ -802,7 +806,8 @@ public sealed class QualityShipmentService(
     private static IQueryable<QualityShipment> ApplySearch(
         IQueryable<QualityShipment> query,
         QualityAssuranceAccessProfile access,
-        string? search)
+        string? search,
+        bool canViewAssignments)
     {
         var value = search?.Trim();
         if (string.IsNullOrWhiteSpace(value)) return query;
@@ -813,7 +818,6 @@ public sealed class QualityShipmentService(
         var canCustomer = access.HasPermission(QualityAssurancePermissions.CustomerView);
         var canType = access.HasPermission(QualityAssurancePermissions.TaskTypeView);
         var canAction = access.HasPermission(QualityAssurancePermissions.ActionView);
-        var canAssignment = access.HasPermission(QualityAssurancePermissions.AssignmentView);
         var canComments = access.HasPermission(QualityAssurancePermissions.CommentsView);
         return query.Where(shipment =>
             (canSalesOrder && shipment.SalesOrderNumber.ToLower().Contains(normalized))
@@ -824,8 +828,8 @@ public sealed class QualityShipmentService(
             || (canCustomer && shipment.Customer.ToLower().Contains(normalized))
             || (canType && shipment.TaskType.ToLower().Contains(normalized))
             || (canAction && shipment.NextAction != null && shipment.NextAction.ToLower().Contains(normalized))
-            || (canAssignment && shipment.AssignedDisplayName != null && shipment.AssignedDisplayName.ToLower().Contains(normalized))
-            || (canAssignment && shipment.AssignedGroupName != null && shipment.AssignedGroupName.ToLower().Contains(normalized))
+            || (canViewAssignments && shipment.AssignedDisplayName != null && shipment.AssignedDisplayName.ToLower().Contains(normalized))
+            || (canViewAssignments && shipment.AssignedGroupName != null && shipment.AssignedGroupName.ToLower().Contains(normalized))
             || (canComments && shipment.Comments != null && shipment.Comments.ToLower().Contains(normalized)));
     }
 
@@ -834,7 +838,8 @@ public sealed class QualityShipmentService(
         QualityAssuranceAccessProfile access,
         string? shipmentStatus,
         IReadOnlyCollection<string>? customer,
-        string? assignee)
+        string? assignee,
+        bool canViewAssignments)
     {
         var normalizedShipmentStatus = shipmentStatus?.Trim().ToLowerInvariant();
         if (!string.IsNullOrWhiteSpace(normalizedShipmentStatus)
@@ -889,7 +894,7 @@ public sealed class QualityShipmentService(
 
         var normalizedAssignee = assignee?.Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(normalizedAssignee)
-            || !access.HasPermission(QualityAssurancePermissions.AssignmentView)) return query;
+            || !canViewAssignments) return query;
         if (normalizedAssignee == "unassigned")
             return query.Where(shipment => !shipment.IsOperationalTeamAssignment || !shipment.AssignedGroupId.HasValue);
         if (normalizedAssignee.StartsWith("user:", StringComparison.Ordinal)
@@ -907,11 +912,11 @@ public sealed class QualityShipmentService(
         IQueryable<QualityShipment> query,
         string sort,
         string direction,
-        QualityAssuranceAccessProfile access)
+        QualityAssuranceAccessProfile access,
+        bool canViewAssignments)
     {
         var descending = direction == "desc";
         var canViewAction = access.HasPermission(QualityAssurancePermissions.ActionView);
-        var canViewAssignment = access.HasPermission(QualityAssurancePermissions.AssignmentView);
         IOrderedQueryable<QualityShipment> ordered = sort switch
         {
             "status" => descending ? query.OrderByDescending(shipment => shipment.Status) : query.OrderBy(shipment => shipment.Status),
@@ -926,10 +931,10 @@ public sealed class QualityShipmentService(
                 : query.OrderBy(shipment => shipment.ShipDate == null).ThenBy(shipment => shipment.ShipDate),
             "hold-reason" => descending ? query.OrderByDescending(shipment => shipment.HoldReason) : query.OrderBy(shipment => shipment.HoldReason),
             "source-scheduled" => descending ? query.OrderByDescending(shipment => shipment.SourceRequestedDate) : query.OrderBy(shipment => shipment.SourceRequestedDate),
-            "action" when canViewAction && canViewAssignment => descending
+            "action" when canViewAction && canViewAssignments => descending
                 ? query.OrderByDescending(shipment => shipment.AssignedDisplayName ?? shipment.AssignedGroupName ?? shipment.NextAction)
                 : query.OrderBy(shipment => shipment.AssignedDisplayName ?? shipment.AssignedGroupName ?? shipment.NextAction),
-            "action" when canViewAssignment => descending
+            "action" when canViewAssignments => descending
                 ? query.OrderByDescending(shipment => shipment.AssignedDisplayName ?? shipment.AssignedGroupName)
                 : query.OrderBy(shipment => shipment.AssignedDisplayName ?? shipment.AssignedGroupName),
             "action" => descending
@@ -980,7 +985,10 @@ public sealed class QualityShipmentService(
         _ => "open"
     };
 
-    private static string NormalizeSort(QualityAssuranceAccessProfile access, string? sort)
+    private static string NormalizeSort(
+        QualityAssuranceAccessProfile access,
+        string? sort,
+        bool canViewAssignments)
     {
         var normalized = sort?.Trim().ToLowerInvariant() switch
         {
@@ -1000,13 +1008,16 @@ public sealed class QualityShipmentService(
             "queue-age" or "queueage" => "queue-age",
             _ => "qa-arrival"
         };
-        if (CanViewSort(access, normalized)) return normalized;
+        if (CanViewSort(access, normalized, canViewAssignments)) return normalized;
         return access.HasPermission(QualityAssurancePermissions.QaArrivalDateView)
             ? "qa-arrival"
             : "queue-age";
     }
 
-    private static bool CanViewSort(QualityAssuranceAccessProfile access, string sort) => sort switch
+    private static bool CanViewSort(
+        QualityAssuranceAccessProfile access,
+        string sort,
+        bool canViewAssignments) => sort switch
     {
         "status" => access.HasPermission(QualityAssurancePermissions.StatusView),
         "sales-order" => access.HasPermission(QualityAssurancePermissions.SalesOrderView),
@@ -1019,7 +1030,7 @@ public sealed class QualityShipmentService(
         "hold-reason" => access.HasPermission(QualityAssurancePermissions.HoldReasonView),
         "source-scheduled" => access.HasPermission(QualityAssurancePermissions.SourceRequestedDateView),
         "action" => access.HasPermission(QualityAssurancePermissions.ActionView)
-            || access.HasPermission(QualityAssurancePermissions.AssignmentView),
+            || canViewAssignments,
         "last-worked" => access.HasPermission(QualityAssurancePermissions.LastWorkedView),
         "comments" => access.HasPermission(QualityAssurancePermissions.CommentsView),
         "qa-arrival" => access.HasPermission(QualityAssurancePermissions.QaArrivalDateView),
@@ -1032,6 +1043,12 @@ public sealed class QualityShipmentService(
 
     private static bool CanReviewUnassigned(QualityAssuranceAccessProfile access) =>
         access.HasPermission(QualityAssurancePermissions.ManagerReview);
+
+    private static bool CanViewAssignments(
+        QualityAssuranceAccessProfile access,
+        QualityTeamContext teamContext) =>
+        access.HasPermission(QualityAssurancePermissions.AssignmentView)
+        || teamContext.ManagedTeamIds.Count > 0;
 
     private static IQueryable<QualityShipment> ReviewQueueQuery(
         IQueryable<QualityShipment> query,
@@ -1299,9 +1316,13 @@ public sealed class QualityShipmentService(
         QualityFieldAccess.For(access).Select(field => field.Key != "comments" && restrictedActions.Contains("shipment-updated")
             ? field with { CanEdit = false } : field).ToList();
 
-    private static QualityShipmentDto ToDto(QualityShipment shipment, QualityAssuranceAccessProfile access)
+    private static QualityShipmentDto ToDto(
+        QualityShipment shipment,
+        QualityAssuranceAccessProfile access,
+        bool canManageAssignments = false)
     {
-        var canAssignment = access.HasPermission(QualityAssurancePermissions.AssignmentView);
+        var canAssignment = canManageAssignments
+            || access.HasPermission(QualityAssurancePermissions.AssignmentView);
         var canShipDate = access.HasPermission(QualityAssurancePermissions.ShipDateView);
         var canPart = access.HasPermission(QualityAssurancePermissions.PartNumberView);
         var canQuantity = access.HasPermission(QualityAssurancePermissions.QuantityView);

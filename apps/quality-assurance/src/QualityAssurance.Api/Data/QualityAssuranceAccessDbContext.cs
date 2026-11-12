@@ -16,6 +16,7 @@ public sealed class QualityAssuranceAccessDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.ApplyConfiguration(new SonAero.Platform.Diagnostics.ArdaErrorEventConfiguration());
         modelBuilder.Entity<QualityAssuranceUserRecord>(entity =>
         {
             entity.ToTable("Users");

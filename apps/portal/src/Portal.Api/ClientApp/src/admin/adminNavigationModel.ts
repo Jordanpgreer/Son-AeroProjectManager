@@ -1,5 +1,6 @@
 import {
   CalendarDays,
+  CircleAlert,
   Factory,
   FolderTree,
   GraduationCap,
@@ -47,6 +48,15 @@ export const ADMIN_MODULES: {
     icon: ListChecks,
     href: '#/admin/raid-log/board',
     sidebarGroup: 'Operations',
+    adminOnly: true,
+  },
+  {
+    key: 'errors',
+    label: 'Error Tracker',
+    description: 'Recorded system failures, impact, and diagnostic references',
+    icon: CircleAlert,
+    href: '#/admin/errors/overview',
+    sidebarGroup: 'System',
     adminOnly: true,
   },
   {

@@ -40,20 +40,22 @@ public sealed partial class QualityWorkflowService
         if (outcome.Outcome == "route")
         {
             if (!string.Equals(graph.AssignmentDirectory, OperationalTeamDirectory, StringComparison.Ordinal))
-                throw new ArgumentException(
+                throw new QualityWorkflowConfigurationException(
                     "This workflow predates operational Quality teams. Ask a workflow administrator to update and republish it.");
             var team = outcome.TargetGroupId.HasValue
                 ? await teams.FindActiveTeamAsync(outcome.TargetGroupId.Value, cancellationToken)
                 : null;
             if (team is null)
-                throw new ArgumentException("The workflow destination is no longer an active Quality team. Ask a workflow administrator to update it.");
+                throw new QualityWorkflowConfigurationException(
+                    "The workflow destination is no longer an active Quality team. Ask a workflow administrator to update it.");
             QualityTeamMember? selected = null;
             if (outcome.AssignmentMode is "SpecificUser" or "LeastLoaded")
             {
                 var users = await teams.GetActiveMembersAsync(team.Id, cancellationToken);
                 if (outcome.AssignmentMode == "SpecificUser")
                     selected = users.SingleOrDefault(user => user.AppUserId == outcome.TargetUserId)
-                        ?? throw new ArgumentException("The workflow recipient is no longer an active member of this Quality team. Ask a workflow administrator to update it.");
+                        ?? throw new QualityWorkflowConfigurationException(
+                            "The workflow recipient is no longer an active member of this Quality team. Ask a workflow administrator to update it.");
                 else if (users.Count > 0)
                 {
                     var ids = users.Select(user => user.AppUserId).ToList();

@@ -13,9 +13,6 @@ namespace Portal.Api.Endpoints;
 
 public static class ArdaPushEndpoints
 {
-    internal const string ModuleClientHeader = "X-Arda-Client";
-    internal const string ModuleClientHeaderValue = "module-presence-v1";
-
     public static IEndpointRouteBuilder MapArdaPushEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var authenticated = endpoints.MapGroup("/api/push").RequireAuthorization();
@@ -78,16 +75,17 @@ public static class ArdaPushEndpoints
         };
     }
 
-    private static async Task<IResult> RecordPresenceAsync(
+    internal static async Task<IResult> RecordPresenceAsync(
         HttpRequest httpRequest,
         PortalUserService users,
         ApplicationRegistry registry,
         ArdaPresenceTracker presence,
         CancellationToken cancellationToken)
     {
-        if (!IsModuleClientRequest(httpRequest)) return Results.BadRequest();
         var request = await ReadRequestAsync<ArdaPushPresenceRequest>(httpRequest, cancellationToken);
-        if (request is null) return Results.BadRequest();
+        if (request is null
+            || !ArdaInboxRequestIntegrity.IsTrustedModuleOrigin(httpRequest, registry, request.ModuleId))
+            return Results.BadRequest();
         var user = await users.CurrentAsync(cancellationToken);
         if (user.AccountStatus != Portal.Api.Dtos.PortalAccountStatus.Configured) return Results.Forbid();
         if (!ValidModule(request.ModuleId, registry)
@@ -101,16 +99,18 @@ public static class ArdaPushEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> ClaimForegroundAsync(
+    internal static async Task<IResult> ClaimForegroundAsync(
         HttpRequest httpRequest,
         PortalUserService users,
+        ApplicationRegistry registry,
         ArdaPushForegroundService foreground,
         ArdaGlobalInboxService inbox,
         CancellationToken cancellationToken)
     {
-        if (!IsModuleClientRequest(httpRequest)) return Results.BadRequest();
         var request = await ReadRequestAsync<ArdaPushForegroundRequest>(httpRequest, cancellationToken);
-        if (request is null) return Results.BadRequest();
+        if (request is null
+            || !ArdaInboxRequestIntegrity.IsTrustedModuleOrigin(httpRequest, registry, request.ModuleId))
+            return Results.BadRequest();
         var user = await users.CurrentAsync(cancellationToken);
         if (user.AccountStatus != Portal.Api.Dtos.PortalAccountStatus.Configured) return Results.Forbid();
         var sources = await inbox.AuthorizedSourceIdsAsync(user, cancellationToken);
@@ -118,16 +118,18 @@ public static class ArdaPushEndpoints
         return claimed is null ? Results.Forbid() : Results.Ok(claimed);
     }
 
-    private static async Task<IResult> AcknowledgeForegroundAsync(
+    internal static async Task<IResult> AcknowledgeForegroundAsync(
         long notificationId,
         HttpRequest httpRequest,
         PortalUserService users,
+        ApplicationRegistry registry,
         ArdaPushForegroundService foreground,
         CancellationToken cancellationToken)
     {
-        if (!IsModuleClientRequest(httpRequest)) return Results.BadRequest();
         var request = await ReadRequestAsync<ArdaPushForegroundRequest>(httpRequest, cancellationToken);
-        if (request is null) return Results.BadRequest();
+        if (request is null
+            || !ArdaInboxRequestIntegrity.IsTrustedModuleOrigin(httpRequest, registry, request.ModuleId))
+            return Results.BadRequest();
         var user = await users.CurrentAsync(cancellationToken);
         if (user.AccountStatus != Portal.Api.Dtos.PortalAccountStatus.Configured) return Results.Forbid();
         return await foreground.AcknowledgeAsync(
@@ -239,10 +241,6 @@ public static class ArdaPushEndpoints
         || (!string.IsNullOrWhiteSpace(moduleId)
             && registry.All.Any(application => string.Equals(
                 application.Id, moduleId, StringComparison.OrdinalIgnoreCase)));
-
-    internal static bool IsModuleClientRequest(HttpRequest request) =>
-        string.Equals(request.Headers[ModuleClientHeader], ModuleClientHeaderValue,
-            StringComparison.Ordinal);
 
     private static async Task<T?> ReadRequestAsync<T>(
         HttpRequest request,

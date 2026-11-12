@@ -104,7 +104,8 @@ public sealed class QualityWorkflowServiceTests
         await f.Workflows.PublishAsync(saved.Version, f.Admin, default);
         (await f.Db.Teams.SingleAsync(team => team.Id == 20)).IsActive = false;
         await f.Db.SaveChangesAsync();
-        await Assert.ThrowsAsync<ArgumentException>(() => f.Shipments.CreateAsync(CreateDto(), f.Admin, default));
+        await Assert.ThrowsAsync<QualityWorkflowConfigurationException>(() =>
+            f.Shipments.CreateAsync(CreateDto(), f.Admin, default));
         Assert.Equal(0, await f.Db.Shipments.CountAsync());
     }
 

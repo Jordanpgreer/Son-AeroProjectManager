@@ -275,6 +275,27 @@ public sealed class QualityShipmentWorkflowTests
     }
 
     [Fact]
+    public async Task Qa_complete_reports_an_actionable_configuration_error_when_shipper_queue_is_inactive()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var shippingTeam = await fixture.Db.Teams.SingleAsync(team => team.Name == ApplicationGroups.Shipper);
+        shippingTeam.IsActive = false;
+        await fixture.Db.SaveChangesAsync();
+        var shipment = ShipmentForGrid("SHIP-QA-INACTIVE-QUEUE", "WIP", "Customer", 100, 99);
+        fixture.Db.Shipments.Add(shipment);
+        await fixture.Db.SaveChangesAsync();
+
+        var error = await Assert.ThrowsAsync<QualityWorkflowConfigurationException>(() =>
+            fixture.Shipments.MarkQaCompleteAsync(
+                shipment.Id,
+                shipment.Version,
+                fixture.Admin,
+                default));
+
+        Assert.Contains("reactivate", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Shipper_group_members_see_ready_to_ship_group_work_in_their_default_queue()
     {
         await using var fixture = await WorkflowFixture.CreateAsync();
@@ -714,6 +735,92 @@ public sealed class QualityShipmentWorkflowTests
         Assert.Equal("Person One", assigned.NextAction);
         Assert.Contains(await fixture.Db.ShipmentAuditEntries.ToListAsync(), entry =>
             entry.FieldName == "nextAction" && entry.NewValue == "Person One");
+    }
+
+    [Fact]
+    public async Task OperationalTeamManagerCanAssignMembersWithinManagedTeamWithoutAssignmentPermissions()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var shipment = ShipmentForGrid("SO-MANAGER-ASSIGN", "WIP", "Customer", 100, 1);
+        shipment.AssignedGroupId = 10;
+        shipment.AssignedGroupName = "Quality";
+        fixture.Db.Shipments.Add(shipment);
+        await fixture.Db.SaveChangesAsync();
+        var manager = new QualityAssuranceAccessProfile(
+            50,
+            "TEST\\manager",
+            "Quality Manager",
+            ApplicationRoles.Viewer,
+            [
+                QualityAssurancePermissions.ModuleView,
+                QualityAssurancePermissions.DashboardView,
+                QualityAssurancePermissions.ShipmentsView,
+                QualityAssurancePermissions.TeamDashboardView,
+            ],
+            []);
+
+        var dashboard = await fixture.Shipments.DashboardAsync(manager, default);
+        var options = await fixture.Teams.GetAssignmentOptionsAsync(manager, default);
+        var filtered = await fixture.Shipments.ListAsync(
+            manager,
+            "open",
+            "team",
+            "action",
+            "asc",
+            "Person 1",
+            null,
+            null,
+            "user:1",
+            default);
+        var assigned = await fixture.Shipments.AssignAsync(
+            shipment.Id,
+            new QualityShipmentAssignmentDto(shipment.Version, 10, 2),
+            manager,
+            default);
+
+        Assert.True(dashboard.CanViewAssignment);
+        Assert.True(dashboard.CanAssign);
+        Assert.True(dashboard.CanAssignGroup);
+        Assert.True(dashboard.CanAssignUser);
+        Assert.Contains(dashboard.TeamQueues, person => person.UserId == 2);
+        Assert.True(options.CanViewAssignments);
+        Assert.True(options.CanAssignGroup);
+        Assert.True(options.CanAssignUser);
+        Assert.Equal([10], options.AssignableGroupIds);
+        Assert.Equal([10], options.Groups.Select(group => group.Id));
+        Assert.DoesNotContain(options.Users, user => user.Id == 40);
+        Assert.Equal(1, Assert.Single(filtered.Items).AssignedUserId);
+        Assert.Equal(2, assigned!.AssignedUserId);
+        Assert.Equal("Person Two", assigned.AssignedDisplayName);
+    }
+
+    [Fact]
+    public async Task OperationalTeamManagerCannotRouteShipmentToAnUnmanagedTeam()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var shipment = ShipmentForGrid("SO-MANAGER-CROSS-TEAM", "WIP", "Customer", 100, 1);
+        shipment.AssignedGroupId = 10;
+        shipment.AssignedGroupName = "Quality";
+        fixture.Db.Shipments.Add(shipment);
+        await fixture.Db.SaveChangesAsync();
+        var manager = new QualityAssuranceAccessProfile(
+            50,
+            "TEST\\manager",
+            "Quality Manager",
+            ApplicationRoles.Viewer,
+            [QualityAssurancePermissions.ModuleView, QualityAssurancePermissions.ShipmentsView],
+            []);
+
+        var error = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            fixture.Shipments.AssignAsync(
+                shipment.Id,
+                new QualityShipmentAssignmentDto(shipment.Version, 20, 40),
+                manager,
+                default));
+
+        Assert.Contains("only within teams they manage", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(10, shipment.AssignedGroupId);
+        Assert.Equal(1, shipment.AssignedUserId);
     }
 
     [Fact]

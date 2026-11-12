@@ -178,6 +178,10 @@ export interface DirectoryUser {
 export interface AssignmentOptions {
   groups: DirectoryGroup[]
   users: DirectoryUser[]
+  canViewAssignments?: boolean
+  canAssignGroup?: boolean
+  canAssignUser?: boolean
+  assignableGroupIds?: number[] | null
 }
 
 export interface AuditEntry {

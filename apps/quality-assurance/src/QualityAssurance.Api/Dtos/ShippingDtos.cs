@@ -183,7 +183,11 @@ public sealed record QualityDirectoryUserDto(
 public sealed record QualityAssignmentOptionsDto(
     IReadOnlyList<QualityDirectoryGroupDto> Groups,
     IReadOnlyList<QualityDirectoryUserDto> Users,
-    IReadOnlyList<QualityDirectoryGroupDto>? PermissionGroups = null);
+    IReadOnlyList<QualityDirectoryGroupDto>? PermissionGroups = null,
+    bool CanViewAssignments = true,
+    bool CanAssignGroup = true,
+    bool CanAssignUser = true,
+    IReadOnlyList<int>? AssignableGroupIds = null);
 
 public sealed record QualityAssignmentRuleDto(
     int Id,

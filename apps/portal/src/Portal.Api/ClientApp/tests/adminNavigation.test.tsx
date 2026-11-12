@@ -89,6 +89,7 @@ describe('AdminNavigation', () => {
     const markup = renderNavigation({ canSeeAdminOnly: false, canSeeBenny: false })
 
     expect(markup).not.toContain('href="#/admin/raid-log/board"')
+    expect(markup).not.toContain('href="#/admin/errors/overview"')
     expect(markup).not.toContain('href="#/admin/api-customizer/overview"')
     expect(markup).not.toContain('href="#/admin/benny/settings"')
     expect(pageLink(markup, 'People')).toContain('href="#/admin/access/people"')
@@ -98,6 +99,7 @@ describe('AdminNavigation', () => {
     const markup = renderNavigation({ canSeeAdminOnly: true, canSeeBenny: false })
 
     expect(pageLink(markup, 'RAID Log')).toContain('href="#/admin/raid-log/board"')
+    expect(pageLink(markup, 'Error Tracker')).toContain('href="#/admin/errors/overview"')
     expect(pageLink(markup, 'API Customizer')).toContain('href="#/admin/api-customizer/overview"')
     expect(markup).not.toContain('href="#/admin/benny/settings"')
     expect(pageLink(renderNavigation(), 'Benny')).toContain('href="#/admin/benny/settings"')
