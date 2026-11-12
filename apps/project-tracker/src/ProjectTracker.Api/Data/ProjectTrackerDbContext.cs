@@ -30,6 +30,7 @@ public sealed class ProjectTrackerDbContext(DbContextOptions<ProjectTrackerDbCon
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.ApplyConfiguration(new SonAero.Platform.Diagnostics.ArdaErrorEventConfiguration());
         modelBuilder.Entity<Project>(entity =>
         {
             entity.HasIndex(project => project.ProgramName).IsUnique();

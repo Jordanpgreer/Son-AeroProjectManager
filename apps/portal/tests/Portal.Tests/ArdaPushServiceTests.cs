@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -18,17 +17,6 @@ namespace Portal.Tests;
 
 public sealed class ArdaPushServiceTests
 {
-    [Fact]
-    public void ModuleBrowserRequests_RequireNonSimpleClientHeader()
-    {
-        var context = new DefaultHttpContext();
-        Assert.False(ArdaPushEndpoints.IsModuleClientRequest(context.Request));
-
-        context.Request.Headers[ArdaPushEndpoints.ModuleClientHeader] =
-            ArdaPushEndpoints.ModuleClientHeaderValue;
-        Assert.True(ArdaPushEndpoints.IsModuleClientRequest(context.Request));
-    }
-
     [Fact]
     public void SqlServerSubscriptionSchema_IndexesFixedWidthEndpointHash()
     {

@@ -13,6 +13,7 @@ using ProjectTracker.Api.Models;
 using ProjectTracker.Api.Services;
 using ProjectTracker.Api.Services.Import;
 using ProjectTracker.Api.Services.Reports;
+using SonAero.Platform.Diagnostics;
 using SonAero.Platform.Features;
 using SonAero.Platform.Integrations;
 using SonAero.Platform.Security;
@@ -168,9 +169,11 @@ builder.Services.AddDbContext<ProjectTrackerDbContext>((serviceProvider, options
         options.UseSqlServer(configuration.GetConnectionString("SqlServer"));
     }
 });
+builder.Services.AddArdaErrorTracking<ProjectTrackerDbContext>("project-tracker", "Project Tracker");
 
 var app = builder.Build();
 
+app.UseArdaErrorTracking();
 app.Use(async (context, next) =>
 {
     context.Response.OnStarting(() =>
@@ -217,6 +220,11 @@ app.Use(async (context, next) =>
 });
 
 await InitializeDatabaseAsync(app);
+using (var errorScope = app.Services.CreateScope())
+{
+    await errorScope.ServiceProvider.GetRequiredService<ArdaErrorSchemaInitializer<ProjectTrackerDbContext>>()
+        .InitializeAsync(CancellationToken.None);
+}
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
 app.MapAccessPreviewEndpoints();

@@ -6,6 +6,7 @@ import AccessPreviewPanel from './AccessPreviewPanel'
 import AdminNavigation from './AdminNavigation'
 import { ADMIN_MODULES, ARDA_ACCESS_SECTIONS, PROJECT_TRACKER_SECTIONS, ENGINEERING_SECTIONS, QUALITY_SECTIONS } from './adminNavigationModel'
 import EngineeringStoragePanel from './EngineeringStoragePanel'
+import ErrorTrackerPanel from './ErrorTrackerPanel'
 import EstimatorSettingsPanel from './EstimatorSettingsPanel'
 import EstimatingImportAccessPanel from './EstimatingImportAccessPanel'
 import IntegrationCredentialsPanel from './IntegrationCredentialsPanel'
@@ -336,6 +337,8 @@ export default function AdminConsole({
           {route.module === 'quality-assurance' && !permissionsLoading && !permissionsError && canViewQualitySettings && route.section === 'teams' && canManageQualityTeams && <QualityTeamsPanel />}
           {route.module === 'raid-log' && currentPortalRole !== 'Admin' && <NoAccess detail="The RAID Log is available only to Arda administrators." />}
           {route.module === 'raid-log' && currentPortalRole === 'Admin' && <RaidLogPanel currentAccountName={trackerUser?.accountName ?? currentAccountName} />}
+          {route.module === 'errors' && currentPortalRole !== 'Admin' && <NoAccess detail="The Error Tracker is available only to Arda administrators." />}
+          {route.module === 'errors' && currentPortalRole === 'Admin' && <ErrorTrackerPanel />}
           {route.module === 'estimating' && permissionsLoading && <div className="admin-loading" role="status">Checking Estimating permissions...</div>}
           {route.module === 'estimating' && !permissionsLoading && permissionsError && <NoAccess detail={permissionsError} />}
           {route.module === 'estimating' && !permissionsLoading && !permissionsError && !canManageEstimatingSettings && !canManageEstimatingImportAccess && <NoAccess detail="Your groups do not grant permission to administer Estimating settings or group import access." />}

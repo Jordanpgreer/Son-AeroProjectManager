@@ -3,6 +3,7 @@ using QualityAssurance.Api.Auth;
 using QualityAssurance.Api.Data;
 using QualityAssurance.Api.Dtos;
 using QualityAssurance.Api.Models;
+using SonAero.Platform.Security;
 
 namespace QualityAssurance.Api.Services;
 
@@ -152,6 +153,44 @@ public sealed class QualityTeamService(
             .ThenBy(user => user.AccountName)
             .ToList();
         return new QualityAssignmentOptionsDto(teams, users);
+    }
+
+    public async Task<QualityAssignmentOptionsDto> GetAssignmentOptionsAsync(
+        QualityAssuranceAccessProfile access,
+        CancellationToken cancellationToken)
+    {
+        var options = await GetAssignmentOptionsAsync(cancellationToken);
+        var context = await GetContextAsync(access.UserId, cancellationToken);
+        var canAssignGroup = access.HasPermission(QualityAssurancePermissions.AssignmentGroup)
+            || context.ManagedTeamIds.Count > 0;
+        var canAssignUser = access.HasPermission(QualityAssurancePermissions.AssignmentUser)
+            || context.ManagedTeamIds.Count > 0;
+        var canViewAllAssignments = access.HasPermission(QualityAssurancePermissions.AssignmentView)
+            || access.HasPermission(QualityAssurancePermissions.AssignmentGroup)
+            || access.HasPermission(QualityAssurancePermissions.AssignmentUser);
+        var canViewAssignments = canViewAllAssignments || context.ManagedTeamIds.Count > 0;
+        var visibleTeamIds = canViewAllAssignments
+            ? options.Groups.Select(team => team.Id).ToHashSet()
+            : context.ManagedTeamIds;
+        var assignableTeamIds = access.HasPermission(QualityAssurancePermissions.AssignmentGroup)
+            || access.HasPermission(QualityAssurancePermissions.AssignmentUser)
+                ? options.Groups.Select(team => team.Id).ToHashSet()
+                : context.ManagedTeamIds;
+        var groups = options.Groups.Where(team => visibleTeamIds.Contains(team.Id)).ToList();
+        var users = options.Users
+            .Where(user => user.GroupIds.Any(visibleTeamIds.Contains))
+            .Select(user => user with
+            {
+                GroupIds = user.GroupIds.Where(visibleTeamIds.Contains).ToList()
+            })
+            .ToList();
+        return new QualityAssignmentOptionsDto(
+            groups,
+            users,
+            CanViewAssignments: canViewAssignments,
+            CanAssignGroup: canAssignGroup,
+            CanAssignUser: canAssignUser,
+            AssignableGroupIds: assignableTeamIds.OrderBy(id => id).ToList());
     }
 
     public async Task<(IReadOnlyList<QualityDirectoryGroup> Teams, IReadOnlyList<QualityDirectoryUser> Users)>

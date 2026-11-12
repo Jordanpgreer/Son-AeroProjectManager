@@ -277,13 +277,19 @@ public sealed class FulcrumQualityShipmentProvider(
                 .ToList();
         }
         var first = reportRows.FirstOrDefault();
+        var customerName = reportRows
+            .Select(row => row.RecipientName?.Trim())
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))
+            ?? reportRows
+                .Select(row => row.RecipientCustomerCode?.Trim())
+                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
         return new QualityExternalShipment(
             shipment.Id,
             shipment.Name,
             shipment.Status,
             shipment.ShipByDate.HasValue ? DateOnly.FromDateTime(shipment.ShipByDate.Value.UtcDateTime) : null,
             shipment.ShippedDateOverride ?? shipment.ShippedDate,
-            first?.RecipientCustomerCode ?? first?.RecipientName,
+            customerName,
             first?.CustomerPoNumber,
             BuildRecordUrl(urlTemplate, shipment.Id, shipment.Name),
             parts);

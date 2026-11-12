@@ -1,5 +1,6 @@
 export type AdminModuleKey =
   | 'access'
+  | 'errors'
   | 'project-tracker'
   | 'engineering'
   | 'estimating'

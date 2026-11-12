@@ -33,9 +33,7 @@ public sealed partial class QualityWorkflowService
             edges.Add(new($"{id}-yes", id, $"route-{rule.Id}", "yes"));
             edges.Add(new($"{id}-no", id, index + 1 < rules.Count ? $"rule-{rules[index + 1].Id}" : "keep", "no"));
         }
-        var configuredName = configuration?["QualityWorkflow:ShippingGroupName"]?.Trim();
-        var shippingName = string.IsNullOrWhiteSpace(configuredName) || string.Equals(configuredName, "Shipping", StringComparison.OrdinalIgnoreCase)
-            ? ApplicationGroups.Shipper : configuredName;
+        var shippingName = QualityOperationalTeamNames.Shipping(configuration);
         var shipping = groups.FirstOrDefault(group => string.Equals(group.Name, shippingName, StringComparison.OrdinalIgnoreCase));
         var actionY = 520 + rules.Count * 230;
         if (shipping is not null)

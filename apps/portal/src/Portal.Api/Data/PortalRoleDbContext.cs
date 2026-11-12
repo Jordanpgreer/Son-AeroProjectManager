@@ -5,6 +5,7 @@ namespace Portal.Api.Data;
 
 public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> options) : DbContext(options)
 {
+    public DbSet<SonAero.Platform.Diagnostics.ArdaErrorEvent> ArdaErrorEvents => Set<SonAero.Platform.Diagnostics.ArdaErrorEvent>();
     public DbSet<PortalRoleRecord> Users => Set<PortalRoleRecord>();
     public DbSet<PortalModuleAccessRecord> UserModuleAccess => Set<PortalModuleAccessRecord>();
     public DbSet<PortalNotificationRecord> UserNotifications => Set<PortalNotificationRecord>();
@@ -36,6 +37,7 @@ public sealed class PortalRoleDbContext(DbContextOptions<PortalRoleDbContext> op
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.ApplyConfiguration(new SonAero.Platform.Diagnostics.ArdaErrorEventConfiguration());
         modelBuilder.ApplyConfiguration(new ArdaInboxDismissalConfiguration());
         modelBuilder.Entity<Portal.Api.Services.ApiCustomizer.CustomizerReportRecord>(entity =>
         {

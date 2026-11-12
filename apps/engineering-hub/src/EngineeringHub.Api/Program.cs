@@ -7,6 +7,7 @@ using EngineeringHub.Api.Data;
 using EngineeringHub.Api.Dtos;
 using EngineeringHub.Api.Endpoints;
 using EngineeringHub.Api.Services;
+using SonAero.Platform.Diagnostics;
 using SonAero.Platform.Features;
 using SonAero.Platform.Security;
 
@@ -52,6 +53,7 @@ builder.Services.AddDbContext<EngineeringRoleDbContext>((serviceProvider, option
         options.UseSqlServer(connectionString);
     }
 });
+builder.Services.AddArdaErrorTracking<EngineeringRoleDbContext>("engineering", "Engineering");
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
@@ -110,8 +112,11 @@ using (var scope = app.Services.CreateScope())
     {
         app.Logger.LogWarning(exception, "Design-authority folders could not be synchronized during startup.");
     }
+    await scope.ServiceProvider.GetRequiredService<ArdaErrorSchemaInitializer<EngineeringRoleDbContext>>()
+        .InitializeAsync(CancellationToken.None);
 }
 
+app.UseArdaErrorTracking();
 app.Use(async (context, next) =>
 {
     context.Response.OnStarting(() =>

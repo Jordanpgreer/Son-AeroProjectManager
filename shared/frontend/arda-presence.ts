@@ -37,6 +37,14 @@ export function installArdaPresence({
   let claimInterval: number | undefined
   const displayedNotificationIds = new Set<number>()
   const acknowledgedNotificationIds = new Set<number>()
+  const modulePost = (keepalive = false): RequestInit => ({
+    method: 'POST',
+    credentials: 'include',
+    keepalive,
+    // A string body remains CORS-safelisted. Portal validates the exact Origin
+    // and claimed module before using the authenticated request.
+    body: JSON.stringify({ moduleId, clientId }),
+  })
 
   const foregroundRoot = document.createElement('aside')
   const supportsPopover = typeof foregroundRoot.showPopover === 'function'
@@ -101,15 +109,10 @@ export function installArdaPresence({
   const acknowledge = async (notificationId: number) => {
     if (acknowledgedNotificationIds.has(notificationId)) return
     try {
-      const response = await fetch(new URL(`/api/push/foreground/${notificationId}/ack`, portalBaseUrl).href, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Arda-Client': 'module-presence-v1',
-        },
-        body: JSON.stringify({ moduleId, clientId }),
-      })
+      const response = await fetch(
+        new URL(`/api/push/foreground/${notificationId}/ack`, portalBaseUrl).href,
+        modulePost(),
+      )
       if (response.ok) acknowledgedNotificationIds.add(notificationId)
     } catch {
       // The still-active claim is returned again, so a later poll retries the
@@ -163,15 +166,10 @@ export function installArdaPresence({
   const claim = async () => {
     if (stopped || document.visibilityState !== 'visible') return
     try {
-      const response = await fetch(new URL('/api/push/foreground/claim', portalBaseUrl).href, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Arda-Client': 'module-presence-v1',
-        },
-        body: JSON.stringify({ moduleId, clientId }),
-      })
+      const response = await fetch(
+        new URL('/api/push/foreground/claim', portalBaseUrl).href,
+        modulePost(),
+      )
       if (!response.ok) return
       const notifications = await response.json() as ArdaForegroundNotification[]
       notifications.forEach((notification) => {
@@ -199,13 +197,7 @@ export function installArdaPresence({
     if (stopped && visible) return false
     try {
       const response = await fetch(endpoint, {
-        method: 'POST',
-        credentials: 'include',
-        keepalive,
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Arda-Client': 'module-presence-v1',
-        },
+        ...modulePost(keepalive),
         body: JSON.stringify({ moduleId, clientId, visible }),
       })
       if (visible && response.ok) startClaims()

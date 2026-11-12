@@ -27,6 +27,7 @@ public sealed class EstimatingAccessDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.ApplyConfiguration(new SonAero.Platform.Diagnostics.ArdaErrorEventConfiguration());
         VendorQuoteModelConfiguration.Configure(modelBuilder);
         modelBuilder.Entity<EstimatingUserRecord>(entity =>
         {

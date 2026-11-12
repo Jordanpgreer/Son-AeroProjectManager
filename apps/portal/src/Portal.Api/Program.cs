@@ -11,6 +11,7 @@ using Portal.Api.Endpoints;
 using Portal.Api.Models;
 using Portal.Api.Services;
 using Portal.Api.Services.ApiCustomizer;
+using SonAero.Platform.Diagnostics;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -78,6 +79,7 @@ builder.Services.AddDbContext<PortalRoleDbContext>((serviceProvider, options) =>
         options.UseSqlServer(connectionString);
     }
 });
+builder.Services.AddArdaErrorTracking<PortalRoleDbContext>("hub", "Arda Admin Hub");
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
@@ -116,8 +118,11 @@ using (var scope = app.Services.CreateScope())
         .InitializeAsync(CancellationToken.None);
     await scope.ServiceProvider.GetRequiredService<ArdaPushSchemaInitializer>()
         .InitializeAsync(CancellationToken.None);
+    await scope.ServiceProvider.GetRequiredService<ArdaErrorSchemaInitializer<PortalRoleDbContext>>()
+        .InitializeAsync(CancellationToken.None);
 }
 
+app.UseArdaErrorTracking();
 app.Use(async (context, next) =>
 {
     context.Response.OnStarting(() =>
@@ -173,6 +178,7 @@ api.MapIntegrationCredentialAdminEndpoints();
 api.MapApiCustomizerEndpoints();
 api.MapAdminAccessPreviewEndpoints();
 api.MapRaidLogAdminEndpoints();
+api.MapErrorTrackerEndpoints();
 app.MapArdaPushEndpoints();
 
 // Live "minimized dashboard" data for the Project Tracker card. Best-effort and read-only.

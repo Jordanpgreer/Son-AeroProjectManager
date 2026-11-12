@@ -7,6 +7,7 @@ using EstimatingDashboard.Api.Data;
 using EstimatingDashboard.Api.Dtos;
 using EstimatingDashboard.Api.Endpoints;
 using EstimatingDashboard.Api.Services;
+using SonAero.Platform.Diagnostics;
 using SonAero.Platform.Features;
 using SonAero.Platform.Integrations;
 
@@ -76,6 +77,7 @@ builder.Services.AddDbContext<EstimatingAccessDbContext>((serviceProvider, optio
         options.UseSqlServer(connectionString);
     }
 });
+builder.Services.AddArdaErrorTracking<EstimatingAccessDbContext>("estimating", "Estimating");
 builder.Services.AddCors(options => options.AddPolicy("HubAdmin", policy =>
 {
     var origins = new[]
@@ -186,8 +188,11 @@ await using (var scope = app.Services.CreateAsyncScope())
             .GetRequiredService<DevelopmentQuoteFolderDemoSeeder>()
             .SeedAsync();
     await scope.ServiceProvider.GetRequiredService<VendorQuoteSchemaInitializer>().InitializeAsync();
+    await scope.ServiceProvider.GetRequiredService<ArdaErrorSchemaInitializer<EstimatingAccessDbContext>>()
+        .InitializeAsync(CancellationToken.None);
 }
 
+app.UseArdaErrorTracking();
 app.Use(async (context, next) =>
 {
     context.Response.OnStarting(() =>

@@ -72,6 +72,7 @@ public sealed class RoleStoreDbContext(DbContextOptions<RoleStoreDbContext> opti
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.ApplyConfiguration(new SonAero.Platform.Diagnostics.ArdaErrorEventConfiguration());
         modelBuilder.Entity<RoleUser>(entity =>
         {
             entity.ToTable("Users");

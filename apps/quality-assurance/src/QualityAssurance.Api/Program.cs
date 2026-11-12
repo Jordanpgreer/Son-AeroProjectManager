@@ -7,6 +7,7 @@ using QualityAssurance.Api.Data;
 using QualityAssurance.Api.Dtos;
 using QualityAssurance.Api.Endpoints;
 using QualityAssurance.Api.Services;
+using SonAero.Platform.Diagnostics;
 using SonAero.Platform.Features;
 using SonAero.Platform.Integrations;
 using SonAero.Platform.Security;
@@ -18,6 +19,7 @@ builder.Services.AddScoped<IQualityAssuranceAccessStore, QualityAssuranceAccessS
 builder.Services.AddScoped<QualityAssuranceAccessPreviewService>();
 builder.Services.AddScoped<QualityAssignmentService>();
 builder.Services.AddScoped<QualityTeamService>();
+builder.Services.AddScoped<QualityOperationalTeamInitializer>();
 builder.Services.AddScoped<QualityWorkflowService>();
 builder.Services.AddScoped<QualityLegacyAssignmentReconciler>();
 builder.Services.AddScoped<QualityShipmentService>();
@@ -65,6 +67,7 @@ builder.Services.AddDbContext<QualityAssuranceAccessDbContext>((serviceProvider,
     else
         options.UseSqlServer(connectionString);
 });
+builder.Services.AddArdaErrorTracking<QualityAssuranceAccessDbContext>("quality-assurance", "Quality Assurance");
 builder.Services.AddDbContext<QualityAssuranceDbContext>((serviceProvider, options) =>
 {
     var configuration = serviceProvider.GetRequiredService<IConfiguration>();
@@ -136,10 +139,15 @@ using (var scope = app.Services.CreateScope())
         .SeedAsync(CancellationToken.None);
     var db = scope.ServiceProvider.GetRequiredService<QualityAssuranceDbContext>();
     await db.Database.MigrateAsync();
+    await scope.ServiceProvider.GetRequiredService<QualityOperationalTeamInitializer>()
+        .InitializeAsync(CancellationToken.None);
     await scope.ServiceProvider.GetRequiredService<QualityLegacyAssignmentReconciler>()
         .ReconcileAsync(CancellationToken.None);
+    await scope.ServiceProvider.GetRequiredService<ArdaErrorSchemaInitializer<QualityAssuranceAccessDbContext>>()
+        .InitializeAsync(CancellationToken.None);
 }
 
+app.UseArdaErrorTracking();
 app.UseAuthentication();
 app.Use(async (context, next) =>
 {
@@ -229,6 +237,11 @@ app.Use(async (context, next) =>
     {
         context.Response.StatusCode = StatusCodes.Status400BadRequest;
         await context.Response.WriteAsJsonAsync(new ErrorDto("ValidationError", exception.Message));
+    }
+    catch (QualityWorkflowConfigurationException exception) when (!context.Response.HasStarted)
+    {
+        context.Response.StatusCode = StatusCodes.Status409Conflict;
+        await context.Response.WriteAsJsonAsync(new ErrorDto("WorkflowConfigurationError", exception.Message));
     }
     catch (DbUpdateConcurrencyException) when (!context.Response.HasStarted)
     {

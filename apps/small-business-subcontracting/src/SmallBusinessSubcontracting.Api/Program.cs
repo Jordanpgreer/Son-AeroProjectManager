@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Negotiate;
 using Microsoft.EntityFrameworkCore;
 using SmallBusinessSubcontracting.Api;
+using SonAero.Platform.Diagnostics;
 using SonAero.Platform.Security;
 using SonAero.Platform.Integrations;
 
@@ -25,6 +26,9 @@ builder.Services.AddDbContext<RoleStoreDbContext>((services, options) =>
         ?? throw new InvalidOperationException("ConnectionStrings:RoleStore is required.");
     SubcontractingDatabaseConfiguration.Configure(options, provider, connection);
 });
+builder.Services.AddArdaErrorTracking<RoleStoreDbContext>(
+    "small-business-subcontracting",
+    "Small Business Subcontracting");
 builder.Services.AddSingleton<IIntegrationSecretProtector, MachineIntegrationSecretProtector>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<SubcontractingAccessService>();
@@ -73,8 +77,11 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<SubcontractingDbContext>();
     await SubcontractingDatabaseInitializer.InitializeAsync(db, app.Environment.IsDevelopment());
     await scope.ServiceProvider.GetRequiredService<VendorDocumentStore>().VerifyWritableAsync(CancellationToken.None);
+    await scope.ServiceProvider.GetRequiredService<ArdaErrorSchemaInitializer<RoleStoreDbContext>>()
+        .InitializeAsync(CancellationToken.None);
 }
 
+app.UseArdaErrorTracking();
 app.Use(async (context, next) =>
 {
     try

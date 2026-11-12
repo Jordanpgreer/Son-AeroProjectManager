@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Data.Sqlite;
@@ -34,11 +35,76 @@ public sealed class ArdaInboxEndpointTests
     public void OriginBoundary_RequiresExactlyAnApprovedBrowserOrigin(string? origin, bool expected)
     {
         var context = Context(origin);
-        // A legacy client header must not provide a bypass for a bad or missing Origin.
-        context.Request.Headers[ArdaPushEndpoints.ModuleClientHeader] = ArdaPushEndpoints.ModuleClientHeaderValue;
         Assert.Equal(expected, ArdaInboxRequestIntegrity.IsTrustedOrigin(context.Request, new ApplicationRegistry(Configuration())));
         context.Request.Headers.Origin = new StringValues(["https://quality.example:6145", "https://hub.example"]);
         Assert.False(ArdaInboxRequestIntegrity.IsTrustedOrigin(context.Request, new ApplicationRegistry(Configuration())));
+    }
+
+    [Theory]
+    [InlineData("https://hub.example", "portal", true)]
+    [InlineData("https://quality.example:6145", "quality-assurance", true)]
+    [InlineData("https://QUALITY.EXAMPLE:6145", "QUALITY-ASSURANCE", true)]
+    [InlineData("https://quality.example:6145", "portal", false)]
+    [InlineData("https://hub.example", "quality-assurance", false)]
+    [InlineData("https://attacker.example", "quality-assurance", false)]
+    [InlineData(null, "quality-assurance", false)]
+    public void ModuleOriginBoundary_BindsTheRegisteredOriginToTheClaimedModule(
+        string? origin,
+        string moduleId,
+        bool expected)
+    {
+        var context = Context(origin);
+        Assert.Equal(expected, ArdaInboxRequestIntegrity.IsTrustedModuleOrigin(
+            context.Request,
+            new ApplicationRegistry(Configuration()),
+            moduleId));
+    }
+
+    [Theory]
+    [InlineData("presence")]
+    [InlineData("claim")]
+    [InlineData("acknowledge")]
+    public async Task ForegroundMutations_RejectAModuleOriginMismatchBeforeResolvingTheUser(
+        string operation)
+    {
+        var context = Context("https://quality.example:6145");
+        context.Request.Body = JsonBody(operation == "presence"
+            ? """{"moduleId":"portal","clientId":"tab-1","visible":true}"""
+            : """{"moduleId":"portal","clientId":"tab-1"}"""
+        );
+        var registry = new ApplicationRegistry(Configuration());
+
+        var result = operation switch
+        {
+            "presence" => await ArdaPushEndpoints.RecordPresenceAsync(
+                context.Request, null!, registry, new ArdaPresenceTracker(), default),
+            "claim" => await ArdaPushEndpoints.ClaimForegroundAsync(
+                context.Request, null!, registry, null!, null!, default),
+            _ => await ArdaPushEndpoints.AcknowledgeForegroundAsync(
+                1, context.Request, null!, registry, null!, default)
+        };
+
+        Assert.IsType<BadRequest>(result);
+    }
+
+    [Fact]
+    public async Task CorsSafelistedPresencePost_PreservesAuthenticatedPresenceBehavior()
+    {
+        var context = Context("https://quality.example:6145");
+        context.Request.Body = JsonBody(
+            """{"moduleId":"quality-assurance","clientId":"tab-1","visible":true}""");
+        var configuration = Configuration();
+        var registry = new ApplicationRegistry(configuration);
+        var users = new PortalUserService(
+            new HttpContextAccessor { HttpContext = context }, configuration, new RoleStore());
+        var presence = new ArdaPresenceTracker();
+
+        var result = await ArdaPushEndpoints.RecordPresenceAsync(
+            context.Request, users, registry, presence, default);
+
+        Assert.Equal(204, ((IStatusCodeHttpResult)result).StatusCode);
+        Assert.True(presence.IsVisibleClient(
+            @"SON4L\recipient", "quality-assurance", "tab-1"));
     }
 
     [Theory]
@@ -134,6 +200,9 @@ public sealed class ArdaInboxEndpointTests
         context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, @"SON4L\recipient")], "Windows"));
         return context;
     }
+
+    private static MemoryStream JsonBody(string json) =>
+        new(Encoding.UTF8.GetBytes(json));
 
     private static ArdaPushNotificationRecord Notification(string recipient) => new()
     {

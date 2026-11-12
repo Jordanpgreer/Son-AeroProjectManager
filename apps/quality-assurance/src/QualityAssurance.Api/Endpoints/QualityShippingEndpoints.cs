@@ -198,7 +198,7 @@ public static class QualityShippingEndpoints
         {
             var updated = await shipments.AssignAsync(id, dto, Access(context), cancellationToken);
             return updated is null ? Results.NotFound() : Results.Ok(updated);
-        }).RequireAuthorization(QualityAssurancePermissions.AssignmentView);
+        }).RequireAuthorization(QualityAssurancePermissions.ShipmentsView);
 
         api.MapPost("/shipments/{id:int}/shipped", async (
             int id,
@@ -237,10 +237,11 @@ public static class QualityShippingEndpoints
         }).RequireAuthorization(QualityAssurancePermissions.ShipmentsView, QualityAssurancePermissions.AuditView);
 
         api.MapGet("/assignment-options", async (
+            HttpContext context,
             QualityTeamService teams,
             CancellationToken cancellationToken) =>
-            Results.Ok(await teams.GetAssignmentOptionsAsync(cancellationToken)))
-            .RequireAuthorization(QualityAssurancePermissions.AssignmentView);
+            Results.Ok(await teams.GetAssignmentOptionsAsync(Access(context), cancellationToken)))
+            .RequireAuthorization(QualityAssurancePermissions.ShipmentsView);
 
         var rules = api.MapGroup("/admin/assignment-rules")
             .RequireAuthorization(QualityAssurancePermissions.SettingsView);
