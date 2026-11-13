@@ -60,8 +60,15 @@ internal sealed class FulcrumQuoteLinkResolver(
             logger.LogDebug("Timed out verifying the Fulcrum link for quote {QuoteNumber}.", quoteNumber);
             return null;
         }
+        catch (FulcrumCoordinationUnavailableException)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            logger.LogDebug("Shared Fulcrum coordination is unavailable; omitting the link for quote {QuoteNumber}.", quoteNumber);
+            return null;
+        }
         catch (Exception exception) when (exception is HttpRequestException or IOException or InvalidOperationException or JsonException)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             logger.LogDebug(exception, "Could not verify the Fulcrum link for quote {QuoteNumber}.", quoteNumber);
             return null;
         }

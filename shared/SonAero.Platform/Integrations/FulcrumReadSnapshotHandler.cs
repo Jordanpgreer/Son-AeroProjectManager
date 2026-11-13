@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -21,6 +22,16 @@ public sealed class FulcrumReadSnapshotHandler(FulcrumSnapshotStore store,
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
         if (!IsSupportedRead(request)) return await base.SendAsync(request, ct);
+        try { return await SendCoordinatedAsync(request, ct); }
+        catch (DbException exception)
+        {
+            ct.ThrowIfCancellationRequested();
+            throw new FulcrumCoordinationUnavailableException(exception);
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendCoordinatedAsync(HttpRequestMessage request, CancellationToken ct)
+    {
         var settings = options.Value;
         var fresh = request.Options.TryGetValue(RequireFresh, out var requireFresh) && requireFresh;
         var allowStale = !fresh && request.Options.TryGetValue(AllowStale, out var requestedStale) && requestedStale;
@@ -74,41 +85,49 @@ public sealed class FulcrumReadSnapshotHandler(FulcrumSnapshotStore store,
                 return await CopyResponseAsync(response, request, settings.MaximumResponseBytes, ct);
             }
             var result = await CopyResponseAsync(response, request, settings.MaximumResponseBytes, ct);
-            if (!fresh && response.StatusCode == HttpStatusCode.OK
-                && result.Content.Headers.ContentType?.MediaType?.Contains("json", StringComparison.OrdinalIgnoreCase) == true)
+            try
             {
-                var bytes = await result.Content.ReadAsByteArrayAsync(ct);
-                // A malformed success must never replace a usable snapshot.
-                using var parsed = JsonDocument.Parse(bytes);
-                await store.PublishAsync(key, owner, bytes, result.Content.Headers.ContentType.ToString(),
-                    now, settings.NextBoundary(now), ct);
+                if (!fresh && response.StatusCode == HttpStatusCode.OK
+                    && result.Content.Headers.ContentType?.MediaType?.Contains("json", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    var bytes = await result.Content.ReadAsByteArrayAsync(ct);
+                    // A malformed success must never replace a usable snapshot.
+                    using var parsed = JsonDocument.Parse(bytes);
+                    await store.PublishAsync(key, owner, bytes, result.Content.Headers.ContentType.ToString(),
+                        now, settings.NextBoundary(now), ct);
+                }
+                if (now.UtcTicks > Interlocked.Read(ref nextPruneTicks))
+                {
+                    Interlocked.Exchange(ref nextPruneTicks, now.AddHours(1).UtcTicks);
+                    // Retention does not participate in admission, freshness, or retry coordination.
+                    try { await store.PruneAsync(now, ct); }
+                    catch (DbException exception) when (!ct.IsCancellationRequested)
+                    { logger.LogWarning(exception, "Shared Fulcrum snapshot retention could not run."); }
+                }
+                return result;
             }
-            if (now.UtcTicks > Interlocked.Read(ref nextPruneTicks))
-            {
-                Interlocked.Exchange(ref nextPruneTicks, now.AddHours(1).UtcTicks);
-                await store.PruneAsync(now, ct);
-            }
-            return result;
+            catch { result.Dispose(); throw; }
         }
         catch (HttpRequestException exception) when (!ct.IsCancellationRequested
             && (exception.StatusCode is null || exception.StatusCode == HttpStatusCode.TooManyRequests
                 || (int)exception.StatusCode >= 500))
         {
-            if (!fresh) await store.DeferAsync(key, clock.GetUtcNow().AddSeconds(30), ct);
-            await store.DeferAsync(throttleKey, clock.GetUtcNow().AddSeconds(30), ct);
+            if (!fresh) await TryCleanupAsync(() => store.DeferAsync(key, clock.GetUtcNow().AddSeconds(30), CancellationToken.None), "request retry delay");
+            await TryCleanupAsync(() => store.DeferAsync(throttleKey, clock.GetUtcNow().AddSeconds(30), CancellationToken.None), "credential retry delay");
+            ct.ThrowIfCancellationRequested();
             if (allowStale && CanUseStale(snapshot, settings)) return FromSnapshot(request, snapshot!, true);
             throw;
         }
         catch (OperationCanceledException)
         {
             // HttpClient timeouts arrive as cancellation. Avoid a burst from other module callers.
-            await store.DeferAsync(throttleKey, clock.GetUtcNow().AddSeconds(30), CancellationToken.None);
+            await TryCleanupAsync(() => store.DeferAsync(throttleKey, clock.GetUtcNow().AddSeconds(30), CancellationToken.None), "cancellation retry delay");
             throw;
         }
         finally
         {
-            if (slot is not null) await store.ReleaseAsync(slot, owner, CancellationToken.None);
-            if (!fresh) await store.ReleaseAsync(key, owner, CancellationToken.None);
+            if (slot is not null) await TryCleanupAsync(() => store.ReleaseAsync(slot, owner, CancellationToken.None), "concurrency lease release");
+            if (!fresh) await TryCleanupAsync(() => store.ReleaseAsync(key, owner, CancellationToken.None), "request lease release");
         }
     }
 
@@ -142,13 +161,24 @@ public sealed class FulcrumReadSnapshotHandler(FulcrumSnapshotStore store,
                 await store.DeferAsync(paceKey,
                     clock.GetUtcNow().AddMilliseconds(settings.MinimumRequestSpacingMilliseconds), ct);
             }
-            finally { await store.ReleaseAsync(paceKey, owner, CancellationToken.None); }
+            finally { await TryCleanupAsync(() => store.ReleaseAsync(paceKey, owner, CancellationToken.None), "pacing lease release"); }
             return slot;
         }
         catch
         {
-            if (slot is not null) await store.ReleaseAsync(slot, owner, CancellationToken.None);
+            if (slot is not null) await TryCleanupAsync(() => store.ReleaseAsync(slot, owner, CancellationToken.None), "failed admission lease release");
             throw;
+        }
+    }
+
+    private async Task TryCleanupAsync(Func<Task> action, string operation)
+    {
+        try { await action(); }
+        catch (DbException exception)
+        {
+            // Leases still expire. Never replace an upstream response/error or cancellation with
+            // a cleanup failure, and let the caller attempt every remaining cleanup operation.
+            logger.LogWarning(exception, "Shared Fulcrum {Operation} could not be persisted.", operation);
         }
     }
 

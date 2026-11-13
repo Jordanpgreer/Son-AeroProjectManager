@@ -1,5 +1,6 @@
 using System.Text.Json;
 using EstimatingDashboard.Api.Dtos;
+using SonAero.Platform.Integrations;
 using static EstimatingDashboard.Api.Services.FulcrumMaterialRequirementsPolicy;
 
 namespace EstimatingDashboard.Api.Services;
@@ -83,6 +84,7 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
     }
 
     private static bool IsRecoverable(Exception error, CancellationToken token) => !token.IsCancellationRequested
+        && error is not FulcrumCoordinationUnavailableException
         && error is HttpRequestException or InvalidOperationException or JsonException or TaskCanceledException;
 
     private sealed class Inspection(FulcrumQuoteGenerationClient client, DateTimeOffset checkedAt)
@@ -247,6 +249,7 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
         }
 
         private static bool Recoverable(Exception error, CancellationToken token) => !token.IsCancellationRequested
+            && error is not FulcrumCoordinationUnavailableException
             && error is HttpRequestException or InvalidOperationException or JsonException or TaskCanceledException;
 
         private sealed class Material(string id, JsonElement item)

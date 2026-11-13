@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Security.Cryptography;
 using EstimatingDashboard.Api.Data;
 using Microsoft.EntityFrameworkCore;
@@ -23,7 +24,8 @@ internal sealed class EstimatingEnterpriseProviderSource(EstimatingAccessDbConte
 internal sealed class IntegrationCredentialReader(
     EstimatingAccessDbContext db,
     IIntegrationSecretProtector protector,
-    TimeProvider timeProvider) : IIntegrationCredentialReader
+    TimeProvider timeProvider,
+    ILogger<IntegrationCredentialReader>? logger = null) : IIntegrationCredentialReader
 {
     public async Task<string?> GetSecretAsync(
         string credentialKey,
@@ -55,8 +57,20 @@ internal sealed class IntegrationCredentialReader(
         // A provider read may run while email/RFQ changes are still pending in this scope.
         // Usage telemetry must not commit those changes before their owning operation saves.
         var usedAt = timeProvider.GetUtcNow();
-        await db.IntegrationCredentials.Where(row => row.CredentialKey == credentialKey)
-            .ExecuteUpdateAsync(update => update.SetProperty(row => row.LastUsedAt, usedAt), cancellationToken);
+        try
+        {
+            await db.IntegrationCredentials.Where(row => row.CredentialKey == credentialKey)
+                .ExecuteUpdateAsync(update => update.SetProperty(row => row.LastUsedAt, usedAt), cancellationToken);
+        }
+        catch (DbException exception)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            // The credential is already validated. Optional telemetry must not make a read fail
+            // when the database cannot accept writes (for example, a full transaction log).
+            // Do not log the provider exception, which can contain connection or credential data.
+            logger?.LogWarning("Could not record integration credential usage ({ExceptionType}).",
+                exception.GetType().Name);
+        }
         return secret;
     }
 }

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using EstimatingDashboard.Api.Dtos;
+using SonAero.Platform.Integrations;
 using static EstimatingDashboard.Api.Services.FulcrumMaterialRequirementsPolicy;
 
 namespace EstimatingDashboard.Api.Services;
@@ -168,7 +169,9 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
                         if (emails.Count == 0)
                             issues.Add("The selected vendor has no usable contact email in Fulcrum.");
                     }
-                    catch (Exception error) when (!ct.IsCancellationRequested && error is HttpRequestException or InvalidOperationException or JsonException or TaskCanceledException)
+                    catch (Exception error) when (!ct.IsCancellationRequested
+                        && error is not FulcrumCoordinationUnavailableException
+                        && error is HttpRequestException or InvalidOperationException or JsonException or TaskCanceledException)
                     { issues.Add("The selected OP vendor or contacts could not be verified in Fulcrum."); }
                 }
                 var instructions = Text(candidate.Operation, "instructions");

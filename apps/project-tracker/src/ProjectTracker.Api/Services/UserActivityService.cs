@@ -1,5 +1,8 @@
+using System.Data.Common;
+using Microsoft.Data.SqlClient;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using ProjectTracker.Api.Data;
 
 namespace ProjectTracker.Api.Services;
@@ -21,14 +24,31 @@ public static class UserActivityService
 
             // Only one concurrent identity request advances this timestamp. Do not save unrelated
             // tracked account changes or use UPDATE RETURNING, whose reader holds a write lock.
-            await db.Users.Where(user => user.Id == userId && user.LastSeenAt == previous.Value)
-                .ExecuteUpdateAsync(update => update.SetProperty(user => user.LastSeenAt, seenAt), cancellationToken);
+            try
+            {
+                await db.Users.Where(user => user.Id == userId && user.LastSeenAt == previous.Value)
+                    .ExecuteUpdateAsync(update => update.SetProperty(user => user.LastSeenAt, seenAt), cancellationToken);
+            }
+            catch (DbException exception)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                // The optional write can be retried without saving unrelated tracked changes.
+                var errorCode = exception switch
+                {
+                    SqlException sql => sql.Number,
+                    SqliteException sqlite => sqlite.SqliteErrorCode,
+                    _ => exception.ErrorCode
+                };
+                db.GetService<ILoggerFactory>().CreateLogger(typeof(UserActivityService).FullName!)
+                    .LogWarning("Optional last-seen update failed ({DatabaseErrorType}, code {DatabaseErrorCode}); a later request can retry.",
+                        exception.GetType().Name, errorCode);
+            }
         }
         catch (SqliteException exception) when (exception.SqliteErrorCode is 5 or 6)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            // Last-seen is optional telemetry. A busy local database must not deny authenticated
-            // access; the next identity request can retry without leaving a modified tracked user.
+            // Preserve local contention tolerance for this telemetry-only timestamp read.
+            // Required account and permission reads happen separately in the caller.
         }
         finally
         {
