@@ -17,8 +17,14 @@ The installer will:
 - verify that the Hub is healthy;
 - verify the signed-in Windows identity with the Hub;
 - show the employee's current Hub and module roles;
-- request administrator approval for the shared desktop shortcut; and
-- create or update the Arda shortcut for all users of the computer.
+- request administrator approval for the shared desktop shortcut;
+- create or update the Arda shortcut for all users of the computer; and
+- register Open Folder links for the signed-in Windows user.
+
+To update only Open Folder links, run the following in a standard PowerShell
+window from the extracted directory while signed in as the user.
+
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Install-OpenFolderProtocol.ps1 -InstallForCurrentUser
 
 Expected final message
 ----------------------
@@ -26,8 +32,8 @@ SONAERO_HUB_EMPLOYEE_INSTALL_COMPLETE
 
 The PowerShell execution-policy bypass is limited to the installer process. The
 installer does not change server configuration, application data, or employee
-permissions. Re-running it is safe and updates the shortcut only when needed. The
-package records its approved Hub address in SonAeroHubInstaller.json; do not edit
-that file after the package is built.
+permissions. Re-running it refreshes the folder handler and updates the shortcut
+when needed. The package records its approved Hub address in
+SonAeroHubInstaller.json. Keep that file as packaged.
 
 Packaged Hub address: see SonAeroHubInstaller.json

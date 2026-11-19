@@ -91,7 +91,7 @@ public sealed partial class QuoteStatusService
         if (!FileLocations(quote).Any(location => SamePath(location.Path, path)))
             throw new VendorQuoteException(400, "Choose a file location that is currently attached to this quote.");
         if (!Directory.Exists(path))
-            throw new VendorQuoteException(409, "The file location is unavailable from the Arda server. Confirm the S-drive mapping and server permissions.", "FileLocationUnavailable");
+            throw new VendorQuoteException(409, "The file location is unavailable from the Arda server. Confirm the network path and server permissions.", "FileLocationUnavailable");
         if (file.Length <= 0 || file.Length > MaxQuoteFileBytes)
             throw new VendorQuoteException(400, "Choose a non-empty file no larger than 50 MB.");
         var fileName = Path.GetFileName(file.FileName).Trim();
@@ -184,7 +184,8 @@ public sealed partial class QuoteStatusService
     private static IReadOnlyList<string> SourcePaths(EstimatingQuoteHistoryRecord quote)
     {
         var paths = JsonStrings(quote.FulcrumFilePathsJson).ToList();
-        if (paths.Count == 0 && FulcrumQuoteFolderPath.Normalize(quote.QuoteFolderPath) is { } legacy)
+        if (paths.Count == 0 && FulcrumQuoteFolderPath.Normalize(quote.QuoteFolderPath) is { } legacy
+            && !JsonStrings(quote.ArdaFilePathOverridesJson).Any(path => SamePath(path, legacy)))
             paths.Add(legacy);
         return paths;
     }
@@ -216,7 +217,7 @@ public sealed partial class QuoteStatusService
     }
 
     private static string ValidPath(string? path) => FulcrumQuoteFolderPath.Normalize(path)
-        ?? throw new VendorQuoteException(400, "Enter a valid S-drive folder path without traversal or invalid characters.");
+        ?? throw new VendorQuoteException(400, "Enter an S-drive path or a folder path under the Son-Aero estimating quote share.");
 
     private static bool SamePath(string left, string right) => string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
 

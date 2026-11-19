@@ -16,6 +16,10 @@ import { quoteDetailsDirty, quoteDetailsDraft, quoteDetailsUpdate, rebaseQuoteDe
 import UpdateComposer from './UpdateComposer'
 import { assignQuoteMessage, updateQuoteStatus, updateVendorRequest } from './api'
 import { isUpdateDirty, mailtoVendor, makeUpdate, synchronizeActivityDraft, type UpdateDraft } from './model'
+import { loadMaterialRequirements } from './materialPurchasingApi'
+import { materialGroups } from './materialPurchasingModel'
+import { loadOutsideProcessing } from './outsideProcessingApi'
+import { usePurchasingReview } from './usePurchasingReview'
 import type { QuoteStatusDetail, VendorDetail, VendorMessage } from './types'
 
 export default function QuoteDetailPanel({ detail, statuses, threadStatuses, canManage, canRemove, draftReset, outlookConnected = false, onBack, onChanged, onRecordsMoved, onDirty, guard }: {
@@ -48,6 +52,12 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   const [materialDirty, setMaterialDirty] = useState(false)
   const [opDirty, setOpDirty] = useState(false)
   const [quantityRevision, setQuantityRevision] = useState(0)
+  const requestRevision = threads.map(({ request }) => `${request.id}:${request.version}:${request.status}`).join('|')
+  const materialReview = usePurchasingReview(quote.quoteHistoryId, requestRevision, loadMaterialRequirements, 'Fulcrum material requirements could not be loaded.')
+  const opReview = usePurchasingReview(quote.quoteHistoryId, `${quantityRevision}|${draftReset}|${requestRevision}`, loadOutsideProcessing, 'Outside processing could not be loaded.')
+  const groups = materialGroups(materialReview.data?.materials ?? [])
+  const buyCount = materialReview.data && !materialReview.error ? groups.emailsNeeded : null
+  const opCount = opReview.data && !opReview.error ? opReview.data.operations.length : null
   const activityRef = useRef<HTMLElement>(null)
   const canEdit = target.canEdit && canManage
   const dirty = isUpdateDirty(draft, target.status, target.followUpDate)
@@ -148,9 +158,15 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
     {lifecycle.alerts}
     <div className="qs-request-grid">
       <div className="qs-request-main">
-        <QuoteOverview detail={detail} canEdit={quote.canEdit && canManage} draft={overviewDraft} dirty={overviewDirty} saving={overviewSaving} busy={saving || rfqSaving || lifecycle.busy} saved={overviewSaved} error={overviewError} onChange={value => { setOverviewDraft(value); setOverviewSaved(false) }} onSave={() => void saveOverview()} onDiscard={discardOverview} onDetailChanged={emailImported} />
-        <MaterialPurchasing key={quote.quoteHistoryId} quoteHistoryId={quote.quoteHistoryId} canEdit={quote.canEdit && canManage} busy={writeBusy || opDirty} resetToken={draftReset} outlookConnected={outlookConnected} requestRevision={threads.map(item => `${item.request.id}:${item.request.version}:${item.request.status}`).join('|')} onDraftCreated={() => onChanged()} onQuantitiesChanged={() => setQuantityRevision(value => value + 1)} onDirty={setMaterialDirty} />
-        <OutsideProcessing key={`op-${quote.quoteHistoryId}`} quoteHistoryId={quote.quoteHistoryId} canEdit={quote.canEdit && canManage} busy={writeBusy || materialDirty} resetToken={draftReset} outlookConnected={outlookConnected} requestRevision={`${quantityRevision}|${threads.map(item => `${item.request.id}:${item.request.version}:${item.request.status}`).join('|')}`} onDraftCreated={() => onChanged()} onDirty={setOpDirty} />
+        <QuoteOverview detail={detail} canEdit={quote.canEdit && canManage} draft={overviewDraft} dirty={overviewDirty} saving={overviewSaving} busy={saving || rfqSaving || lifecycle.busy} saved={overviewSaved} error={overviewError}
+          buyCount={buyCount} opCount={opCount} buyChecking={materialReview.loading} opChecking={opReview.loading}
+          onChange={value => { setOverviewDraft(value); setOverviewSaved(false) }} onSave={() => void saveOverview()} onDiscard={discardOverview} onDetailChanged={emailImported} />
+        <MaterialPurchasing quoteHistoryId={quote.quoteHistoryId} canEdit={quote.canEdit && canManage} busy={writeBusy || opDirty} resetToken={draftReset} outlookConnected={outlookConnected}
+          data={materialReview.data} groups={groups} loading={materialReview.loading} error={materialReview.error} onRefresh={materialReview.refresh}
+          onDraftCreated={() => onChanged()} onQuantitiesChanged={result => { materialReview.setData(result); setQuantityRevision(value => value + 1) }} onDirty={setMaterialDirty} />
+        <OutsideProcessing quoteHistoryId={quote.quoteHistoryId} canEdit={quote.canEdit && canManage} busy={writeBusy || materialDirty} outlookConnected={outlookConnected}
+          data={opReview.data} loading={opReview.loading} error={opReview.error} onRefresh={opReview.refresh}
+          onDraftCreated={() => onChanged()} onDirty={setOpDirty} />
         <section ref={activityRef} className="qs-request-card qs-activity-card" aria-label={thread ? `Activity ledger for ${thread.request.title}` : 'Activity ledger'}><header className="qs-card-heading qs-activity-heading"><div><h3>Activity Ledger</h3>{thread && <p>{thread.request.partNumber ? `${thread.request.partNumber} · ` : ''}{thread.request.title} · {thread.request.vendorName}</p>}</div><div className="qs-activity-heading-actions"><span>Newest first</span>{thread && <button type="button" className="qs-text-button" onClick={() => transition(() => setThreadId(null))}><ArrowLeft size={14} />Full quote history</button>}</div></header>
           <ActivityTimeline key={threadId ?? 'quote'} requestId={threadId} activity={detail.activity} messages={messages} threads={threads} unassignedIds={new Set(detail.unassignedMessages.map(item => item.id))} onThread={selectThread} canEdit={quote.canEdit && canManage} canRemove={canRemove} busy={writeBusy} onEdit={lifecycle.editNote} onRemove={lifecycle.removeNote} onMoveEmail={lifecycle.moveEmail} onRemoveEmail={lifecycle.removeEmail} onRateRequest={changeRateRequest} onAssign={async (messageId, requestId) => { await assignQuoteMessage(quote.quoteHistoryId, messageId, quote.version, requestId); const updated = await onChanged(); if (updated) setOverviewBase(current => rebaseQuoteDetailsAfterActivity(current, updated.workflow)) }} />
         </section>

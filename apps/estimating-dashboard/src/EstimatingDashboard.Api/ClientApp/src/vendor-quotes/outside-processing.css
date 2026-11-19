@@ -2,10 +2,11 @@
 .qs-op-summary { display: flex; justify-content: space-between; gap: 1rem; margin: .4rem 0 1rem; color: var(--text-secondary, #607082); font-size: .84rem; }
 .qs-op-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1rem 0; border-top: 1px solid var(--border, #e3e9ed); }
 .qs-op-row-main { min-width: 0; flex: 1; }
-.qs-op-title { display: flex; gap: .6rem; align-items: baseline; flex-wrap: wrap; }
-.qs-op-title span { font-size: .78rem; color: var(--text-secondary, #607082); }
-.qs-op-row p, .qs-op-row small { display: block; margin: .35rem 0 0; color: var(--text-secondary, #607082); }
-.qs-op-row ul { margin: .6rem 0 0; padding-left: 1.1rem; color: var(--text-secondary, #607082); font-size: .82rem; }
+.qs-op-requirement { overflow-wrap: anywhere; }
+.qs-op-requirement > p { margin: 0; color: var(--ink); font-size: 13px; }
+.qs-op-requirement > dl { display: grid; gap: 3px; margin: 7px 0 0; }
+.qs-op-requirement dt { color: var(--muted); font-size: 10px; }
+.qs-op-requirement dd { margin: 0; color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; }
 .qs-op-row .vq-button { flex: none; }
 .qs-op-sent, .qs-op-pending { display: inline-flex; align-items: center; gap: .35rem; margin-top: .6rem; font-size: .8rem; }
 .qs-op-sent { color: #167355; } .qs-op-pending { color: #986515; }
@@ -13,4 +14,8 @@
 .qs-op-message, .qs-op-alert { display: flex; align-items: flex-start; gap: .5rem; }
 .qs-op-alert { margin: .7rem 0; padding: .7rem; border-radius: .5rem; background: #fff7e8; color: #775013; font-size: .82rem; }
 .qs-op-alert p { margin: 0 0 .3rem; } .qs-op-alert p:last-child { margin-bottom: 0; }
+.qs-op-review { margin: 0 0 12px; color: var(--warn-700); font-size: .82rem; overflow-wrap: anywhere; }
+.qs-op-review > summary { width: fit-content; cursor: pointer; }
+.qs-op-review > summary:focus-visible { outline: 2px solid var(--steel); outline-offset: 3px; border-radius: 2px; }
+.qs-op-review ul { margin: 7px 0 0; padding-left: 17px; }
 @media (max-width: 650px) { .qs-op-row { flex-direction: column; } }

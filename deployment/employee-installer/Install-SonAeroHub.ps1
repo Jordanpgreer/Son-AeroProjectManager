@@ -78,9 +78,13 @@ function Assert-PackageFile {
 try {
     $packageRoot = Split-Path -Parent $PSCommandPath
     $shortcutInstaller = Join-Path $packageRoot 'Install-EmployeeHubShortcut.ps1'
+    $folderInstaller = Join-Path $packageRoot 'Install-OpenFolderProtocol.ps1'
     $iconPath = Join-Path $packageRoot 'arda-transparent.ico'
     Assert-PackageFile -Path $shortcutInstaller -Label 'The shortcut installer'
     Assert-PackageFile -Path $iconPath -Label 'The Arda icon'
+    Assert-PackageFile -Path $folderInstaller -Label 'The folder link installer'
+    Assert-PackageFile -Path (Join-Path $packageRoot 'Open-ControlledFolder.ps1') -Label 'The folder link handler'
+    Assert-PackageFile -Path (Join-Path $packageRoot 'ControlledFolder.Protocol.psm1') -Label 'The folder link validation module'
 
     if ([string]::IsNullOrWhiteSpace($HubUri)) {
         $configurationPath = Join-Path $packageRoot 'SonAeroHubInstaller.json'
@@ -212,6 +216,8 @@ try {
             throw "The elevated shortcut install failed with exit code $($elevated.ExitCode)."
         }
     }
+
+    & $folderInstaller -InstallForCurrentUser
 
     Write-Host ''
     Write-Host 'SONAERO_HUB_EMPLOYEE_INSTALL_COMPLETE'

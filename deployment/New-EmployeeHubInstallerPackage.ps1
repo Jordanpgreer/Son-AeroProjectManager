@@ -43,6 +43,9 @@ $sources = [ordered]@{
     'Install Son-Aero Hub.cmd' = Join-Path $payloadRoot 'Install Son-Aero Hub.cmd'
     'Install-SonAeroHub.ps1' = Join-Path $payloadRoot 'Install-SonAeroHub.ps1'
     'Install-EmployeeHubShortcut.ps1' = Join-Path $PSScriptRoot 'Install-EmployeeHubShortcut.ps1'
+    'Install-OpenFolderProtocol.ps1' = Join-Path $repositoryRoot 'scripts\Install-OpenFolderProtocol.ps1'
+    'Open-ControlledFolder.ps1' = Join-Path $repositoryRoot 'scripts\Open-ControlledFolder.ps1'
+    'ControlledFolder.Protocol.psm1' = Join-Path $repositoryRoot 'scripts\ControlledFolder.Protocol.psm1'
     'arda-transparent.ico' = Join-Path $repositoryRoot 'shared\branding\arda-transparent.ico'
     'README.txt' = Join-Path $payloadRoot 'README.txt'
 }

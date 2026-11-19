@@ -31,7 +31,8 @@ $allowed = @(
     @('sonaero-folder://open?path=%5CEngineering%5CDrawings', 'S:\Engineering\Drawings'),
     @('sonaero-folder://open?path=S%3A%5CEngineering%5CDrawings', 'S:\Engineering\Drawings'),
     @('SONAERO-FOLDER://OPEN?path=Quotes%2F2026%2FQ-1001', 'S:\Quotes\2026\Q-1001'),
-    @('sonaero-folder://open?path=Programs%5CA%2BB', 'S:\Programs\A+B')
+    @('sonaero-folder://open?path=Programs%5CA%2BB', 'S:\Programs\A+B'),
+    @('sonaero-folder://open?path=%5C%5CSON-FS01%5CShared%5C-%20ESTIMATES%5CQuotes%5CParts%20%26%20Packages%5CQ-100', '\\SON-FS01\Shared\- ESTIMATES\Quotes\Parts & Packages\Q-100')
 )
 foreach ($case in $allowed) {
     Assert-Equal `
@@ -50,6 +51,9 @@ $rejected = @(
     'sonaero-folder://open?path=C%3AWindows',
     'sonaero-folder://open?path=S%3AEngineering%5CDrawings',
     'sonaero-folder://open?path=%5C%5Cserver%5Cshare%5Cfolder',
+    'sonaero-folder://open?path=%5C%5CSON-FS01%5CShared%5C-%20ESTIMATES%5CQuotes-Other%5CQ-100',
+    'sonaero-folder://open?path=%5C%5CSON-FS01%5CShared%5C-%20ESTIMATES%5CQuotes%5C..%5CQ-100',
+    'sonaero-folder://open?path=%5C%5CSON-FS01%5CShared%5C-%20ESTIMATES%5CQuotes%5C..%20%5CQ-100',
     'sonaero-folder://open?path=%5C%5C%3F%5CC%3A%5CWindows',
     'sonaero-folder://open?path=Engineering%5C..%5CPayroll',
     'sonaero-folder://open?path=S%3A%5CEngineering%5C..%5CPayroll',
@@ -75,6 +79,14 @@ Assert-Equal `
     $folderTarget.ExplorerArguments[0] `
     '"S:\Engineering\Drawings"' `
     'Folder Explorer arguments changed.'
+
+$uncTarget = New-SonAeroControlledExplorerTarget `
+    -TargetPath '\\SON-FS01\Shared\- ESTIMATES\Quotes\Parts & Packages\Q-100' `
+    -IsContainer
+Assert-Equal `
+    $uncTarget.ExplorerArguments[0] `
+    '"\\SON-FS01\Shared\- ESTIMATES\Quotes\Parts & Packages\Q-100"' `
+    'UNC folder Explorer arguments changed.'
 
 $fileTarget = New-SonAeroControlledExplorerTarget `
     -TargetPath 'S:\Engineering\Drawings\drawing.pdf' `

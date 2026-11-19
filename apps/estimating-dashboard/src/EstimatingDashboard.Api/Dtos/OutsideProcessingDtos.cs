@@ -9,4 +9,4 @@ public sealed record OutsideProcessingOperationDto(string OperationKey, string I
     decimal? RequiredMinimum, decimal? RequiredMaximum, IReadOnlyList<decimal> QuoteQuantities,
     string Status, string? VendorId, string? VendorName, IReadOnlyList<string> VendorEmails,
     IReadOnlyList<string> Issues, int? RequestId = null, string? RequestStatus = null,
-    DateTimeOffset? SentAt = null);
+    DateTimeOffset? SentAt = null, string? UnitOfMeasure = null);

@@ -9,6 +9,7 @@ export interface OutsideProcessingOperation {
   instructions: string | null
   requiredMinimum: number | null
   requiredMaximum: number | null
+  unitOfMeasure?: string | null
   quoteQuantities: number[]
   status: 'needs-rfq' | 'review-required'
   vendorId: string | null

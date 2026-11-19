@@ -121,6 +121,8 @@ test('Outlook compose uses the canonical subject and never includes an internal 
 test('quote folder actions use the registered protocol and copy the exact server path', async () => {
   const path = 'S:\\Quotes\\2026\\Q-4460 Honeywell'
   assert.equal(quoteFolderHref(path), 'sonaero-folder://open?path=S%3A%5CQuotes%5C2026%5CQ-4460%20Honeywell')
+  const networkPath = '\\\\SON-FS01\\Shared\\- ESTIMATES\\Quotes\\Parts & Packages\\Q-100'
+  assert.equal(quoteFolderHref(networkPath), 'sonaero-folder://open?path=%5C%5CSON-FS01%5CShared%5C-%20ESTIMATES%5CQuotes%5CParts%20%26%20Packages%5CQ-100')
   assert.equal(quoteFolderHref('  '), null)
   let copied = ''
   await copyQuoteFolderPath(path, { writeText: async value => { copied = value } })

@@ -34,8 +34,11 @@ export interface PersonalQuote {
 export interface PersonalQuoteStats {
   averageCompletionWorkdays: number | null
   completionSampleSize: number
+  completedCount: number
   wonCount: number
+  wonTotalValue: number
   lostCount: number
+  lostTotalValue: number
 }
 
 export interface QuoteWorkflowUpdate {

@@ -66,25 +66,79 @@ public sealed class EstimatingQuoteWorkflowService(
         EstimatingAccessProfile access,
         CancellationToken cancellationToken)
     {
-        var records = await db.QuoteHistory.AsNoTracking().ToListAsync(cancellationToken);
+        var records = await db.QuoteHistory.AsNoTracking().Select(record => new
+        {
+            record.Id, record.EstimatingRep, record.IsCompleted, record.QuoteStatus, record.TotalValue,
+            record.DateToEstimating, record.EstimatingCompletionDate, record.Workdays
+        }).ToListAsync(cancellationToken);
         var knownEstimators = records.Select(record => record.EstimatingRep).Distinct().ToList();
         var mine = records.Where(record => EstimatingEstimatorIdentity.MatchesUnambiguously(
             record.EstimatingRep,
             knownEstimators,
             access)).ToList();
-        var completionWorkdays = mine
-            .Where(record => record.IsCompleted && record.Workdays is >= 0)
-            .Select(record => (decimal)record.Workdays!.Value)
+        var completed = mine.Where(record => record.IsCompleted).ToList();
+        var missingTiming = completed
+            .Where(record => !record.DateToEstimating.HasValue || !record.EstimatingCompletionDate.HasValue)
+            .Select(record => record.Id)
+            .ToArray();
+        List<EstimatingQuoteHistoryAuditRecord> dateHistory = missingTiming.Length == 0
+            ? []
+            : await db.QuoteHistoryAudits.AsNoTracking()
+                .Where(audit => missingTiming.Contains(audit.QuoteHistoryId)
+                    && audit.Action == EstimatingQuoteAuditActions.Updated && audit.ImportBatchId != Guid.Empty
+                    && (audit.FieldName == EstimatingQuoteAuditFields.AssignmentDate
+                        || audit.FieldName == EstimatingQuoteAuditFields.CompletionDate))
+                .ToListAsync(cancellationToken);
+        var auditsByQuote = dateHistory.OrderByDescending(audit => audit.ChangedAt).ThenByDescending(audit => audit.Id)
+            .ToLookup(audit => audit.QuoteHistoryId);
+        var today = timeProvider.GetLocalNow().Date;
+        var completionWorkdays = completed
+            .Select(record => CompletionWorkdays(record.DateToEstimating, record.EstimatingCompletionDate,
+                record.Workdays, auditsByQuote[record.Id], today))
+            .Where(days => days.HasValue)
+            .Select(days => (decimal)days!.Value)
             .ToList();
+        var outcomes = mine.ToLookup(record => FulcrumQuoteStatuses.Normalize(record.QuoteStatus), StringComparer.Ordinal);
+        var won = outcomes[FulcrumQuoteStatuses.Won];
+        var lost = outcomes[FulcrumQuoteStatuses.Lost];
 
         return new EstimatingQuoteWorkflowStatsDto(
-            completionWorkdays.Count == 0
-                ? null
-                : Math.Round(completionWorkdays.Average(), 1),
+            completed.Count > 0 && completionWorkdays.Count == completed.Count
+                ? Math.Round(completionWorkdays.Average(), 1)
+                : null,
             completionWorkdays.Count,
-            mine.Count(record => FulcrumQuoteStatuses.Normalize(record.QuoteStatus) == FulcrumQuoteStatuses.Won),
-            mine.Count(record => FulcrumQuoteStatuses.Normalize(record.QuoteStatus) == FulcrumQuoteStatuses.Lost));
+            won.Count(),
+            lost.Count(),
+            completed.Count,
+            won.Sum(record => record.TotalValue),
+            lost.Sum(record => record.TotalValue));
     }
+
+    private static int? CompletionWorkdays(DateTime? assignment, DateTime? completion, int? recordedWorkdays,
+        IEnumerable<EstimatingQuoteHistoryAuditRecord> dateHistory, DateTime today)
+    {
+        var assignmentAudit = assignment.HasValue ? null
+            : dateHistory.FirstOrDefault(audit => audit.FieldName == EstimatingQuoteAuditFields.AssignmentDate);
+        var completionAudit = completion.HasValue ? null
+            : dateHistory.FirstOrDefault(audit => audit.FieldName == EstimatingQuoteAuditFields.CompletionDate);
+        assignment = assignment?.Date ?? AuditedDate(assignmentAudit?.NewValue);
+        completion = completion?.Date ?? AuditedDate(completionAudit?.NewValue);
+        if (assignment == DateTime.MinValue || completion == DateTime.MinValue
+            || assignment > today || completion > today || assignment > completion)
+            return null;
+        if (assignment.HasValue && completion.HasValue)
+            return EstimatingWorkdays.Inclusive(assignment.Value, completion.Value);
+
+        // An explicit clear or invalid source correction supersedes a previously recorded duration.
+        if ((assignmentAudit is not null && !assignment.HasValue)
+            || (completionAudit is not null && !completion.HasValue))
+            return null;
+        return recordedWorkdays is >= 0 ? recordedWorkdays : null;
+    }
+
+    private static DateTime? AuditedDate(string? value) =>
+        DateTime.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+            ? date : null;
 
     public async Task<EstimatingPersonalQuoteDto> UpdateAsync(
         int quoteHistoryId,

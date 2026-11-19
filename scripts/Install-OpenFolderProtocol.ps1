@@ -1,5 +1,6 @@
 param(
-    [switch]$Quiet
+    [switch]$Quiet,
+    [switch]$InstallForCurrentUser
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,6 +12,17 @@ if (-not (Test-Path -LiteralPath $handlerScript)) {
 $handlerModule = Join-Path $PSScriptRoot 'ControlledFolder.Protocol.psm1'
 if (-not (Test-Path -LiteralPath $handlerModule)) {
     throw "Controlled-folder validation module not found: $handlerModule"
+}
+
+if ($InstallForCurrentUser) {
+    $localAppData = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
+    if ([string]::IsNullOrWhiteSpace($localAppData)) {
+        throw 'The current Windows user does not have a Local AppData folder.'
+    }
+    $installDirectory = Join-Path $localAppData 'Son-Aero\Arda\FolderProtocol'
+    [void][IO.Directory]::CreateDirectory($installDirectory)
+    Copy-Item -LiteralPath $handlerModule, $handlerScript -Destination $installDirectory -Force
+    $handlerScript = Join-Path $installDirectory 'Open-ControlledFolder.ps1'
 }
 
 $powerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'

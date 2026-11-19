@@ -546,6 +546,8 @@ Assert-True ($bootstrapSource -match "SonAeroHubInstaller\.json") `
     'The employee bootstrap does not consume the packaged Hub address.'
 Assert-True ($bootstrapSource -match 'SchemaVersion\s*-ne\s*1') `
     'The employee bootstrap does not reject unsupported package configuration schemas.'
+Assert-True ($bootstrapSource -match '\$folderInstaller\s+-InstallForCurrentUser') `
+    'The employee bootstrap does not install the folder protocol for the signed-in user.'
 $pilotPackageSource = Get-Content -LiteralPath $PilotPackageScriptPath -Raw
 Assert-True ($pilotPackageSource.Contains("'arda-transparent.ico' = Join-Path `$repositoryRoot 'shared\branding\arda-transparent.ico'") -and
     -not $pilotPackageSource.Contains("'arda.ico'") -and
@@ -571,7 +573,10 @@ try {
     $productionPackage = Read-ZipConfiguration $productionZip
     Assert-Equal ([string]$productionPackage.Configuration.HubUri) 'https://hub.son4l.local/' `
         'The production employee package contains the wrong Portal origin.'
-    Assert-True ($productionPackage.EntryNames.Count -eq 6) 'The production employee package has an unexpected file count.'
+    Assert-True ($productionPackage.EntryNames.Count -eq 9) 'The production employee package has an unexpected file count.'
+    foreach ($file in @('Install-OpenFolderProtocol.ps1', 'Open-ControlledFolder.ps1', 'ControlledFolder.Protocol.psm1')) {
+        Assert-True ($productionPackage.EntryNames -contains $file) "The production employee package is missing $file."
+    }
     $productionIconEntries = @($productionPackage.EntryNames | Where-Object { [IO.Path]::GetExtension($_) -ieq '.ico' })
     Assert-True ($productionIconEntries.Count -eq 1 -and
         $productionIconEntries[0] -ceq 'arda-transparent.ico') `

@@ -119,6 +119,12 @@ public static class EstimatingQuoteAuditActions
     public const string WorkflowUpdated = "WorkflowUpdated";
 }
 
+internal static class EstimatingQuoteAuditFields
+{
+    public const string AssignmentDate = "Date to estimating";
+    public const string CompletionDate = "Estimating completion date";
+}
+
 public static class EstimatingArdaStatuses
 {
     public const string Untouched = "Untouched";

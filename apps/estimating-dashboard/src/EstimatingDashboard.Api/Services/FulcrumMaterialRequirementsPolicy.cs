@@ -24,9 +24,12 @@ internal static class FulcrumMaterialRequirementsPolicy
         return (fixedUnits >= 0 ? fixedUnits : null, perUnit);
     }
 
-    public static decimal? Required(decimal? fixedQuantity, decimal? perUnit, decimal? parentQuantity) =>
-        fixedQuantity >= 0 && perUnit >= 0 && parentQuantity > 0
+    public static decimal? Required(decimal? fixedQuantity, decimal? perUnit, decimal? parentQuantity)
+    {
+        if (parentQuantity == 0 || (fixedQuantity == 0 && perUnit == 0)) return 0;
+        return fixedQuantity >= 0 && perUnit >= 0 && parentQuantity > 0
             ? checked(fixedQuantity + perUnit * parentQuantity) : null;
+    }
 
     public static IReadOnlyList<decimal> QuoteQuantities(decimal? minimum, decimal? maximum, bool hasAlternates)
     {

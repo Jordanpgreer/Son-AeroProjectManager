@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using static EstimatingDashboard.Api.Services.FulcrumMaterialRequirementsPolicy;
 
 namespace EstimatingDashboard.Api.Services;
 
@@ -79,13 +80,18 @@ internal sealed class FulcrumQuoteInspectionService(
             var partNumber = Text(item, "number");
             if (string.IsNullOrWhiteSpace(partNumber))
                 throw new InvalidOperationException("A Fulcrum quote item did not include a part number.");
+            var quantity = NullableNumber(line, "quantity");
             items.Add(new(
                 itemId,
                 partNumber,
                 Revision(item),
                 Integer(line, "number"),
-                NullableNumber(line, "quantity")));
-            await InspectRoutingAsync(itemId, partNumber, new HashSet<string>(StringComparer.Ordinal), itemCache,
+                quantity));
+            if (quantity == 0) continue;
+            var quoteRouting = await FulcrumQuoteRouting.LoadIfAvailableAsync(client, quoteId, Text(line, "id"),
+                itemId, cancellationToken);
+            await InspectRoutingAsync(itemId, partNumber, quantity, quoteRouting,
+                new HashSet<string>(StringComparer.Ordinal), itemCache,
                 operations, count => buyCount += count, count => makeCount += count,
                 () => ++nodeCount, cancellationToken);
         }
@@ -104,6 +110,8 @@ internal sealed class FulcrumQuoteInspectionService(
     private async Task InspectRoutingAsync(
         string itemId,
         string partNumber,
+        decimal? quantity,
+        FulcrumQuoteRouting? quoteRouting,
         HashSet<string> ancestors,
         Dictionary<string, JsonElement> itemCache,
         ISet<string> opOperations,
@@ -118,7 +126,10 @@ internal sealed class FulcrumQuoteInspectionService(
 
         var identifier = FulcrumQuoteGenerationClient.Identifier(itemId);
         var routingPath = $"api/items/{identifier}/routing";
-        var routing = await client.ListAsync(routingPath + "/operations/list", true, cancellationToken);
+        var hasQuoteRouting = quoteRouting?.Contains(itemId) == true;
+        var routing = hasQuoteRouting
+            ? await quoteRouting!.OperationsAsync(itemId, cancellationToken)
+            : await client.ListAsync(routingPath + "/operations/list", true, cancellationToken);
         foreach (var operation in routing)
         {
             var name = Text(operation, "name");
@@ -126,18 +137,24 @@ internal sealed class FulcrumQuoteInspectionService(
                 opOperations.Add($"{partNumber}: {name}");
         }
 
-        var inputs = await client.ListAsync(routingPath + "/input-items/list", true, cancellationToken);
+        var inputs = hasQuoteRouting
+            ? await quoteRouting!.InputsAsync(itemId, cancellationToken)
+            : await client.ListAsync(routingPath + "/input-items/list", true, cancellationToken);
         foreach (var input in inputs)
         {
             var childId = Text(input, "itemId");
             if (string.IsNullOrWhiteSpace(childId)) continue;
+            var usage = Usage(input);
+            var childQuantity = Required(usage.Fixed, usage.PerUnit, quantity);
+            if (childQuantity == 0) continue;
             var child = await ItemAsync(childId, itemCache, cancellationToken);
             var origin = Text(child, "itemOrigin");
             if (origin.Equals("make", StringComparison.OrdinalIgnoreCase)
                 || origin.Equals("makeOrBuy", StringComparison.OrdinalIgnoreCase))
             {
                 addMake(1);
-                await InspectRoutingAsync(childId, Text(child, "number"), new HashSet<string>(ancestors, StringComparer.Ordinal),
+                await InspectRoutingAsync(childId, Text(child, "number"), childQuantity, quoteRouting,
+                    new HashSet<string>(ancestors, StringComparer.Ordinal),
                     itemCache, opOperations, addBuy, addMake, incrementNodes, cancellationToken);
             }
             else

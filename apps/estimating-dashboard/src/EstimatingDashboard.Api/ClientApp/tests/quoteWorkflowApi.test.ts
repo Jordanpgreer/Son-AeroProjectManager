@@ -27,27 +27,26 @@ test('status set label shows the exact server date and time', () => {
 
 test('dashboard statistics load from the personal quote workflow endpoint', async () => {
   const originalFetch = globalThis.fetch
+  const stats = {
+    averageCompletionWorkdays: 4.5,
+    completionSampleSize: 12,
+    completedCount: 12,
+    wonCount: 7,
+    wonTotalValue: 248500.25,
+    lostCount: 2,
+    lostTotalValue: 117300,
+  }
   let request = ''
   globalThis.fetch = async (input) => {
     request = String(input)
-    return new Response(JSON.stringify({
-      averageCompletionWorkdays: 4.5,
-      completionSampleSize: 12,
-      wonCount: 7,
-      lostCount: 2,
-    }), {
+    return new Response(JSON.stringify(stats), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     })
   }
 
   try {
-    assert.deepEqual(await loadPersonalQuoteStats(), {
-      averageCompletionWorkdays: 4.5,
-      completionSampleSize: 12,
-      wonCount: 7,
-      lostCount: 2,
-    })
+    assert.deepEqual(await loadPersonalQuoteStats(), stats)
     assert.equal(request, '/api/quote-workflow/stats')
   } finally {
     globalThis.fetch = originalFetch

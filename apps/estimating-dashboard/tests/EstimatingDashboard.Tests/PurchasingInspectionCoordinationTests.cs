@@ -14,6 +14,8 @@ public sealed class PurchasingInspectionCoordinationTests
     [Theory]
     [InlineData("op", "/api/vendors/vendor")]
     [InlineData("op", "/api/vendors/vendor/contacts/list")]
+    [InlineData("material", "/api/quotes/test-4445/part-line-items/line/make-summary")]
+    [InlineData("material", "/api/quotes/test-4445/part-line-items/line/routing/route/input-items/list")]
     [InlineData("material", "/api/items/top/routing/operations/list")]
     [InlineData("material", "/api/inventory/availableByItem")]
     [InlineData("material", "/api/items/material/purchase-history?months=3")]
@@ -43,6 +45,9 @@ public sealed class PurchasingInspectionCoordinationTests
             var review = await opService.ReadAsync(id, VendorQuoteTestFixture.Editor, default);
             var operation = Assert.Single(review.Operations);
             Assert.Equal("needs-rfq", operation.Status);
+            Assert.Equal(100m, operation.RequiredMinimum);
+            Assert.Equal(100m, operation.RequiredMaximum);
+            Assert.Equal("Piece", operation.UnitOfMeasure);
             await opService.DraftAsync(id, operation.OperationKey, VendorQuoteTestFixture.Editor, default);
         }
         else
@@ -121,13 +126,14 @@ public sealed class PurchasingInspectionCoordinationTests
             {
                 "/api/quotes/test-4445" => new { number = 4445 },
                 "/api/quotes/test-4445/part-line-items/list" => new[] { new { id = "line", itemId = "top", quantity = 100 } },
-                "/api/items/top" => new { id = "top", number = "TOP", itemOrigin = "make" },
+                "/api/items/top" => new { id = "top", number = "TOP", itemOrigin = "make", unitOfMeasureName = "Piece" },
                 "/api/items/material" => new { id = "material", number = "MATERIAL", itemOrigin = "buy",
                     unitOfMeasureName = "Each", description = "Synthetic purchased material" },
                 "/api/quotes/test-4445/part-line-items/line/make-summary" => new[] { new { itemId = "top", routingId = "route" } },
                 routing + "/operations/list" => new[] { new { id = "op", name = "Heat Treat", isOutsideProcessing = true,
                     outsideProcessingOperation = new { selectedVendorId = "vendor" } } },
-                routing + "/input-items/list" => Array.Empty<object>(),
+                routing + "/input-items/list" => new[] { new { id = "input", itemId = "material",
+                    valueType = "requires", valueTypeUnits = 1, fixedUnits = 0 } },
                 "/api/items/top/routing/operations/list" => new[] { new { id = "operation", name = "Cut" } },
                 "/api/items/top/routing/input-items/list" => new[] { new { id = "input", itemId = "material",
                     valueType = "requires", valueTypeUnits = 1, fixedUnits = 0 } },

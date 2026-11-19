@@ -4,6 +4,7 @@ namespace EstimatingDashboard.Api.Services;
 
 internal static partial class FulcrumQuoteFolderPath
 {
+    private const string QuoteShareRoot = @"\\SON-FS01\Shared\- ESTIMATES\Quotes\";
     private static readonly char[] InvalidWindowsPathCharacters = ['<', '>', '"', '|', '?', '*'];
 
     public static string? Extract(string? internalNotes)
@@ -23,10 +24,11 @@ internal static partial class FulcrumQuoteFolderPath
 
         // Prefer explicit labels so unrelated note text containing a slash cannot win.
         foreach (Match match in LabeledPathPattern().Matches(internalNotes))
-            Add(match.Groups["path"].Value);
+            Add(TrimDecoration(match.Groups["path"].Value));
 
         foreach (var line in Lines(internalNotes))
-            if (StartsWithSDrive(line))
+            if (StartsWithSDrive(line) || line.StartsWith(@"\\", StringComparison.Ordinal)
+                || line.StartsWith("//", StringComparison.Ordinal))
                 Add(line);
 
         // Last-resort compatibility for the existing convention where Internal Notes
@@ -43,35 +45,37 @@ internal static partial class FulcrumQuoteFolderPath
     {
         if (string.IsNullOrWhiteSpace(candidate)) return null;
 
-        var value = TrimDecoration(candidate);
+        var value = Unquote(candidate.Trim());
         if (value.Length == 0
             || value.Contains("://", StringComparison.OrdinalIgnoreCase)
             || value.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
             return null;
 
         value = value.Replace('/', '\\');
-        if (value.StartsWith("\\\\", StringComparison.Ordinal)) return null;
-
-        var drive = DrivePattern().Match(value);
-        if (drive.Success)
+        var root = @"S:\";
+        if (value.StartsWith(@"\\", StringComparison.Ordinal))
         {
-            if (!string.Equals(drive.Groups["drive"].Value, "S", StringComparison.OrdinalIgnoreCase))
-                return null;
-            value = value[drive.Length..];
-            if (!value.StartsWith('\\')) return null;
+            if (!value.StartsWith(QuoteShareRoot, StringComparison.OrdinalIgnoreCase)) return null;
+            root = QuoteShareRoot;
+            value = value[root.Length..];
         }
-        else if (value.Contains(':'))
+        else
         {
-            return null;
+            var drive = DrivePattern().Match(value);
+            if (drive.Success)
+            {
+                if (!string.Equals(drive.Groups["drive"].Value, "S", StringComparison.OrdinalIgnoreCase))
+                    return null;
+                value = value[drive.Length..];
+                if (!value.StartsWith('\\')) return null;
+            }
         }
 
-        value = value.TrimStart('\\');
-        var segments = value.Split('\\', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var segments = value.Split('\\', StringSplitOptions.RemoveEmptyEntries);
         if (segments.Length == 0) return null;
         foreach (var segment in segments)
         {
             if (segment is "." or ".."
-                || segment.Length == 0
                 || segment.EndsWith(' ')
                 || segment.EndsWith('.')
                 || segment.Any(character => char.IsControl(character)
@@ -80,7 +84,8 @@ internal static partial class FulcrumQuoteFolderPath
                 return null;
         }
 
-        return $"S:\\{string.Join('\\', segments)}";
+        var path = root + string.Join('\\', segments);
+        return path.Length <= 1000 ? path : null;
     }
 
     private static IEnumerable<string> Lines(string value) => value
@@ -110,17 +115,17 @@ internal static partial class FulcrumQuoteFolderPath
                 changed = true;
             }
 
-            if (value.Length >= 2
-                && ((value[0] == '"' && value[^1] == '"')
-                    || (value[0] == '\'' && value[^1] == '\'')
-                    || (value[0] == '`' && value[^1] == '`')))
-            {
-                value = value[1..^1].Trim();
-                changed = true;
-            }
+            var unquoted = Unquote(value);
+            changed |= unquoted.Length != value.Length;
+            value = unquoted;
         }
         return value;
     }
+
+    private static string Unquote(string value) =>
+        value.Length >= 2 && value[0] == value[^1] && value[0] is '"' or '\'' or '`'
+            ? value[1..^1].Trim()
+            : value;
 
     [GeneratedRegex(
         @"(?im)^\s*(?:quote\s+)?(?:file\s*path|filepath|folder\s*path|folder|path)\s*(?:is\s*)?[:=\-]\s*(?<path>[^\r\n]+?)\s*$",

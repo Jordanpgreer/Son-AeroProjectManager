@@ -363,6 +363,8 @@ public sealed class FulcrumMaterialRequirementsTests
             var path = request.RequestUri!.AbsolutePath;
             Paths.Add(path);
             Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
+            if (path.EndsWith("/make-summary", StringComparison.Ordinal))
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
             if (Failure switch { "inventory" => path.Contains("availableByItem"), "history" => path.Contains("purchase-history"),
                 "operations" => path.Contains("routing/operations/list"),
                 "vendor" => path.EndsWith("vendors/list"), "contacts" => path.Contains("contacts"), _ => false })

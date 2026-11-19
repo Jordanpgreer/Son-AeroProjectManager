@@ -56,8 +56,7 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
     private sealed class Inspection(FulcrumQuoteGenerationClient client)
     {
         private readonly Dictionary<string, JsonElement> items = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, IReadOnlyList<JsonElement>> routes = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, IReadOnlyList<JsonElement>> inputsByItem = new(StringComparer.Ordinal);
+        private FulcrumQuoteRouting routing = null!;
         private readonly Dictionary<string, (string Name, IReadOnlyList<string> Emails)> vendors = new(StringComparer.Ordinal);
         private readonly Dictionary<string, Candidate> candidates = new(StringComparer.Ordinal);
         private int nodes;
@@ -72,47 +71,25 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
             return item;
         }
 
-        public async Task LoadQuoteRoutingAsync(string quoteId, string lineId, string rootItemId, CancellationToken ct)
-        {
-            routes.Clear();
-            inputsByItem.Clear();
-            var basePath = $"api/quotes/{quoteId}/part-line-items/{FulcrumQuoteGenerationClient.Identifier(lineId)}";
-            var summary = await client.GetAsync(basePath + "/make-summary", ct);
-            if (summary.ValueKind != JsonValueKind.Array)
-                throw new InvalidOperationException("Fulcrum returned an invalid quote routing summary.");
-            foreach (var row in summary.EnumerateArray())
-            {
-                var itemId = Text(row, "itemId");
-                if (itemId.Length == 0 && summary.GetArrayLength() == 1) itemId = rootItemId;
-                var routingId = Text(row, "routingId");
-                if (itemId.Length == 0 || routingId.Length == 0) continue;
-                var routePath = basePath + $"/routing/{FulcrumQuoteGenerationClient.Identifier(routingId)}";
-                var steps = await client.ListAsync(routePath + "/operations/list", true, ct);
-                var inputs = await client.ListAsync(routePath + "/input-items/list", true, ct);
-                routes[itemId] = (routes.TryGetValue(itemId, out var existingSteps)
-                    ? existingSteps.Concat(steps) : steps).GroupBy(step => Text(step, "id"), StringComparer.Ordinal)
-                        .Select(group => group.First()).ToArray();
-                inputsByItem[itemId] = (inputsByItem.TryGetValue(itemId, out var existingInputs)
-                    ? existingInputs.Concat(inputs) : inputs).GroupBy(input => Text(input, "id"), StringComparer.Ordinal)
-                        .Select(group => group.First()).ToArray();
-            }
-        }
+        public async Task LoadQuoteRoutingAsync(string quoteId, string lineId, string rootItemId, CancellationToken ct) =>
+            routing = await FulcrumQuoteRouting.LoadAsync(client, quoteId, lineId, rootItemId, ct);
 
         public async Task TraverseAsync(string itemId, decimal? minimum, decimal? maximum,
             HashSet<string> ancestors, CancellationToken ct)
         {
+            if (maximum == 0) return;
             if (!ancestors.Add(itemId)) throw new InvalidOperationException("Fulcrum has a circular BOM. OP requirements cannot be verified.");
             if (++nodes > 500 || ancestors.Count > 32)
                 throw new InvalidOperationException("The BOM exceeds the safe OP inspection size.");
             var item = await ItemAsync(itemId, ct);
             var number = Text(item, "number");
             var origin = Text(item, "itemOrigin");
-            if (origin is "make" or "makeOrBuy" or "kit" && !routes.ContainsKey(itemId))
+            if (origin is "make" or "makeOrBuy" or "kit" && !routing.Contains(itemId))
             {
                 Warnings.Add($"{number}: Fulcrum quote routing is missing; outside processing requirements could not be verified.");
                 return;
             }
-            var operations = routes.GetValueOrDefault(itemId) ?? [];
+            var operations = await routing.OperationsAsync(itemId, ct);
             foreach (var operation in operations)
             {
                 var name = Text(operation, "name");
@@ -131,14 +108,15 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
                 candidate.Add(minimum, maximum);
             }
             if (origin is not ("make" or "makeOrBuy" or "kit")) return;
-            var inputs = inputsByItem.GetValueOrDefault(itemId) ?? [];
+            var inputs = await routing.InputsAsync(itemId, ct);
             foreach (var input in inputs)
             {
                 var childId = Text(input, "itemId");
                 if (childId.Length == 0) continue;
+                var usage = Usage(input);
+                if (usage is (0, 0)) continue;
                 var child = await ItemAsync(childId, ct);
                 if (Text(child, "itemOrigin") is not ("make" or "makeOrBuy" or "kit")) continue;
-                var usage = Usage(input);
                 await TraverseAsync(childId, Required(usage.Fixed, usage.PerUnit, minimum),
                     Required(usage.Fixed, usage.PerUnit, maximum), new(ancestors, StringComparer.Ordinal), ct);
             }
@@ -179,10 +157,12 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
                     issues.Add("The OP instructions contain invalid characters.");
                 var values = candidate.Minimum is > 0 && candidate.Maximum is > 0
                     ? new[] { candidate.Minimum.Value, candidate.Maximum.Value }.Distinct().Order().ToArray() : [];
+                var unitOfMeasure = Text(items[candidate.ItemId], "unitOfMeasureName");
                 result.Add(new(candidate.Key, candidate.ItemId, candidate.OperationId, candidate.PartNumber,
                     candidate.Name, instructions.Length == 0 ? null : instructions, candidate.Minimum, candidate.Maximum,
                     values, issues.Count == 0 ? "needs-rfq" : "review-required", vendorId.Length == 0 ? null : vendorId,
-                    vendorName, emails, issues));
+                    vendorName, emails, issues,
+                    UnitOfMeasure: unitOfMeasure.Length > 0 && !unitOfMeasure.Any(char.IsControl) ? unitOfMeasure : null));
             }
             return result;
         }

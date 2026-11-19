@@ -65,10 +65,11 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
             {
                 warnings.Add($"Fulcrum planning operations for {Text(item, "number")} could not be verified.");
             }
-            parts.Add(new(Text(group.First(), "id"), group.Key, Text(item, "number"),
+            var lineId = Text(group.First(), "id");
+            parts.Add(new(lineId, group.Key, Text(item, "number"),
                 revision.ValueKind == JsonValueKind.String ? revision.GetString() : Text(revision, "revision"), quantities, overridden, noOperations));
-            await context.TraverseAsync(group.Key, Text(item, "number"), "", 0, 1, quantities[0], quantities[^1],
-                quantities.Length > 1, [], [], cancellationToken);
+            await context.InspectPartAsync(quoteId, group.Key, item, group.Select(line => Text(line, "id")), quantities,
+                cancellationToken);
         }
         var materials = await context.CompleteAsync(cancellationToken);
         if (materials.Count > 0 && parts.Any(part => !part.QuantitiesOverridden))
@@ -108,9 +109,59 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
             return item;
         }
 
-        public async Task TraverseAsync(string id, string topPart, string parentPart, decimal? fixedQuantity,
-            decimal? perUnit, decimal? minimum, decimal? maximum, bool hasAlternates,
-            HashSet<string> ancestors, List<string> inheritedIssues, CancellationToken token)
+        public async Task InspectPartAsync(string quoteId, string itemId, JsonElement item,
+            IEnumerable<string> plannedLineIds, IReadOnlyList<decimal> quantities, CancellationToken token)
+        {
+            var alternatives = new List<Dictionary<string, Material>>();
+            var partNumber = Text(item, "number");
+            var usePlanning = Text(item, "itemOrigin") is "make" or "makeOrBuy" or "kit";
+            var catalogInspected = false;
+            foreach (var lineId in plannedLineIds)
+            {
+                var quoteRouting = usePlanning
+                    ? await FulcrumQuoteRouting.LoadIfAvailableAsync(client, quoteId, lineId, itemId, token) : null;
+                if (quoteRouting is null && catalogInspected) continue;
+                catalogInspected |= quoteRouting is null;
+                var demands = new Dictionary<string, Material>(StringComparer.Ordinal);
+                await TraverseAsync(itemId, partNumber, "", 0, 1, quantities[0], quantities[^1], demands,
+                    quoteRouting, [], [], token);
+                alternatives.Add(demands);
+            }
+            foreach (var id in alternatives.SelectMany(variant => variant.Keys).Distinct(StringComparer.Ordinal))
+            {
+                var variants = alternatives.Select(variant => variant.GetValueOrDefault(id)).OfType<Material>().ToArray();
+                var first = variants[0];
+                var agreed = variants.Length == alternatives.Count && variants.Skip(1).All(variant =>
+                    variant.Minimum == first.Minimum && variant.Maximum == first.Maximum
+                    && OrderedSources(first).SequenceEqual(OrderedSources(variant)));
+                if (!materials.TryGetValue(id, out var material)) materials[id] = material = new(id, first.Item);
+                AddQuantity(material, agreed ? first.Minimum : null, agreed ? first.Maximum : null);
+                material.HasAlternates |= quantities.Count > 1;
+                material.Issues.AddRange(variants.SelectMany(variant => variant.Issues));
+                if (agreed) material.Sources.AddRange(first.Sources);
+                else
+                {
+                    material.Issues.Add($"{partNumber}: material demand differs across quote-line routings. Verify the planning in Fulcrum.");
+                    material.Sources.AddRange(variants.SelectMany(variant => variant.Sources)
+                        .Select(source => source with { RequiredMinimum = null, RequiredMaximum = null }).Distinct());
+                }
+            }
+        }
+
+        private static IEnumerable<MaterialRequirementSourceDto> OrderedSources(Material material) =>
+            material.Sources.OrderBy(source => source.ParentPartNumber, StringComparer.Ordinal)
+                .ThenBy(source => source.FixedQuantity).ThenBy(source => source.PerUnitQuantity)
+                .ThenBy(source => source.RequiredMinimum).ThenBy(source => source.RequiredMaximum);
+
+        private static void AddQuantity(Material material, decimal? minimum, decimal? maximum)
+        {
+            material.Minimum = material.Minimum.HasValue && minimum.HasValue ? checked(material.Minimum + minimum) : null;
+            material.Maximum = material.Maximum.HasValue && maximum.HasValue ? checked(material.Maximum + maximum) : null;
+        }
+
+        private async Task TraverseAsync(string id, string topPart, string parentPart, decimal? fixedQuantity,
+            decimal? perUnit, decimal? minimum, decimal? maximum, Dictionary<string, Material> demands,
+            FulcrumQuoteRouting? quoteRouting, HashSet<string> ancestors, List<string> inheritedIssues, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
             if (!ancestors.Add(id))
@@ -125,7 +176,12 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
             if (origin == "makeOrBuy") issues.Add($"{number} is Make or Buy; confirm the sourcing decision before requesting material pricing.");
             if (origin is "make" or "makeOrBuy" or "kit")
             {
-                if (!routing.TryGetValue(id, out var inputs))
+                IReadOnlyList<JsonElement> inputs;
+                if (quoteRouting?.Contains(id) == true)
+                    inputs = await quoteRouting.InputsAsync(id, token);
+                else if (routing.TryGetValue(id, out var cached))
+                    inputs = cached;
+                else
                     routing[id] = inputs = await client.ListAsync(
                         $"api/items/{FulcrumQuoteGenerationClient.Identifier(id)}/routing/input-items/list", true, token);
                 foreach (var input in inputs)
@@ -139,15 +195,14 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
                     // A zero-use BOM row contributes no procurement demand.
                     if (childMaximum == 0) continue;
                     await TraverseAsync(Text(input, "itemId"), topPart, number, usage.Fixed, usage.PerUnit,
-                        childMinimum, childMaximum, hasAlternates, new(ancestors, StringComparer.Ordinal), childIssues, token);
+                        childMinimum, childMaximum, demands, quoteRouting, new(ancestors, StringComparer.Ordinal),
+                        childIssues, token);
                 }
                 return;
             }
             if (origin != "buy") issues.Add($"{number}: the item's purchasing origin is not confirmed as Buy.");
-            if (!materials.TryGetValue(id, out var material)) materials[id] = material = new(id, item);
-            material.Minimum = material.Minimum.HasValue && minimum.HasValue ? checked(material.Minimum + minimum) : null;
-            material.Maximum = material.Maximum.HasValue && maximum.HasValue ? checked(material.Maximum + maximum) : null;
-            material.HasAlternates |= hasAlternates;
+            if (!demands.TryGetValue(id, out var material)) demands[id] = material = new(id, item);
+            AddQuantity(material, minimum, maximum);
             material.Issues.AddRange(issues);
             material.Sources.Add(new(topPart, parentPart.Length == 0 ? topPart : parentPart,
                 fixedQuantity, perUnit, minimum, maximum));

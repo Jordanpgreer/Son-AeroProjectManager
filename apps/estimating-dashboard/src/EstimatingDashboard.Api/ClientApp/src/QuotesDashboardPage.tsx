@@ -37,6 +37,7 @@ import {
 import './quote-dashboard.css'
 import './quote-dashboard-states.css'
 import GenerateQuoteDialog from './GenerateQuoteDialog'
+import QuoteDashboardSummary from './QuoteDashboardSummary'
 import { quoteStatusUrl } from './estimatingNavigation'
 import { currency, quoteTitle, quoteValue, formatDate, formatOptionalDate, linkedSourceFromHash } from './quoteDashboardFormatting'
 import { fulcrumStatusLabel } from './vendor-quotes/model'
@@ -123,6 +124,20 @@ export default function QuotesDashboardPage({
     : personalView === 'overdue'
       ? overduePersonalQuotes
       : activePersonalQuotes
+  const missingCompletionCount = personalStats && !personalLoading
+    ? Math.max(0, personalStats.completedCount - personalStats.completionSampleSize)
+    : 0
+  const averageCompletion = !personalLoading && personalStats
+    && personalStats.completedCount === completedPersonalQuotes.length
+    && personalStats.completionSampleSize === personalStats.completedCount
+    ? personalStats.averageCompletionWorkdays
+    : null
+  const incompleteCompletionNotice = missingCompletionCount === 1
+    ? '1 completed quote is missing verified estimating timing.'
+    : `${missingCompletionCount.toLocaleString()} completed quotes are missing verified estimating timing.`
+  const averageUnavailable = personalLoading ? 'Loading average completion'
+    : missingCompletionCount > 0 ? `${incompleteCompletionNotice} The all-quote average is unavailable.`
+      : 'Average completion unavailable'
 
   const refreshPersonalQuotes = useCallback(async (quiet = false) => {
     const version = ++personalRequestVersion.current
@@ -157,40 +172,19 @@ export default function QuotesDashboardPage({
         <p className="quote-storage-error" role="alert">{storageError ?? actionError}</p>
       )}
 
-      <section className="quote-kpi-grid" aria-label="My quote workload summary">
-        <button type="button" className={personalView === 'active' ? 'is-selected' : undefined} aria-pressed={personalView === 'active'} onClick={() => showPersonalView('active')}>
-          <span><FileText size={18} aria-hidden="true" /> Active quotes</span>
-          <strong>{personalLoading ? '—' : activePersonalQuotes.length}</strong>
-          <small>Open my due-date queue</small>
-        </button>
-        <button type="button" className={`is-overdue${personalView === 'overdue' ? ' is-selected' : ''}`} aria-pressed={personalView === 'overdue'} onClick={() => showPersonalView('overdue')}>
-          <span><AlertTriangle size={18} aria-hidden="true" /> Overdue quotes</span>
-          <strong>{personalLoading ? '—' : overduePersonalQuotes.length}</strong>
-          <small>Open the overdue subset</small>
-        </button>
-        <button type="button" className={personalView === 'completed' ? 'is-selected' : undefined} aria-pressed={personalView === 'completed'} onClick={() => showPersonalView('completed')}>
-          <span><CheckCircle2 size={18} aria-hidden="true" /> Completed quotes</span>
-          <strong>{personalLoading ? '—' : completedPersonalQuotes.length}</strong>
-          <small>View my Fulcrum outcomes</small>
-        </button>
-        <article className="quote-kpi-static">
-          <span><Clock3 size={18} aria-hidden="true" /> Avg. completion</span>
-          <strong>{personalLoading ? '—' : personalStats?.averageCompletionWorkdays == null ? '—' : `${personalStats.averageCompletionWorkdays}d`}</strong>
-          <small>Assignment to completion · business days{personalStats?.completionSampleSize ? ` · ${personalStats.completionSampleSize} quotes` : ''}</small>
-        </article>
-        <article className="quote-kpi-static is-won">
-          <span><CheckCircle2 size={18} aria-hidden="true" /> Won</span>
-          <strong>{personalLoading ? '—' : personalStats?.wonCount ?? 0}</strong>
-          <small>All-time Fulcrum outcomes</small>
-        </article>
-        <article className="quote-kpi-static is-lost">
-          <span><AlertTriangle size={18} aria-hidden="true" /> Lost</span>
-          <strong>{personalLoading ? '—' : personalStats?.lostCount ?? 0}</strong>
-          <small>All-time Fulcrum outcomes</small>
-        </article>
-      </section>
+      <QuoteDashboardSummary
+        activeCount={activePersonalQuotes.length}
+        overdueCount={overduePersonalQuotes.length}
+        completedCount={completedPersonalQuotes.length}
+        average={averageCompletion}
+        averageUnavailable={averageUnavailable}
+        stats={personalStats}
+        loading={personalLoading}
+        selected={personalView}
+        onSelect={showPersonalView}
+      />
 
-      <section className="quote-list-card personal-quote-card" aria-labelledby="personal-quotes-heading">
+      <section id="my-assigned-quotes" className="quote-list-card personal-quote-card" aria-labelledby="personal-quotes-heading">
         <div className="quote-list-toolbar">
           <div>
             <span className="section-kicker">Assigned in Fulcrum</span>
@@ -199,7 +193,9 @@ export default function QuotesDashboardPage({
             </h2>
             <p className="quote-section-description">
               {personalView === 'completed'
-                ? 'Completed work is shown with its final Fulcrum outcome.'
+                ? missingCompletionCount > 0
+                  ? averageUnavailable
+                  : 'Completed work is shown with its Fulcrum outcome.'
                 : 'Active work is ordered by estimating due date. Open a quote to manage its Arda workflow.'}
             </p>
           </div>

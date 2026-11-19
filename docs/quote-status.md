@@ -33,26 +33,29 @@ Direct quote links open a focused record with a **Back to Quotes** return action
 
 The Quotes Dashboard summarizes the signed-in estimator's synchronized quote history using the same unambiguous assignment matching as the personal queue. In addition to active, overdue, and completed counts, it shows:
 
-- **Avg completion (workdays)**: the average for completed quotes that contain both Date to Estimating and Estimating Completion Date. The calculation counts Monday through Friday inclusively, excludes weekends, and does not apply a holiday calendar. Quotes with either date missing or with completion before assignment are excluded from the average.
-- **Won**: quotes assigned to the estimator whose canonical Fulcrum status is Won.
-- **Lost**: quotes assigned to the estimator whose canonical Fulcrum status is Lost.
+- **Avg. completion** shows the all-time average for the estimator's full completed cohort. Arda calculates inclusive Monday–Friday workdays from Date to Estimating and Estimating Completion Date. It can use authoritative imported date history and eligible saved workday durations for older records. Until every completed quote has verified timing, the card shows a dash and the Completed list reports the gap.
+- **Won** and **Lost** show each Fulcrum outcome's quote count and the sum of the same quotes' synchronized values in the primary currency.
 
-These statistics use all synchronized history currently retained in Arda. Won and Lost remain Fulcrum outcomes; they do not replace the Arda **Complete** status. A missing completion sample displays as unavailable rather than as zero days.
+These statistics use all synchronized history currently retained in Arda for the signed-in estimator.
 
 ## Material purchasing and vendor drafts
 
-The Material purchasing section checks the selected quote's current Fulcrum part lines, item production BOM, **Available** inventory, and item purchase history. It does not use On Hand inventory. Its own Refresh rechecks those values without synchronizing every quote or changing Fulcrum.
+The stacked summary in Request Details shows the number of buy items awaiting a new vendor request and the number of outside processing operations. Each count updates when its purchasing section refreshes. Zero-quantity planning branches are skipped before requirements and counts are calculated.
 
-When a quoted part's Fulcrum routing operations list is successfully read and empty, its part row shows **Planning in Industrios**. An unavailable or failed operations read does not count as empty planning. When a material has confirmed zero Available inventory and Fulcrum returns a complete, empty 60-month Ordered/Paid purchase history, its row shows **Material History in Industrios** with the 60-month limit. Fulcrum's public item purchase-history endpoint cannot establish that no purchase order ever existed before that window.
+The Material purchasing section checks the selected quote's current Fulcrum part lines, quote-specific planning, **Available** inventory, and item purchase history. It uses the item production BOM when the quote has no routing snapshot. **Refresh** rechecks those values for the selected quote.
+
+If alternative quote lines for the same part disagree on a material requirement, the material appears once under review. Verify the planning in Fulcrum before creating its vendor draft.
+
+When a quoted part's Fulcrum routing operations list is successfully read and empty, its part row shows **Planning in Industrios**. An unavailable or failed operations read does not count as empty planning. When a material has confirmed zero Available inventory and Fulcrum returns a complete, empty 60-month Ordered/Paid purchase history, **Material review details** shows **Material History in Industrios** with the 60-month limit.
 
 For each production input, the requirement is `fixedUnits + per-unit usage × parent quantity`. Make BOMs recurse and purchased materials shared by different top-level parts are combined before comparing stock. For example, 10 fixed pounds plus 0.005 pounds per unit at 1,000 parts requires 15 pounds. With 58.20 available, no new vendor quote is needed. Customer-supplied items are excluded; ambiguous Make or Buy sourcing and incomplete provider data require review.
 
 The current public API exposes quote-line quantities but omits separate Pricing-panel quantity breaks. **Edit quoted quantities** lets an estimator confirm one quantity or the customer's lowest and largest quantities per part. These corrections are shared and saved in Arda, labeled **Confirmed in Arda**, and can be reset with **Use Fulcrum quantities**. Changes require edit access and a current version, are recorded in the timeline, and never update Fulcrum. Repeated lines for the same Fulcrum item are treated as quantity alternatives. If Fulcrum removes a part with a saved correction, current parts remain visible but drafts require reconfirming the quantities.
 
-Material rows distinguish these outcomes:
+Material rows show the item, vendor, and full requirement. Purchasing groups reflect these outcomes:
 
 - **Available stock covers requirement:** Available covers the largest actual production requirement.
-- **Recent PO pricing:** A placed, Ordered/Paid PO dated within the preceding three calendar months provides a positive effective unit price and quantity. The latest qualifying PO, price, vendor, and date are shown. A recently received vendor quote by itself does not qualify for this exemption.
+- **Recent PO pricing:** A placed, Ordered/Paid PO dated within the preceding three calendar months provides a positive effective unit price and quantity. The row shows the vendor from the latest qualifying PO. A recently received vendor quote by itself does not qualify for this exemption.
 - **Email needs sending:** Stock is insufficient and there is no qualifying recent PO. One primary vendor and usable contact email addresses are required.
 - **Review required:** Quantity, sourcing, inventory, purchase history, description, units, or vendor data cannot be safely resolved. Missing data is never treated as zero stock or no previous purchases.
 

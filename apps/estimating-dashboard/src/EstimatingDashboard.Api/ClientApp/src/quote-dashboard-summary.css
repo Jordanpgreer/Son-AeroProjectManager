@@ -1,0 +1,150 @@
+.quote-kpi-summary {
+  min-width: 0;
+  container: quote-summary / inline-size;
+}
+
+.quote-kpi-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.11fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.quote-kpi-group {
+  min-width: 0;
+  background: light-dark(#f4f8fb, var(--surface));
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+}
+
+.quote-kpi-group h2 {
+  margin: 0;
+  padding: clamp(12px, 1.08cqi, 18px) clamp(15px, 1.7cqi, 26px);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: clamp(16px, 1.85cqi, 25px);
+  font-weight: 740;
+  line-height: 1.25;
+  letter-spacing: -.02em;
+}
+
+.quote-kpi-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: clamp(9px, 1cqi, 16px) 3px;
+}
+
+.quote-kpi-cell {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  padding-inline: clamp(5px, .7cqi, 12px);
+}
+
+.quote-kpi-cell + .quote-kpi-cell::before {
+  position: absolute;
+  inset-block: clamp(9px, 1.25cqi, 20px);
+  inset-inline-start: 0;
+  width: 1px;
+  background: var(--line-2);
+  content: '';
+}
+
+.quote-kpi-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: clamp(9px, 1.42cqi, 23px);
+  width: 100%;
+  min-width: 0;
+  min-height: clamp(97px, 10.6cqi, 157px);
+  padding: clamp(10px, 1.15cqi, 18px) clamp(8px, 1cqi, 16px);
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  font: inherit;
+  text-align: left;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+button.quote-kpi-metric {
+  cursor: pointer;
+}
+
+button.quote-kpi-metric:hover {
+  background: var(--steel-tint);
+}
+
+button.quote-kpi-metric[aria-pressed='true'] {
+  background: light-dark(#e7f1fa, var(--steel-tint));
+  border-color: var(--steel);
+}
+
+button.quote-kpi-metric:focus-visible {
+  outline: 2px solid var(--steel);
+  outline-offset: 2px;
+}
+
+.quote-kpi-label {
+  display: flex;
+  align-items: center;
+  gap: clamp(5px, .68cqi, 11px);
+  min-height: clamp(19px, 1.9cqi, 28px);
+  color: var(--muted);
+  font-size: clamp(10px, .99cqi, 15px);
+  font-weight: 750;
+  line-height: 1.25;
+  letter-spacing: .035em;
+  text-transform: uppercase;
+}
+
+.quote-kpi-label svg {
+  width: clamp(16px, 1.85cqi, 27px);
+  height: auto;
+  flex: none;
+  color: var(--steel-700);
+}
+
+.quote-kpi-metric[data-tone='overdue'] svg { color: var(--warn-700); }
+.quote-kpi-metric[data-tone='won'] svg { color: var(--ok-700); }
+.quote-kpi-metric[data-tone='lost'] svg { color: light-dark(#973e2b, #f1a991); }
+
+.quote-kpi-metric strong {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: clamp(26px, 3.35cqi, 50px);
+  font-weight: 770;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+  letter-spacing: -.035em;
+}
+
+.quote-kpi-outcome {
+  gap: clamp(6px, .85cqi, 14px);
+  padding-block-start: clamp(5px, .52cqi, 10px);
+}
+
+.quote-kpi-total {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: clamp(15px, 1.85cqi, 28px);
+  font-weight: 690;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+@container quote-summary (max-width: 860px) {
+  .quote-kpi-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@container quote-summary (min-width: 1130px) {
+  .quote-kpi-label { white-space: nowrap; }
+}
+
+@container quote-summary (min-width: 861px) and (max-width: 1129px) {
+  .quote-kpi-label { min-height: 2.5em; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quote-kpi-metric { transition: none; }
+}

@@ -799,9 +799,9 @@ public sealed class EstimatingHistoryImportService(
         var onTime = hasCompletionDate && dueDate.HasValue && completionDate!.Value.Date <= dueDate.Value.Date;
         var late = hasCompletionDate && dueDate.HasValue && completionDate!.Value.Date > dueDate.Value.Date;
         var status = onTime ? EstimatingOnTimeStatuses.OnTime : late ? EstimatingOnTimeStatuses.Late : EstimatingOnTimeStatuses.NoData;
-        var daysLate = late ? BusinessDays(dueDate!.Value.Date.AddDays(1), completionDate!.Value.Date) : 0;
+        var daysLate = late ? EstimatingWorkdays.Inclusive(dueDate!.Value.Date.AddDays(1), completionDate!.Value.Date) : 0;
         int? workdays = hasCompletionDate && assignedDate.HasValue && completionDate!.Value.Date >= assignedDate.Value.Date
-            ? BusinessDays(assignedDate.Value.Date, completionDate.Value.Date)
+            ? EstimatingWorkdays.Inclusive(assignedDate.Value.Date, completionDate.Value.Date)
             : null;
         var completion = completionDate?.Date;
         int? weekOfMonth = completion.HasValue ? ((completion.Value.Day - 1) / 7) + 1 : null;
@@ -817,14 +817,6 @@ public sealed class EstimatingHistoryImportService(
             completion.HasValue ? WeekOfYear(completion.Value) : null,
             onTime,
             hasCompletionDate && dueDate.HasValue ? (onTime ? 1m : 0m) : null);
-    }
-
-    private static int BusinessDays(DateTime start, DateTime end)
-    {
-        var days = 0;
-        for (var date = start.Date; date <= end.Date; date = date.AddDays(1))
-            if (date.DayOfWeek is not DayOfWeek.Saturday and not DayOfWeek.Sunday) days++;
-        return days;
     }
 
     private static int WeekOfYear(DateTime date)
@@ -943,7 +935,7 @@ public sealed class EstimatingHistoryImportService(
             record.TotalValue.ToString("0.00", CultureInfo.InvariantCulture),
             row.TotalValue.ToString("0.00", CultureInfo.InvariantCulture));
         AddChange(changes, "RFQ due date", AuditDate(record.RfqDueDate), AuditDate(row.RfqDueDate));
-        AddChange(changes, "Date to estimating", AuditDate(record.DateToEstimating), AuditDate(row.DateToEstimating));
+        AddChange(changes, EstimatingQuoteAuditFields.AssignmentDate, AuditDate(record.DateToEstimating), AuditDate(row.DateToEstimating));
         AddChange(changes, "Issues", record.Issues, row.Issues);
         AddChange(changes, "Quote on track", record.QuoteOnTrack, row.QuoteOnTrack);
         AddChange(changes, "Quote complexity", record.QuoteComplexity, row.QuoteComplexity);
@@ -966,7 +958,7 @@ public sealed class EstimatingHistoryImportService(
         }
         AddChange(
             changes,
-            "Estimating completion date",
+            EstimatingQuoteAuditFields.CompletionDate,
             AuditDate(record.EstimatingCompletionDate),
             AuditDate(row.EstimatingCompletionDate));
         AddChange(

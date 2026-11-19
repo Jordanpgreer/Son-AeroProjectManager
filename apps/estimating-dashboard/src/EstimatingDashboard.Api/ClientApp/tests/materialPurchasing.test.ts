@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createMaterialDraft, loadMaterialRequirements, saveMaterialQuantities } from '../src/vendor-quotes/materialPurchasingApi.ts'
-import { canDraftMaterial, materialGroups, materialQuantityRange, materialStatusLabel } from '../src/vendor-quotes/materialPurchasingModel.ts'
+import { canDraftMaterial, materialGroups, materialQuantityRange } from '../src/vendor-quotes/materialPurchasingModel.ts'
 import { materialQuantityDrafts, materialQuantityOverrides } from '../src/vendor-quotes/materialQuantityModel.ts'
 import type { MaterialRequirement } from '../src/vendor-quotes/materialPurchasingTypes.ts'
 
@@ -17,19 +17,19 @@ test('a downloaded but unsent RFQ remains an email needing sending', () => {
   const groups = materialGroups([unsent])
   assert.equal(groups.emailsNeeded, 1)
   assert.deepEqual(groups.pending, [unsent])
-  assert.equal(materialStatusLabel(unsent), 'Email needs sending')
 })
 
 test('only confirmed sent RFQs are tracked separately from inventory and recent PO coverage', () => {
   const sent = { ...material, requestId: 10, requestStatus: 'Waiting on vendor', sentAt: '2026-09-10T16:00:00Z' }
   const received = { ...material, requestId: 11, requestStatus: 'Quote received', sentAt: '2026-09-10T16:00:00Z' }
   const manuallyMarked = { ...material, requestId: 12, requestStatus: 'Waiting on vendor' }
-  const groups = materialGroups([sent, received, manuallyMarked, { ...material, status: 'stock-covered' }, { ...material, status: 'recent-po' }])
+  const reviewRequired: MaterialRequirement = { ...material, status: 'review-required' }
+  const groups = materialGroups([sent, received, manuallyMarked, reviewRequired, { ...material, status: 'stock-covered' }, { ...material, status: 'recent-po' }])
   assert.equal(groups.emailsNeeded, 1)
   assert.equal(groups.covered.length, 2)
   assert.deepEqual(groups.tracked, [sent, received])
-  assert.deepEqual(groups.pending, [manuallyMarked])
-  assert.equal(materialStatusLabel(sent), 'Waiting on vendor')
+  assert.deepEqual(groups.pending, [manuallyMarked, reviewRequired])
+  assert.equal(groups.reviewsNeeded, 1)
   assert.equal(canDraftMaterial(sent), true)
 })
 

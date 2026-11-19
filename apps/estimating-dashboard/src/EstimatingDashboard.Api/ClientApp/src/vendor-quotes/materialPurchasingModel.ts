@@ -1,11 +1,4 @@
-import type { MaterialRequirement, MaterialStatus } from './materialPurchasingTypes.ts'
-
-export const materialStatusLabels: Record<MaterialStatus, string> = {
-  'stock-covered': 'Available stock covers requirement',
-  'recent-po': 'Recent PO pricing available',
-  'needs-rfq': 'Email needs sending',
-  'review-required': 'Review required',
-}
+import type { MaterialRequirement } from './materialPurchasingTypes.ts'
 
 export function materialQuantity(value: number | null): string {
   return value !== null && Number.isFinite(value) ? value.toLocaleString('en-US', { maximumFractionDigits: 8 }) : 'Unknown'
@@ -26,10 +19,6 @@ export function canDraftMaterial(material: MaterialRequirement): boolean {
 
 export function materialHasTrackedRequest(material: MaterialRequirement): boolean {
   return material.status === 'needs-rfq' && !!material.sentAt
-}
-
-export function materialStatusLabel(material: MaterialRequirement): string {
-  return materialHasTrackedRequest(material) ? material.requestStatus || 'RFQ sent' : materialStatusLabels[material.status]
 }
 
 export function materialGroups(materials: MaterialRequirement[]) {

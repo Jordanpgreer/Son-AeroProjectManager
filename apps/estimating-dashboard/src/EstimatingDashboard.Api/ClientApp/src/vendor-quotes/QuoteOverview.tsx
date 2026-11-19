@@ -1,13 +1,14 @@
-import { AlertTriangle, CalendarDays, Check, CircleDot, Clock3, FileText, LoaderCircle, RotateCcw, Save, UserRound, Users } from 'lucide-react'
+import { CalendarDays, Check, CircleDot, Clock3, FileText, LoaderCircle, RotateCcw, Save, UserRound, Users } from 'lucide-react'
 import { StatusBadge } from './ActivityTimeline'
 import QuoteFileLocations from './QuoteFileLocations'
 import { dateOnly, dateTime, fulcrumStatusLabel, isOverdue } from './model'
 import { setQuoteDueDate, useAutomaticQuoteDate, type QuoteDetailsDraft } from './quoteDetailsModel'
 import type { QuoteStatusDetail } from './types'
 
-export default function QuoteOverview({ detail, canEdit, draft, dirty, saving, busy, saved, error, onChange, onSave, onDiscard, onDetailChanged }: {
+export default function QuoteOverview({ detail, canEdit, draft, dirty, saving, busy, saved, error, buyCount, opCount, buyChecking, opChecking, onChange, onSave, onDiscard, onDetailChanged }: {
   detail: QuoteStatusDetail; canEdit: boolean; draft: QuoteDetailsDraft
   dirty: boolean; saving: boolean; busy: boolean; saved: boolean; error: string | null
+  buyCount: number | null; opCount: number | null; buyChecking: boolean; opChecking: boolean
   onChange: (draft: QuoteDetailsDraft) => void; onSave: () => void; onDiscard: () => void; onDetailChanged: (detail: QuoteStatusDetail) => Promise<void>
 }) {
   const { quote, workflow } = detail
@@ -34,13 +35,21 @@ export default function QuoteOverview({ detail, canEdit, draft, dirty, saving, b
       </div></div>
       <div className="qs-request-fact qs-quote-status-fact"><span className="qs-fact-icon"><CircleDot size={17} /></span><div><span>Fulcrum status</span><StatusBadge status={workflow.fulcrumQuoteStatus} label={fulcrumStatusLabel(workflow.fulcrumQuoteStatus)} /></div></div>
     </div>
-    {(detail.productionWarnings?.items?.length > 0 || quote.hasFulcrumWarnings) && <section className={`qs-production-summary${quote.hasFulcrumWarnings ? ' has-warning' : ''}`} aria-label="Fulcrum production review">
-      <header>{quote.hasFulcrumWarnings && <AlertTriangle size={17} aria-hidden="true" />}<strong>{quote.hasFulcrumWarnings ? 'This quote has production items to review' : 'Parts in quote'}</strong></header>
-      {detail.productionWarnings.items.length > 0 && <div className="qs-quote-parts">{detail.productionWarnings.items.map((item, index) => <span key={`${item.itemId}-${item.lineNumber ?? index}`}><strong>{item.partNumber}</strong>{item.revision && <small>Rev {item.revision}</small>}{item.lineNumber !== null && <small>Line {item.lineNumber}</small>}{item.quantity !== null && <small>Qty {item.quantity.toLocaleString()}</small>}</span>)}</div>}
-      {quote.hasFulcrumWarnings && <ul>{detail.productionWarnings.opOperations.map(operation => <li key={operation}><strong>OP operation:</strong> {operation}</li>)}{detail.productionWarnings.buyItemCount > 0 && <li><strong>Buy items:</strong> {detail.productionWarnings.buyItemCount}</li>}{detail.productionWarnings.makeItemCount > 0 && <li><strong>Make items:</strong> {detail.productionWarnings.makeItemCount}</li>}</ul>}
-    </section>}
+    <section className="qs-production-summary" aria-label="Fulcrum production review">
+      <ProductionMetric count={buyCount} checking={buyChecking} label={buyCount === 1
+        ? 'buy item needs a new vendor quote' : 'buy items need a new vendor quote'} />
+      <ProductionMetric count={opCount} checking={opChecking} label={opCount === 1
+        ? 'outside processing operation' : 'outside processing operations'} />
+    </section>
     {error && <p className="vq-error" role="alert">{error}</p>}
     {(dirty || saving) && <div className="qs-inline-savebar"><span>{saving ? 'Saving quote details…' : 'Unsaved quote details'}</span><div><button className="vq-button" disabled={saving || busy} onClick={onDiscard}>Discard</button><button className="vq-button vq-button-primary" disabled={saving || busy} onClick={onSave}>{saving ? <LoaderCircle size={15} className="vq-spinner" /> : <Save size={15} />}{saving ? 'Saving…' : 'Save changes'}</button></div></div>}
     {saved && !dirty && !saving && <p className="qs-inline-saved" role="status"><Check size={14} />Quote details saved</p>}
   </section>
+}
+
+function ProductionMetric({ count, checking, label }: { count: number | null; checking: boolean; label: string }) {
+  return <p className="qs-production-metric" role="status">
+    <strong aria-hidden={count === null || undefined}>{count?.toLocaleString() ?? '—'}</strong>
+    <span>{label}{count === null && <small>{checking ? 'Checking…' : 'Count unavailable'}</small>}</span>
+  </p>
 }

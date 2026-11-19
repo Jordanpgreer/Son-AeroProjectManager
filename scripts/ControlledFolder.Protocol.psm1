@@ -3,19 +3,15 @@ Set-StrictMode -Version Latest
 $script:ControlledFolderScheme = 'sonaero-folder'
 $script:ControlledFolderHost = 'open'
 $script:ControlledFolderRoot = 'S:\'
+$script:QuoteShareRoot = '\\SON-FS01\Shared\- ESTIMATES\Quotes\'
 
 function Test-SonAeroControlledRoot {
     param([Parameter(Mandatory = $true)][string]$Path)
 
-    $normalizedRoot = [System.IO.Path]::GetFullPath($script:ControlledFolderRoot)
     $normalizedPath = [System.IO.Path]::GetFullPath($Path)
-    return $normalizedPath.Equals(
-        $normalizedRoot,
-        [System.StringComparison]::OrdinalIgnoreCase
-    ) -or $normalizedPath.StartsWith(
-        $normalizedRoot,
-        [System.StringComparison]::OrdinalIgnoreCase
-    )
+    return $normalizedPath.StartsWith($script:ControlledFolderRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+        $normalizedPath.StartsWith($script:QuoteShareRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+        $normalizedPath.Equals($script:QuoteShareRoot.TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase)
 }
 
 function Resolve-SonAeroControlledPath {
@@ -74,13 +70,16 @@ function Resolve-SonAeroControlledPath {
     }
 
     $requestedPath = $requestedPath.Replace('/', '\')
-    if ($requestedPath.StartsWith('\\', [System.StringComparison]::Ordinal)) {
-        throw 'Network-share and device paths are not allowed; use a path on S:\.'
-    }
-
-    $relativePath = $requestedPath
+    $root = $script:ControlledFolderRoot
     $driveMatch = [regex]::Match($requestedPath, '^([A-Za-z]):(.*)$')
-    if ($driveMatch.Success) {
+    if ($requestedPath.StartsWith('\\', [System.StringComparison]::Ordinal)) {
+        if (-not $requestedPath.StartsWith($script:QuoteShareRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Network paths must be under the Son-Aero estimating quote share.'
+        }
+        $root = $script:QuoteShareRoot
+        $relativePath = $requestedPath.Substring($root.Length)
+    }
+    elseif ($driveMatch.Success) {
         if (-not $driveMatch.Groups[1].Value.Equals(
             'S',
             [System.StringComparison]::OrdinalIgnoreCase
@@ -93,33 +92,30 @@ function Resolve-SonAeroControlledPath {
         $relativePath = $driveMatch.Groups[2].Value.TrimStart('\')
     }
     else {
-        if ($requestedPath -match '^[A-Za-z][A-Za-z0-9+.-]*:') {
-            throw 'Nested URI schemes are not allowed in controlled-folder paths.'
-        }
-        if ($requestedPath.Contains(':')) {
-            throw 'Controlled-folder paths cannot contain a drive, scheme, or alternate data stream.'
-        }
         $relativePath = $requestedPath.TrimStart('\')
     }
 
-    if ($relativePath -match '[<>"|?*]') {
+    if ($relativePath -match '[<>"|?*:]') {
         throw 'The controlled-folder path contained invalid Windows path characters.'
     }
     $segments = @($relativePath.Split('\') | Where-Object { $_ -ne '' })
-    if ($segments | Where-Object { $_ -eq '.' -or $_ -eq '..' }) {
-        throw 'Relative and traversal path segments are not allowed.'
+    if ($segments | Where-Object { $_.EndsWith('.') -or $_.EndsWith(' ') }) {
+        throw 'Traversal and ambiguous path segments are not allowed.'
+    }
+    if ($root -eq $script:QuoteShareRoot -and $segments.Count -eq 0) {
+        throw 'Choose a folder under the Son-Aero estimating quote share.'
     }
 
     try {
         $resolvedPath = [System.IO.Path]::GetFullPath(
-            [System.IO.Path]::Combine($script:ControlledFolderRoot, $relativePath)
+            $root + ($segments -join '\')
         )
     }
     catch {
         throw 'The controlled-folder path could not be normalized.'
     }
     if (-not (Test-SonAeroControlledRoot -Path $resolvedPath)) {
-        throw 'The controlled-folder path resolved outside S:\.'
+        throw 'The folder path resolved outside the approved locations.'
     }
 
     return $resolvedPath
@@ -130,7 +126,7 @@ function Get-SonAeroControlledOpenTarget {
     param([Parameter(Mandatory = $true)][string]$ResolvedPath)
 
     if (-not (Test-SonAeroControlledRoot -Path $ResolvedPath)) {
-        throw 'The controlled-folder target resolved outside S:\.'
+        throw 'The controlled-folder target resolved outside the approved locations.'
     }
 
     $item = Get-Item -LiteralPath $ResolvedPath -Force -ErrorAction Stop
@@ -155,7 +151,7 @@ function New-SonAeroControlledExplorerTarget {
     )
 
     if (-not (Test-SonAeroControlledRoot -Path $TargetPath)) {
-        throw 'The Explorer target resolved outside S:\.'
+        throw 'The Explorer target resolved outside the approved locations.'
     }
     $normalizedTarget = [System.IO.Path]::GetFullPath($TargetPath)
     if ($IsContainer) {

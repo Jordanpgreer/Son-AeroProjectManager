@@ -140,106 +140,11 @@
   font-weight: 650;
 }
 
-.quote-kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.quote-kpi-grid > button,
-.quote-kpi-grid > article {
-  position: relative;
-  display: grid;
-  gap: 7px;
-  min-height: 116px;
-  padding: 15px 17px;
-  overflow: hidden;
-  color: var(--ink);
-  background: var(--surface);
-  border: 1px solid var(--line-2);
-  border-radius: 8px;
-  font: inherit;
-  text-align: left;
-  transition: background 160ms ease, border-color 160ms ease;
-}
-
-.quote-kpi-grid > article {
-  margin: 0;
-}
-
-.quote-kpi-grid > button::after {
-  position: absolute;
-  inset: auto 0 0;
-  height: 3px;
-  background: transparent;
-  content: '';
-}
-
-.quote-kpi-grid > button:hover,
-.quote-kpi-grid > button.is-selected {
-  background: color-mix(in srgb, var(--steel-tint) 48%, var(--surface));
-  border-color: color-mix(in srgb, var(--steel) 55%, var(--line));
-}
-
-.quote-kpi-grid > button.is-selected::after {
-  background: var(--steel);
-}
-
-.quote-kpi-grid > button.is-overdue:hover,
-.quote-kpi-grid > button.is-overdue.is-selected {
-  background: color-mix(in srgb, var(--risk-tint) 55%, var(--surface));
-  border-color: color-mix(in srgb, var(--risk) 48%, var(--line));
-}
-
-.quote-kpi-grid > button.is-overdue.is-selected::after {
-  background: var(--risk);
-}
-
-.quote-kpi-grid > button:focus-visible,
 .personal-quote-view-tabs button:focus-visible,
 .quote-filter-tabs button:focus-visible,
 .quote-refresh-button:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--steel) 42%, transparent);
   outline-offset: 2px;
-}
-
-.quote-kpi-grid span {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 10.5px;
-  font-weight: 750;
-  letter-spacing: .065em;
-  text-transform: uppercase;
-}
-
-.quote-kpi-grid span svg {
-  color: var(--steel);
-}
-
-.quote-kpi-grid .is-overdue span svg {
-  color: var(--risk-700);
-}
-
-.quote-kpi-grid .is-won span svg {
-  color: var(--ok-700);
-}
-
-.quote-kpi-grid .is-lost span svg {
-  color: var(--risk-700);
-}
-
-.quote-kpi-grid strong {
-  margin-top: auto;
-  color: var(--ink);
-  font-size: 29px;
-  line-height: 1;
-}
-
-.quote-kpi-grid small {
-  color: var(--muted);
-  font-size: 10.5px;
 }
 
 .personal-quote-view-tabs,

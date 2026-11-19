@@ -159,7 +159,10 @@ public sealed record EstimatingQuoteWorkflowStatsDto(
     decimal? AverageCompletionWorkdays,
     int CompletionSampleSize,
     int WonCount,
-    int LostCount);
+    int LostCount,
+    int CompletedCount,
+    decimal WonTotalValue,
+    decimal LostTotalValue);
 
 public sealed record UpdateEstimatingQuoteWorkflowDto(
     string? ArdaStatus,

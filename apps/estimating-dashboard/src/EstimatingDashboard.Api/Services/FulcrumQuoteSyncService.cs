@@ -278,7 +278,8 @@ internal static class FulcrumQuoteMapper
                 current?.EstimatingCompletionDate,
                 warnings,
                 options.CustomFields.EstimatingCompletionDate,
-                "Estimate Completion Date");
+                "Estimate Completion Date",
+                "Estimating Complete Date");
             var numberOfParts = IntField(
                 quote,
                 current?.NumberOfParts ?? 0,
@@ -340,7 +341,7 @@ internal static class FulcrumQuoteMapper
         ICollection<string> warnings,
         params string[] names)
     {
-        var field = FindCustomField(quote, names);
+        var field = names.Select(name => FindCustomField(quote, name)).FirstOrDefault(candidate => candidate.Found);
         if (!field.Found) return fallback;
         var text = ScalarText(field.Value);
         if (string.IsNullOrWhiteSpace(text)) return null;

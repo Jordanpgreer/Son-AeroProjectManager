@@ -12,9 +12,19 @@ creates a desktop shortcut named **"Arda"** using the transparent Arda icon. The
 runs `scripts\Start-Hub.ps1`. Setup also registers the current user's `sonaero-folder`
 protocol handler, and every Hub start refreshes that registration to the current checkout.
 
-Controlled-folder links accept the drive-less paths stored in Fulcrum and map them to `S:\`.
-For safety, the handler rejects traversal, other drives, UNC/device paths, extra query values,
-and embedded URI schemes. A folder opens directly; a file opens Explorer with that file selected.
+Controlled-folder links accept `S:\` paths and map drive-less paths stored in Fulcrum to
+`S:\`. Estimating quote folders also support network paths beneath the Son-Aero estimating
+quote share. The handler limits Explorer to those locations and rejects traversal, device paths,
+extra query values, and nested URI schemes. A folder opens directly. A file opens Explorer with
+that file selected.
+
+The employee Hub installer registers the same handler for the Windows user who runs it. To
+update the folder handler separately, run the following in a standard PowerShell window from
+the extracted employee installer directory while signed in as that user.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Install-OpenFolderProtocol.ps1 -InstallForCurrentUser
+```
 
 ## Launching
 
@@ -68,5 +78,5 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Sync-Branding.ps1
 | An app never becomes healthy | Read `logs\<app>.err.log` in the repo root |
 | Port already in use | Another instance is running; the launcher reuses healthy instances automatically |
 | Logos missing after a fresh clone | Run `scripts\Sync-Branding.ps1` |
-| A controlled folder link is rejected | Confirm the Fulcrum path is beneath `S:\` and contains no drive prefix other than `S:`, `..`, UNC prefix, or URL scheme |
-| A controlled folder is unavailable | Confirm the `S:` drive is connected and the referenced folder or file exists |
+| A controlled folder link is rejected | Confirm the path is beneath `S:\` or the Son-Aero estimating quote share and contains no traversal or URL scheme |
+| A controlled folder is unavailable | Confirm access to the required drive or network share and check that the folder or file exists |

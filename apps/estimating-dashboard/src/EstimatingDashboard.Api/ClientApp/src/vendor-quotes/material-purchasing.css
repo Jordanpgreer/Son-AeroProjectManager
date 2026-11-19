@@ -16,31 +16,17 @@
 .qs-material-row.is-needs-rfq { border-left: 3px solid var(--warn); }
 .qs-material-row.is-review-required { border-left: 3px solid var(--line-3); }
 .qs-material-row-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 9px 14px; }
-.qs-material-row-heading > div { display: grid; gap: 5px; min-width: 0; }
-.qs-material-row-heading strong { color: var(--ink); font-size: 13px; overflow-wrap: anywhere; }
-.qs-material-state { color: var(--muted); font-size: 10px; }
-.is-needs-rfq .qs-material-state,.is-review-required .qs-material-state { color: var(--warn-700); }
-.is-stock-covered .qs-material-state,.is-recent-po .qs-material-state { color: var(--ok-700); }
+.qs-material-requirement { min-width: 0; overflow-wrap: anywhere; }
+.qs-material-requirement > p { margin: 0; color: var(--ink); font-size: 13px; }
+.qs-material-requirement > dl { display: grid; gap: 3px; margin: 7px 0 0; }
+.qs-material-requirement dt { color: var(--muted); font-size: 10px; }
+.qs-material-requirement dd { margin: 0; color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; }
 .qs-request-page .qs-material-draft { min-height: 35px; padding: 7px 12px; color: var(--steel-700); font-size: 11px !important; }
-.qs-material-description { margin: 10px 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
-.qs-material-recipient { margin: 0 0 12px; color: var(--ink-2); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
-.qs-material-recipient span { color: var(--muted); }
-.qs-material-quantities { display: flex; flex-wrap: wrap; gap: 9px 30px; margin: 0; }
-.qs-material-quantities > div { display: grid; gap: 4px; }
-.qs-material-quantities dt { color: var(--muted); font-size: 10px; }
-.qs-material-quantities dd { margin: 0; color: var(--ink-2); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.qs-material-po { margin: 12px 0 0; color: var(--ok-700); font-size: 11px; line-height: 1.6; }
-.qs-material-history { display: grid; gap: 3px; margin: 12px 0 0; padding: 9px 10px; border-left: 3px solid var(--warn); background: var(--warn-tint); color: var(--ink-2); font-size: 11px; line-height: 1.5; }
-.qs-material-history small { color: var(--muted); }
-.qs-material-breakdown { margin-top: 10px; }
-.qs-material-breakdown > summary { display: flex; align-items: center; gap: 7px; width: fit-content; padding: 4px 0; color: var(--steel-700); font-size: 11px; font-weight: 550; cursor: pointer; list-style: none; }
-.qs-material-breakdown > summary::-webkit-details-marker,.qs-material-covered > summary::-webkit-details-marker { display: none; }
-.qs-material-breakdown[open] > summary > svg,.qs-material-covered[open] > summary > svg:last-child { transform: rotate(180deg); }
-.qs-material-breakdown summary:focus-visible,.qs-material-covered summary:focus-visible { outline: 2px solid var(--steel); outline-offset: 3px; border-radius: 2px; }
-.qs-material-breakdown-content { display: grid; gap: 11px; margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
-.qs-material-source { display: grid; gap: 4px; font-size: 11px; color: var(--ink-2); line-height: 1.55; }
-.qs-material-source strong { font-weight: 600; }
-.qs-material-rule,.qs-material-hint,.qs-material-message { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.7; }
+.qs-material-confirmed { display: flex; align-items: center; gap: 5px; margin: 8px 0 0; color: var(--ok-700); font-size: 11px; }
+.qs-material-covered > summary::-webkit-details-marker { display: none; }
+.qs-material-covered[open] > summary > svg:last-child { transform: rotate(180deg); }
+.qs-material-review summary:focus-visible,.qs-material-covered summary:focus-visible { outline: 2px solid var(--steel); outline-offset: 3px; border-radius: 2px; }
+.qs-material-hint,.qs-material-message { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.7; }
 .qs-material-hint { margin-top: 13px; }
 .qs-material-message { padding: 5px 0; }
 .qs-material-covered { margin-top: 14px; border-top: 1px solid var(--line); }
@@ -53,8 +39,9 @@
 .qs-material-alert > svg { flex-shrink: 0; margin-top: 2px; }
 .qs-material-alert > div { min-width: 0; overflow-wrap: anywhere; }
 .qs-material-alert p { margin: 5px 0 0; }
-.qs-material-alert ul,.qs-material-issues { margin: 7px 0 0; padding-left: 17px; }
-.qs-material-issues { color: var(--warn-700); font-size: 11px; line-height: 1.65; }
+.qs-material-alert ul,.qs-material-review ul { margin: 7px 0 0; padding-left: 17px; }
+.qs-material-review { margin: 0 0 12px; color: var(--warn-700); font-size: 11px; line-height: 1.65; overflow-wrap: anywhere; }
+.qs-material-review > summary { width: fit-content; cursor: pointer; }
 .qs-material-download { margin: 10px 0 0; color: var(--steel-700); font-size: 11px; line-height: 1.65; }
 .qs-material-quantity-editor { margin: -3px 0 15px; }
 .qs-material-quantity-tools { display: flex; flex-wrap: wrap; gap: 6px 17px; }
@@ -71,8 +58,6 @@
   .qs-material-summary > small { flex-basis: 100%; margin-left: 0; }
   .qs-material-row { padding: 12px; }
   .qs-material-row-heading { align-items: flex-start; }
-  .qs-material-quantities { gap: 10px 20px; }
-  .qs-material-quantities dd { font-size: 12px; }
   .qs-material-quantity-fields { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
   .qs-material-quantity-fields > strong { grid-column: 1/-1; }
   .qs-material-quantity-fields input { font-size: 16px; }
