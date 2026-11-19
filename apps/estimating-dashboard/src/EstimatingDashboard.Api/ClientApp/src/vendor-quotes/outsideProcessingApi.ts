@@ -1,4 +1,5 @@
 import { QuoteApiError } from './api.ts'
+import type { PlanningSource } from './purchasingReviewModel'
 
 export interface OutsideProcessingOperation {
   operationKey: string
@@ -27,6 +28,7 @@ export interface OutsideProcessingRequirements {
   checkedAt: string
   operations: OutsideProcessingOperation[]
   warnings: string[]
+  planningSource?: PlanningSource
 }
 
 async function request(path: string, init?: RequestInit): Promise<Response> {

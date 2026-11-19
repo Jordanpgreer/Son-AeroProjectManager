@@ -87,14 +87,15 @@ public sealed class OutsideProcessingDraftTests
         public Task<OutsideProcessingRequirementsDto> InspectAsync(int historyId, int quoteNumber, string sourceId,
             IReadOnlyDictionary<string, IReadOnlyList<decimal>> quantities, CancellationToken ct) =>
             Task.FromResult(new OutsideProcessingRequirementsDto(historyId, quoteNumber,
-                VendorQuoteTestFixture.Now, Operations, Warnings));
+                VendorQuoteTestFixture.Now, Operations, Warnings, PurchasingPlanningSources.Fulcrum));
     }
 
     private sealed class MaterialReader : IFulcrumMaterialRequirementsReader
     {
         public Task<MaterialRequirementsDto> InspectAsync(int historyId, int quoteNumber, string sourceId, CancellationToken ct,
             IReadOnlyDictionary<string, IReadOnlyList<decimal>>? quantityOverrides = null) =>
-            Task.FromResult(new MaterialRequirementsDto(historyId, quoteNumber, VendorQuoteTestFixture.Now, [], [], []));
+            Task.FromResult(new MaterialRequirementsDto(historyId, quoteNumber, VendorQuoteTestFixture.Now, [], [], [],
+                PlanningSource: PurchasingPlanningSources.Fulcrum));
     }
 
     [Fact]

@@ -9,6 +9,7 @@ internal static class QuoteRfqReadiness
         IReadOnlyList<MaterialDraftLink> links, out int requiredCount)
     {
         requiredCount = 0;
+        if (inspection.PlanningSource != PurchasingPlanningSources.Fulcrum) return false;
         if (inspection.Materials.Any(material => material.Status == "review-required"
             || material.Status is not ("needs-rfq" or "recent-po" or "stock-covered"))) return false;
         var quantityFingerprint = MaterialDraftTracking.QuantitiesFingerprint(state);
@@ -28,6 +29,7 @@ internal static class QuoteRfqReadiness
         MaterialPurchasingState? state, IReadOnlyList<MaterialDraftLink> links, out int requiredCount)
     {
         requiredCount = 0;
+        if (inspection.PlanningSource != PurchasingPlanningSources.Fulcrum) return false;
         if (inspection.Operations.Any(operation => operation.Status != "needs-rfq")
             || inspection.Warnings.Any(warning => !warning.Contains("Pricing-panel breaks", StringComparison.OrdinalIgnoreCase)))
             return false;

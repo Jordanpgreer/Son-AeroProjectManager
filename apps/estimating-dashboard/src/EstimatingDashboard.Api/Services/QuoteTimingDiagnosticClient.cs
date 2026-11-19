@@ -17,12 +17,12 @@ internal sealed class QuoteTimingDiagnosticClient(HttpClient http, IOptions<Fulc
 {
     private const int MaximumBytes = 256 * 1024;
 
-    public async Task<(QuoteTimingReadDto List, QuoteTimingReadDto Detail)> ReadAsync(
+    public async Task<(QuoteTimingReadDto List, QuoteTimingReadDto Detail, FulcrumQuoteDateDefinitions Definitions)> ReadAsync(
         EstimatingQuoteHistoryRecord stored, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         if (stored.QuoteNumber <= 0 || !Regex.IsMatch(stored.SourceId, "\\A[0-9a-fA-F]{24}\\z"))
-            return (new("InvalidStoredIdentity"), new("InvalidStoredIdentity"));
+            return (new("InvalidStoredIdentity"), new("InvalidStoredIdentity"), new("NotAttempted", []));
         Uri baseUri;
         string? token;
         try
@@ -30,18 +30,19 @@ internal sealed class QuoteTimingDiagnosticClient(HttpClient http, IOptions<Fulc
             baseUri = FulcrumApiEndpoint.ResolveItarBaseUri(options.Value.BaseUrl, "FulcrumQuoteSync:BaseUrl");
             token = (await credentials.GetSecretAsync(IntegrationCredentialNames.FulcrumPublicApi, ct))?.Trim();
             if (token?.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) == true) token = token[7..].Trim();
-            if (string.IsNullOrWhiteSpace(token)) return (new("CredentialUnavailable"), new("CredentialUnavailable"));
+            if (string.IsNullOrWhiteSpace(token)) return (new("CredentialUnavailable"), new("CredentialUnavailable"), new("NotAttempted", []));
         }
         catch (Exception error) when (error is DbException or InvalidOperationException or CryptographicException)
         {
             ct.ThrowIfCancellationRequested();
-            return (new("ConfigurationUnavailable"), new("ConfigurationUnavailable"));
+            return (new("ConfigurationUnavailable"), new("ConfigurationUnavailable"), new("NotAttempted", []));
         }
 
+        var definitions = await FulcrumQuoteDateDefinitionReader.ReadAsync(http, baseUri, token, fresh: true, ct);
         var list = await Read(HttpMethod.Post, $"api/quotes/list?Skip=0&Take=2&Sort.Field=Number&Sort.Dir={FulcrumApiEndpoint.AscendingSortDirection}", true);
         var detail = await Read(HttpMethod.Get, "api/quotes/" + stored.SourceId, false);
         ct.ThrowIfCancellationRequested();
-        return (list, detail);
+        return (list, detail, definitions);
 
         async Task<QuoteTimingReadDto> Read(HttpMethod method, string path, bool isList)
         {
@@ -78,7 +79,7 @@ internal sealed class QuoteTimingDiagnosticClient(HttpClient http, IOptions<Fulc
                     if (count >= 2) return new("AmbiguousList", ReturnedCount: count, PossiblyTruncated: true);
                     data = data[0];
                 }
-                return QuoteTimingDiagnosticProjection.Project(data, stored, options.Value, count);
+                return QuoteTimingDiagnosticProjection.Project(data, stored, options.Value, count, definitions);
             }
             catch (FulcrumCoordinationUnavailableException) { ct.ThrowIfCancellationRequested(); return new("CoordinationUnavailable"); }
             catch (FulcrumReadDeferredException error) { ct.ThrowIfCancellationRequested(); return new(error.Reason.ToString(), RetryAt: error.RetryAt); }

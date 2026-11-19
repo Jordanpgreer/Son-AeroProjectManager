@@ -1,31 +1,32 @@
 import { useEffect, useState } from 'react'
+import { currentPurchasingReview, startPurchasingReview, type PurchasingReviewState } from './purchasingReviewModel'
 
 export function usePurchasingReview<T extends { quoteHistoryId: number }>(
   quoteHistoryId: number,
   requestRevision: string,
   load: (quoteHistoryId: number, signal: AbortSignal) => Promise<T>,
   failureMessage: string,
+  enabled = true,
 ) {
-  const [previous, setData] = useState<T | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [revision, setRevision] = useState(0)
+  const key = JSON.stringify([quoteHistoryId, requestRevision, revision, enabled])
+  const [state, setState] = useState<PurchasingReviewState<T>>({ key: '', data: null, loading: enabled, error: null })
 
   useEffect(() => {
-    const controller = new AbortController()
-    setLoading(true)
-    setError(null)
-    void load(quoteHistoryId, controller.signal).then(result => {
-      if (!controller.signal.aborted) setData(result)
-    }).catch(reason => {
-      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : failureMessage)
-    }).finally(() => {
-      if (!controller.signal.aborted) setLoading(false)
+    if (!enabled) {
+      setState(current => ({ ...current, key, loading: false, error: null }))
+      return
+    }
+    setState(current => ({ key, data: current.data?.quoteHistoryId === quoteHistoryId ? current.data : null, loading: true, error: null }))
+    return startPurchasingReview(quoteHistoryId, load, failureMessage, result => {
+      setState(current => current.key !== key ? current : {
+        key, data: result.error ? current.data : result.data, error: result.error, loading: false,
+      })
     })
-    return () => controller.abort()
-  }, [quoteHistoryId, requestRevision, revision, load, failureMessage])
+  }, [key, quoteHistoryId, enabled, load, failureMessage])
 
-  const data = previous?.quoteHistoryId === quoteHistoryId ? previous : null
+  const current = currentPurchasingReview(state, key, quoteHistoryId, enabled)
   const refresh = () => setRevision(value => value + 1)
-  return { data, loading, error, refresh, setData }
+  const setData = (data: T) => setState({ key, data, loading: false, error: null })
+  return { ...current, refresh, setData }
 }

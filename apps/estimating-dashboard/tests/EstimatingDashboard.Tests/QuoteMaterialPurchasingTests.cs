@@ -89,7 +89,7 @@ public sealed class QuoteMaterialPurchasingTests
             return Task.FromResult(new MaterialRequirementsDto(historyId, quoteNumber, VendorQuoteTestFixture.Now,
                 [new("line", "top-item", "11488049", "E", quantityOverrides?.GetValueOrDefault("top-item") ?? [1000],
                     quantityOverrides?.ContainsKey("top-item") == true)],
-                SecondMaterial is null ? [Material] : [Material, SecondMaterial], []));
+                SecondMaterial is null ? [Material] : [Material, SecondMaterial], [], PlanningSource: PurchasingPlanningSources.Fulcrum));
         }
     }
 

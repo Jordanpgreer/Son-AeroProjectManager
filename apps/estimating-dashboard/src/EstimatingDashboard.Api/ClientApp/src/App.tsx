@@ -439,6 +439,7 @@ export default function App() {
                 canManageQuotes={canManageQuotes}
                 canDeleteQuotes={canDeleteQuotes}
                 canGenerateQuotes={canManageQuotes && canManageInputs}
+                canViewAllQuotes={canViewHistory}
               />
             )}
             {page === 'quote-status' && canViewQuoteStatus && (

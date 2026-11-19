@@ -1,3 +1,43 @@
+# Quotes dashboard, RFQ periods, and on-time performance — 2026-11-19
+
+## Source and comparison state
+
+- Selected source: `C:\Users\USER\AppData\Local\Temp\codex-clipboard-c05db40d-ed63-41d2-8dd4-8f2e4c6c37e4.png` (1829 × 860).
+- Local implementation preview: `http://127.0.0.1:5248/output/dashboard-preview/`.
+- Browser evidence in repository `output/playwright/`: `quotes-period-final.png`, `quotes-default-final.png`, `quotes-detail-final.png`, `quotes-mobile-final.png`, `quotes-mobile-detail-final.png`, and `quotes-dark-final.png`.
+- Source and final period-menu screenshot were visually inspected together at 1829 × 860, light theme, All quotes, November 2026, with the detail panel closed. The selected month covers the complete calendar month, November 1–30, as the user requested.
+- Additional inspection covered the open detail panel at 1829 × 860, mobile at 390 × 844, and dark theme at 1280 × 800. The preview uses the actual dashboard components with synthetic API responses and a clearly marked sample-data heading.
+
+## Findings and refinements
+
+- No remaining P0, P1, or P2 findings within the inspected dashboard states.
+- Typography: increased the first implementation's small table and metric text. Final rows use 16 px body text, 17 px quote numbers, and 12 px headers. Existing Arda type and color tokens preserve consistency with the surrounding application rather than reproducing generated lettering exactly.
+- Layout: search and the compact period picker precede one performance strip and a full-width seven-column table. The application supplies the page heading; the preview supplies a sample-data heading. Old calculator-workspace and assigned-quote heading/tab sections remain removed.
+- Detail panel: closed initially, opened only after selecting a quote, and closable by X or Escape. Widened and condensed the panel so its primary action fits in the desktop view. Estimator and value move into the panel while it is open, leaving more room for the other five table columns.
+- Colors and assets: existing steel-blue, pale-blue, dark-theme, and semantic status tokens remain in use. Icons use the existing icon library. No new raster imagery is required.
+- Copy and metrics: added On-time %, including an excluded-record count and an explanation of the eligible sample. Average completion stays unavailable when verified timing is incomplete; the preview does not invent a value.
+
+## Measured and behavioral evidence
+
+- Table width at the desktop viewport: 1765 px closed, 1369 px with details open, and 1765 px after closing.
+- Document horizontal overflow: zero at desktop, mobile, and dark-theme inspection widths. The narrow-screen results table scrolls inside its own container.
+- Mobile detail close control: 44 × 44 px and inside the viewport. The primary action is visible.
+- Twenty-two browser assertions passed: live part/quote/customer searches; My/All scope; stable performance while narrowing results; status filtering; pagination; empty and failed results; stale-response protection; preset and inclusive custom dates; undated quotes under All time; mouse and keyboard detail selection; close and focus restoration; and the existing Quote Status link target.
+- Synthetic November cohort: All quotes shows 66.7% (2 of 3 eligible), My quotes shows 100% (2 of 2 eligible), and one completed quote is disclosed as excluded. These are test values, not production performance.
+- Browser console: zero errors and zero warnings; React development-tool informational messages only.
+
+## Validation and limits
+
+- Backend suite: 694 passed, zero failures or skips.
+- Frontend suite: 207 passed, zero failures, one pre-existing native Excel skip.
+- Production frontend build and lint passed after the final layout changes.
+- Browser interaction testing used the isolated fixture. Backend service and endpoint tests independently verified permissions, RFQ-date filtering, calculations, and read-only behavior. The preview does not exercise the deployed database or navigate the full production Quote Status flow.
+- No commit, push, deployment, or IIS command was performed. The existing development database hash remained unchanged during this work.
+
+final result: passed
+
+---
+
 # Design QA: Estimating module cleanup and statistics redesign
 
 ## Source visual truth

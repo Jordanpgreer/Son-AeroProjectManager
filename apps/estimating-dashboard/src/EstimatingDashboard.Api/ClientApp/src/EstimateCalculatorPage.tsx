@@ -611,10 +611,10 @@ export default function EstimateCalculatorPage({
           <strong>Fulcrum quote #{quoteRecord.sourceQuote.quoteNumber}</strong>
           <small>This estimate and its revisions belong to the source quote. Changes here stay in Arda.</small>
         </div>
-        <a className="secondary-button" href={`#/quotes?source=${quoteRecord.sourceQuote.quoteHistoryId}`} onClick={(event) => {
+        <a className="secondary-button" href="#/quotes" onClick={(event) => {
           if (dirty && !window.confirm('Leave this estimate without saving your latest changes?')) event.preventDefault()
         }}>
-          View quote and linked estimates
+          Back to quotes
         </a>
       </section>}
       <div className="calculator-top-actions" aria-label="Estimate utilities">

@@ -53,26 +53,16 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
             var overridden = quantityOverrides?.ContainsKey(group.Key) == true;
             if (overridden) quantities = quantityOverrides![group.Key].Distinct().Order().ToArray();
             var revision = Field(item, "revision");
-            var noOperations = false;
-            try
-            {
-                var operations = await client.ListAsync(
-                    $"api/items/{FulcrumQuoteGenerationClient.Identifier(group.Key)}/routing/operations/list",
-                    true, cancellationToken);
-                noOperations = operations.Count == 0;
-            }
-            catch (Exception error) when (IsRecoverable(error, cancellationToken))
-            {
-                warnings.Add($"Fulcrum planning operations for {Text(item, "number")} could not be verified.");
-            }
+            var planning = await FulcrumPurchasingPlanning.InspectAsync(client, quoteId, group.Key, item,
+                group.Select(line => Text(line, "id")), cancellationToken);
             var lineId = Text(group.First(), "id");
             parts.Add(new(lineId, group.Key, Text(item, "number"),
-                revision.ValueKind == JsonValueKind.String ? revision.GetString() : Text(revision, "revision"), quantities, overridden, noOperations));
-            await context.InspectPartAsync(quoteId, group.Key, item, group.Select(line => Text(line, "id")), quantities,
-                cancellationToken);
+                revision.ValueKind == JsonValueKind.String ? revision.GetString() : Text(revision, "revision"), quantities, overridden, planning.IsIndustrios));
+            if (!planning.IsIndustrios)
+                await context.InspectPartAsync(group.Key, item, planning.Routes, quantities, cancellationToken);
         }
         var materials = await context.CompleteAsync(cancellationToken);
-        if (materials.Count > 0 && parts.Any(part => !part.QuantitiesOverridden))
+        if (materials.Count > 0 && parts.Any(part => !part.NoFulcrumOperations && !part.QuantitiesOverridden))
             warnings.Add("Fulcrum's public API exposes quote line quantities, but not separate Pricing-panel quantity breaks. Confirm the displayed part quantities before opening a vendor draft.");
         if (hasStaleOverrides)
         {
@@ -81,13 +71,9 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
             materials = materials.Select(material => material with
                 { Status = "review-required", Issues = material.Issues.Append(issue).ToArray() }).ToArray();
         }
-        return new(historyId, quoteNumber, context.CheckedAt, parts, materials, warnings);
+        return new(historyId, quoteNumber, context.CheckedAt, parts, materials, warnings,
+            PlanningSource: FulcrumPurchasingPlanning.Source(parts.Count, parts.Count(part => part.NoFulcrumOperations)));
     }
-
-    private static bool IsRecoverable(Exception error, CancellationToken token) => !token.IsCancellationRequested
-        && error is not FulcrumCoordinationUnavailableException
-        && error is not FulcrumReadDeferredException and not FulcrumReadFailureException { IsDeferred: true }
-        && error is HttpRequestException or InvalidOperationException or JsonException or TaskCanceledException;
 
     private sealed class Inspection(FulcrumQuoteGenerationClient client, DateTimeOffset checkedAt)
     {
@@ -110,17 +96,14 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
             return item;
         }
 
-        public async Task InspectPartAsync(string quoteId, string itemId, JsonElement item,
-            IEnumerable<string> plannedLineIds, IReadOnlyList<decimal> quantities, CancellationToken token)
+        public async Task InspectPartAsync(string itemId, JsonElement item,
+            IReadOnlyList<FulcrumQuoteRouting?> plannedRoutes, IReadOnlyList<decimal> quantities, CancellationToken token)
         {
             var alternatives = new List<Dictionary<string, Material>>();
             var partNumber = Text(item, "number");
-            var usePlanning = Text(item, "itemOrigin") is "make" or "makeOrBuy" or "kit";
             var catalogInspected = false;
-            foreach (var lineId in plannedLineIds)
+            foreach (var quoteRouting in plannedRoutes)
             {
-                var quoteRouting = usePlanning
-                    ? await FulcrumQuoteRouting.LoadIfAvailableAsync(client, quoteId, lineId, itemId, token) : null;
                 if (quoteRouting is null && catalogInspected) continue;
                 catalogInspected |= quoteRouting is null;
                 var demands = new Dictionary<string, Material>(StringComparer.Ordinal);
@@ -211,6 +194,7 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
 
         public async Task<IReadOnlyList<MaterialRequirementDto>> CompleteAsync(CancellationToken token)
         {
+            if (materials.Count == 0) return [];
             JsonElement inventory = default;
             try { inventory = await client.GetAsync("api/inventory/availableByItem", token); }
             catch (Exception error) when (Recoverable(error, token)) { }

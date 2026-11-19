@@ -11,6 +11,8 @@ public static class EstimatingQuoteWorkflowEndpoints
         var workflow = api.MapGroup("/quote-workflow")
             .RequireAuthorization(EstimatingPolicies.QuotesView);
 
+        workflow.MapGet("/dashboard", DashboardAsync);
+
         workflow.MapGet("/mine", async (
             HttpContext context,
             EstimatingQuoteWorkflowService service,
@@ -103,6 +105,27 @@ public static class EstimatingQuoteWorkflowEndpoints
         }).RequireAuthorization(EstimatingPolicies.Editor);
 
         return api;
+    }
+
+    private static async Task<IResult> DashboardAsync(HttpContext context, EstimatingQuoteWorkflowService service,
+        string? scope, string? from, string? to, string? search, string? status,
+        int page = 1, int pageSize = 25, CancellationToken cancellationToken = default)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        try
+        {
+            return Results.Ok(await service.GetDashboardAsync(Access(context), scope, from, to, search, status,
+                page, pageSize, cancellationToken));
+        }
+        catch (EstimatingQuoteWorkflowForbiddenException)
+        {
+            return Results.Json(new ErrorDto("QuoteDashboardForbidden", "You do not have access to this quote scope."),
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+        catch (EstimatingQuoteWorkflowValidationException error)
+        {
+            return Results.BadRequest(new ErrorDto("QuoteDashboardValidation", error.Message));
+        }
     }
 
     private static EstimatingAccessProfile Access(HttpContext context) =>

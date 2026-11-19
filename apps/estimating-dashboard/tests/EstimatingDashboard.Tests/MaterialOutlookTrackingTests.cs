@@ -336,6 +336,7 @@ public sealed partial class MaterialOutlookTrackingTests
         public MaterialRequirementDto Material { get; set; } = MaterialRfqDraftTests.Material;
         public Task<MaterialRequirementsDto> InspectAsync(int id, int number, string sourceId, CancellationToken ct,
             IReadOnlyDictionary<string, IReadOnlyList<decimal>>? quantityOverrides = null) => Task.FromResult(new MaterialRequirementsDto(
-                id, number, VendorQuoteTestFixture.Now, [new("line", "top", "TOP", null, [1000])], [Material], []));
+                id, number, VendorQuoteTestFixture.Now, [new("line", "top", "TOP", null, [1000])], [Material], [],
+                PlanningSource: PurchasingPlanningSources.Fulcrum));
     }
 }

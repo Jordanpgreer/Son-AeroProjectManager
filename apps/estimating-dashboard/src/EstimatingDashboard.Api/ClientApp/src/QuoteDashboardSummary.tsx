@@ -1,90 +1,40 @@
-import { AlertTriangle, CheckCircle2, Clock3, FileText, type LucideIcon } from 'lucide-react'
-import type { PersonalQuoteView } from './quoteDashboardModel'
+import { AlertTriangle, CheckCircle2, Clock3, FileText, Timer, type LucideIcon } from 'lucide-react'
 import { currency } from './quoteDashboardFormatting'
-import type { PersonalQuoteStats } from './quoteWorkflowApi'
-import './quote-dashboard-summary.css'
+import type { DashboardScope, DashboardStats, DashboardStatus } from './quoteDashboardApi'
 
-interface QuoteDashboardSummaryProps {
-  activeCount: number
-  overdueCount: number
-  completedCount: number
-  average: number | null
-  averageUnavailable: string
-  stats: PersonalQuoteStats | null
-  loading: boolean
-  selected: PersonalQuoteView
-  onSelect: (view: PersonalQuoteView) => void
-}
-
-export default function QuoteDashboardSummary({
-  activeCount, overdueCount, completedCount, average, averageUnavailable, stats, loading, selected, onSelect,
-}: QuoteDashboardSummaryProps) {
-  return (
-    <section className="quote-kpi-summary" aria-label="My quote workload summary" aria-busy={loading}>
-      <div className="quote-kpi-grid">
-        <section className="quote-kpi-group" aria-labelledby="quote-kpi-queue">
-          <h2 id="quote-kpi-queue">Current queue</h2>
-          <div className="quote-kpi-pair">
-            <QuoteViewMetric label="Active quotes" icon={FileText} count={loading ? null : activeCount}
-              selected={selected === 'active'} onSelect={() => onSelect('active')} />
-            <QuoteViewMetric label="Overdue quotes" icon={AlertTriangle} count={loading ? null : overdueCount}
-              tone="overdue" selected={selected === 'overdue'} onSelect={() => onSelect('overdue')} />
-          </div>
-        </section>
-        <section className="quote-kpi-group" aria-labelledby="quote-kpi-estimating">
-          <h2 id="quote-kpi-estimating">Estimating performance</h2>
-          <div className="quote-kpi-pair">
-            <QuoteViewMetric label="Completed quotes" icon={CheckCircle2} count={loading ? null : completedCount}
-              selected={selected === 'completed'} onSelect={() => onSelect('completed')} />
-            <div className="quote-kpi-cell">
-              <div className="quote-kpi-metric" title={average === null ? averageUnavailable : 'Assignment to estimating completion in business days'}>
-                <span className="quote-kpi-label"><Clock3 aria-hidden="true" />Avg. completion</span>
-                {average === null ? <>
-                  <strong aria-hidden="true">—</strong>
-                  <span className="sr-only">{averageUnavailable}</span>
-                </> : <strong>{average.toLocaleString(undefined, { maximumFractionDigits: 1 })} {average === 1 ? 'day' : 'days'}</strong>}
-              </div>
-            </div>
-          </div>
-        </section>
-        <section className="quote-kpi-group" aria-labelledby="quote-kpi-outcomes">
-          <h2 id="quote-kpi-outcomes">Fulcrum outcomes</h2>
-          <div className="quote-kpi-pair">
-            <OutcomeMetric label="Won" icon={CheckCircle2} tone="won"
-              count={loading ? null : stats?.wonCount ?? null} total={loading ? null : stats?.wonTotalValue ?? null} />
-            <OutcomeMetric label="Lost" icon={AlertTriangle} tone="lost"
-              count={loading ? null : stats?.lostCount ?? null} total={loading ? null : stats?.lostTotalValue ?? null} />
-          </div>
-        </section>
-      </div>
-    </section>
-  )
-}
-
-function QuoteViewMetric({ label, icon: Icon, count, tone, selected, onSelect }: {
-  label: string; icon: LucideIcon; count: number | null; tone?: 'overdue'; selected: boolean; onSelect: () => void
+export default function QuoteDashboardSummary({ scope, period, stats, selected, onSelect }: {
+  scope: DashboardScope; period: string; stats: DashboardStats | null
+  selected: DashboardStatus; onSelect: (status: DashboardStatus) => void
 }) {
-  return (
-    <div className="quote-kpi-cell">
-      <button className="quote-kpi-metric" data-tone={tone} type="button" aria-pressed={selected}
-        aria-controls="my-assigned-quotes" onClick={onSelect}>
-        <span className="quote-kpi-label"><Icon aria-hidden="true" />{label}</span>
-        <strong>{count?.toLocaleString() ?? '—'}</strong>
-      </button>
+  const missingTiming = stats ? Math.max(0, stats.completedCount - stats.completionSampleSize) : 0
+  const average = stats && missingTiming === 0 ? stats.averageCompletionWorkdays : null
+  const averageTitle = missingTiming > 0
+    ? `${missingTiming} completed quote${missingTiming === 1 ? ' is' : 's are'} missing verified estimating timing. The period average is unavailable.`
+    : 'Verified estimating start to completion in business days.'
+  const onTimeTitle = stats
+    ? `${stats.onTimeCount} of ${stats.onTimeSampleSize} completed quotes finished on or before their RFQ due date. ${stats.onTimeMissingCount} completed quote${stats.onTimeMissingCount === 1 ? ' is' : 's are'} excluded because completion or RFQ due dates are missing or invalid.`
+    : 'On-time completion is measured against the RFQ due date.'
+  return <section className="qd-performance" aria-label={`${scope === 'mine' ? 'My' : 'All'} performance · ${period}`} aria-busy={!stats}>
+    <h2>{scope === 'mine' ? 'My' : 'All'} performance <span>· {period}</span></h2>
+    <div className="qd-metrics">
+      <Metric label="Active" icon={FileText} value={stats?.activeCount} selected={selected === 'active'} onSelect={() => onSelect(selected === 'active' ? 'all' : 'active')} />
+      <Metric label="Overdue" icon={AlertTriangle} value={stats?.overdueCount} tone="overdue" title="Active quotes past their RFQ due date" selected={selected === 'overdue'} onSelect={() => onSelect(selected === 'overdue' ? 'all' : 'overdue')} />
+      <Metric label="Completed" icon={CheckCircle2} value={stats?.completedCount} selected={selected === 'completed'} onSelect={() => onSelect(selected === 'completed' ? 'all' : 'completed')} />
+      <Metric label="Avg. completion" icon={Clock3} value={average === null ? undefined : `${average.toLocaleString(undefined, { maximumFractionDigits: 1 })}d`} title={averageTitle} />
+      <Metric label="On-time" icon={Timer} value={stats?.onTimePercentage == null ? undefined : `${stats.onTimePercentage.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`}
+        title={onTimeTitle} note={stats && stats.onTimeMissingCount > 0 ? `${stats.onTimeMissingCount} excluded` : undefined} />
+      <Metric label="Won" icon={CheckCircle2} tone="won" value={stats ? `${stats.wonCount} · ${currency(stats.wonTotalValue)}` : undefined} />
+      <Metric label="Lost" icon={AlertTriangle} tone="lost" value={stats ? `${stats.lostCount} · ${currency(stats.lostTotalValue)}` : undefined} />
     </div>
-  )
+  </section>
 }
 
-function OutcomeMetric({ label, icon: Icon, count, total, tone }: {
-  label: string; icon: LucideIcon; count: number | null; total: number | null; tone: 'won' | 'lost'
+function Metric({ label, icon: Icon, value, title, tone, note, selected, onSelect }: {
+  label: string; icon: LucideIcon; value?: number | string; title?: string; tone?: string; note?: string
+  selected?: boolean; onSelect?: () => void
 }) {
-  return (
-    <div className="quote-kpi-cell">
-      <div className="quote-kpi-metric quote-kpi-outcome" data-tone={tone}>
-        <span className="quote-kpi-label"><Icon aria-hidden="true" />{label}</span>
-        <strong>{count?.toLocaleString() ?? '—'}</strong>
-        <span className="quote-kpi-total" title="Total quoted value">{total === null ? '—' : currency(total)}</span>
-      </div>
-    </div>
-  )
+  const content = <><Icon size={17} aria-hidden="true" /><span>{label}</span><strong>{typeof value === 'number' ? value.toLocaleString() : value ?? '—'}</strong>{note && <small>{note}</small>}</>
+  return onSelect
+    ? <button className="qd-metric" data-tone={tone} title={title} aria-pressed={selected} aria-controls="quote-dashboard-results" type="button" onClick={onSelect}>{content}</button>
+    : <span className="qd-metric" data-tone={tone} title={title} tabIndex={title ? 0 : undefined} aria-label={title ? `${label}: ${value ?? 'unavailable'}. ${title}` : undefined}>{content}</span>
 }

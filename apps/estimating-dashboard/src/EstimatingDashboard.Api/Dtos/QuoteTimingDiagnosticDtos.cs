@@ -3,7 +3,11 @@ namespace EstimatingDashboard.Api.Dtos;
 internal sealed record QuoteTimingDiagnosticDto(int QuoteHistoryId, int QuoteNumber,
     QuoteTimingStoredDto Stored, QuoteTimingMappingsDto Mappings,
     IReadOnlyList<QuoteTimingSyncDto> RecentSyncs,
-    QuoteTimingReadDto List, QuoteTimingReadDto Detail);
+    QuoteTimingReadDto List, QuoteTimingReadDto Detail, QuoteTimingDefinitionsDto Definitions);
+
+internal sealed record QuoteTimingDefinitionDto(string Name, string Label);
+internal sealed record QuoteTimingDefinitionsDto(string Status, int? UpstreamStatusCode,
+    DateTimeOffset? RetryAt, IReadOnlyList<QuoteTimingDefinitionDto> Fields, bool Truncated);
 
 internal sealed record QuoteTimingDatesDto(DateTime? DateToEstimating,
     DateTime? EstimatingCompletionDate, DateTime? RfqDueDate);

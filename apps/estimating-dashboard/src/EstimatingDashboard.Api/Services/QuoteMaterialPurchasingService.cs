@@ -110,7 +110,8 @@ internal sealed class QuoteMaterialPurchasingService(EstimatingAccessDbContext d
         EstimatingAccessProfile access, CancellationToken ct)
     {
         var links = Drafts(state);
-        if (state is not null && links.Any(link => link.Kind == "material" && link.IsCurrent && !result.Materials.Any(material =>
+        if (result.PlanningSource == PurchasingPlanningSources.Fulcrum && state is not null
+            && links.Any(link => link.Kind == "material" && link.IsCurrent && !result.Materials.Any(material =>
                 material.ItemId == link.ItemId && Fingerprint(material) == link.Fingerprint)))
         {
             links = links.Select(link => link.Kind == "material" && link.IsCurrent && !result.Materials.Any(material =>

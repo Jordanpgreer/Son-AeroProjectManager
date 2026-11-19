@@ -8,7 +8,7 @@ using SonAero.Platform.Security;
 
 namespace EstimatingDashboard.Api.Services;
 
-public sealed class EstimatingQuoteWorkflowService(
+public sealed partial class EstimatingQuoteWorkflowService(
     EstimatingAccessDbContext db,
     TimeProvider timeProvider)
 {
@@ -66,17 +66,25 @@ public sealed class EstimatingQuoteWorkflowService(
         EstimatingAccessProfile access,
         CancellationToken cancellationToken)
     {
-        var records = await db.QuoteHistory.AsNoTracking().Select(record => new
-        {
+        var records = await db.QuoteHistory.AsNoTracking().Select(record => new WorkflowStatsRecord(
             record.Id, record.EstimatingRep, record.IsCompleted, record.QuoteStatus, record.TotalValue,
-            record.DateToEstimating, record.EstimatingCompletionDate, record.Workdays
-        }).ToListAsync(cancellationToken);
+            record.DateToEstimating, record.EstimatingCompletionDate, record.Workdays)).ToListAsync(cancellationToken);
         var knownEstimators = records.Select(record => record.EstimatingRep).Distinct().ToList();
         var mine = records.Where(record => EstimatingEstimatorIdentity.MatchesUnambiguously(
             record.EstimatingRep,
             knownEstimators,
             access)).ToList();
-        var completed = mine.Where(record => record.IsCompleted).ToList();
+        return await StatsForRecordsAsync(mine, cancellationToken);
+    }
+
+    private sealed record WorkflowStatsRecord(int Id, string EstimatingRep, bool IsCompleted,
+        string QuoteStatus, decimal TotalValue, DateTime? DateToEstimating, DateTime? EstimatingCompletionDate,
+        int? Workdays);
+
+    private async Task<EstimatingQuoteWorkflowStatsDto> StatsForRecordsAsync(
+        IReadOnlyList<WorkflowStatsRecord> records, CancellationToken cancellationToken)
+    {
+        var completed = records.Where(record => record.IsCompleted).ToList();
         var missingTiming = completed
             .Where(record => !record.DateToEstimating.HasValue || !record.EstimatingCompletionDate.HasValue)
             .Select(record => record.Id)
@@ -98,7 +106,7 @@ public sealed class EstimatingQuoteWorkflowService(
             .Where(days => days.HasValue)
             .Select(days => (decimal)days!.Value)
             .ToList();
-        var outcomes = mine.ToLookup(record => FulcrumQuoteStatuses.Normalize(record.QuoteStatus), StringComparer.Ordinal);
+        var outcomes = records.ToLookup(record => FulcrumQuoteStatuses.Normalize(record.QuoteStatus), StringComparer.Ordinal);
         var won = outcomes[FulcrumQuoteStatuses.Won];
         var lost = outcomes[FulcrumQuoteStatuses.Lost];
 

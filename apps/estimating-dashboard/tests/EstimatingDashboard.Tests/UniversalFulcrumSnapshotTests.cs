@@ -11,6 +11,22 @@ namespace EstimatingDashboard.Tests;
 public sealed class UniversalFulcrumSnapshotTests
 {
     [Fact]
+    public async Task Quote_date_definitions_reuse_the_shared_snapshot_for_the_same_credential_and_filters()
+    {
+        using var fixture = new Fixture();
+        var calls = 0;
+        using var client = fixture.Client(_ => { calls++; return Task.FromResult(Json("[]")); });
+        for (var i = 0; i < 2; i++)
+        {
+            using var request = Read("definition-test", "{\"module\":\"quote\",\"type\":\"date\"}");
+            request.RequestUri = new Uri("https://api.fulcrumpro.us/api/custom-fields/list?Skip=0&Take=100");
+            using var response = await client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
     public async Task Independent_process_service_graphs_coalesce_identical_concurrent_reads()
     {
         using var fixture = new Fixture();
@@ -156,6 +172,9 @@ public sealed class UniversalFulcrumSnapshotTests
     [InlineData("https://api.fulcrumpro.us/api/quotes/a/part-line-items/b/routing/c/input-items", "POST", false)]
     [InlineData("https://api.fulcrumpro.us/api/quotes/a", "PUT", false)]
     [InlineData("https://api.fulcrumpro.us/api/quotes/create", "POST", false)]
+    [InlineData("https://api.fulcrumpro.us/api/custom-fields/list", "POST", true)]
+    [InlineData("https://api.fulcrumpro.us/api/custom-fields/list", "PUT", false)]
+    [InlineData("https://api.fulcrumpro.us/api/custom-fields/a", "POST", false)]
     [InlineData("https://elsewhere.example/api/quotes/list", "POST", false)]
     public void Only_verified_read_endpoints_are_intercepted(string url, string method, bool expected)
     {

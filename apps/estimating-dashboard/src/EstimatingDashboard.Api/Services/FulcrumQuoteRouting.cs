@@ -5,8 +5,10 @@ using static EstimatingDashboard.Api.Services.FulcrumMaterialRequirementsPolicy;
 namespace EstimatingDashboard.Api.Services;
 
 internal sealed class FulcrumQuoteRouting(FulcrumQuoteGenerationClient client,
-    IReadOnlyDictionary<string, string[]> pathsByItem)
+    IReadOnlyDictionary<string, string[]> pathsByItem, bool hasIncompleteSummary = false)
 {
+    public bool HasIncompleteSummary { get; } = hasIncompleteSummary;
+    public bool HasRoutes => pathsByItem.Count > 0;
     private readonly Dictionary<(string ItemId, string Resource), IReadOnlyList<JsonElement>> cache = new();
 
     public static async Task<FulcrumQuoteRouting?> LoadIfAvailableAsync(FulcrumQuoteGenerationClient client,
@@ -29,17 +31,18 @@ internal sealed class FulcrumQuoteRouting(FulcrumQuoteGenerationClient client,
             throw new InvalidOperationException("Fulcrum returned an invalid quote routing summary.");
 
         var routes = new List<(string ItemId, string Path)>();
+        var incomplete = false;
         foreach (var row in summary.EnumerateArray())
         {
             var itemId = Text(row, "itemId");
             if (itemId.Length == 0 && summary.GetArrayLength() == 1) itemId = rootItemId;
             var routingId = Text(row, "routingId");
-            if (itemId.Length == 0 || routingId.Length == 0) continue;
+            if (itemId.Length == 0 || routingId.Length == 0) { incomplete = true; continue; }
             routes.Add((itemId, $"{path}/routing/{FulcrumQuoteGenerationClient.Identifier(routingId)}"));
         }
         return new(client, routes.GroupBy(row => row.ItemId, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.Select(row => row.Path).Distinct().ToArray(),
-                StringComparer.Ordinal));
+                StringComparer.Ordinal), incomplete);
     }
 
     public bool Contains(string itemId) => pathsByItem.ContainsKey(itemId);

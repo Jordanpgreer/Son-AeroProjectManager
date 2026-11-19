@@ -62,6 +62,8 @@ internal sealed class FulcrumQuoteClient(
         var pageSize = Math.Clamp(settings.PageSize, 1, 5000);
         var reports = await GetQuoteReportsAsync(pageSize, token, cancellationToken);
         var quotes = await GetQuoteDetailsAsync(pageSize, token, cancellationToken);
+        var definitions = quotes.Count == 0 ? null : await FulcrumQuoteDateDefinitionReader.ReadAsync(
+            httpClient, baseUri, token, fresh: false, cancellationToken);
         var skippedReports = reports.Count(report => string.IsNullOrWhiteSpace(report.Id));
         var reportsById = reports
             .Where(report => !string.IsNullOrWhiteSpace(report.Id))
@@ -78,7 +80,7 @@ internal sealed class FulcrumQuoteClient(
         {
             reportsById.TryGetValue(quote.Id, out var report);
             if (report is null) missingReports++;
-            return new FulcrumQuoteSnapshot(quote, report);
+            return new FulcrumQuoteSnapshot(quote, report, definitions);
         }).ToList();
         if (missingReports > 0)
             logger.LogWarning(
@@ -157,7 +159,8 @@ internal sealed class FulcrumQuoteClient(
 
 internal sealed record FulcrumQuoteSnapshot(
     FulcrumQuoteDto Quote,
-    FulcrumQuoteReportDto? Report);
+    FulcrumQuoteReportDto? Report,
+    FulcrumQuoteDateDefinitions? DateDefinitions = null);
 
 internal sealed record FulcrumQuoteDto(
     string Id,

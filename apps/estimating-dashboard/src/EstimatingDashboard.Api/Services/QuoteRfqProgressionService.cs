@@ -31,6 +31,8 @@ internal sealed class QuoteRfqProgressionService(EstimatingAccessDbContext db,
                 selection => (IReadOnlyList<decimal>)new[] { selection.Minimum, selection.Maximum ?? selection.Minimum }
                     .Distinct().ToArray());
             var materialReview = await materials.InspectAsync(quote.Id, quote.QuoteNumber, quote.SourceId, ct, overrides);
+            // Fulcrum cannot prove completion for work whose planning remains in Industrios or is unknown.
+            if (materialReview.PlanningSource != PurchasingPlanningSources.Fulcrum) return;
             var opQuantities = materialReview.Parts.GroupBy(part => part.ItemId, StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => (IReadOnlyList<decimal>)group.SelectMany(part => part.Quantities)
                     .Distinct().Order().ToArray(), StringComparer.Ordinal);

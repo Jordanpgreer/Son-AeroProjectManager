@@ -81,11 +81,12 @@ public sealed class FulcrumQuoteSyncTests
         Assert.Equal("Acme Aerospace", snapshot.Report?.CustomerName);
         Assert.True(snapshot.Quote.CustomFields?.ContainsKey("Estimating Rep"));
         Assert.Equal("Folder path: Estimating\\Quotes\\Acme\\Q4395", snapshot.Quote.InternalNotes.GetString());
-        // Reporting + bulk quote list only; folder discovery must not add a request per quote.
-        Assert.Equal(2, handler.Requests.Count);
+        // Reporting + bulk quotes + one shared date-definition read; never a request per quote.
+        Assert.Equal(3, handler.Requests.Count);
         Assert.All(handler.Requests, request => Assert.Equal("Bearer secret-token", request.Authorization));
         Assert.All(handler.Requests, request => Assert.Equal("api.fulcrumpro.us", request.Host));
-        Assert.All(handler.Requests, request => Assert.Contains("Sort.Dir=ascending", request.Path, StringComparison.Ordinal));
+        Assert.All(handler.Requests.Where(request => !request.Path.StartsWith("/api/custom-fields/list", StringComparison.Ordinal)),
+            request => Assert.Contains("Sort.Dir=ascending", request.Path, StringComparison.Ordinal));
         Assert.Contains(handler.Requests, request => request.Path.StartsWith("/api/reporting/quote/list", StringComparison.Ordinal));
         Assert.Contains(handler.Requests, request => request.Path.StartsWith("/api/quotes/list", StringComparison.Ordinal));
     }
@@ -530,6 +531,7 @@ public sealed class FulcrumQuoteSyncTests
             var path = request.RequestUri?.AbsolutePath;
             var json = path switch
             {
+                "/api/custom-fields/list" => "[]",
                 "/api/reporting/quote/list" => """
                     {
                       "data": [{

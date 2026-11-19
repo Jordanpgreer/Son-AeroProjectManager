@@ -50,9 +50,7 @@ public sealed class FulcrumMaterialRequirementsTests
         var result = await fixture.Service.InspectAsync(7, 123, "quote", default);
         Assert.True(Assert.Single(result.Parts).NoFulcrumOperations);
         fixture.Handler.Failure = "operations";
-        result = await fixture.Service.InspectAsync(7, 123, "quote", default);
-        Assert.False(Assert.Single(result.Parts).NoFulcrumOperations);
-        Assert.Contains(result.Warnings, warning => warning.Contains("could not be verified"));
+        await Assert.ThrowsAsync<FulcrumReadFailureException>(() => fixture.Service.InspectAsync(7, 123, "quote", default));
     }
 
     [Fact]
@@ -364,7 +362,9 @@ public sealed class FulcrumMaterialRequirementsTests
             Paths.Add(path);
             Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
             if (path.EndsWith("/make-summary", StringComparison.Ordinal))
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+                return Task.FromResult(NoOperations
+                    ? new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Array.Empty<object>()) }
+                    : new HttpResponseMessage(HttpStatusCode.NotFound));
             if (Failure switch { "inventory" => path.Contains("availableByItem"), "history" => path.Contains("purchase-history"),
                 "operations" => path.Contains("routing/operations/list"),
                 "vendor" => path.EndsWith("vendors/list"), "contacts" => path.Contains("contacts"), _ => false })

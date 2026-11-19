@@ -2,7 +2,15 @@ namespace EstimatingDashboard.Api.Dtos;
 
 public sealed record MaterialRequirementsDto(int QuoteHistoryId, int QuoteNumber, DateTimeOffset CheckedAt,
     IReadOnlyList<MaterialQuotePartDto> Parts, IReadOnlyList<MaterialRequirementDto> Materials,
-    IReadOnlyList<string> Warnings, int QuantityVersion = 0);
+    IReadOnlyList<string> Warnings, int QuantityVersion = 0, string PlanningSource = PurchasingPlanningSources.Unknown);
+
+public static class PurchasingPlanningSources
+{
+    public const string Unknown = "unknown";
+    public const string Industrios = "industrios";
+    public const string Fulcrum = "fulcrum";
+    public const string Mixed = "mixed";
+}
 public sealed record MaterialQuotePartDto(string LineId, string ItemId, string PartNumber, string? Revision,
     IReadOnlyList<decimal> Quantities, bool QuantitiesOverridden = false, bool NoFulcrumOperations = false);
 public sealed record MaterialRequirementDto(string ItemId, string PartNumber, string Description, string UnitOfMeasure,

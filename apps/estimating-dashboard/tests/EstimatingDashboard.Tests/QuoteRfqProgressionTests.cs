@@ -66,6 +66,42 @@ public sealed class QuoteRfqProgressionTests
         Assert.Equal(EstimatingArdaStatuses.ReadyForReview, quote.ArdaStatus);
     }
 
+    [Theory]
+    [InlineData("material", "industrios")]
+    [InlineData("material", "mixed")]
+    [InlineData("material", "unknown")]
+    [InlineData("op", "industrios")]
+    [InlineData("op", "mixed")]
+    [InlineData("op", "unknown")]
+    public async Task Incomplete_planning_scope_does_not_auto_advance_even_when_visible_requirements_are_sent(
+        string kind, string planningSource)
+    {
+        await using var fixture = await VendorQuoteTestFixture.CreateAsync();
+        var quoteId = fixture.QuoteId();
+        var quote = await fixture.Db.QuoteHistory.SingleAsync(row => row.Id == quoteId);
+        var material = MaterialRfqDraftTests.Material;
+        var operation = Operation();
+        var reader = new Reader(material, operation);
+        if (kind == "material") reader.MaterialSource = planningSource;
+        else reader.OpSource = planningSource;
+        var state = new MaterialPurchasingState { QuoteHistoryId = quote.Id, QuantitiesJson = "[]",
+            DraftsJson = JsonSerializer.Serialize(new[] {
+                Link(material.ItemId, QuoteMaterialPurchasingService.Fingerprint(material), "material"),
+                Link(operation.OperationKey, QuoteOutsideProcessingService.Fingerprint(operation), "op") }) };
+        fixture.Db.Add(state);
+        await fixture.Db.SaveChangesAsync();
+        var version = quote.Version;
+        var auditCount = await fixture.Db.QuoteHistoryAudits.CountAsync();
+        await new QuoteRfqProgressionService(fixture.Db, reader, reader, new FrozenClock())
+            .TryAdvanceAsync(quote, VendorQuoteTestFixture.Editor, default);
+
+        Assert.Null(quote.ArdaStatus);
+        Assert.Equal(version, quote.Version);
+        Assert.False(fixture.Db.ChangeTracker.HasChanges());
+        Assert.Equal(auditCount, await fixture.Db.QuoteHistoryAudits.CountAsync());
+        Assert.Equal(kind == "material" ? 0 : 1, reader.OpCalls);
+    }
+
     private static MaterialDraftLink Link(string id, string fingerprint, string kind) =>
         new(id, 1, fingerprint, Guid.NewGuid().ToString("N"), VendorQuoteTestFixture.Now,
             "PART", "Quote 4445 - PART", "Please quote", ["vendor@example.test"],
@@ -80,14 +116,20 @@ public sealed class QuoteRfqProgressionTests
         : IFulcrumMaterialRequirementsReader, IFulcrumOutsideProcessingReader
     {
         public MaterialRequirementDto Material { get; set; } = material;
+        public string MaterialSource { get; set; } = PurchasingPlanningSources.Fulcrum;
+        public string OpSource { get; set; } = PurchasingPlanningSources.Fulcrum;
+        public int OpCalls { get; private set; }
         public Task<MaterialRequirementsDto> InspectAsync(int id, int quoteNumber, string sourceId,
             CancellationToken ct, IReadOnlyDictionary<string, IReadOnlyList<decimal>>? quantityOverrides = null) =>
             Task.FromResult(new MaterialRequirementsDto(id, quoteNumber, VendorQuoteTestFixture.Now,
-                [new("line", "top", "TOP", null, [1000])], [Material], []));
+                [new("line", "top", "TOP", null, [1000])], [Material], [], PlanningSource: MaterialSource));
         public Task<OutsideProcessingRequirementsDto> InspectAsync(int id, int quoteNumber, string sourceId,
-            IReadOnlyDictionary<string, IReadOnlyList<decimal>> quantities, CancellationToken ct) =>
-            Task.FromResult(new OutsideProcessingRequirementsDto(id, quoteNumber, VendorQuoteTestFixture.Now,
-                operation is null ? [] : [operation], []));
+            IReadOnlyDictionary<string, IReadOnlyList<decimal>> quantities, CancellationToken ct)
+        {
+            OpCalls++;
+            return Task.FromResult(new OutsideProcessingRequirementsDto(id, quoteNumber, VendorQuoteTestFixture.Now,
+                operation is null ? [] : [operation], [], OpSource));
+        }
     }
 
     private sealed class FrozenClock : TimeProvider

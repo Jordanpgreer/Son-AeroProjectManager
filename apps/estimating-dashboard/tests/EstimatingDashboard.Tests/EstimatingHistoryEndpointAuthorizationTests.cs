@@ -115,7 +115,7 @@ public sealed class EstimatingHistoryEndpointAuthorizationTests
             .Where(endpoint => endpoint.RoutePattern.RawText?.StartsWith("/api/quote-workflow") == true)
             .ToList();
 
-        Assert.Equal(4, endpoints.Count);
+        Assert.Equal(5, endpoints.Count);
         Assert.All(endpoints, endpoint => Assert.Contains(
             endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
             authorization => authorization.Policy == EstimatingPolicies.QuotesView));

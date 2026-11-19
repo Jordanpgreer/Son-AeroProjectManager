@@ -259,6 +259,7 @@ public sealed class FulcrumReadSnapshotHandler(FulcrumSnapshotStore store,
             ? Regex.IsMatch(path, @"^/api/(quotes/[^/]+(?:/part-line-items/[^/]+/make-summary)?|items/[^/]+(?:/purchase-history)?|vendors/[^/]+|inventory/availableByItem)$")
             : request.Method == HttpMethod.Post && (Regex.IsMatch(path,
                 @"^/api/(?:quotes|items|jobs|sales-orders|shipments|shipment-line-items|job-tracking-timers|vendors|reporting/(?:quote|shipping|sales-order-lines))(?:/[^/]+(?:/(?:routing))?/(?:part-line-items|operations|input-items|input-materials|contacts|vendors))?/list(?:/v2)?$")
+                || path == "/api/custom-fields/list"
                 || Regex.IsMatch(path, @"^/api/quotes/[^/]+/part-line-items/[^/]+/routing/[^/]+/(?:operations|input-items)/list$"));
     }
 

@@ -23,8 +23,8 @@ export function firstAccessibleEstimatingPage(permissions: readonly string[]) {
 
 export const PAGE_META: Record<EstimatingPage, { eyebrow: string; title: string; subtitle: string }> = {
   quotes: {
-    eyebrow: 'Estimating portfolio', title: 'Quotes Dashboard',
-    subtitle: 'Manage draft, current, and completed quotes from one workspace.',
+    eyebrow: 'Estimating portfolio', title: 'Quotes',
+    subtitle: '',
   },
   'quote-status': {
     eyebrow: 'Quote coordination', title: 'Quote Status',

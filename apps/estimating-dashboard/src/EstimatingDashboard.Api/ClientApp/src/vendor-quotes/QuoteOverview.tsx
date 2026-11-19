@@ -5,10 +5,11 @@ import { dateOnly, dateTime, fulcrumStatusLabel, isOverdue } from './model'
 import { setQuoteDueDate, useAutomaticQuoteDate, type QuoteDetailsDraft } from './quoteDetailsModel'
 import type { QuoteStatusDetail } from './types'
 
-export default function QuoteOverview({ detail, canEdit, draft, dirty, saving, busy, saved, error, buyCount, opCount, buyChecking, opChecking, onChange, onSave, onDiscard, onDetailChanged }: {
+export default function QuoteOverview({ detail, canEdit, draft, dirty, saving, busy, saved, error, buyCount, opCount, buyChecking, opChecking, showProductionReview, onChange, onSave, onDiscard, onDetailChanged }: {
   detail: QuoteStatusDetail; canEdit: boolean; draft: QuoteDetailsDraft
   dirty: boolean; saving: boolean; busy: boolean; saved: boolean; error: string | null
   buyCount: number | null; opCount: number | null; buyChecking: boolean; opChecking: boolean
+  showProductionReview: boolean
   onChange: (draft: QuoteDetailsDraft) => void; onSave: () => void; onDiscard: () => void; onDetailChanged: (detail: QuoteStatusDetail) => Promise<void>
 }) {
   const { quote, workflow } = detail
@@ -35,12 +36,12 @@ export default function QuoteOverview({ detail, canEdit, draft, dirty, saving, b
       </div></div>
       <div className="qs-request-fact qs-quote-status-fact"><span className="qs-fact-icon"><CircleDot size={17} /></span><div><span>Fulcrum status</span><StatusBadge status={workflow.fulcrumQuoteStatus} label={fulcrumStatusLabel(workflow.fulcrumQuoteStatus)} /></div></div>
     </div>
-    <section className="qs-production-summary" aria-label="Fulcrum production review">
+    {showProductionReview && <section className="qs-production-summary" aria-label="Fulcrum production review">
       <ProductionMetric count={buyCount} checking={buyChecking} label={buyCount === 1
         ? 'buy item needs a new vendor quote' : 'buy items need a new vendor quote'} />
       <ProductionMetric count={opCount} checking={opChecking} label={opCount === 1
         ? 'outside processing operation' : 'outside processing operations'} />
-    </section>
+    </section>}
     {error && <p className="vq-error" role="alert">{error}</p>}
     {(dirty || saving) && <div className="qs-inline-savebar"><span>{saving ? 'Saving quote details…' : 'Unsaved quote details'}</span><div><button className="vq-button" disabled={saving || busy} onClick={onDiscard}>Discard</button><button className="vq-button vq-button-primary" disabled={saving || busy} onClick={onSave}>{saving ? <LoaderCircle size={15} className="vq-spinner" /> : <Save size={15} />}{saving ? 'Saving…' : 'Save changes'}</button></div></div>}
     {saved && !dirty && !saving && <p className="qs-inline-saved" role="status"><Check size={14} />Quote details saved</p>}

@@ -81,7 +81,8 @@ internal sealed class QuoteOutsideProcessingService(EstimatingAccessDbContext db
         MaterialPurchasingState? state, EstimatingAccessProfile access, CancellationToken ct)
     {
         var links = MaterialDraftTracking.Read(state);
-        if (state is not null && links.Any(link => link.Kind == "op" && link.IsCurrent && !result.Operations.Any(op =>
+        if (result.PlanningSource == PurchasingPlanningSources.Fulcrum && state is not null
+            && links.Any(link => link.Kind == "op" && link.IsCurrent && !result.Operations.Any(op =>
                 op.OperationKey == link.ItemId && Fingerprint(op) == link.Fingerprint)))
         {
             links = links.Select(link => link.Kind == "op" && link.IsCurrent && !result.Operations.Any(op =>

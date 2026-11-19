@@ -10,7 +10,6 @@ public sealed class FulcrumOutsideProcessingTests
 {
     [Theory]
     [InlineData("[]")]
-    [InlineData("[{\"itemId\":\"top\"}]")]
     public async Task Missing_make_routing_cannot_prove_that_no_outside_processing_is_required(string summary)
     {
         using var http = new HttpClient(new Handler { Summary = summary });
@@ -71,6 +70,7 @@ public sealed class FulcrumOutsideProcessingTests
                 "/api/quotes/quote" => new { number = 123 },
                 "/api/quotes/quote/part-line-items/list" => new[] { new { id = "line", itemId = "top", quantity = 100 } },
                 "/api/items/top" => new { number = "TOP", itemOrigin = "make" },
+                "/api/items/top/routing/operations/list" => new[] { new { id = "cut", name = "Cut" } },
                 "/api/items/child" => new { number = "CHILD", itemOrigin = "make" },
                 line + "/routing/route/operations/list" => Array.Empty<object>(),
                 line + "/routing/route/input-items/list" => Nested

@@ -1,508 +1,99 @@
+import { Search, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { getQuoteStoreError, listQuotes } from './quoteStore'
+import { ARDA_STATUS_OPTIONS, type PersonalQuote } from './quoteWorkflowApi'
+import { dashboardLastPage, type DashboardQuery, type DashboardScope, type DashboardStatus } from './quoteDashboardApi'
+import { dashboardPeriod, periodDescription, type DashboardPeriod } from './quoteDashboardPeriods'
+import { useQuoteDashboard } from './useQuoteDashboard'
 import { useArdaAutoRefresh } from './useArdaAutoRefresh'
-import {
-  AlertTriangle,
-  CalendarDays,
-  ArrowUpRight,
-  CheckCircle2,
-  Clock3,
-  FileText,
-  Link2,
-  Plus,
-  RefreshCw,
-  Search,
-} from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  deleteQuote,
-  discardQuoteRevisionDraft,
-  getQuoteStoreError,
-  listQuotes,
-} from './quoteStore'
-import {
-  quoteDashboardStatus,
-  quoteDashboardVersion,
-  sortActivePersonalQuotes,
-  sortCompletedPersonalQuotes,
-  type QuoteDashboardFilter,
-  type PersonalQuoteView,
-} from './quoteDashboardModel'
-import { formatQuoteRevision } from './quoteRevision'
-import {
-  loadPersonalQuotes,
-  loadPersonalQuoteStats,
-  statusSetLabel,
-  type PersonalQuote,
-  type PersonalQuoteStats,
-} from './quoteWorkflowApi'
+import GenerateQuoteDialog from './GenerateQuoteDialog'
+import QuoteDashboardDateFilter from './QuoteDashboardDateFilter'
+import QuoteDashboardSummary from './QuoteDashboardSummary'
+import QuoteDashboardTable from './QuoteDashboardTable'
+import QuoteDashboardDetail from './QuoteDashboardDetail'
 import './quote-dashboard.css'
 import './quote-dashboard-states.css'
-import GenerateQuoteDialog from './GenerateQuoteDialog'
-import QuoteDashboardSummary from './QuoteDashboardSummary'
-import { quoteStatusUrl } from './estimatingNavigation'
-import { currency, quoteTitle, quoteValue, formatDate, formatOptionalDate, linkedSourceFromHash } from './quoteDashboardFormatting'
-import { fulcrumStatusLabel } from './vendor-quotes/model'
-export default function QuotesDashboardPage({
-  ownerAccountName,
-  canManageQuotes,
-  canDeleteQuotes,
-  canGenerateQuotes,
-}: {
-  ownerAccountName: string
-  canManageQuotes: boolean
-  canDeleteQuotes: boolean
-  canGenerateQuotes: boolean
+import './quote-dashboard-view.css'
+
+export default function QuotesDashboardPage({ ownerAccountName, canGenerateQuotes, canViewAllQuotes = false }: {
+  ownerAccountName: string; canManageQuotes: boolean; canDeleteQuotes: boolean
+  canGenerateQuotes: boolean; canViewAllQuotes?: boolean
 }) {
-  const [revision, setRevision] = useState(0)
+  const [scope, setScope] = useState<DashboardScope>(() => canViewAllQuotes ? 'all' : 'mine')
+  const [period, setPeriod] = useState<DashboardPeriod>(() => dashboardPeriod('this-month'))
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<QuoteDashboardFilter>('all')
-  const [actionError, setActionError] = useState<string | null>(null)
-  const [personalQuotes, setPersonalQuotes] = useState<PersonalQuote[]>([])
-  const [personalStats, setPersonalStats] = useState<PersonalQuoteStats | null>(null)
-  const [personalLoading, setPersonalLoading] = useState(true)
-  const [personalError, setPersonalError] = useState<string | null>(null)
-  const [personalView, setPersonalView] = useState<PersonalQuoteView>('active')
+  const [status, setStatus] = useState<DashboardStatus>('all')
+  const [page, setPage] = useState(1)
+  const [selection, setSelection] = useState<{ id: number; key: string } | null>(null)
   const [generatingQuote, setGeneratingQuote] = useState<PersonalQuote | null>(null)
-  const [sourceFilter, setSourceFilter] = useState<number | null>(linkedSourceFromHash)
-  const personalQuotesHeading = useRef<HTMLHeadingElement>(null)
-  const personalRequestVersion = useRef(0)
-  const localDraftsHeading = useRef<HTMLHeadingElement>(null)
-  const quotes = useMemo(
-    () => listQuotes(ownerAccountName),
-    [ownerAccountName, revision],
-  )
+  const [localRevision, setLocalRevision] = useState(0)
+  const rowTrigger = useRef<HTMLElement | null>(null)
+  const searchInput = useRef<HTMLInputElement>(null)
+  const effectiveScope = canViewAllQuotes ? scope : 'mine'
+  const query = useMemo<DashboardQuery>(() => ({
+    scope: effectiveScope, from: period.from, to: period.to, search, status, page, pageSize: 25,
+  }), [effectiveScope, period.from, period.to, search, status, page])
+  const dashboard = useQuoteDashboard(ownerAccountName, query)
+  const selectedQuote = selection?.key === dashboard.key ? dashboard.data?.records.find(quote => quote.id === selection.id) : undefined
+  const localQuotes = useMemo(() => listQuotes(ownerAccountName), [ownerAccountName, localRevision])
   const storageError = getQuoteStoreError()
-  const showPersonalActions = canGenerateQuotes || quotes.some((quote) => quote.sourceQuote
-    && personalQuotes.some((personal) => personal.id === quote.sourceQuote!.quoteHistoryId))
-  const filteredQuotes = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase()
-    return quotes.filter((quote) => {
-      const version = quoteDashboardVersion(quote, filter)
-      if (sourceFilter !== null && quote.sourceQuote?.quoteHistoryId !== sourceFilter) return false
-      if (!version) return false
-      if (filter === 'draft' && !quote.draft) return false
-      if (filter !== 'all' && filter !== 'draft' && quote.status !== filter) return false
-      if (!query) return true
-      return [
-        version.estimate.metadata.quoteLogNumber,
-        version.estimate.metadata.customer,
-        version.estimate.metadata.partNumber,
-        version.estimate.metadata.rfqNumber,
-        version.estimate.metadata.estimator,
-      ].some((value) => value.toLocaleLowerCase().includes(query))
-    })
-  }, [filter, quotes, search, sourceFilter])
-  const showLinkedEstimates = (quoteId: number) => {
-    setSourceFilter(quoteId)
-    setSearch('')
-    setFilter('all')
-    window.history.replaceState(null, '', `#/quotes?source=${quoteId}`)
-    requestAnimationFrame(() => {
-      localDraftsHeading.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      localDraftsHeading.current?.focus({ preventScroll: true })
-    })
+  useArdaAutoRefresh(dashboard.refresh, !dashboard.loading && !generatingQuote)
+  useEffect(() => {
+    if (!dashboard.data || dashboard.loading) return
+    const lastPage = dashboardLastPage(dashboard.data.total, dashboard.data.pageSize)
+    if (page > lastPage) { setSelection(null); setPage(lastPage) }
+  }, [dashboard.data, dashboard.loading, page])
+  function closeDetails() {
+    setSelection(null)
+    if (rowTrigger.current?.isConnected) rowTrigger.current.focus()
+    else searchInput.current?.focus()
   }
   useEffect(() => {
-    const syncSource = () => {
-      setSourceFilter(linkedSourceFromHash())
-      setFilter('all')
-      setSearch('')
+    if (!selectedQuote || generatingQuote) return
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); closeDetails() }
     }
-    window.addEventListener('hashchange', syncSource)
-    return () => window.removeEventListener('hashchange', syncSource)
-  }, [])
-  useEffect(() => {
-    if (sourceFilter !== null) localDraftsHeading.current?.scrollIntoView({ block: 'start' })
-  }, [sourceFilter])
-  const activePersonalQuotes = useMemo(() => sortActivePersonalQuotes(personalQuotes), [personalQuotes])
-  const completedPersonalQuotes = useMemo(() => sortCompletedPersonalQuotes(personalQuotes), [personalQuotes])
-  const overduePersonalQuotes = useMemo(
-    () => activePersonalQuotes.filter((quote) => quote.isOverdue),
-    [activePersonalQuotes],
-  )
-  const visiblePersonalQuotes = personalView === 'completed'
-    ? completedPersonalQuotes
-    : personalView === 'overdue'
-      ? overduePersonalQuotes
-      : activePersonalQuotes
-  const missingCompletionCount = personalStats && !personalLoading
-    ? Math.max(0, personalStats.completedCount - personalStats.completionSampleSize)
-    : 0
-  const averageCompletion = !personalLoading && personalStats
-    && personalStats.completedCount === completedPersonalQuotes.length
-    && personalStats.completionSampleSize === personalStats.completedCount
-    ? personalStats.averageCompletionWorkdays
-    : null
-  const incompleteCompletionNotice = missingCompletionCount === 1
-    ? '1 completed quote is missing verified estimating timing.'
-    : `${missingCompletionCount.toLocaleString()} completed quotes are missing verified estimating timing.`
-  const averageUnavailable = personalLoading ? 'Loading average completion'
-    : missingCompletionCount > 0 ? `${incompleteCompletionNotice} The all-quote average is unavailable.`
-      : 'Average completion unavailable'
-
-  const refreshPersonalQuotes = useCallback(async (quiet = false) => {
-    const version = ++personalRequestVersion.current
-    if (!quiet) setPersonalLoading(true)
-    try {
-      const [quotes, stats] = await Promise.all([loadPersonalQuotes(), loadPersonalQuoteStats()])
-      if (version !== personalRequestVersion.current) return
-      setPersonalQuotes(quotes)
-      setPersonalStats(stats)
-      setPersonalError(null)
-    } catch (error) {
-      if (!quiet && version === personalRequestVersion.current) setPersonalError(error instanceof Error ? error.message : 'Your assigned quotes could not be loaded.')
-    } finally { if (!quiet && version === personalRequestVersion.current) setPersonalLoading(false) }
-  }, [])
-
-  useEffect(() => {
-    void refreshPersonalQuotes()
-    return () => { personalRequestVersion.current++ }
-  }, [ownerAccountName, refreshPersonalQuotes])
-  useArdaAutoRefresh(() => refreshPersonalQuotes(true), !personalLoading)
-
-  const showPersonalView = (view: PersonalQuoteView) => {
-    setPersonalView(view)
-    requestAnimationFrame(() => {
-      personalQuotesHeading.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      personalQuotesHeading.current?.focus({ preventScroll: true })
-    })
-  }
-  return (
-    <div className="quote-dashboard-page">
-      {(storageError || actionError) && (
-        <p className="quote-storage-error" role="alert">{storageError ?? actionError}</p>
-      )}
-
-      <QuoteDashboardSummary
-        activeCount={activePersonalQuotes.length}
-        overdueCount={overduePersonalQuotes.length}
-        completedCount={completedPersonalQuotes.length}
-        average={averageCompletion}
-        averageUnavailable={averageUnavailable}
-        stats={personalStats}
-        loading={personalLoading}
-        selected={personalView}
-        onSelect={showPersonalView}
-      />
-
-      <section id="my-assigned-quotes" className="quote-list-card personal-quote-card" aria-labelledby="personal-quotes-heading">
-        <div className="quote-list-toolbar">
-          <div>
-            <span className="section-kicker">Assigned in Fulcrum</span>
-            <h2 id="personal-quotes-heading" ref={personalQuotesHeading} tabIndex={-1}>
-              {personalView === 'completed' ? 'My completed quotes' : personalView === 'overdue' ? 'My overdue quotes' : 'My active quotes'}
-            </h2>
-            <p className="quote-section-description">
-              {personalView === 'completed'
-                ? missingCompletionCount > 0
-                  ? averageUnavailable
-                  : 'Completed work is shown with its Fulcrum outcome.'
-                : 'Active work is ordered by estimating due date. Open a quote to manage its Arda workflow.'}
-            </p>
-          </div>
-
-        </div>
-
-        <div className="personal-quote-view-tabs" role="group" aria-label="Choose assigned quote view">
-          <button type="button" className={personalView === 'active' ? 'active' : undefined} aria-pressed={personalView === 'active'} onClick={() => setPersonalView('active')}>
-            Active <span>{activePersonalQuotes.length}</span>
-          </button>
-          <button type="button" className={personalView === 'overdue' ? 'active' : undefined} aria-pressed={personalView === 'overdue'} onClick={() => setPersonalView('overdue')}>
-            Overdue <span>{overduePersonalQuotes.length}</span>
-          </button>
-          <button type="button" className={personalView === 'completed' ? 'active' : undefined} aria-pressed={personalView === 'completed'} onClick={() => setPersonalView('completed')}>
-            Completed <span>{completedPersonalQuotes.length}</span>
-          </button>
-        </div>
-
-        {personalError && <p className="personal-quote-error" role="alert">{personalError}</p>}
-
-        {personalLoading ? (
-          <div className="quote-empty-state compact">
-            <RefreshCw className="is-spinning" size={26} aria-hidden="true" />
-            <strong>Loading your quotes…</strong>
-          </div>
-        ) : visiblePersonalQuotes.length === 0 ? (
-          <div className="quote-empty-state compact">
-            {personalView === 'completed' ? <CheckCircle2 size={28} aria-hidden="true" /> : <FileText size={28} aria-hidden="true" />}
-            <strong>{personalView === 'completed' ? 'No completed quotes found for you' : personalView === 'overdue' ? 'You have no overdue quotes' : 'No active quotes are assigned to you'}</strong>
-            <span>{personalView === 'overdue' ? 'Your active queue is currently on schedule.' : 'Assignments appear here after the next Fulcrum sync.'}</span>
-          </div>
-        ) : (
-          <div className="table-scroll">
-            <table className="quote-table personal-quote-table">
-              <thead>
-                <tr>
-                  <th scope="col">Quote</th>
-                  <th scope="col">Customer</th>
-                  {personalView === 'completed' ? <>
-                    <th scope="col">Fulcrum status</th>
-                    <th scope="col">Completed</th>
-                  </> : <>
-                    <th scope="col">Arda status</th>
-                    <th scope="col">Estimating due</th>
-                    <th scope="col">Status set</th>
-                  </>}
-                  {personalView !== 'completed' && showPersonalActions && <th scope="col"><span className="sr-only">Linked estimates</span></th>}
-                </tr>
-              </thead>
-              <tbody>
-                {visiblePersonalQuotes.map((quote) => {
-                  const linkedQuotes = quotes.filter((local) => local.sourceQuote?.quoteHistoryId === quote.id)
-                  return (
-                    <tr
-                      key={`quote-${quote.id}`}
-                      id={`active-quote-${quote.id}`}
-                      className={`personal-quote-row is-actionable${quote.isOverdue ? ' is-overdue' : ''}`}
-                      tabIndex={0}
-                      aria-label={`Open status for quote ${quote.quoteNumber}`}
-                      onClick={(event) => {
-                        if ((event.target as HTMLElement).closest('a, button, input, select, textarea')) return
-                        window.location.hash = quoteStatusUrl(quote.quoteNumber)
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return
-                        event.preventDefault()
-                        window.location.hash = quoteStatusUrl(quote.quoteNumber)
-                      }}
-                    >
-                      <th scope="row">
-                        <span className="personal-quote-heading">
-                          <span>
-                            <a className="personal-quote-number personal-quote-link" href={quoteStatusUrl(quote.quoteNumber)} aria-label={`Open quote ${quote.quoteNumber} status`}>#{quote.quoteNumber}{quote.hasFulcrumWarnings && <span className="quote-production-warning" title="Production review needed"><AlertTriangle size={14} aria-label="Production review needed" /></span>}</a>
-                            <small>{currency(quote.totalValue)}</small>
-                          </span>
-                          <ArrowUpRight className="personal-quote-open-icon" size={16} aria-hidden="true" />
-                        </span>
-                      </th>
-                      <td>{quote.customer}</td>
-                      {personalView === 'completed' ? <>
-                        <td>
-                          <span className="quote-status fulcrum-status">{fulcrumStatusLabel(quote.fulcrumQuoteStatus || 'Completed')}</span>
-                        </td>
-                        <td>
-                          <span className="quote-due-date"><CheckCircle2 size={13} aria-hidden="true" />{formatOptionalDate(quote.estimatingCompletionDate)}</span>
-                        </td>
-                      </> : <>
-                        <td>
-                        <span className={`quote-status arda-status${quote.ardaStatus ? '' : ' unset'}`}>
-                          {quote.ardaStatus ?? 'Untouched'}
-                        </span>
-                        {quote.ardaStatusNotes && (
-                          <small className="quote-cell-detail quote-note-preview" title={quote.ardaStatusNotes}>
-                            {quote.ardaStatusNotes}
-                          </small>
-                        )}
-                        </td>
-                        <td>
-                          <span className={`quote-due-date${quote.isOverdue ? ' is-overdue' : ''}`}>
-                          <CalendarDays size={13} aria-hidden="true" />
-                          {formatOptionalDate(quote.estimatingDueDate)}
-                          {quote.isOverdue && <small>Overdue</small>}
-                          </span>
-                        </td>
-                        <td>
-                          <span className="quote-status-age">
-                          <Clock3 size={13} aria-hidden="true" />
-                          {statusSetLabel(quote.ardaStatusChangedAt)}
-                          </span>
-                          {quote.ardaStatusChangedBy && (
-                          <small className="quote-cell-detail">by {quote.ardaStatusChangedBy}</small>
-                          )}
-                        </td>
-                      </>}
-                      {personalView !== 'completed' && showPersonalActions && <td>
-                        {(canGenerateQuotes || linkedQuotes.length > 0) &&
-                        <button
-                          type="button"
-                          className="quote-create-button"
-                          disabled={Boolean(storageError) && linkedQuotes.length === 0}
-                          aria-label={linkedQuotes.length ? `Open ${linkedQuotes.length} estimates for quote ${quote.quoteNumber}` : `Create quote ${quote.quoteNumber}`}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            if (linkedQuotes.length) showLinkedEstimates(quote.id)
-                            else setGeneratingQuote(quote)
-                          }}
-                        >
-                          {linkedQuotes.length ? <><Link2 size={14} aria-hidden="true" /> Open estimates ({linkedQuotes.length})</> : <><Plus size={14} aria-hidden="true" /> Create estimate</>}
-                        </button>
-                        }
-                      </td>}
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <section className="quote-list-card" aria-labelledby="quote-list-heading">
-        <div className="quote-list-toolbar">
-          <div>
-            <span className="section-kicker">Calculator workspace</span>
-            <h2 id="quote-list-heading" ref={localDraftsHeading} tabIndex={-1}>Local drafts and revisions</h2>
-          </div>
-          <label className="quote-search">
-            <Search size={15} aria-hidden="true" />
-            <input
-              type="search"
-              value={search}
-              placeholder="Search quote, customer, part, RFQ…"
-              aria-label="Search quotes"
-              onChange={(event) => setSearch(event.currentTarget.value)}
-            />
-          </label>
-        </div>
-
-        {sourceFilter !== null && <div className="quote-source-filter">
-          <Link2 size={16} aria-hidden="true" />
-          <span>Estimates linked to Fulcrum quote #{personalQuotes.find((quote) => quote.id === sourceFilter)?.quoteNumber
-            ?? quotes.find((quote) => quote.sourceQuote?.quoteHistoryId === sourceFilter)?.sourceQuote?.quoteNumber ?? sourceFilter}</span>
-          <button type="button" onClick={() => {
-            setSourceFilter(null)
-            window.history.replaceState(null, '', '#/quotes')
-          }}>Show all quotes</button>
-        </div>}
-
-        <div className="quote-filter-tabs" role="group" aria-label="Filter quotes by status">
-          {(['all', 'draft', 'current', 'past'] as const).map((status) => (
-            <button
-              type="button"
-              className={filter === status ? 'active' : undefined}
-              aria-pressed={filter === status}
-              key={status}
-              onClick={() => setFilter(status)}
-            >
-              {status === 'all' ? 'All quotes' : status}
-            </button>
-          ))}
-        </div>
-
-        {filteredQuotes.length === 0 ? (
-          <div className="quote-empty-state">
-            <FileText size={30} aria-hidden="true" />
-            <strong>No {filter === 'all' ? '' : `${filter} `}quotes yet</strong>
-            <span>No local calculator records match the current filters.</span>
-          </div>
-        ) : (
-          <div className="table-scroll">
-            <table className="quote-table">
-              <thead>
-                <tr>
-                  <th scope="col">Quote</th>
-                  <th scope="col">Customer</th>
-                  <th scope="col">Part / Drawing Rev</th>
-                  <th scope="col">Quote Rev</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">Quantities</th>
-                  <th scope="col">Value</th>
-                  <th scope="col">Updated</th>
-                  <th scope="col">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredQuotes.map((quote) => {
-                  const displayVersion = quoteDashboardVersion(quote, filter)
-                  if (!displayVersion) return null
-                  const rowStatus = quoteDashboardStatus(quote, filter)
-                  const isDraftVersion = quote.draft?.id === displayVersion.id
-                  return (
-                    <tr key={quote.id}>
-                      <th scope="row">
-                        {quoteTitle(displayVersion)}
-                        {quote.sourceQuote ? <button type="button" className="quote-source-link" onClick={() => {
-                          window.location.hash = quoteStatusUrl(quote.sourceQuote!.quoteNumber)
-                        }}><Link2 size={12} aria-hidden="true" /> Fulcrum #{quote.sourceQuote.quoteNumber}</button>
-                          : <small className="quote-cell-detail">Ad hoc</small>}
-                      </th>
-                      <td>{displayVersion.estimate.metadata.customer || '—'}</td>
-                      <td>
-                        {displayVersion.estimate.metadata.partNumber || '—'}
-                        {displayVersion.estimate.metadata.revision
-                          ? ` / ${displayVersion.estimate.metadata.revision}`
-                          : ''}
-                      </td>
-                      <td className="quote-revision-cell">
-                        {formatQuoteRevision(displayVersion.revisionNumber)}
-                        <small>{isDraftVersion ? 'Draft' : 'Published'}</small>
-                        {!isDraftVersion && quote.draft && (
-                          <small>{formatQuoteRevision(quote.draft.revisionNumber)} draft available</small>
-                        )}
-                      </td>
-                      <td>
-                        <span className={`quote-status status-${rowStatus}`}>
-                          {rowStatus}
-                        </span>
-                      </td>
-                      <td>{displayVersion.estimate.quantities.join(', ')}</td>
-                      <td>{currency(quoteValue(displayVersion))}</td>
-                      <td>{formatDate(quote.updatedAt)}</td>
-                      <td>
-                        <div className="quote-row-actions">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              window.location.hash = `/calculator?quote=${quote.id}`
-                            }}
-                          >
-                            {quote.draft ? 'Continue draft' : 'View'}
-                          </button>
-                          {canDeleteQuotes && (
-                            <button
-                              type="button"
-                              className="danger-link"
-                              onClick={() => {
-                                const revisionWarning = quote.revisions.length > 0
-                                  ? ` This will permanently remove ${quote.revisions.length} published ${quote.revisions.length === 1 ? 'revision' : 'revisions'}${quote.draft ? ' and the current draft' : ''}.`
-                                  : ''
-                                if (!window.confirm(`Delete ${quoteTitle(displayVersion)}?${revisionWarning}`)) return
-                                setActionError(null)
-                                if (deleteQuote(quote.id, ownerAccountName)) {
-                                  setRevision((current) => current + 1)
-                                } else {
-                                  setActionError(getQuoteStoreError() ?? 'The quote could not be deleted.')
-                                }
-                              }}
-                              aria-label={`Delete ${quoteTitle(displayVersion)}`}
-                            >
-                              Delete
-                            </button>
-                          )}
-                          {canManageQuotes && quote.draft && quote.revisions.length > 0 && (
-                            <button
-                              type="button"
-                              className="danger-link"
-                              onClick={() => {
-                                if (!window.confirm(`Discard the ${formatQuoteRevision(quote.draft?.revisionNumber ?? 1)} draft? Published revs will be kept.`)) return
-                                setActionError(null)
-                                if (discardQuoteRevisionDraft(quote.id, ownerAccountName)) {
-                                  setRevision((current) => current + 1)
-                                } else {
-                                  setActionError(getQuoteStoreError() ?? 'The rev draft could not be discarded.')
-                                }
-                              }}
-                            >
-                              Discard draft
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-      {generatingQuote && <GenerateQuoteDialog
-        quote={generatingQuote}
-        ownerAccountName={ownerAccountName}
-        onClose={() => {
-          setGeneratingQuote(null)
-          setRevision((current) => current + 1)
-        }}
-      />}
+    window.addEventListener('keydown', escape)
+    return () => window.removeEventListener('keydown', escape)
+  }, [selectedQuote, generatingQuote])
+  function changeStatus(next: DashboardStatus) { setSelection(null); setStatus(next); setPage(1) }
+  const firstRecord = dashboard.data?.total ? (dashboard.data.page - 1) * dashboard.data.pageSize + 1 : 0
+  const lastRecord = dashboard.data ? firstRecord + dashboard.data.records.length - (firstRecord ? 1 : 0) : 0
+  return <div className="quote-dashboard-page qd-dashboard">
+    <div className="qd-heading">
+      <div className="qd-scope" role="group" aria-label="Quote scope">
+        <button type="button" aria-pressed={effectiveScope === 'mine'} onClick={() => { setSelection(null); setScope('mine'); setPage(1) }}>My quotes</button>
+        {canViewAllQuotes && <button type="button" aria-pressed={effectiveScope === 'all'} onClick={() => { setSelection(null); setScope('all'); setPage(1) }}>All quotes</button>}
+      </div>
     </div>
-  )
+    <div className="qd-filters">
+      <div className="qd-search-wrap"><label className="qd-search">
+        <Search size={20} aria-hidden="true" /><input ref={searchInput} type="search" aria-label="Search part number, quote number, or customer" placeholder="Search part number, quote number, or customer…"
+          value={search} maxLength={200} onChange={event => { setSelection(null); setSearch(event.target.value); setPage(1) }} />
+        {search && <button type="button" aria-label="Clear quote search" onClick={() => { setSelection(null); setSearch(''); setPage(1); searchInput.current?.focus() }}><X size={15} /></button>}
+      </label><small>Filters as you type</small></div>
+      <QuoteDashboardDateFilter value={period} onChange={next => { setSelection(null); setPeriod(next); setPage(1) }} />
+    </div>
+    <QuoteDashboardSummary scope={effectiveScope} period={periodDescription(period)} stats={dashboard.stats} selected={status} onSelect={changeStatus} />
+    <div className="qd-result-tools">
+      <p role="status" aria-live="polite">{dashboard.data
+        ? <>{firstRecord > 0 ? `${firstRecord.toLocaleString()}–${lastRecord.toLocaleString()}` : '0'} of {dashboard.data.total.toLocaleString()} quotes</>
+        : dashboard.loading ? 'Loading quotes…' : 'Quotes unavailable'} <span>· {effectiveScope === 'all' ? 'All estimators' : 'Assigned to me'}</span>{dashboard.loading && dashboard.data && <small>Updating…</small>}</p>
+      <label><span className="sr-only">Quote status</span><select aria-label="Quote status" value={status} onChange={event => changeStatus(event.target.value as DashboardStatus)}>
+        <option value="all">Any status</option><optgroup label="Quote groups"><option value="active">Active quotes</option><option value="overdue">Overdue quotes</option><option value="completed">Completed quotes</option></optgroup>
+        <optgroup label="Arda status">{ARDA_STATUS_OPTIONS.map(value => <option key={value} value={value}>{value}</option>)}</optgroup>
+      </select></label>
+    </div>
+    {dashboard.error && <p className="qd-error" role="alert">{dashboard.error}{dashboard.data && ' Showing the previous results for this view.'}</p>}
+    <div className={`qd-workspace${selectedQuote ? ' has-detail' : ''}`}>
+      <QuoteDashboardTable data={dashboard.data} loading={dashboard.loading} unavailable={!!dashboard.error} selectedId={selectedQuote?.id ?? null}
+        onSelect={(quote, trigger) => { rowTrigger.current = trigger; setSelection({ id: quote.id, key: dashboard.key }) }}
+        onPage={next => { setSelection(null); setPage(next) }} />
+      {selectedQuote && <QuoteDashboardDetail quote={selectedQuote} linkedQuotes={localQuotes.filter(local => local.sourceQuote?.quoteHistoryId === selectedQuote.id)}
+        canGenerate={canGenerateQuotes} storageError={!!storageError} onClose={closeDetails} onGenerate={() => setGeneratingQuote(selectedQuote)} />}
+    </div>
+    {storageError && <p className="quote-storage-error" role="alert">{storageError}</p>}
+    {generatingQuote && <GenerateQuoteDialog quote={generatingQuote} ownerAccountName={ownerAccountName}
+      onClose={() => { setGeneratingQuote(null); setLocalRevision(current => current + 1) }} />}
+  </div>
 }

@@ -243,6 +243,8 @@ internal static class FulcrumQuoteMapper
     {
         var rows = new List<EstimatingHistoryImportRow>(snapshots.Count);
         var warnings = new List<string>();
+        if (snapshots.Any(snapshot => snapshot.DateDefinitions is { Status: not "Succeeded" }))
+            warnings.Add("Fulcrum date-field definitions were unavailable or incomplete. Direct field mapping was retained; no alternate date keys were inferred.");
         var rowNumber = 1;
         foreach (var snapshot in snapshots.OrderBy(candidate => candidate.Quote.Number))
         {
@@ -265,16 +267,19 @@ internal static class FulcrumQuoteMapper
                 rfqReference = ExternalReference(quote, options.CustomFields.RfqReferenceNumber);
             var rfqDueDate = DateField(
                 quote,
+                snapshot.DateDefinitions,
                 current?.RfqDueDate,
                 warnings,
                 options.CustomFields.RfqDueDate);
             var dateToEstimating = DateField(
                 quote,
+                snapshot.DateDefinitions,
                 current?.DateToEstimating,
                 warnings,
                 options.CustomFields.DateToEstimating);
             var completionDate = DateField(
                 quote,
+                snapshot.DateDefinitions,
                 current?.EstimatingCompletionDate,
                 warnings,
                 options.CustomFields.EstimatingCompletionDate,
@@ -337,11 +342,14 @@ internal static class FulcrumQuoteMapper
 
     private static DateTime? DateField(
         FulcrumQuoteDto quote,
+        FulcrumQuoteDateDefinitions? definitions,
         DateTime? fallback,
         ICollection<string> warnings,
         params string[] names)
     {
-        var field = names.Select(name => FindCustomField(quote, name)).FirstOrDefault(candidate => candidate.Found);
+        var field = FulcrumQuoteDateFields.Find(quote, definitions, names);
+        if (field.Ambiguous)
+            warnings.Add($"Quote {quote.Number} has ambiguous date-field definitions. The previous date was retained.");
         if (!field.Found) return fallback;
         var text = ScalarText(field.Value);
         if (string.IsNullOrWhiteSpace(text)) return null;

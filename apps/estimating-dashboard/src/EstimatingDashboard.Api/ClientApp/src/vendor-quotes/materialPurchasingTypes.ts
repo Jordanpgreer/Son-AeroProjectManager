@@ -1,3 +1,5 @@
+import type { PlanningSource } from './purchasingReviewModel'
+
 export type MaterialStatus = 'stock-covered' | 'recent-po' | 'needs-rfq' | 'review-required'
 
 export interface MaterialRequirementSource {
@@ -39,6 +41,7 @@ export interface MaterialRequirements {
   parts: MaterialQuotePart[]
   materials: MaterialRequirement[]
   warnings: string[]
+  planningSource?: PlanningSource
 }
 
 export interface MaterialQuotePart {

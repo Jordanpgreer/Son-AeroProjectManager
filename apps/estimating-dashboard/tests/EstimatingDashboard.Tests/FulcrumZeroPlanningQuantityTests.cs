@@ -118,6 +118,7 @@ public sealed class FulcrumZeroPlanningQuantityTests
                 },
                 quote + "/part-line-items/list" => new[] { new { id = "line", itemId = "top", quantity = 15 } },
                 alternate + "/make-summary" => new[] { new { itemId = "top", routingId = "alternate-top" } },
+                alternate + "/routing/alternate-top/operations/list" => Array.Empty<object>(),
                 alternate + "/routing/alternate-top/input-items/list" => new[] { Input("alternate-input", "active-material", 2) },
                 line + "/make-summary" when SameAlternativeDemand.HasValue => new[] { new { itemId = "top", routingId = "top" } },
                 line + "/make-summary" => new[] { "top", "zero-sub", "active-sub", "unknown-sub" }

@@ -26,6 +26,10 @@ internal sealed class QuoteTimingDiagnosticService(EstimatingAccessDbContext db,
                 stored.Workdays, stored.IsCompleted, stored.UpdatedAt),
             new(QuoteTimingDiagnosticProjection.BoundedName(mapping.DateToEstimating),
                 QuoteTimingDiagnosticProjection.BoundedName(mapping.EstimatingCompletionDate),
-                QuoteTimingDiagnosticProjection.BoundedName(mapping.RfqDueDate)), recent, reads.List, reads.Detail);
+                QuoteTimingDiagnosticProjection.BoundedName(mapping.RfqDueDate)), recent, reads.List, reads.Detail,
+            new(reads.Definitions.Status, reads.Definitions.UpstreamStatusCode, reads.Definitions.RetryAt,
+                reads.Definitions.Fields.Take(48).Select(field => new QuoteTimingDefinitionDto(
+                    QuoteTimingDiagnosticProjection.BoundedName(field.Name), QuoteTimingDiagnosticProjection.BoundedName(field.Label))).ToArray(),
+                reads.Definitions.Status == "Truncated" || reads.Definitions.Fields.Count > 48));
     }
 }

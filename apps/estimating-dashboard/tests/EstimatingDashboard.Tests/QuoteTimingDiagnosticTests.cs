@@ -37,9 +37,9 @@ public sealed class QuoteTimingDiagnosticTests
     };
 
     [Fact]
-    public async Task Exactly_two_filtered_fresh_reads_use_existing_credentials_and_actual_mapper_without_raw_values()
+    public async Task Two_quote_reads_and_one_definition_read_use_fresh_shared_credentials_without_raw_values()
     {
-        using var handler = new Handler((request, _) => Task.FromResult(Json(request.Method == HttpMethod.Post
+        using var handler = new Handler((request, _) => Task.FromResult(Json(request.RequestUri!.AbsolutePath == "/api/custom-fields/list" ? "[]" : request.Method == HttpMethod.Post
             ? "[" + Quote(Dates()) + "]" : Quote(Dates()))));
         using var http = new HttpClient(handler);
         var reader = new CredentialReader();
@@ -47,13 +47,16 @@ public sealed class QuoteTimingDiagnosticTests
         var result = await client.ReadAsync(Stored(), default);
 
         Assert.Equal(1, reader.Calls);
-        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal(3, handler.Requests.Count);
+        Assert.Equal("Succeeded", result.Definitions.Status);
         Assert.Equal(HttpMethod.Post, handler.Requests[0].Method);
-        Assert.Equal("/api/quotes/list", handler.Requests[0].Uri.AbsolutePath);
-        Assert.Contains("Take=2", handler.Requests[0].Uri.Query);
-        Assert.Equal("{\"numbers\":[4705]}", handler.Requests[0].Body);
-        Assert.Equal(HttpMethod.Get, handler.Requests[1].Method);
-        Assert.Equal("/api/quotes/" + SourceId, handler.Requests[1].Uri.AbsolutePath);
+        Assert.Equal("/api/custom-fields/list", handler.Requests[0].Uri.AbsolutePath);
+        Assert.Equal("{\"module\":\"quote\",\"type\":\"date\"}", handler.Requests[0].Body);
+        Assert.Equal("/api/quotes/list", handler.Requests[1].Uri.AbsolutePath);
+        Assert.Contains("Take=2", handler.Requests[1].Uri.Query);
+        Assert.Equal("{\"numbers\":[4705]}", handler.Requests[1].Body);
+        Assert.Equal(HttpMethod.Get, handler.Requests[2].Method);
+        Assert.Equal("/api/quotes/" + SourceId, handler.Requests[2].Uri.AbsolutePath);
         Assert.All(handler.Requests, request => { Assert.True(request.Fresh); Assert.Equal("Bearer TEST-SECRET", request.Authorization); });
         Assert.Equal("Succeeded", result.List.Status);
         Assert.Equal(new DateTime(2026, 10, 28), result.List.ProjectedDates!.DateToEstimating);
@@ -119,7 +122,7 @@ public sealed class QuoteTimingDiagnosticTests
         Assert.Equal(truncated, result.List.PossiblyTruncated);
         Assert.Null(result.List.ProjectedDates);
         Assert.Equal("Succeeded", result.Detail.Status);
-        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal(3, handler.Requests.Count);
     }
 
     [Theory]
@@ -183,11 +186,11 @@ public sealed class QuoteTimingDiagnosticTests
         var client = Client(http);
         var result = await client.ReadAsync(Stored(), default);
         Assert.Equal("ResponseTooLarge", result.List.Status);
-        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal(3, handler.Requests.Count);
         var stored = Stored(); stored.SourceId = "../../secret";
         result = await client.ReadAsync(stored, default);
         Assert.Equal("InvalidStoredIdentity", result.Detail.Status);
-        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal(3, handler.Requests.Count);
     }
 
     [Fact]
@@ -246,7 +249,7 @@ public sealed class QuoteTimingDiagnosticTests
         await endpoint.RequestDelegate!(context);
         Assert.Equal(404, context.Response.StatusCode);
         Assert.Equal("no-store", context.Response.Headers.CacheControl);
-        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal(3, handler.Requests.Count);
         Assert.Equal(before, await changes.ExecuteScalarAsync());
     }
 

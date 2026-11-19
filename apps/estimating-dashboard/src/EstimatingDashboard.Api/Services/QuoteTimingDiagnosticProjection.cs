@@ -11,7 +11,7 @@ internal static class QuoteTimingDiagnosticProjection
         .Where(character => !char.IsControl(character)).Take(100).ToArray());
 
     public static QuoteTimingReadDto Project(JsonElement source, EstimatingQuoteHistoryRecord stored,
-        FulcrumQuoteSyncOptions options, int? returnedCount = null)
+        FulcrumQuoteSyncOptions options, int? returnedCount = null, FulcrumQuoteDateDefinitions? definitions = null)
     {
         var quote = source.Deserialize<FulcrumQuoteDto>(JsonOptions);
         if (quote is null || quote.Number != stored.QuoteNumber
@@ -24,7 +24,7 @@ internal static class QuoteTimingDiagnosticProjection
         Observe("completion", [options.CustomFields.EstimatingCompletionDate,
             "Estimate Completion Date", "Estimating Complete Date"], ["Estimating Completion Date"]);
         Observe("due", [options.CustomFields.RfqDueDate], ["RFQ Due Date"]);
-        var mapped = FulcrumQuoteMapper.Map([new(quote, null)],
+        var mapped = FulcrumQuoteMapper.Map([new(quote, null, definitions)],
             new Dictionary<int, EstimatingQuoteHistoryRecord> { [stored.QuoteNumber] = stored }, options);
         var row = mapped.Rows.Single();
         return new("Succeeded", UpstreamStatusCode: 200, ReturnedCount: returnedCount,
@@ -37,13 +37,12 @@ internal static class QuoteTimingDiagnosticProjection
         void Observe(string purpose, string[] priority, string[] defaults)
         {
             // Use the same name precedence as DateField; values are never serialized into this diagnostic.
-            var selected = priority.Where(name => !string.IsNullOrWhiteSpace(name))
-                .Select(name => fields.Keys.FirstOrDefault(key => Normalize(key) == Normalize(name)))
-                .FirstOrDefault(key => key is not null);
+            var selected = FulcrumQuoteDateFields.Find(quote, definitions, priority);
             var names = priority.Concat(defaults).Where(name => !string.IsNullOrWhiteSpace(name))
                 .Select(Normalize).ToHashSet(StringComparer.Ordinal);
+            if (selected.Found) names.Add(Normalize(selected.Name));
             foreach (var pair in fields.Where(pair => names.Contains(Normalize(pair.Key))).Take(8))
-                observations.Add(new(purpose, BoundedName(pair.Key), pair.Key == selected,
+                observations.Add(new(purpose, BoundedName(pair.Key), selected.Found && pair.Key == selected.Name,
                     pair.Value.ValueKind.ToString(), Shape(pair.Value)));
         }
     }

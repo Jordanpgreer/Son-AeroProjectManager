@@ -2,7 +2,7 @@ namespace EstimatingDashboard.Api.Dtos;
 
 public sealed record OutsideProcessingRequirementsDto(int QuoteHistoryId, int QuoteNumber,
     DateTimeOffset CheckedAt, IReadOnlyList<OutsideProcessingOperationDto> Operations,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings, string PlanningSource = PurchasingPlanningSources.Unknown);
 
 public sealed record OutsideProcessingOperationDto(string OperationKey, string ItemId,
     string OperationId, string PartNumber, string Name, string? Instructions,

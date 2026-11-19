@@ -27,16 +27,22 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
             throw new InvalidOperationException("The quote has no part lines or exceeds the safe OP inspection size.");
         var inspection = new Inspection(client);
         var warnings = new List<string>();
+        var partCount = 0;
+        var industriosCount = 0;
         foreach (var group in lines.GroupBy(line => Text(line, "itemId"), StringComparer.Ordinal))
         {
             if (group.Key.Length == 0 || group.Key.Length > 100)
                 throw new InvalidOperationException("A Fulcrum quote part has no valid item identifier.");
             var item = await inspection.ItemAsync(group.Key, ct);
+            partCount++;
             var numbers = group.Select(line => Number(line, "quantity")).ToArray();
             if (numbers.Any(number => number is not > 0))
                 throw new InvalidOperationException($"{Text(item, "number")}: each quote part needs a positive quantity.");
             var selected = quantities.TryGetValue(group.Key, out var overrideValues) ? overrideValues :
                 numbers.Select(number => number!.Value).Distinct().Order().ToArray();
+            var planning = await FulcrumPurchasingPlanning.InspectAsync(client, quoteId, group.Key, item,
+                group.Select(line => Text(line, "id")), ct);
+            if (planning.IsIndustrios) { industriosCount++; continue; }
             if (selected.Count is < 1 or > 2 || selected.Any(number => number <= 0))
                 throw new InvalidOperationException("Confirm the quoted quantities before preparing OP drafts.");
             if (!quantities.ContainsKey(group.Key))
@@ -45,22 +51,25 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
                 warnings.Add($"{Text(item, "number")}: multiple quote lines use this part. Confirm that their OP routing is identical before sending.");
             var lineId = Text(group.First(), "id");
             if (lineId.Length == 0) throw new InvalidOperationException("A Fulcrum quote part line has no routing identifier.");
-            await inspection.LoadQuoteRoutingAsync(quoteId, lineId, group.Key, ct);
+            inspection.SetQuoteRouting(planning.Routes.FirstOrDefault());
             await inspection.TraverseAsync(group.Key, selected.Min(), selected.Max(), [], ct);
         }
         var operations = await inspection.CompleteAsync(ct);
         warnings.AddRange(inspection.Warnings);
-        return new(historyId, quoteNumber, clock.GetUtcNow(), operations, warnings.Distinct().ToArray());
+        return new(historyId, quoteNumber, clock.GetUtcNow(), operations, warnings.Distinct().ToArray(),
+            inspection.HasUnknownPlanning ? PurchasingPlanningSources.Unknown
+                : FulcrumPurchasingPlanning.Source(partCount, industriosCount));
     }
 
     private sealed class Inspection(FulcrumQuoteGenerationClient client)
     {
         private readonly Dictionary<string, JsonElement> items = new(StringComparer.Ordinal);
-        private FulcrumQuoteRouting routing = null!;
+        private FulcrumQuoteRouting? routing;
         private readonly Dictionary<string, (string Name, IReadOnlyList<string> Emails)> vendors = new(StringComparer.Ordinal);
         private readonly Dictionary<string, Candidate> candidates = new(StringComparer.Ordinal);
         private int nodes;
         public List<string> Warnings { get; } = [];
+        public bool HasUnknownPlanning { get; private set; }
 
         public async Task<JsonElement> ItemAsync(string id, CancellationToken ct)
         {
@@ -71,8 +80,7 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
             return item;
         }
 
-        public async Task LoadQuoteRoutingAsync(string quoteId, string lineId, string rootItemId, CancellationToken ct) =>
-            routing = await FulcrumQuoteRouting.LoadAsync(client, quoteId, lineId, rootItemId, ct);
+        public void SetQuoteRouting(FulcrumQuoteRouting? value) => routing = value;
 
         public async Task TraverseAsync(string itemId, decimal? minimum, decimal? maximum,
             HashSet<string> ancestors, CancellationToken ct)
@@ -84,12 +92,13 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
             var item = await ItemAsync(itemId, ct);
             var number = Text(item, "number");
             var origin = Text(item, "itemOrigin");
-            if (origin is "make" or "makeOrBuy" or "kit" && !routing.Contains(itemId))
+            if (origin is "make" or "makeOrBuy" or "kit" && routing?.Contains(itemId) != true)
             {
+                HasUnknownPlanning = true;
                 Warnings.Add($"{number}: Fulcrum quote routing is missing; outside processing requirements could not be verified.");
                 return;
             }
-            var operations = await routing.OperationsAsync(itemId, ct);
+            var operations = routing is null ? [] : await routing.OperationsAsync(itemId, ct);
             foreach (var operation in operations)
             {
                 var name = Text(operation, "name");
@@ -108,7 +117,7 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
                 candidate.Add(minimum, maximum);
             }
             if (origin is not ("make" or "makeOrBuy" or "kit")) return;
-            var inputs = await routing.InputsAsync(itemId, ct);
+            var inputs = await routing!.InputsAsync(itemId, ct);
             foreach (var input in inputs)
             {
                 var childId = Text(input, "itemId");

@@ -153,7 +153,12 @@ public sealed record EstimatingPersonalQuoteDto(
     bool IsCompleted,
     bool IsOverdue,
     DateTime? EstimatingCompletionDate,
-    bool HasFulcrumWarnings = false);
+    bool HasFulcrumWarnings = false)
+{
+    public IReadOnlyList<string> PartNumbers { get; init; } = [];
+    public bool CanOpenQuoteStatus { get; init; }
+    public bool CanGenerateEstimate { get; init; }
+}
 
 public sealed record EstimatingQuoteWorkflowStatsDto(
     decimal? AverageCompletionWorkdays,

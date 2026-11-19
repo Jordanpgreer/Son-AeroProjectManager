@@ -64,7 +64,8 @@ public sealed class PurchasingInspectionCoordinationTests
             Version = 1, UpdatedAt = VendorQuoteTestFixture.Now, UpdatedBy = "TEST"
         });
         await fixture.Db.SaveChangesAsync();
-        using var handler = new InspectionHandler();
+        using var handler = new InspectionHandler
+        { CatalogFallback = failurePath == "/api/items/top/routing/operations/list" };
         if (reason is { } deferredReason)
             handler.Failure = new FulcrumReadDeferredException(deferredReason, DateTimeOffset.UtcNow.AddSeconds(30));
         using var http = new HttpClient(handler);
@@ -148,6 +149,7 @@ public sealed class PurchasingInspectionCoordinationTests
 
     private sealed class InspectionHandler : HttpMessageHandler
     {
+        public bool CatalogFallback { get; init; }
         public string? FailurePath { get; set; }
         public int Failures { get; private set; }
         public Exception Failure { get; set; } = new FulcrumCoordinationUnavailableException(new InspectionDbException());
@@ -170,7 +172,8 @@ public sealed class PurchasingInspectionCoordinationTests
                 "/api/items/top" => new { id = "top", number = "TOP", itemOrigin = "make", unitOfMeasureName = "Piece" },
                 "/api/items/material" => new { id = "material", number = "MATERIAL", itemOrigin = "buy",
                     unitOfMeasureName = "Each", description = "Synthetic purchased material" },
-                "/api/quotes/test-4445/part-line-items/line/make-summary" => new[] { new { itemId = "top", routingId = "route" } },
+                "/api/quotes/test-4445/part-line-items/line/make-summary" => CatalogFallback
+                    ? Array.Empty<object>() : new object[] { new { itemId = "top", routingId = "route" } },
                 routing + "/operations/list" => new[] { new { id = "op", name = "Heat Treat", isOutsideProcessing = true,
                     outsideProcessingOperation = new { selectedVendorId = "vendor" } } },
                 routing + "/input-items/list" => new[] { new { id = "input", itemId = "material",
