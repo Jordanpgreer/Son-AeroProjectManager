@@ -84,7 +84,7 @@ public sealed class FulcrumCredentialTester(
 
             return new(
                 true,
-                "Fulcrum accepted the token for quotes, inventory items, jobs, sales orders, and shipments.",
+                "Fulcrum accepted the token for the quotes, inventory items, jobs, sales orders, and shipments lists. Detailed quote planning, purchasing, and vendor access are checked when those pages load.",
                 StatusCodes.Status200OK);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)

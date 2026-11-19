@@ -122,11 +122,11 @@ public sealed class UniversalFulcrumSnapshotTests
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
         using (var ingest = Read("one"))
-            await Assert.ThrowsAsync<HttpRequestException>(() => other.SendAsync(ingest));
+            await Assert.ThrowsAsync<FulcrumReadDeferredException>(() => other.SendAsync(ingest));
         using (var request = Read("one"))
         {
             request.Options.Set(FulcrumReadSnapshotHandler.RequireFresh, true);
-            await Assert.ThrowsAsync<HttpRequestException>(() => other.SendAsync(request));
+            await Assert.ThrowsAsync<FulcrumReadDeferredException>(() => other.SendAsync(request));
         }
         Assert.Equal(2, calls);
     }
@@ -177,7 +177,7 @@ public sealed class UniversalFulcrumSnapshotTests
         });
         using (var request = Read("one")) using (var response = await client.SendAsync(request))
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        using (var denied = Read("one")) await Assert.ThrowsAsync<HttpRequestException>(() => client.SendAsync(denied));
+        using (var denied = Read("one")) await Assert.ThrowsAsync<FulcrumReadDeferredException>(() => client.SendAsync(denied));
         using var shipment = Read("one");
         shipment.RequestUri = new Uri("https://api.fulcrumpro.us/api/shipments/list");
         using var allowed = await client.SendAsync(shipment);

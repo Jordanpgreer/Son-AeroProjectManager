@@ -149,6 +149,7 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
                     }
                     catch (Exception error) when (!ct.IsCancellationRequested
                         && error is not FulcrumCoordinationUnavailableException
+                        && error is not FulcrumReadDeferredException and not FulcrumReadFailureException { IsDeferred: true }
                         && error is HttpRequestException or InvalidOperationException or JsonException or TaskCanceledException)
                     { issues.Add("The selected OP vendor or contacts could not be verified in Fulcrum."); }
                 }

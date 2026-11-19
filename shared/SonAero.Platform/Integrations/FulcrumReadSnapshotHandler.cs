@@ -46,8 +46,10 @@ public sealed class FulcrumReadSnapshotHandler(FulcrumSnapshotStore store,
         var forbiddenKey = FulcrumSnapshotStore.Hash(credential + ":forbidden:" + PermissionScope(request));
         var denied = await store.ReadAsync(deniedKey, ct);
         var forbidden = await store.ReadAsync(forbiddenKey, ct);
-        if (denied?.RetryAt > clock.GetUtcNow() || forbidden?.RetryAt > clock.GetUtcNow())
-            throw new HttpRequestException("Fulcrum rejected this credential. Check the shared API credential in Admin Hub.", null, HttpStatusCode.Forbidden);
+        if (denied?.RetryAt > clock.GetUtcNow())
+            throw new FulcrumReadDeferredException(FulcrumReadDeferralReason.CredentialRejected, denied.RetryAt);
+        if (forbidden?.RetryAt > clock.GetUtcNow())
+            throw new FulcrumReadDeferredException(FulcrumReadDeferralReason.PermissionRejected, forbidden.RetryAt);
         FulcrumReadSnapshot? snapshot = null;
         if (!fresh)
         {
@@ -59,16 +61,23 @@ public sealed class FulcrumReadSnapshotHandler(FulcrumSnapshotStore store,
                     return FromSnapshot(request, snapshot, false);
                 var cooldown = await store.ReadAsync(throttleKey, ct);
                 if (snapshot?.RetryAt > now || cooldown?.RetryAt > now)
-                    return StaleOrThrow(request, snapshot, settings, allowStale, "The Fulcrum connection is waiting before retrying.");
+                {
+                    var retryAt = cooldown?.RetryAt ?? DateTimeOffset.MinValue;
+                    if (snapshot?.RetryAt > retryAt) retryAt = snapshot.RetryAt;
+                    return StaleOrThrow(request, snapshot, settings, allowStale, retryAt);
+                }
                 if (await store.TryAcquireAsync(key, owner, now, LeaseDuration, ct)) break;
                 await Task.Delay(TimeSpan.FromMilliseconds(100), clock, ct);
             }
         }
 
         string? slot = null;
+        var upstreamAttempted = false;
         try
         {
             slot = await AdmitAsync(credential, owner, throttleKey, settings, ct);
+            ct.ThrowIfCancellationRequested();
+            upstreamAttempted = true;
             using var response = await base.SendAsync(request, ct);
             var now = clock.GetUtcNow();
             if (response.StatusCode == HttpStatusCode.Unauthorized)
@@ -108,7 +117,8 @@ public sealed class FulcrumReadSnapshotHandler(FulcrumSnapshotStore store,
             }
             catch { result.Dispose(); throw; }
         }
-        catch (HttpRequestException exception) when (!ct.IsCancellationRequested
+        catch (HttpRequestException exception) when (upstreamAttempted && !ct.IsCancellationRequested
+            && exception is not FulcrumReadDeferredException
             && (exception.StatusCode is null || exception.StatusCode == HttpStatusCode.TooManyRequests
                 || (int)exception.StatusCode >= 500))
         {
@@ -121,7 +131,9 @@ public sealed class FulcrumReadSnapshotHandler(FulcrumSnapshotStore store,
         catch (OperationCanceledException)
         {
             // HttpClient timeouts arrive as cancellation. Avoid a burst from other module callers.
-            await TryCleanupAsync(() => store.DeferAsync(throttleKey, clock.GetUtcNow().AddSeconds(30), CancellationToken.None), "cancellation retry delay");
+            // Cancellation while waiting for admission did not contact Fulcrum and must not create a pause.
+            if (upstreamAttempted)
+                await TryCleanupAsync(() => store.DeferAsync(throttleKey, clock.GetUtcNow().AddSeconds(30), CancellationToken.None), "cancellation retry delay");
             throw;
         }
         finally
@@ -143,8 +155,7 @@ public sealed class FulcrumReadSnapshotHandler(FulcrumSnapshotStore store,
                 var now = clock.GetUtcNow();
                 var cooldown = await store.ReadAsync(throttleKey, ct);
                 if (cooldown?.RetryAt > now)
-                    throw new HttpRequestException("Fulcrum requested a pause before the next API read.", null,
-                        HttpStatusCode.ServiceUnavailable);
+                    throw new FulcrumReadDeferredException(FulcrumReadDeferralReason.Cooldown, cooldown.RetryAt);
                 for (var i = 0; i < settings.MaximumConcurrentRequests; i++)
                 {
                     var candidate = FulcrumSnapshotStore.Hash(credential + ":slot:" + i);
@@ -183,9 +194,9 @@ public sealed class FulcrumReadSnapshotHandler(FulcrumSnapshotStore store,
     }
 
     private HttpResponseMessage StaleOrThrow(HttpRequestMessage request, FulcrumReadSnapshot? snapshot,
-        UniversalFulcrumSyncOptions settings, bool allowStale, string message) => allowStale && CanUseStale(snapshot, settings)
+        UniversalFulcrumSyncOptions settings, bool allowStale, DateTimeOffset retryAt) => allowStale && CanUseStale(snapshot, settings)
         ? FromSnapshot(request, snapshot!, true)
-        : throw new HttpRequestException(message, null, HttpStatusCode.ServiceUnavailable);
+        : throw new FulcrumReadDeferredException(FulcrumReadDeferralReason.Cooldown, retryAt);
 
     private bool CanUseStale(FulcrumReadSnapshot? snapshot, UniversalFulcrumSyncOptions settings) =>
         snapshot?.Body is not null && settings.MaximumStaleMinutes > 0

@@ -49,6 +49,9 @@ builder.Services.AddHttpClient<FulcrumQuoteClient>(client =>
 builder.Services.AddScoped<IEstimatingQuoteProvider, FulcrumEstimatingQuoteProvider>();
 builder.Services.AddScoped<IEstimatingQuoteProvider, AcumaticaEstimatingQuoteProvider>();
 builder.Services.AddScoped<EnterpriseQuoteSyncService>();
+builder.Services.AddScoped<QuoteTimingDiagnosticService>();
+builder.Services.AddHttpClient<QuoteTimingDiagnosticClient>(client => client.Timeout = TimeSpan.FromSeconds(30))
+    .UseSharedFulcrumSnapshots();
 builder.Services.AddScoped<FulcrumQuoteInspectionService>();
 builder.Services.AddScoped<FulcrumEstimateImportService>();
 builder.Services.AddHttpClient<FulcrumQuoteGenerationClient>(client => client.Timeout = TimeSpan.FromMinutes(5))
@@ -336,6 +339,7 @@ api.MapGet("/benny/idle-settings", async (
         cancellationToken)))
     .RequireAuthorization(EstimatingPolicies.Viewer);
 api.MapEstimatingHistoryEndpoints();
+api.MapQuoteTimingDiagnosticEndpoints();
 api.MapEstimatingQuoteWorkflowEndpoints();
 api.MapVendorQuoteEndpoints();
 api.MapQuoteStatusEndpoints();

@@ -184,7 +184,7 @@ public sealed class FulcrumQuoteGenerationTests
     {
         await using var fixture = await Fixture.CreateAsync();
         fixture.Handler.FailChild = true;
-        var error = await Assert.ThrowsAsync<HttpRequestException>(() => fixture.Service.GenerateAsync(1, Editor, default));
+        var error = await Assert.ThrowsAsync<FulcrumReadFailureException>(() => fixture.Service.GenerateAsync(1, Editor, default));
         Assert.Equal(HttpStatusCode.Forbidden, error.StatusCode);
         Assert.DoesNotContain("private upstream body", error.Message);
     }

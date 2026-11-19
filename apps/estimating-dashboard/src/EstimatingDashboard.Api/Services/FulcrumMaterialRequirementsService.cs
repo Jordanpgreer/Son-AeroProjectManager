@@ -86,6 +86,7 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
 
     private static bool IsRecoverable(Exception error, CancellationToken token) => !token.IsCancellationRequested
         && error is not FulcrumCoordinationUnavailableException
+        && error is not FulcrumReadDeferredException and not FulcrumReadFailureException { IsDeferred: true }
         && error is HttpRequestException or InvalidOperationException or JsonException or TaskCanceledException;
 
     private sealed class Inspection(FulcrumQuoteGenerationClient client, DateTimeOffset checkedAt)
@@ -305,6 +306,7 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
 
         private static bool Recoverable(Exception error, CancellationToken token) => !token.IsCancellationRequested
             && error is not FulcrumCoordinationUnavailableException
+            && error is not FulcrumReadDeferredException and not FulcrumReadFailureException { IsDeferred: true }
             && error is HttpRequestException or InvalidOperationException or JsonException or TaskCanceledException;
 
         private sealed class Material(string id, JsonElement item)

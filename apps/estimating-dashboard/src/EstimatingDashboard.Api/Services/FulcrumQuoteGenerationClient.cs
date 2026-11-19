@@ -60,9 +60,9 @@ internal sealed class FulcrumQuoteGenerationClient(HttpClient http,
         request.Options.Set(FulcrumReadSnapshotHandler.RequireFresh, requireFresh);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         if (method == HttpMethod.Post) request.Content = JsonContent.Create(new { });
-        using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        if (!response.IsSuccessStatusCode) throw new HttpRequestException(
-            $"Fulcrum returned HTTP {(int)response.StatusCode}. Check API permissions for quotes, items, routing, and inventory.", null, response.StatusCode);
+        using var response = await SendRequestAsync(request, path, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw FulcrumReadFailureException.FromResponse(method, path, response.StatusCode);
         if (response.Content.Headers.ContentLength is > MaxResponseBytes)
             throw new InvalidOperationException("Fulcrum response exceeds the safe generation size.");
         await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -78,6 +78,22 @@ internal sealed class FulcrumQuoteGenerationClient(HttpClient http,
         }
         bounded.Position = 0;
         return await JsonSerializer.DeserializeAsync<JsonElement>(bounded, cancellationToken: cancellationToken);
+    }
+
+    private async Task<HttpResponseMessage> SendRequestAsync(HttpRequestMessage request, string path, CancellationToken ct)
+    {
+        try { return await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct); }
+        catch (FulcrumCoordinationUnavailableException) { throw; }
+        catch (FulcrumReadDeferredException error)
+        {
+            ct.ThrowIfCancellationRequested();
+            throw FulcrumReadFailureException.FromDeferred(request.Method, path, error);
+        }
+        catch (HttpRequestException error)
+        {
+            ct.ThrowIfCancellationRequested();
+            throw FulcrumReadFailureException.FromRequestFailure(request.Method, path, error);
+        }
     }
 
     public static string Identifier(string value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 100

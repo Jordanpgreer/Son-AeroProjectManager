@@ -23,7 +23,38 @@ public sealed class PurchasingInspectionCoordinationTests
     [InlineData("material", "/api/items/material/vendors/list")]
     [InlineData("material", "/api/vendors/vendor")]
     [InlineData("material", "/api/vendors/vendor/contacts/list")]
-    public async Task Coordination_failure_propagates_without_invalidating_existing_draft(string kind, string failurePath)
+    public Task Coordination_failure_propagates_without_invalidating_existing_draft(string kind, string failurePath)
+        => VerifyDraftPreservedAsync(kind, failurePath);
+
+    public static IEnumerable<object[]> DeferredInspectionStages()
+    {
+        var stages = new[]
+        {
+            ("op", "/api/vendors/vendor"),
+            ("op", "/api/vendors/vendor/contacts/list"),
+            ("material", "/api/quotes/test-4445/part-line-items/line/make-summary"),
+            ("material", "/api/quotes/test-4445/part-line-items/line/routing/route/input-items/list"),
+            ("material", "/api/items/top/routing/operations/list"),
+            ("material", "/api/inventory/availableByItem"),
+            ("material", "/api/items/material/purchase-history?months=3"),
+            ("material", "/api/items/material/purchase-history?months=60"),
+            ("material", "/api/items/material/vendors/list"),
+            ("material", "/api/vendors/vendor"),
+            ("material", "/api/vendors/vendor/contacts/list")
+        };
+        foreach (var (kind, path) in stages)
+        foreach (var reason in Enum.GetValues<FulcrumReadDeferralReason>())
+            yield return new object[] { kind, path, reason };
+    }
+
+    [Theory]
+    [MemberData(nameof(DeferredInspectionStages))]
+    public Task Deferred_reads_preserve_existing_drafts_at_every_optional_inspection_stage(
+        string kind, string failurePath, FulcrumReadDeferralReason reason)
+        => VerifyDraftPreservedAsync(kind, failurePath, reason);
+
+    private static async Task VerifyDraftPreservedAsync(string kind, string failurePath,
+        FulcrumReadDeferralReason? reason = null)
     {
         await using var fixture = await VendorQuoteTestFixture.CreateAsync();
         var id = fixture.QuoteId();
@@ -34,6 +65,8 @@ public sealed class PurchasingInspectionCoordinationTests
         });
         await fixture.Db.SaveChangesAsync();
         using var handler = new InspectionHandler();
+        if (reason is { } deferredReason)
+            handler.Failure = new FulcrumReadDeferredException(deferredReason, DateTimeOffset.UtcNow.AddSeconds(30));
         using var http = new HttpClient(handler);
         var client = new FulcrumQuoteGenerationClient(http, Options.Create(new FulcrumQuoteSyncOptions()), new Credentials());
         var opService = new QuoteOutsideProcessingService(fixture.Db, fixture.Vendors,
@@ -67,13 +100,21 @@ public sealed class PurchasingInspectionCoordinationTests
         var request = await fixture.Db.Set<VendorQuoteRequest>().AsNoTracking().SingleAsync();
         handler.FailurePath = failurePath;
 
-        var error = await Assert.ThrowsAsync<FulcrumCoordinationUnavailableException>(async () =>
+        var error = await Record.ExceptionAsync(async () =>
         {
             if (kind == "op") await opService.ReadAsync(id, VendorQuoteTestFixture.Editor, default);
             else await materialService.ReadAsync(id, VendorQuoteTestFixture.Editor, default);
         });
 
-        Assert.Same(handler.Failure, error);
+        if (reason is null)
+            Assert.Same(handler.Failure, Assert.IsType<FulcrumCoordinationUnavailableException>(error));
+        else
+        {
+            var deferred = Assert.IsType<FulcrumReadFailureException>(error);
+            Assert.True(deferred.IsDeferred);
+            Assert.Equal(reason.ToString(), deferred.Kind.ToString());
+            Assert.Equal(((FulcrumReadDeferredException)handler.Failure).RetryAt, deferred.RetryAt);
+        }
         Assert.Equal(1, handler.Failures);
         Assert.Equal(originalJson, state.DraftsJson);
         Assert.False(fixture.Db.ChangeTracker.HasChanges());
@@ -109,7 +150,7 @@ public sealed class PurchasingInspectionCoordinationTests
     {
         public string? FailurePath { get; set; }
         public int Failures { get; private set; }
-        public FulcrumCoordinationUnavailableException Failure { get; } = new(new InspectionDbException());
+        public Exception Failure { get; set; } = new FulcrumCoordinationUnavailableException(new InspectionDbException());
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {

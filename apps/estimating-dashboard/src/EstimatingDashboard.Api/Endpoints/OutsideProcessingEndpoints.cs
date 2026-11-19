@@ -34,9 +34,11 @@ internal static class OutsideProcessingEndpoints
         catch (VendorQuoteException ex)
         { return Results.Json(new ErrorDto(ex.Code, ex.Message), statusCode: ex.StatusCode); }
         catch (FulcrumCoordinationUnavailableException)
-        { return Results.Json(new ErrorDto("OpDataUnavailable", "Outside processing data is temporarily unavailable. Try again shortly."), statusCode: 503); }
-        catch (HttpRequestException)
-        { return Results.Json(new ErrorDto("FulcrumUnavailable", "Fulcrum outside processing data could not be read. Check its connection and API permissions."), statusCode: 502); }
+        { return PurchasingFailureResponse.CoordinationUnavailable(context.HttpContext, outsideProcessing: true); }
+        catch (FulcrumReadFailureException failure)
+        { return PurchasingFailureResponse.Create(context.HttpContext, failure); }
+        catch (HttpRequestException failure)
+        { return PurchasingFailureResponse.Create(context.HttpContext, FulcrumReadFailureException.FromRequestFailure(HttpMethod.Get, "", failure)); }
         catch (OperationCanceledException) when (!context.HttpContext.RequestAborted.IsCancellationRequested)
         { return Results.Json(new ErrorDto("FulcrumTimeout", "Fulcrum took too long to inspect the routing. Retry."), statusCode: 504); }
         catch (System.Text.Json.JsonException)
