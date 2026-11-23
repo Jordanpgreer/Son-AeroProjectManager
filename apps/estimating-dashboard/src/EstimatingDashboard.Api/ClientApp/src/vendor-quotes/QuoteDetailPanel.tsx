@@ -11,6 +11,7 @@ import QuoteOverview from './QuoteOverview'
 import ManualEmailUpload from './ManualEmailUpload'
 import RemovedItems from './RemovedItems'
 import useRecordLifecycle from './useRecordLifecycle'
+import { visibleRfqThreads } from './lifecycleModel'
 import { setEmailRateRequest } from './lifecycleApi'
 import { quoteDetailsDirty, quoteDetailsDraft, quoteDetailsUpdate, rebaseQuoteDetailsAfterActivity, synchronizeQuoteDetailsDraft } from './quoteDetailsModel'
 import UpdateComposer from './UpdateComposer'
@@ -31,12 +32,15 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   onRecordsMoved: () => void
   onBack: () => void; onChanged: (provided?: QuoteStatusDetail) => Promise<QuoteStatusDetail | null>; onDirty: (dirty: boolean) => void; guard: (action: () => void) => void
 }) {
-  const { quote, threads } = detail
-  const [threadId, setThreadId] = useState<number | null>(null)
+  const { quote } = detail
+  const threads = visibleRfqThreads(detail.threads)
+  const [selectedThreadId, setThreadId] = useState<number | null>(null)
+  const [pendingUntrack, setPendingUntrack] = useState<VendorMessage | null>(null)
   const [removedOpen, setRemovedOpen] = useState(false)
   const [rfqSaving, setRfqSaving] = useState(false)
   const [rfqError, setRfqError] = useState<string | null>(null)
-  const thread = threads.find(item => item.request.id === threadId) || null
+  const thread = threads.find(item => item.request.id === selectedThreadId) || null
+  const threadId = thread?.request.id ?? null
   const target = thread?.request || quote
   const [draft, setDraft] = useState<UpdateDraft>({ status: target.status, followUpDate: target.followUpDate?.slice(0, 10) || '', note: '' })
   const [saving, setSaving] = useState(false)
@@ -69,6 +73,12 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   const messages = [...detail.unassignedMessages, ...threads.flatMap(item => item.messages)]
   const scopedLabel = thread ? `${thread.request.partNumber ? `${thread.request.partNumber} · ` : ''}${thread.request.vendorName || thread.request.title}` : `Quote ${quote.quoteNumber}`
   const lifecycle = useRecordLifecycle({ detail, resetToken: draftReset, canRemove, externalBusy: saving || overviewSaving || rfqSaving, onChanged: emailImported, onMoved: onRecordsMoved })
+  useEffect(() => {
+    if (!pendingUntrack) return
+    // A confirmed discard resets lifecycle dialogs first; open the requested action afterward.
+    lifecycle.untrackEmail(pendingUntrack)
+    setPendingUntrack(null)
+  }, [pendingUntrack, lifecycle.untrackEmail])
   const writeBusy = saving || overviewSaving || rfqSaving || lifecycle.busy
   const removedCount = (detail.removedMessages?.length || 0) + (detail.removedNotes?.length || 0)
   useEffect(() => { onDirty(dirty || overviewDirty || emailDirty || materialDirty || opDirty || saving || overviewSaving || rfqSaving || lifecycle.dirty) }, [dirty, overviewDirty, emailDirty, materialDirty, opDirty, saving, overviewSaving, rfqSaving, lifecycle.dirty, onDirty])
@@ -93,6 +103,7 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
     guard(() => { setDraft({ status: target.status, followUpDate: target.followUpDate?.slice(0, 10) || '', note: '' }); setSaved(false); action() })
   }
   function selectThread(id: number) { transition(() => setThreadId(id)) }
+  function untrackEmail(message: VendorMessage) { transition(() => setPendingUntrack(message)) }
   async function changeRfqStatus(selected: VendorDetail, status: string) {
     if (writeBusy || !canManage || !selected.request.canEdit) return
     setRfqSaving(true); setRfqError(null)
@@ -171,7 +182,7 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
           data={opReview.data} loading={purchasing.waitingForPlanning || opReview.loading} error={opReview.error} onRefresh={opReview.refresh}
           onDraftCreated={() => onChanged()} onDirty={setOpDirty} /></>}
         <section ref={activityRef} className="qs-request-card qs-activity-card" aria-label={thread ? `Activity ledger for ${thread.request.title}` : 'Activity ledger'}><header className="qs-card-heading qs-activity-heading"><div><h3>Activity Ledger</h3>{thread && <p>{thread.request.partNumber ? `${thread.request.partNumber} · ` : ''}{thread.request.title} · {thread.request.vendorName}</p>}</div><div className="qs-activity-heading-actions"><span>Newest first</span>{thread && <button type="button" className="qs-text-button" onClick={() => transition(() => setThreadId(null))}><ArrowLeft size={14} />Full quote history</button>}</div></header>
-          <ActivityTimeline key={threadId ?? 'quote'} requestId={threadId} activity={detail.activity} messages={messages} threads={threads} unassignedIds={new Set(detail.unassignedMessages.map(item => item.id))} onThread={selectThread} canEdit={quote.canEdit && canManage} canRemove={canRemove} busy={writeBusy} onEdit={lifecycle.editNote} onRemove={lifecycle.removeNote} onMoveEmail={lifecycle.moveEmail} onRemoveEmail={lifecycle.removeEmail} onRateRequest={changeRateRequest} onAssign={async (messageId, requestId) => { await assignQuoteMessage(quote.quoteHistoryId, messageId, quote.version, requestId); const updated = await onChanged(); if (updated) setOverviewBase(current => rebaseQuoteDetailsAfterActivity(current, updated.workflow)) }} />
+          <ActivityTimeline key={threadId ?? 'quote'} requestId={threadId} activity={detail.activity} messages={messages} threads={threads} unassignedIds={new Set(detail.unassignedMessages.map(item => item.id))} onThread={selectThread} canEdit={quote.canEdit && canManage} canRemove={canRemove} busy={writeBusy} onEdit={lifecycle.editNote} onRemove={lifecycle.removeNote} onMoveEmail={lifecycle.moveEmail} onRemoveEmail={lifecycle.removeEmail} onUntrackEmail={untrackEmail} onRateRequest={changeRateRequest} onAssign={async (messageId, requestId) => { await assignQuoteMessage(quote.quoteHistoryId, messageId, quote.version, requestId); const updated = await onChanged(); if (updated) setOverviewBase(current => rebaseQuoteDetailsAfterActivity(current, updated.workflow)) }} />
         </section>
       </div>
       <div className="qs-request-side">
@@ -182,7 +193,7 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
           <UpdateComposer compact label={scopedLabel} kind={thread ? 'thread' : 'quote'} draft={draft} statuses={thread ? threadStatuses : statuses} onChange={value => { setDraft(value); setSaved(false) }} canEdit={canEdit} canSave={dirty} saving={writeBusy} error={error} saved={saved} onSave={() => void save()} />
           {canEdit && <ManualEmailUpload compact detail={detail} selectedThread={thread} disabled={writeBusy} resetToken={draftReset} onDirty={setEmailDirty} onImported={emailImported} />}
         </section>
-        <ProcessingMaterials threads={threads} selectedId={threadId} statuses={threadStatuses} canEdit={quote.canEdit && canManage} busy={writeBusy} error={rfqError} onSelect={selectThread} onStatus={(item, status) => void changeRfqStatus(item, status)} onNew={() => transition(() => setNewThread(true))} />
+        <ProcessingMaterials threads={threads} selectedId={threadId} statuses={threadStatuses} canEdit={quote.canEdit && canManage} busy={writeBusy} error={rfqError} onSelect={selectThread} onStatus={(item, status) => void changeRfqStatus(item, status)} onNew={() => transition(() => setNewThread(true))} onUntrack={untrackEmail} />
       </div>
     </div>
     {newThread && <NewThreadDialog quote={quote} statuses={threadStatuses} onClose={() => setNewThread(false)} onCreated={created => { setNewThread(false); void onChanged().then(() => setThreadId(created.request.id)).catch(reason => setRfqError(reason instanceof Error ? reason.message : 'RFQ created. Refresh to load its activity.')) }} />}

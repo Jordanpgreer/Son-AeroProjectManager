@@ -92,6 +92,47 @@ public sealed class QuoteItemLifecycleTests
         Assert.All(moved.Threads, x => Assert.Equal("Untouched", x.Request.Status));
         Assert.Single(moved.Activity, x => x.Kind == "email-moved");
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Clearing_the_only_email_stops_counting_automatic_correspondence_and_keeps_real_rfqs(bool removeFromArda)
+    {
+        await using var f = await CreateAsync();
+        var input = Message("auto-thread");
+        var imported = await f.Vendors.ImportAsync(input, Editor, default);
+        var correspondence = await f.Vendors.DetailAsync(imported.RequestId!.Value, Editor, default);
+        Assert.True(correspondence.IsAutomaticCorrespondence);
+        var rfq = await f.ThreadAsync("PART-A");
+        Assert.False(rfq.IsAutomaticCorrespondence);
+        var quoteId = f.QuoteId();
+        Assert.Equal(2, (await f.Quotes.DetailAsync(quoteId, Editor, default)).Quote.ThreadCount);
+
+        var messageId = correspondence.Messages.Single().Id;
+        var updated = removeFromArda
+            ? await f.Quotes.RemoveEmailAsync(quoteId, messageId, new(0), Remover, default)
+            : await f.Quotes.MoveEmailAsync(quoteId, messageId, new(0, quoteId, 0), Editor, default);
+
+        Assert.Equal(1, updated.Quote.ThreadCount);
+        Assert.Equal(1, (await f.Quotes.ListAsync(Editor, null, null, 4445, 1, 25, default)).Items.Single().ThreadCount);
+        var retained = updated.Threads.Single(x => x.Request.Id == correspondence.Request.Id);
+        Assert.True(retained.IsAutomaticCorrespondence);
+        Assert.Empty(retained.Messages);
+        Assert.Equal(0, retained.Request.MessageCount);
+        Assert.Contains(retained.Activity, x => x.Kind == "email");
+        Assert.Contains(updated.Threads, x => x.Request.Id == rfq.Request.Id);
+        if (removeFromArda)
+            Assert.Equal(messageId, updated.RemovedMessages.Single().Id);
+        else
+        {
+            var kept = updated.UnassignedMessages.Single();
+            Assert.Equal(messageId, kept.Id);
+            Assert.True(kept.IsQuoteCorrespondence);
+            Assert.Equal(0, updated.Quote.UnassignedMessageCount);
+        }
+        Assert.Equal("duplicate", (await f.Vendors.ImportAsync(input, Editor, default)).Outcome);
+        Assert.Single(await f.Db.Set<VendorQuoteMessage>().AsNoTracking().ToListAsync());
+    }
     [Fact]
     public async Task Move_checks_both_quote_permissions_versions_and_correspondent_before_any_mutation()
     {

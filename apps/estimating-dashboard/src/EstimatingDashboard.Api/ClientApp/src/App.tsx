@@ -205,10 +205,6 @@ export default function App() {
     me,
     estimatingPermissions.manageQuotes,
   ) && !me?.isPreview
-  const canDeleteQuotes = hasEstimatingPermission(
-    me,
-    estimatingPermissions.deleteQuotes,
-  ) && !me?.isPreview
   const canManageInputs = hasEstimatingPermission(
     me,
     estimatingPermissions.manageInputs,
@@ -435,9 +431,8 @@ export default function App() {
           <div className="view" id="main-content" tabIndex={-1}>
             {page === 'quotes' && canViewQuotes && (
               <QuotesDashboardPage
+                key={me.accountName}
                 ownerAccountName={me.accountName}
-                canManageQuotes={canManageQuotes}
-                canDeleteQuotes={canDeleteQuotes}
                 canGenerateQuotes={canManageQuotes && canManageInputs}
                 canViewAllQuotes={canViewHistory}
               />

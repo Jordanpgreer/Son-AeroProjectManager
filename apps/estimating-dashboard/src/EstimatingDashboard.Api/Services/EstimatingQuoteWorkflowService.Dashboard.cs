@@ -4,6 +4,7 @@ using EstimatingDashboard.Api.Auth;
 using EstimatingDashboard.Api.Dtos;
 using EstimatingDashboard.Api.Models;
 using Microsoft.EntityFrameworkCore;
+using SonAero.Platform.Estimating;
 
 namespace EstimatingDashboard.Api.Services;
 
@@ -32,17 +33,10 @@ public sealed partial class EstimatingQuoteWorkflowService
             record.EstimatingRep, estimators, access);
         var cohort = stored.Where(record => selection.Scope == "all" || IsMine(record)).ToList();
         var today = timeProvider.GetLocalNow().Date;
-        var baseStats = await StatsForRecordsAsync(cohort.Select(record => new WorkflowStatsRecord(
+        var stats = await DashboardStatsAsync(cohort.Select(record => new DashboardStatsRecord(
             record.Id, record.EstimatingRep, record.IsCompleted, record.QuoteStatus, record.TotalValue,
-            record.DateToEstimating, record.EstimatingCompletionDate, record.Workdays)).ToList(), ct);
-        var measured = cohort.Where(record => record.IsCompleted && ValidOnTimeDates(record, today)).ToList();
-        var onTime = measured.Count(record => record.EstimatingCompletionDate!.Value.Date <= record.RfqDueDate!.Value.Date);
-        var stats = new EstimatingQuoteDashboardStatsDto(baseStats.AverageCompletionWorkdays,
-            baseStats.CompletionSampleSize, baseStats.WonCount, baseStats.LostCount, baseStats.CompletedCount,
-            baseStats.WonTotalValue, baseStats.LostTotalValue, cohort.Count(record => !record.IsCompleted),
-            cohort.Count(record => IsDashboardOverdue(record, today)), onTime, measured.Count,
-            measured.Count == 0 ? null : Math.Round(100m * onTime / measured.Count, 1),
-            baseStats.CompletedCount - measured.Count);
+            record.DateToEstimating, record.EstimatingCompletionDate, record.Workdays, record.RfqDueDate)).ToList(),
+            today, ct);
 
         var parts = cohort.ToDictionary(record => record.Id, record => DashboardPartNumbers(record.FulcrumQuoteItemsJson));
         var numberSearch = selection.Search is { Length: > 1 } term && term[0] == '#' && term[1..].All(char.IsAsciiDigit)
@@ -78,6 +72,67 @@ public sealed partial class EstimatingQuoteWorkflowService
         return new(rows, filtered.Count, selection.Page, selection.PageSize, stats);
     }
 
+    public async Task<EstimatingQuotePerformanceDto> GetPerformanceAsync(EstimatingAccessProfile access,
+        string? scope, string? estimator, CancellationToken ct)
+    {
+        if (!access.IsEnabled || !Has(access, EstimatingPermissions.QuotesView))
+            throw new EstimatingQuoteWorkflowForbiddenException();
+
+        scope = NormalizeDashboardScope(scope);
+        var canViewTeam = Has(access, EstimatingPermissions.ViewHistory);
+        if (!canViewTeam && (scope == "all" || estimator is not null))
+            throw new EstimatingQuoteWorkflowForbiddenException();
+        if (estimator is not null && (scope != "all" || !EstimatorSettings.IsEligible(estimator)
+            || estimator.Length > EstimatorSettings.NameMaxLength || estimator.Any(char.IsControl)))
+            throw new EstimatingQuoteWorkflowValidationException("Choose an available estimator.");
+
+        // Project only the fields needed for performance, leaving quote details and imported line JSON out.
+        var records = await db.QuoteHistory.AsNoTracking().Select(record => new DashboardStatsRecord(
+            record.Id, record.EstimatingRep, record.IsCompleted, record.QuoteStatus, record.TotalValue,
+            record.DateToEstimating, record.EstimatingCompletionDate, record.Workdays, record.RfqDueDate)).ToListAsync(ct);
+        var knownNames = records.Select(record => record.EstimatingRep).Distinct(StringComparer.Ordinal).ToList();
+        var estimators = canViewTeam ? PerformanceEstimators(knownNames) : [];
+        if (estimator is not null)
+        {
+            estimator = EstimatorSettings.NormalizeKey(estimator);
+            if (!estimators.Any(option => option.Id == estimator))
+                throw new EstimatingQuoteWorkflowValidationException("Choose an available estimator.");
+        }
+
+        var cohort = scope == "mine"
+            ? records.Where(record => EstimatingEstimatorIdentity.MatchesUnambiguously(record.EstimatingRep, knownNames, access))
+            : records.Where(record => EstimatorSettings.IsEligible(record.EstimatingRep)
+                && (estimator is null || EstimatorSettings.NormalizeKey(record.EstimatingRep) == estimator));
+        var stats = await DashboardStatsAsync(cohort.ToList(), timeProvider.GetLocalNow().Date, ct);
+        return new(stats, estimators);
+    }
+
+    private static List<EstimatingPerformanceEstimatorDto> PerformanceEstimators(IEnumerable<string> names) =>
+        names.Where(EstimatorSettings.IsEligible).Select(name => name.Trim()).Order(StringComparer.Ordinal)
+            .GroupBy(EstimatorSettings.NormalizeKey, StringComparer.Ordinal)
+            .Select(group => new EstimatingPerformanceEstimatorDto(group.Key, group.First()))
+            .OrderBy(option => option.Name, StringComparer.OrdinalIgnoreCase).ToList();
+
+    private sealed record DashboardStatsRecord(int Id, string EstimatingRep, bool IsCompleted,
+        string QuoteStatus, decimal TotalValue, DateTime? DateToEstimating, DateTime? EstimatingCompletionDate,
+        int? Workdays, DateTime? RfqDueDate);
+
+    private async Task<EstimatingQuoteDashboardStatsDto> DashboardStatsAsync(
+        IReadOnlyList<DashboardStatsRecord> records, DateTime today, CancellationToken ct)
+    {
+        var baseStats = await StatsForRecordsAsync(records.Select(record => new WorkflowStatsRecord(
+            record.Id, record.EstimatingRep, record.IsCompleted, record.QuoteStatus, record.TotalValue,
+            record.DateToEstimating, record.EstimatingCompletionDate, record.Workdays)).ToList(), ct);
+        var measured = records.Where(record => record.IsCompleted && ValidOnTimeDates(record, today)).ToList();
+        var onTime = measured.Count(record => record.EstimatingCompletionDate!.Value.Date <= record.RfqDueDate!.Value.Date);
+        return new(baseStats.AverageCompletionWorkdays, baseStats.CompletionSampleSize, baseStats.WonCount,
+            baseStats.LostCount, baseStats.CompletedCount, baseStats.WonTotalValue, baseStats.LostTotalValue,
+            records.Count(record => !record.IsCompleted),
+            records.Count(record => IsDashboardOverdue(record.IsCompleted, record.RfqDueDate, today)),
+            onTime, measured.Count, measured.Count == 0 ? null : Math.Round(100m * onTime / measured.Count, 1),
+            baseStats.CompletedCount - measured.Count);
+    }
+
     private static bool Has(EstimatingAccessProfile access, string permission) =>
         access.Permissions.Contains(permission, StringComparer.OrdinalIgnoreCase);
 
@@ -85,9 +140,12 @@ public sealed partial class EstimatingQuoteWorkflowService
         record.RfqDueDate;
 
     private static bool IsDashboardOverdue(EstimatingQuoteHistoryRecord record, DateTime today) =>
-        !record.IsCompleted && DashboardDueDate(record) is { } due && due.Date < today;
+        IsDashboardOverdue(record.IsCompleted, DashboardDueDate(record), today);
 
-    private static bool ValidOnTimeDates(EstimatingQuoteHistoryRecord record, DateTime today) =>
+    private static bool IsDashboardOverdue(bool completed, DateTime? dueDate, DateTime today) =>
+        !completed && dueDate is { } due && due.Date < today;
+
+    private static bool ValidOnTimeDates(DashboardStatsRecord record, DateTime today) =>
         record.RfqDueDate is { } due && due.Date != DateTime.MinValue
         && record.EstimatingCompletionDate is { } completed && completed.Date != DateTime.MinValue && completed.Date <= today;
 
@@ -106,8 +164,7 @@ public sealed partial class EstimatingQuoteWorkflowService
     private static DashboardSelection ValidateDashboard(string? scope, string? from, string? to,
         string? search, string? status, int page, int pageSize)
     {
-        scope = string.IsNullOrWhiteSpace(scope) ? "mine" : scope.Trim().ToLowerInvariant();
-        if (scope is not ("mine" or "all")) throw new EstimatingQuoteWorkflowValidationException("Choose mine or all for the quote scope.");
+        scope = NormalizeDashboardScope(scope);
         static DateTime? ParseDate(string? value)
         {
             if (value is null) return null;
@@ -126,6 +183,13 @@ public sealed partial class EstimatingQuoteWorkflowService
             : EstimatingArdaStatuses.Normalize(status)
                 ?? throw new EstimatingQuoteWorkflowValidationException("Choose an available dashboard status.");
         return new(scope, first, last, search, status, Math.Clamp(page, 1, 1000000), Math.Clamp(pageSize, 1, 100));
+    }
+
+    private static string NormalizeDashboardScope(string? scope)
+    {
+        scope = string.IsNullOrWhiteSpace(scope) ? "mine" : scope.Trim().ToLowerInvariant();
+        if (scope is not ("mine" or "all")) throw new EstimatingQuoteWorkflowValidationException("Choose mine or all for the quote scope.");
+        return scope;
     }
 
     private static IReadOnlyList<string> DashboardPartNumbers(string? json)

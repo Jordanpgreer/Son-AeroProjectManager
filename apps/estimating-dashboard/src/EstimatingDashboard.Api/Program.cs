@@ -20,6 +20,8 @@ builder.Services.AddScoped<EstimatingHistorySchemaInitializer>();
 builder.Services.AddScoped<DevelopmentQuoteFolderDemoSeeder>();
 builder.Services.AddScoped<VendorQuoteSchemaInitializer>();
 builder.Services.AddScoped<VendorQuoteService>();
+builder.Services.Configure<QuoteMailImportOptions>(
+    builder.Configuration.GetSection(QuoteMailImportOptions.SectionName));
 builder.Services.AddScoped<IQuoteRfqProgression, QuoteRfqProgressionService>();
 builder.Services.AddScoped<QuoteStatusService>();
 builder.Services.AddScoped<EstimatingHistoryQueryService>();

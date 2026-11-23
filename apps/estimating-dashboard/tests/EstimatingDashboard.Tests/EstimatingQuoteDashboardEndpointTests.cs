@@ -18,13 +18,19 @@ namespace EstimatingDashboard.Tests;
 public sealed class EstimatingQuoteDashboardEndpointTests
 {
     [Theory]
-    [InlineData("?scope=mine&from=2026-11-01&to=2026-11-30&search=%232100&pageSize=1", true, 200)]
-    [InlineData("?scope=all", false, 403)]
-    [InlineData("?scope=invalid", true, 400)]
-    [InlineData("?from=2026-11-30&to=2026-11-01", true, 400)]
-    [InlineData("?from=11/01/2026", true, 400)]
-    public async Task Database_only_dashboard_binds_query_returns_safe_errors_and_never_writes(
-        string query, bool historyPermission, int expectedStatus)
+    [InlineData("dashboard", "?scope=mine&from=2026-11-01&to=2026-11-30&search=%232100&pageSize=1", true, 200)]
+    [InlineData("dashboard", "?scope=all", false, 403)]
+    [InlineData("dashboard", "?scope=invalid", true, 400)]
+    [InlineData("dashboard", "?from=2026-11-30&to=2026-11-01", true, 400)]
+    [InlineData("dashboard", "?from=11/01/2026", true, 400)]
+    [InlineData("performance", "", false, 200)]
+    [InlineData("performance", "?scope=all", false, 403)]
+    [InlineData("performance", "?scope=all&estimator=CASEY%20LEE", false, 403)]
+    [InlineData("performance", "?scope=mine&estimator=CASEY%20LEE", true, 400)]
+    [InlineData("performance", "?scope=all&estimator=CASEY%20LEE", true, 200)]
+    [InlineData("performance", "?scope=all&estimator=unknown", true, 400)]
+    public async Task Database_only_dashboard_endpoints_bind_query_return_safe_errors_and_never_write(
+        string routeName, string query, bool historyPermission, int expectedStatus)
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -51,7 +57,7 @@ public sealed class EstimatingQuoteDashboardEndpointTests
         await using var app = builder.Build();
         app.MapGroup("/api").MapEstimatingQuoteWorkflowEndpoints();
         var endpoint = ((IEndpointRouteBuilder)app).DataSources.SelectMany(source => source.Endpoints)
-            .OfType<RouteEndpoint>().Single(route => route.RoutePattern.RawText == "/api/quote-workflow/dashboard");
+            .OfType<RouteEndpoint>().Single(route => route.RoutePattern.RawText == $"/api/quote-workflow/{routeName}");
         Assert.Contains(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
             policy => policy.Policy == EstimatingPolicies.QuotesView);
         Assert.Equal(new[] { "GET" }, endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods);
@@ -66,7 +72,7 @@ public sealed class EstimatingQuoteDashboardEndpointTests
         Assert.Equal("no-store", context.Response.Headers.CacheControl);
         context.Response.Body.Position = 0;
         using var json = await JsonDocument.ParseAsync(context.Response.Body);
-        if (expectedStatus == 200)
+        if (expectedStatus == 200 && routeName == "dashboard")
         {
             Assert.Equal(1, json.RootElement.GetProperty("total").GetInt32());
             Assert.Equal(1, json.RootElement.GetProperty("pageSize").GetInt32());
@@ -76,6 +82,20 @@ public sealed class EstimatingQuoteDashboardEndpointTests
             Assert.False(row.GetProperty("canOpenQuoteStatus").GetBoolean());
             Assert.False(row.GetProperty("canGenerateEstimate").GetBoolean());
             Assert.True(json.RootElement.GetProperty("stats").TryGetProperty("onTimeMissingCount", out _));
+        }
+        if (expectedStatus == 200 && routeName == "performance")
+        {
+            Assert.False(json.RootElement.TryGetProperty("records", out _));
+            Assert.Equal(1, json.RootElement.GetProperty("stats").GetProperty("activeCount").GetInt32());
+            var estimators = json.RootElement.GetProperty("estimators").EnumerateArray();
+            if (historyPermission)
+            {
+                var estimator = Assert.Single(estimators);
+                Assert.Equal("CASEY LEE", estimator.GetProperty("id").GetString());
+                Assert.Equal("Casey Lee", estimator.GetProperty("name").GetString());
+            }
+            else
+                Assert.Empty(estimators);
         }
         Assert.Empty(db.ChangeTracker.Entries());
         Assert.Equal(1, await db.QuoteHistory.CountAsync());

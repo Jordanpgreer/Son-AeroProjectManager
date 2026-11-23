@@ -58,10 +58,20 @@ public sealed partial class QuoteStatusService(EstimatingAccessDbContext db, Tim
     {
         var ids = quotes.Select(x => x.Id).ToArray();
         var metadata = await db.Set<QuoteStatusMetadata>().AsNoTracking().Where(x => ids.Contains(x.QuoteHistoryId)).ToDictionaryAsync(x => x.QuoteHistoryId, ct);
-        var threads = await db.Set<VendorQuoteRequest>().AsNoTracking().Where(x => ids.Contains(x.QuoteHistoryId))
-            .Select(x => new { x.QuoteHistoryId, x.UpdatedAt }).ToListAsync(ct);
+        var threads = await db.Set<VendorQuoteRequest>().AsNoTracking().Where(x => ids.Contains(x.QuoteHistoryId)).ToListAsync(ct);
         var messages = await db.Set<VendorQuoteMessage>().AsNoTracking().Where(x => ids.Contains(x.QuoteHistoryId) && x.RemovedAt == null)
-            .Select(x => new { x.QuoteHistoryId, x.RequestId, x.SentAt, x.ReceivedAt, x.ImportedAt }).ToListAsync(ct);
+            .Select(x => new { x.QuoteHistoryId, x.RequestId, x.SentAt, x.ReceivedAt, x.ImportedAt, x.MovedAt }).ToListAsync(ct);
+        var activeThreadIds = messages.Select(x => x.RequestId).ToHashSet();
+        var emptyCandidates = threads.Where(x => !activeThreadIds.Contains(x.Id) && VendorQuoteService.IsCorrespondenceCandidate(x))
+            .Select(x => x.Id).ToArray();
+        var emptyCorrespondence = new HashSet<int>();
+        if (emptyCandidates.Length > 0)
+        {
+            var activity = await db.Set<VendorQuoteActivity>().AsNoTracking()
+                .Where(x => emptyCandidates.Contains(x.RequestId) && x.RemovedAt == null).ToListAsync(ct);
+            emptyCorrespondence = activity.GroupBy(item => item.RequestId)
+                .Where(VendorQuoteService.HasAutomaticCorrespondenceActivity).Select(group => group.Key).ToHashSet();
+        }
         var workflowUpdates = await db.QuoteHistoryAudits.AsNoTracking().Where(x => ids.Contains(x.QuoteHistoryId)
                 && x.Action == EstimatingQuoteAuditActions.WorkflowUpdated)
             .Select(x => new { x.QuoteHistoryId, x.ChangedAt }).ToListAsync(ct);
@@ -76,7 +86,8 @@ public sealed partial class QuoteStatusService(EstimatingAccessDbContext db, Tim
                 threadRows.Select(x => x.UpdatedAt).Concat(emailRows.Select(x => x.ImportedAt))
                     .Concat(workflowUpdates.Where(x => x.QuoteHistoryId == q.Id).Select(x => x.ChangedAt)).Append(q.UpdatedAt).Max(),
                 emailRows.Select(x => (DateTimeOffset?)(x.ReceivedAt ?? x.SentAt)).DefaultIfEmpty().Max(),
-                threadRows.Count, emailRows.Count, emailRows.Count(x => x.RequestId is null), q.Version,
+                threadRows.Count(x => !emptyCorrespondence.Contains(x.Id)), emailRows.Count,
+                emailRows.Count(x => x.RequestId is null && x.MovedAt is null), q.Version,
                 !access.IsPreview && VendorQuoteService.Has(access, EstimatingPermissions.ManageQuotes), CanRemove(access),
                 q.SalesPerson, EffectiveDueDate(q), FulcrumQuoteStatuses.Normalize(q.QuoteStatus), HasFulcrumWarnings(q));
         }).ToList();

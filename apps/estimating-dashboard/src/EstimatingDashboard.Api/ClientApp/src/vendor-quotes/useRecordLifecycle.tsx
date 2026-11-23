@@ -1,15 +1,16 @@
-import { CheckCircle2, RotateCcw, X } from 'lucide-react'
+import { CheckCircle2, RotateCcw, Unlink, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import EditNoteDialog from './EditNoteDialog'
+import Modal from './Modal'
 import MoveEmailDialog from './MoveEmailDialog'
 import RemoveRecordDialog from './RemoveRecordDialog'
-import { removeEmail, removeNote, restoreEmail, restoreNote } from './lifecycleApi'
+import { moveEmail, removeEmail, removeNote, restoreEmail, restoreNote } from './lifecycleApi'
 import { editableNoteId } from './lifecycleModel'
 import type { QuoteActivity, QuoteStatusDetail, VendorActivity, VendorMessage } from './types'
 import './record-lifecycle.css'
 
 type Note = QuoteActivity | VendorActivity
-type Action = { kind: 'move-email' | 'remove-email'; message: VendorMessage; version: number }
+type Action = { kind: 'move-email' | 'remove-email' | 'untrack-email'; message: VendorMessage; version: number }
   | { kind: 'edit-note' | 'remove-note'; note: Note; id: string; version: number }
 type Undo = { kind: 'email'; id: number } | { kind: 'note'; id: string }
 
@@ -22,6 +23,7 @@ export default function useRecordLifecycle({ detail, resetToken, canRemove, exte
   const [undo, setUndo] = useState<Undo | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [untrackError, setUntrackError] = useState<string | null>(null)
   useEffect(() => { setAction(null) }, [resetToken])
   const close = () => setAction(null)
   function openNote(kind: 'edit-note' | 'remove-note', note: Note) {
@@ -39,12 +41,49 @@ export default function useRecordLifecycle({ detail, resetToken, canRemove, exte
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'This item could not be restored.') }
     finally { setBusy(false) }
   }
+  async function untrack(message: VendorMessage, version: number) {
+    if (busy || externalBusy) return
+    const quoteId = detail.quote.quoteHistoryId
+    setBusy(true); setUntrackError(null); setError(null)
+    let moved = false
+    try {
+      const updated = await moveEmail(quoteId, message.id, {
+        expectedVersion: version, targetQuoteHistoryId: quoteId, targetExpectedVersion: version, requestId: null,
+      })
+      moved = true
+      await onChanged(updated)
+      onMoved()
+      setNotice('RFQ tracking removed. The email is in the quote’s Activity Ledger.')
+      close()
+    } catch (reason) {
+      if (moved) {
+        close()
+        setError('RFQ tracking was removed. Refresh the quote to see the update.')
+      } else {
+        setUntrackError(reason instanceof Error ? reason.message : 'RFQ tracking could not be removed.')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
   const alerts = <>
     {undo && <div className="qs-undo-banner" role="status"><CheckCircle2 size={17} /><span>{undo.kind === 'email' ? 'Email' : 'Internal note'} removed from Arda. You can also restore it from Removed items.</span><button className="qs-text-button" disabled={busy || externalBusy || !canRemove} onClick={() => void restore(undo)}><RotateCcw size={14} />Undo</button><button className="vq-icon-button" aria-label="Dismiss undo message" onClick={() => setUndo(null)}><X size={15} /></button></div>}
     {notice && <div className="qs-action-notice" role="status"><CheckCircle2 size={15} /><span>{notice}</span><button className="vq-icon-button" aria-label="Dismiss update message" onClick={() => setNotice(null)}><X size={14} /></button></div>}
     {error && <p className="vq-error" role="alert">{error}</p>}
   </>
   let dialog = null
+  if (action?.kind === 'untrack-email') dialog = <Modal title="Remove RFQ tracking?"
+    subtitle="Move this email to the quote’s Activity Ledger. The email stays in Outlook." onClose={() => { if (!busy) close() }}>
+    <div className="qs-remove-context">{action.message.subject || '(No subject)'}</div>
+    {untrackError && <p role="alert" className="vq-error">{untrackError}</p>}
+    <footer className="vq-modal-footer">
+      <button type="button" className="vq-button" disabled={busy} onClick={close}>Cancel</button>
+      <button type="button" className="vq-button vq-button-primary" disabled={busy || externalBusy}
+        onClick={() => void untrack(action.message, action.version)}><Unlink size={15} />
+        {busy ? 'Removing tracking…' : 'Remove RFQ tracking'}
+      </button>
+    </footer>
+  </Modal>
   if (action?.kind === 'move-email') dialog = <MoveEmailDialog detail={detail} message={action.message} onClose={close} onBusy={setBusy} onChanged={async updated => { await onChanged(updated); onMoved(); setNotice('Email moved. Both quote records retain the move history.') }} />
   if (action?.kind === 'edit-note') dialog = <EditNoteDialog detail={detail} note={action.note} activityId={action.id} onClose={close} onBusy={setBusy} onChanged={async updated => { await onChanged(updated); setNotice('Internal note updated. Its edit history is retained.') }} />
   if (action?.kind === 'remove-email') dialog = <RemoveRecordDialog kind="email" label={action.message.subject || '(No subject)'} onClose={close} onBusy={setBusy} onRemove={() => removeEmail(detail.quote.quoteHistoryId, action.message.id, action.version)} onChanged={async updated => { await onChanged(updated); setUndo({ kind: 'email', id: action.message.id }); setNotice(null) }} />
@@ -52,6 +91,10 @@ export default function useRecordLifecycle({ detail, resetToken, canRemove, exte
   return {
     dirty: Boolean(action) || busy, busy, alerts, dialog,
     moveEmail: (message: VendorMessage) => setAction({ kind: 'move-email', message, version: detail.quote.version }),
+    untrackEmail: (message: VendorMessage) => {
+      setUntrackError(null)
+      setAction({ kind: 'untrack-email', message, version: detail.quote.version })
+    },
     removeEmail: (message: VendorMessage) => setAction({ kind: 'remove-email', message, version: detail.quote.version }),
     editNote: (note: Note) => openNote('edit-note', note), removeNote: (note: Note) => openNote('remove-note', note),
     restoreEmail: (id: number) => void restore({ kind: 'email', id }), restoreNote: (id: string) => void restore({ kind: 'note', id }),

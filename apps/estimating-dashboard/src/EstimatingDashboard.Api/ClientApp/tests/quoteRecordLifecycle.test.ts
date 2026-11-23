@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { activityDescription, editableNoteId, matchingMoveThreads, nextMenuIndex } from '../src/vendor-quotes/lifecycleModel.ts'
+import { activityDescription, editableNoteId, matchingMoveThreads, nextMenuIndex, visibleRfqThreads } from '../src/vendor-quotes/lifecycleModel.ts'
 import { editNote, moveEmail, removeEmail, restoreNote } from '../src/vendor-quotes/lifecycleApi.ts'
-import type { QuoteActivity, VendorActivity, VendorRequest } from '../src/vendor-quotes/types.ts'
+import type { QuoteActivity, VendorActivity, VendorDetail, VendorRequest } from '../src/vendor-quotes/types.ts'
 
 test('only explicit internal notes with canonical quote or thread identifiers offer mutations', () => {
   assert.equal(editableNoteId({ kind: 'note', id: 'quote-31' } as QuoteActivity), 'quote-31')
@@ -18,6 +18,15 @@ test('moving an email offers its actual counterparty and internal threads only',
   const threads = [{ id: 1, vendorEmail: 'quotes@siliconeprime.example' }, { id: 2, vendorEmail: 'other@example.com' }, { id: 3, vendorEmail: '' }] as VendorRequest[]
   assert.deepEqual(matchingMoveThreads({ vendorEmail: ' Quotes@SiliconePrime.example ' }, threads).map(item => item.id), [1, 3])
   assert.deepEqual(matchingMoveThreads({}, threads).map(item => item.id), [3])
+})
+
+test('the RFQ tracker hides only emptied automatic correspondence', () => {
+  const emptiedCorrespondence = { isAutomaticCorrespondence: true, messages: [] } as VendorDetail
+  const activeCorrespondence = { isAutomaticCorrespondence: true, messages: [{ id: 1 }] } as VendorDetail
+  const pendingRfq = { isAutomaticCorrespondence: false, messages: [] } as VendorDetail
+  const olderRfq = { messages: [] } as VendorDetail
+  assert.deepEqual(visibleRfqThreads([emptiedCorrespondence, activeCorrespondence, pendingRfq, olderRfq]),
+    [activeCorrespondence, pendingRfq, olderRfq])
 })
 
 test('generated lifecycle audit identifiers are hidden without changing notes or original email subjects', () => {

@@ -45,7 +45,7 @@ function InlinePreview({ text, entryLabel, onOpen }: { text: string; entryLabel:
 }
 
 export default function ActivityTimeline({ activity, onThread, canEdit = false, canRemove = false, busy = false, onEdit, onRemove,
-  messages = [], threads = [], requestId = null, unassignedIds = new Set<number>(), onAssign, onMoveEmail, onRemoveEmail, onRateRequest }: {
+  messages = [], threads = [], requestId = null, unassignedIds = new Set<number>(), onAssign, onMoveEmail, onRemoveEmail, onUntrackEmail, onRateRequest }: {
   activity: (QuoteActivity | VendorActivity)[]; onThread?: (id: number) => void
   canEdit?: boolean; canRemove?: boolean; busy?: boolean
   requestId?: number | null
@@ -53,6 +53,7 @@ export default function ActivityTimeline({ activity, onThread, canEdit = false, 
   messages?: VendorMessage[]; threads?: VendorDetail[]; unassignedIds?: Set<number>
   onAssign?: (messageId: number, requestId: number) => Promise<void>
   onMoveEmail?: (message: VendorMessage) => void; onRemoveEmail?: (message: VendorMessage) => void
+  onUntrackEmail?: (message: VendorMessage) => void
   onRateRequest?: (message: VendorMessage, value: boolean) => Promise<void>
 }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
@@ -99,6 +100,7 @@ export default function ActivityTimeline({ activity, onThread, canEdit = false, 
         {selected.requestId && onThread && <button type="button" className="qs-entry-thread" onClick={() => { setSelectedKey(null); onThread(selected.requestId!) }}>{selected.partNumber ? `${selected.partNumber} · ` : ''}{selected.threadName || 'Open RFQ'}<ArrowRight size={14} /></button>}
         {selected.type === 'email' ? <EmailMessages messages={[selected.message]} unassignedIds={unassignedIds} threads={threads} canEdit={canEdit} onAssign={onAssign} onRateRequest={onRateRequest} canRemove={canRemove} busy={busy} initiallyExpanded
           onMove={onMoveEmail ? message => { setSelectedKey(null); onMoveEmail(message) } : undefined}
+          onUntrack={onUntrackEmail ? message => { setSelectedKey(null); onUntrackEmail(message) } : undefined}
           onRemove={onRemoveEmail ? message => { setSelectedKey(null); onRemoveEmail(message) } : undefined} /> : <>
           <div className="qs-entry-author"><strong>{selected.activity.displayName || selected.activity.accountName || 'Arda'}</strong><span>{selected.activity.kind === 'note' ? 'Internal note' : 'Activity entry'}</span></div>
           <p className="qs-entry-note"><NoteText text={activityDescription(selected.activity)} /></p>

@@ -1,4 +1,4 @@
-import type { QuoteActivity, VendorActivity, VendorMessage, VendorRequest } from './types.ts'
+import type { QuoteActivity, VendorActivity, VendorDetail, VendorMessage, VendorRequest } from './types.ts'
 
 export function editableNoteId(activity: QuoteActivity | VendorActivity): string | null {
   if (activity.kind !== 'note') return null
@@ -17,6 +17,10 @@ export function activityDescription(activity: Pick<VendorActivity, 'kind' | 'tex
 export function matchingMoveThreads(message: Pick<VendorMessage, 'vendorEmail'>, threads: VendorRequest[]) {
   const email = message.vendorEmail?.trim().toLowerCase()
   return threads.filter(thread => !thread.vendorEmail || (Boolean(email) && thread.vendorEmail.trim().toLowerCase() === email))
+}
+
+export function visibleRfqThreads(threads: VendorDetail[]): VendorDetail[] {
+  return threads.filter(thread => thread.messages.length > 0 || !thread.isAutomaticCorrespondence)
 }
 
 export function nextMenuIndex(current: number, key: string, count: number) {

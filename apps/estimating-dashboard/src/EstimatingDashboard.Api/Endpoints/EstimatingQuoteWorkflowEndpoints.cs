@@ -12,6 +12,7 @@ public static class EstimatingQuoteWorkflowEndpoints
             .RequireAuthorization(EstimatingPolicies.QuotesView);
 
         workflow.MapGet("/dashboard", DashboardAsync);
+        workflow.MapGet("/performance", PerformanceAsync);
 
         workflow.MapGet("/mine", async (
             HttpContext context,
@@ -125,6 +126,25 @@ public static class EstimatingQuoteWorkflowEndpoints
         catch (EstimatingQuoteWorkflowValidationException error)
         {
             return Results.BadRequest(new ErrorDto("QuoteDashboardValidation", error.Message));
+        }
+    }
+
+    private static async Task<IResult> PerformanceAsync(HttpContext context, EstimatingQuoteWorkflowService service,
+        string? scope, string? estimator, CancellationToken cancellationToken)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        try
+        {
+            return Results.Ok(await service.GetPerformanceAsync(Access(context), scope, estimator, cancellationToken));
+        }
+        catch (EstimatingQuoteWorkflowForbiddenException)
+        {
+            return Results.Json(new ErrorDto("QuotePerformanceForbidden", "You do not have access to this performance view."),
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+        catch (EstimatingQuoteWorkflowValidationException error)
+        {
+            return Results.BadRequest(new ErrorDto("QuotePerformanceValidation", error.Message));
         }
     }
 

@@ -50,6 +50,43 @@ public sealed partial class EstimatingQuoteWorkflowServiceTests
     }
 
     [Fact]
+    public async Task Performance_uses_all_time_cohorts_and_combines_case_variants_without_placeholder_assignments()
+    {
+        await using var fixture = await Fixture.CreateAsync(DashboardNow);
+        var mine = DashboardQuote(2013, new(2026, 11, 18));
+        var dated = DashboardQuote(2014, new(2025, 4, 10), "Morgan");
+        dated.IsCompleted = true;
+        dated.EstimatingCompletionDate = new(2025, 4, 9);
+        dated.QuoteStatus = "Won";
+        dated.TotalValue = 250m;
+        var undated = DashboardQuote(2015, null, " morgan ");
+        var unassigned = DashboardQuote(2016, new(2026, 11, 18), "Unassigned");
+        var sales = DashboardQuote(2017, null, "Sales");
+        fixture.Db.AddRange(mine, dated, undated, unassigned, sales);
+        await fixture.Db.SaveChangesAsync();
+
+        var access = Editor("Casey Lee");
+        var ownPerformance = await fixture.Service.GetPerformanceAsync(access, null, null, default);
+        Assert.Equal((await Dashboard(fixture, access)).Stats, ownPerformance.Stats);
+        Assert.Equal(new[] { "CASEY LEE", "MORGAN" }, ownPerformance.Estimators.Select(option => option.Id));
+        Assert.Equal("Morgan", ownPerformance.Estimators[1].Name);
+
+        var morgan = await fixture.Service.GetPerformanceAsync(access, "all", "MORGAN", default);
+        Assert.Equal(1, morgan.Stats.ActiveCount);
+        Assert.Equal(0, morgan.Stats.OverdueCount);
+        Assert.Equal(1, morgan.Stats.CompletedCount);
+        Assert.Equal(1, morgan.Stats.WonCount);
+        Assert.Equal(250m, morgan.Stats.WonTotalValue);
+        Assert.Equal(100m, morgan.Stats.OnTimePercentage);
+
+        var all = await fixture.Service.GetPerformanceAsync(access, "all", null, default);
+        Assert.Equal(2, all.Stats.ActiveCount);
+        Assert.Equal(1, all.Stats.OverdueCount);
+        Assert.Equal(1, all.Stats.CompletedCount);
+        Assert.Equal(100m, all.Stats.OnTimePercentage);
+    }
+
+    [Fact]
     public async Task Dashboard_all_metadata_redacts_other_workflow_notes_and_returns_exact_action_capabilities()
     {
         await using var fixture = await Fixture.CreateAsync(DashboardNow);

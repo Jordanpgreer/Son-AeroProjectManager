@@ -24,10 +24,19 @@ public sealed partial class VendorQuoteService
         CancellationToken ct, int? explicitQuoteId = null, ManualQuoteEmailImportOptions? manual = null)
     {
         Guard(access, true);
+        var vendor = Email(dto.VendorEmail);
+        var mailbox = manual is null ? Email(dto.Mailbox) : "";
         if (manual is null)
         {
+            // Outlook submits one copy per correspondent. Skip only the internal
+            // copy, keeping its address in the external copy's recipient list.
+            if (IsInternalMailCorrespondent(vendor, mailbox))
+            {
+                // Existing Outlook connectors acknowledge "duplicate" without retrying.
+                return new("duplicate", null, null, "Internal correspondence was skipped by Outlook sync.");
+            }
             var normalizedSourceId = Required(dto.SourceMessageId, "Source message ID", 1024);
-            var identity = Hash(Email(dto.VendorEmail) + "\n" + normalizedSourceId);
+            var identity = Hash(vendor + "\n" + normalizedSourceId);
             var materialIdentity = MaterialDraftTracking.SentDeduplicationKey(normalizedSourceId);
             if (await db.Set<VendorQuoteMessage>().AnyAsync(x => (x.DeduplicationKey == identity || x.DeduplicationKey == materialIdentity)
                 && (x.RemovedAt != null || x.MovedAt != null), ct))
@@ -47,7 +56,6 @@ public sealed partial class VendorQuoteService
         if (!quoteId.HasValue) return new("unmatched", null, quoteNumber, "This quote is not yet in Arda. The connector can retry later.");
         var quote = await QuoteAsync(quoteId.Value, access, true, ct);
         quoteNumber = quote.QuoteNumber;
-        var vendor = Email(dto.VendorEmail);
         VendorQuoteRequest? explicitThread = null;
         if (manual?.RequestId is int threadId)
         {
@@ -72,7 +80,6 @@ public sealed partial class VendorQuoteService
                 : "This email has already been imported. No email or additional note was added.");
         }
         if (manual is not null) Version(quote.Version, manual.ExpectedVersion);
-        var mailbox = manual is null ? Email(dto.Mailbox) : "";
         var from = Email(dto.FromAddress);
         var direction = Required(dto.Direction, "Direction", 16).ToLowerInvariant();
         if (direction is not ("incoming" or "outgoing")) throw new VendorQuoteException(400, "Direction must be incoming or outgoing.");
@@ -164,6 +171,15 @@ public sealed partial class VendorQuoteService
         return new(request is null ? "unassigned" : "imported", request?.Id, quoteNumber,
             request is null ? "Email saved to this quote. Select a thread in Arda to assign it." : "Email imported into the matching quote thread.");
     }
+
+    private bool IsInternalMailCorrespondent(string vendor, string mailbox)
+    {
+        var vendorDomain = vendor[(vendor.LastIndexOf('@') + 1)..];
+        var mailboxDomain = mailbox[(mailbox.LastIndexOf('@') + 1)..];
+        return vendorDomain.Equals(mailboxDomain, StringComparison.OrdinalIgnoreCase)
+            || internalMailDomains.Any(domain => vendorDomain.Equals(domain?.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
     private static string EmailActivity(string direction, string vendor, bool manual) =>
         $"Email {(direction == "incoming" ? "received from" : "sent to")} {vendor}" + (manual ? " (imported manually)" : "");
     private static List<VendorQuoteAttachment> DecodeAttachments(IReadOnlyList<ImportVendorQuoteAttachmentDto>? inputs)

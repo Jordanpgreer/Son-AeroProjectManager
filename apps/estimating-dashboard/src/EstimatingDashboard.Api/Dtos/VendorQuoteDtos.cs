@@ -12,7 +12,7 @@ public sealed record VendorQuotePageDto(
 
 public sealed record VendorQuoteDetailDto(
     VendorQuoteSummaryDto Request, IReadOnlyList<VendorQuoteMessageDto> Messages,
-    IReadOnlyList<VendorQuoteActivityDto> Activity);
+    IReadOnlyList<VendorQuoteActivityDto> Activity, bool IsAutomaticCorrespondence = false);
 
 public sealed record VendorQuoteActivityDto(
     long Id, string Kind, string Text, string? OldValue, string? NewValue,
@@ -23,7 +23,7 @@ public sealed record VendorQuoteMessageDto(
     long Id, string Direction, string Subject, string FromAddress, string? FromName,
     IReadOnlyList<string> ToAddresses, DateTimeOffset SentAt, DateTimeOffset? ReceivedAt,
     DateTimeOffset ImportedAt, string BodyText, IReadOnlyList<VendorQuoteAttachmentDto> Attachments, string VendorEmail,
-    bool IsRateRequest = false);
+    bool IsRateRequest = false, bool IsQuoteCorrespondence = false);
 
 public sealed record VendorQuoteAttachmentDto(long Id, string FileName, string ContentType, int SizeBytes);
 public sealed record VendorQuoteOptionDto(int Id, int QuoteNumber, string Customer, string EstimatingRep);

@@ -3,6 +3,7 @@ using EstimatingDashboard.Api.Data;
 using EstimatingDashboard.Api.Dtos;
 using EstimatingDashboard.Api.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using System.Net.Mail;
 using System.Security.Cryptography;
 using System.Text;
@@ -12,8 +13,10 @@ using SonAero.Platform.Security;
 namespace EstimatingDashboard.Api.Services;
 
 public sealed partial class VendorQuoteService(EstimatingAccessDbContext db, TimeProvider clock,
-    IQuoteRfqProgression? progression = null)
+    IQuoteRfqProgression? progression = null, IOptions<QuoteMailImportOptions>? mailImportOptions = null)
 {
+    private readonly string[] internalMailDomains = mailImportOptions?.Value.InternalDomains ?? [];
+
     internal static bool Has(EstimatingAccessProfile access, string permission) => access.Permissions.Contains(permission, StringComparer.OrdinalIgnoreCase);
     internal static void Guard(EstimatingAccessProfile access, bool write = false)
     {
@@ -74,15 +77,31 @@ public sealed partial class VendorQuoteService(EstimatingAccessDbContext db, Tim
         var activity = await db.Set<VendorQuoteActivity>().AsNoTracking().Where(x => x.RequestId == id && x.RemovedAt == null).ToListAsync(ct);
         return new(Summary(request, access, messages.Count, activity.Count(x => x.Kind == "note")), messages,
             activity.OrderByDescending(x => x.OccurredAt).ThenByDescending(x => x.Id)
-                .Select(x => new VendorQuoteActivityDto(x.Id, x.Kind, x.Text, x.OldValue, x.NewValue, x.OccurredAt, x.AccountName, x.DisplayName, x.EditedAt, x.EditedBy, $"thread-{x.Id}")).ToList());
+                .Select(x => new VendorQuoteActivityDto(x.Id, x.Kind, x.Text, x.OldValue, x.NewValue, x.OccurredAt, x.AccountName, x.DisplayName, x.EditedAt, x.EditedBy, $"thread-{x.Id}")).ToList(),
+            IsCorrespondenceCandidate(request) && HasAutomaticCorrespondenceActivity(activity) && !messages.Any(x => x.IsRateRequest));
     }
+
+    // Existing Outlook-created threads use the same storage as RFQs. Any intentional RFQ activity keeps the thread visible.
+    internal static bool IsCorrespondenceCandidate(VendorQuoteRequest request)
+    {
+        var automaticTitle = $"Correspondence with {request.VendorEmail}";
+        return request.VendorEmail.Length > 0 && string.IsNullOrEmpty(request.PartNumber) && request.FollowUpDate is null
+            && request.Status == VendorQuoteStatuses.Untouched
+            && request.Title == automaticTitle[..Math.Min(240, automaticTitle.Length)];
+    }
+
+    internal static bool HasAutomaticCorrespondenceActivity(IEnumerable<VendorQuoteActivity> activity) =>
+        activity.Any(item => item.Kind == "email")
+        && activity.All(item => item.Kind == "created"
+            || item.Kind == "email" && !item.Text.Contains("(imported manually)", StringComparison.Ordinal));
     internal async Task<IReadOnlyList<VendorQuoteMessageDto>> MessagesAsync(IQueryable<VendorQuoteMessage> query, CancellationToken ct)
     {
         query = query.Where(x => x.RemovedAt == null);
         // Project attachment metadata only: opening a thread never loads every attachment BLOB.
         var messages = await query.AsNoTracking().Select(x => new VendorQuoteMessageDto(x.Id, x.Direction,
             x.Subject, x.FromAddress, x.FromName, Array.Empty<string>(), x.SentAt, x.ReceivedAt, x.ImportedAt,
-            x.BodyText, x.Attachments.Select(a => new VendorQuoteAttachmentDto(a.Id, a.FileName, a.ContentType, a.SizeBytes)).ToList(), x.VendorEmail, x.IsRateRequest)).ToListAsync(ct);
+            x.BodyText, x.Attachments.Select(a => new VendorQuoteAttachmentDto(a.Id, a.FileName, a.ContentType, a.SizeBytes)).ToList(),
+            x.VendorEmail, x.IsRateRequest, x.RequestId == null && x.MovedAt != null)).ToListAsync(ct);
         var recipients = await query.AsNoTracking().Select(x => new { x.Id, x.ToAddressesJson }).ToDictionaryAsync(x => x.Id, x => x.ToAddressesJson, ct);
         return messages.Select(x => x with { ToAddresses = JsonSerializer.Deserialize<string[]>(recipients[x.Id]) ?? [] })
             .OrderByDescending(x => x.SentAt).ThenByDescending(x => x.Id).ToList();

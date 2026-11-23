@@ -50,6 +50,7 @@ export interface VendorMessage {
   importedAt: string
   bodyText: string
   isRateRequest?: boolean
+  isQuoteCorrespondence?: boolean
   attachments: { id: number; fileName: string; contentType: string; sizeBytes: number }[]
 }
 
@@ -57,6 +58,7 @@ export interface VendorDetail {
   request: VendorRequest
   messages: VendorMessage[]
   activity: VendorActivity[]
+  isAutomaticCorrespondence?: boolean
 }
 
 export interface VendorPage {

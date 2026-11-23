@@ -2,12 +2,106 @@ using EstimatingDashboard.Api.Dtos;
 using EstimatingDashboard.Api.Models;
 using EstimatingDashboard.Api.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using MimeKit;
 using static EstimatingDashboard.Tests.VendorQuoteTestFixture;
 
 namespace EstimatingDashboard.Tests;
 
 public sealed class VendorQuoteImportTests
 {
+    [Theory]
+    [InlineData("incoming")]
+    [InlineData("outgoing")]
+    public async Task Internal_only_Outlook_mail_is_acknowledged_without_tracking(string direction)
+    {
+        await using var f = await CreateAsync();
+        const string colleague = "colleague@COMPANY.EXAMPLE";
+        var message = Message() with
+        {
+            Direction = direction,
+            FromAddress = direction == "incoming" ? colleague : "casey@company.example",
+            ToAddresses = [direction == "incoming" ? "casey@company.example" : colleague],
+            VendorEmail = colleague
+        };
+
+        var result = await f.Vendors.ImportAsync(message, Editor, default);
+
+        Assert.Equal("duplicate", result.Outcome);
+        Assert.Contains("Internal correspondence", result.Message);
+        Assert.Null(result.RequestId);
+        Assert.Empty(await f.Db.Set<VendorQuoteMessage>().ToListAsync());
+        Assert.Empty(await f.Db.Set<VendorQuoteRequest>().ToListAsync());
+        Assert.Empty(await f.Db.Set<QuoteStatusActivity>().ToListAsync());
+    }
+
+    [Fact]
+    public async Task Outlook_send_to_supplier_and_colleague_tracks_only_the_supplier()
+    {
+        await using var f = await CreateAsync();
+        const string colleague = "colleague@company.example";
+        const string supplier = "sales@company.example.vendor.example";
+        var knownThread = await f.ThreadAsync(email: supplier);
+        var message = Message() with
+        {
+            Direction = "outgoing",
+            FromAddress = "casey@company.example",
+            ToAddresses = [colleague, supplier],
+            VendorEmail = colleague
+        };
+
+        Assert.Equal("duplicate", (await f.Vendors.ImportAsync(message, Editor, default)).Outcome);
+        var result = await f.Vendors.ImportAsync(message with { VendorEmail = supplier }, Editor, default);
+
+        Assert.Equal("imported", result.Outcome);
+        Assert.Equal(knownThread.Request.Id, result.RequestId);
+        var saved = Assert.Single(await f.Db.Set<VendorQuoteMessage>().ToListAsync());
+        Assert.Equal(supplier, saved.VendorEmail);
+        Assert.Contains(colleague, saved.ToAddressesJson);
+        Assert.Single(await f.Db.Set<VendorQuoteRequest>().ToListAsync());
+    }
+
+    [Fact]
+    public async Task Configured_company_alias_is_internal_even_when_the_mailbox_domain_differs()
+    {
+        await using var f = await CreateAsync();
+        var vendorService = new VendorQuoteService(f.Db, TimeProvider.System,
+            mailImportOptions: Options.Create(new QuoteMailImportOptions { InternalDomains = [" corp.example "] }));
+
+        var result = await vendorService.ImportAsync(Message() with
+        {
+            FromAddress = "colleague@CORP.EXAMPLE",
+            VendorEmail = "colleague@CORP.EXAMPLE"
+        }, Editor, default);
+
+        Assert.Equal("duplicate", result.Outcome);
+        Assert.Empty(await f.Db.Set<VendorQuoteMessage>().ToListAsync());
+        Assert.Empty(await f.Db.Set<VendorQuoteRequest>().ToListAsync());
+    }
+
+    [Fact]
+    public async Task User_can_still_attach_internal_email_to_the_quote_deliberately()
+    {
+        await using var f = await CreateAsync();
+        using var mail = new MimeMessage
+        {
+            Subject = "Quote 4445",
+            Date = Now,
+            Body = new TextPart("plain") { Text = "Internal planning note." }
+        };
+        mail.From.Add(MailboxAddress.Parse("colleague@company.example"));
+        mail.To.Add(MailboxAddress.Parse("casey@company.example"));
+        using var bytes = new MemoryStream();
+        mail.WriteTo(bytes);
+
+        var result = await f.Vendors.ImportEmailAsync(f.QuoteId(), "email.eml", bytes.ToArray(),
+            new(0, null, "incoming"), Editor, default);
+
+        Assert.Equal("unassigned", result.Outcome);
+        Assert.Single(await f.Db.Set<VendorQuoteMessage>().ToListAsync());
+        Assert.Empty(await f.Db.Set<VendorQuoteRequest>().ToListAsync());
+    }
+
     [Fact]
     public async Task Import_is_idempotent_across_mailboxes_and_does_not_reset_notes_or_status()
     {
