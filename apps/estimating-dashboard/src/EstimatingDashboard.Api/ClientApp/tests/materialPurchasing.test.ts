@@ -98,23 +98,28 @@ test('an expired session or unexpected HTML response never becomes an email down
   } finally { globalThis.fetch = original }
 })
 
-test('quoted quantity edits use lowest and largest tiers while preserving other confirmed parts', () => {
+test('quoted quantity edits retain every distinct tier while preserving other confirmed parts', () => {
   const drafts = materialQuantityDrafts([
     { lineId: 'a', itemId: 'first', partNumber: 'PART-A', revision: null, quantities: [2000, 500, 1000], quantitiesOverridden: false },
     { lineId: 'b', itemId: 'second', partNumber: 'PART-B', revision: null, quantities: [750], quantitiesOverridden: true },
+    { lineId: 'c', itemId: 'first', partNumber: 'PART-A', revision: null, quantities: [1500, 500], quantitiesOverridden: false },
   ])
-  assert.deepEqual(drafts.map(({ minimum, maximum }) => ({ minimum, maximum })), [{ minimum: '500', maximum: '2000' }, { minimum: '750', maximum: '' }])
-  assert.deepEqual(materialQuantityOverrides([{ ...drafts[0], minimum: '1000' }, drafts[1]]), [
-    { itemId: 'first', minimum: 1000, maximum: 2000 }, { itemId: 'second', minimum: 750, maximum: null },
+  assert.deepEqual(drafts.map(({ tiers }) => tiers), ['500, 1000, 1500, 2000', '750'])
+  assert.deepEqual(materialQuantityOverrides([{ ...drafts[0], tiers: ' 500, .5, 200, 200 ' }, drafts[1]]), [
+    { itemId: 'first', minimum: 0.5, maximum: 500, tiers: [0.5, 200, 500] },
+    { itemId: 'second', minimum: 750, maximum: null },
   ])
 })
 
-test('missing quantities remain empty and invalid or reversed quantities prevent save', () => {
+test('missing quantities stay empty and invalid or oversized tier edits prevent save', () => {
   const [draft] = materialQuantityDrafts([{ lineId: 'a', itemId: 'first', partNumber: 'PART-A', revision: null, quantities: [], quantitiesOverridden: false }])
-  assert.equal(draft.minimum, '')
-  for (const minimum of ['', '0', '-1', 'NaN', 'Infinity']) assert.throws(() => materialQuantityOverrides([{ ...draft, minimum }]), /positive quantity/)
-  assert.throws(() => materialQuantityOverrides([{ ...draft, minimum: '1000', maximum: '500' }]), /largest quantity/)
-  assert.deepEqual(materialQuantityOverrides([{ ...draft, minimum: '1000', maximum: '1000' }]), [{ itemId: 'first', minimum: 1000, maximum: null }])
+  assert.equal(draft.tiers, '')
+  for (const tiers of ['', '0', '-1', 'NaN', 'Infinity', '5,', '0x10', '1000000001']) {
+    assert.throws(() => materialQuantityOverrides([{ ...draft, tiers }]), /positive quantities/)
+  }
+  assert.throws(() => materialQuantityOverrides([{ ...draft, tiers: Array.from({ length: 201 }, (_, i) => i + 1).join(',') }]), /at most 200/)
+  assert.deepEqual(materialQuantityOverrides([{ ...draft, tiers: '1000, 500' }]), [{ itemId: 'first', minimum: 500, maximum: 1000 }])
+  assert.deepEqual(materialQuantityOverrides([{ ...draft, tiers: '1000, 1000' }]), [{ itemId: 'first', minimum: 1000, maximum: null }])
 })
 
 test('quantity updates use an explicit concurrency version and reset sends no overrides', async () => {
@@ -122,13 +127,13 @@ test('quantity updates use an explicit concurrency version and reset sends no ov
   const calls: { path: string; init?: RequestInit }[] = []
   globalThis.fetch = async (path, init) => { calls.push({ path: String(path), init }); return Response.json({ quoteHistoryId: 17, quantityVersion: 8, materials: [] }) }
   try {
-    await saveMaterialQuantities(17, 7, [{ itemId: 'part-1', minimum: 500, maximum: 1000 }])
+    await saveMaterialQuantities(17, 7, [{ itemId: 'part-1', minimum: 500, maximum: 1000, tiers: [500, 750, 1000] }])
     await saveMaterialQuantities(17, 8, [])
     assert.equal(calls[0].path, '/api/quote-status/17/materials/quantities')
     assert.equal(calls[0].init?.method, 'PUT')
     assert.equal(calls[0].init?.credentials, 'include')
     assert.equal(new Headers(calls[0].init?.headers).get('Content-Type'), 'application/json')
-    assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { expectedVersion: 7, quantities: [{ itemId: 'part-1', minimum: 500, maximum: 1000 }] })
+    assert.deepEqual(JSON.parse(String(calls[0].init?.body)), { expectedVersion: 7, quantities: [{ itemId: 'part-1', minimum: 500, maximum: 1000, tiers: [500, 750, 1000] }] })
     assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { expectedVersion: 8, quantities: [] })
   } finally { globalThis.fetch = original }
 })

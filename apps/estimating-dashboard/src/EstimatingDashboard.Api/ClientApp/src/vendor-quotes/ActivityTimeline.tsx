@@ -1,6 +1,6 @@
 import { ArrowRight, ChevronDown, ChevronUp, Clock3, Mail, MessageSquare, Paperclip, Pencil, Send, Tag, Trash2 } from 'lucide-react'
-import { Fragment, useId, useLayoutEffect, useRef, useState } from 'react'
-import { dateTime, LEGACY_VENDOR_STATUSES, QUOTE_STATUSES, relativeTime, statusTone, VENDOR_STATUSES } from './model'
+import { Fragment, useId, useState } from 'react'
+import { dateTime, LEGACY_VENDOR_STATUSES, QUOTE_STATUSES, statusTone, VENDOR_STATUSES } from './model'
 import type { QuoteActivity, VendorActivity, VendorDetail, VendorMessage } from './types'
 import { activityDescription, editableNoteId } from './lifecycleModel'
 import { buildActivityTimeline, isOutgoingEmail, scopeActivityTimeline, timelineCategory, timelineInlineContent, timelineSummary } from './activityTimelineModel'
@@ -20,29 +20,8 @@ function NoteText({ text }: { text: string }) {
   })}</>
 }
 
-function InlinePreview({ text, entryLabel, onOpen }: { text: string; entryLabel: string; onOpen: () => void }) {
-  const previewRef = useRef<HTMLParagraphElement>(null)
-  const [truncated, setTruncated] = useState(false)
-  useLayoutEffect(() => {
-    const preview = previewRef.current
-    if (!preview) return
-    let active = true
-    const measure = () => { if (active) setTruncated(preview.scrollHeight > preview.clientHeight + 1 || preview.scrollWidth > preview.clientWidth + 1) }
-    measure()
-    void document.fonts?.ready.then(measure)
-    if (typeof ResizeObserver !== 'undefined') {
-      const observer = new ResizeObserver(measure)
-      observer.observe(preview)
-      return () => { active = false; observer.disconnect() }
-    }
-    window.addEventListener('resize', measure)
-    return () => { active = false; window.removeEventListener('resize', measure) }
-  }, [text])
-  return <div className="qs-timeline-preview">
-    <p ref={previewRef}><NoteText text={text} /></p>
-    {truncated && <button type="button" className="qs-timeline-detail-button" onClick={onOpen} aria-label={`View full entry: ${entryLabel}`}>View full entry</button>}
-  </div>
-}
+const RECENT_ENTRY_COUNT = 3
+const activityDateFormat = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 
 export default function ActivityTimeline({ activity, onThread, canEdit = false, canRemove = false, busy = false, onEdit, onRemove,
   messages = [], threads = [], requestId = null, unassignedIds = new Set<number>(), onAssign, onMoveEmail, onRemoveEmail, onUntrackEmail, onRateRequest }: {
@@ -58,43 +37,42 @@ export default function ActivityTimeline({ activity, onThread, canEdit = false, 
 }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
-  const timelineId = useId()
+  const olderActivityId = useId()
   const entries = scopeActivityTimeline(buildActivityTimeline(activity, messages, threads), requestId)
-  const visibleEntries = expanded ? entries : entries.slice(0, 5)
+  const visibleEntries = expanded ? entries : entries.slice(0, RECENT_ENTRY_COUNT)
   const selected = entries.find(entry => entry.key === selectedKey)
   if (!entries.length) return <div className="qs-timeline-empty"><Clock3 size={24} /><div><strong>{requestId === null ? 'No activity yet' : 'No activity in this RFQ yet'}</strong><p>{requestId === null ? 'Use Add Entry to start the record.' : 'Updates and emails assigned to this RFQ will appear here.'}</p></div></div>
-  return <>
-    <ol id={timelineId} className="qs-activity-timeline" aria-label="Activity timeline">{visibleEntries.map(entry => {
+  const rows = visibleEntries.map(entry => {
       const item = entry.type === 'activity' ? entry.activity : null
       const email = entry.type === 'email' ? entry.message : null
       const outgoing = email && isOutgoingEmail(email)
       const Icon = email ? outgoing ? Send : Mail : item?.kind.includes('note') ? MessageSquare : Clock3
       const author = email ? email.fromName || email.fromAddress : item!.displayName || item!.accountName || 'Arda'
-      const summary = email ? email.subject || 'No subject' : timelineSummary(item!)
-      const inlineContent = email ? email.bodyText.trim() : timelineInlineContent(item!)
-      const openDetails = () => setSelectedKey(entry.key)
+      const summary = email ? email.subject || 'No subject' : timelineInlineContent(item!) || timelineSummary(item!)
+      const timestamp = Date.parse(entry.occurredAt)
       const editable = !email && canEdit && !!onEdit && !!editableNoteId(item!)
       const removable = email ? canRemove && !!onRemoveEmail : canRemove && !!onRemove && !!editableNoteId(item!)
-      return <li key={entry.key} className={`qs-timeline-entry${email ? ' is-email' : item?.kind.includes('note') ? ' is-note' : ' is-status'}`}>
-        <span className={`qs-timeline-icon${email ? ' is-email' : ''}`}><Icon size={15} /></span>
-        <div className="qs-timeline-body">
+      return <li key={entry.key} className="qs-timeline-entry">
+        <button type="button" className="qs-timeline-summary" onClick={() => setSelectedKey(entry.key)} aria-haspopup="dialog">
+          <Icon size={15} aria-hidden="true" />
           <span className="qs-timeline-category">{timelineCategory(entry)}</span>
-          <span className="qs-timeline-summary"><strong>{author}</strong><span> — {summary}</span></span>
-          {inlineContent && <InlinePreview text={inlineContent} entryLabel={`${author} — ${summary}`} onOpen={openDetails} />}
-          <span className="qs-timeline-meta"><time dateTime={entry.occurredAt} title={dateTime(entry.occurredAt)}>{relativeTime(entry.occurredAt)}</time>{entry.threadName && <span>{entry.partNumber ? `${entry.partNumber} · ` : ''}{entry.threadName}</span>}{outgoing && email?.isRateRequest && <span className="qs-rate-request-badge"><Tag size={11} />Rates requested</span>}</span>
-          {email && <div className="qs-timeline-affordances">
-            {email.attachments.length > 0
-              ? <button type="button" className="qs-timeline-attachment-button" onClick={openDetails} aria-label={`View ${email.attachments.length} attachment${email.attachments.length === 1 ? '' : 's'} for ${email.subject || 'email'}`}><Paperclip size={12} />{email.attachments.length} attachment{email.attachments.length === 1 ? '' : 's'}</button>
-              : <button type="button" className="qs-timeline-detail-button" onClick={openDetails} aria-label={`View email details: ${email.subject || 'No subject'}`}>View email</button>}
-          </div>}
-        </div>
+          <span className="qs-timeline-description"><strong>{summary}</strong>{author && <span> · {author}</span>}{entry.threadName && <span> · {entry.partNumber ? `${entry.partNumber} · ` : ''}{entry.threadName}</span>}</span>
+          {outgoing && email?.isRateRequest && <span className="qs-timeline-indicator" title="Rates requested"><Tag size={12} aria-hidden="true" /><span className="qs-timeline-sr-only">Rates requested</span></span>}
+          {!!email?.attachments.length && <span className="qs-timeline-indicator" title={`${email.attachments.length} attachment${email.attachments.length === 1 ? '' : 's'}`}><Paperclip size={12} aria-hidden="true" />{email.attachments.length}<span className="qs-timeline-sr-only"> attachment{email.attachments.length === 1 ? '' : 's'}</span></span>}
+        </button>
+        <time className="qs-timeline-date" dateTime={entry.occurredAt} title={dateTime(entry.occurredAt)}>{Number.isFinite(timestamp) ? activityDateFormat.format(timestamp) : 'Not recorded'}</time>
         <div className="qs-timeline-actions">
           {editable && <button type="button" className="vq-icon-button qs-timeline-edit" aria-label={`Edit note by ${author}`} title="Edit note" disabled={busy} onClick={() => onEdit?.(item!)}><Pencil size={15} /></button>}
           {removable && <button type="button" className="vq-icon-button qs-timeline-delete" aria-label={`Remove ${email ? 'email' : 'note'}: ${email?.subject || author}`} title={`Remove ${email ? 'email' : 'note'}`} disabled={busy} onClick={() => email ? onRemoveEmail?.(email) : onRemove?.(item!)}><Trash2 size={15} /></button>}
         </div>
       </li>
-    })}</ol>
-    {entries.length > 5 && <footer className="qs-timeline-pagination"><span aria-live="polite">Showing {visibleEntries.length} of {entries.length} entries</span><button type="button" className="qs-text-button" aria-expanded={expanded} aria-controls={timelineId} onClick={() => setExpanded(value => !value)}>{expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}{expanded ? 'Show less' : `Show all ${entries.length} entries`}</button></footer>}
+  })
+  return <>
+    <ol className="qs-activity-timeline" aria-label="Recent activity">{rows.slice(0, RECENT_ENTRY_COUNT)}</ol>
+    {entries.length > RECENT_ENTRY_COUNT && <>
+      <div className="qs-timeline-pagination"><button type="button" className="qs-text-button" aria-expanded={expanded} aria-controls={olderActivityId} onClick={() => setExpanded(value => !value)}>{expanded ? 'Show recent activity' : 'Show older activity'}{expanded ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}</button></div>
+      <ol id={olderActivityId} className="qs-activity-timeline" aria-label="Older activity" start={RECENT_ENTRY_COUNT + 1} hidden={!expanded}>{rows.slice(RECENT_ENTRY_COUNT)}</ol>
+    </>}
     {selected && <Modal title="Entry Details" subtitle={dateTime(selected.occurredAt)} onClose={() => setSelectedKey(null)} wide={selected.type === 'email'}>
       <div className="qs-entry-details">
         {selected.requestId && onThread && <button type="button" className="qs-entry-thread" onClick={() => { setSelectedKey(null); onThread(selected.requestId!) }}>{selected.partNumber ? `${selected.partNumber} · ` : ''}{selected.threadName || 'Open RFQ'}<ArrowRight size={14} /></button>}

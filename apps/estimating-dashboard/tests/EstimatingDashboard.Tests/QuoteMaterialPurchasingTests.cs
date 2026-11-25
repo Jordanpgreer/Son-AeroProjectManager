@@ -146,6 +146,43 @@ public sealed class QuoteMaterialPurchasingTests
     }
 
     [Fact]
+    public async Task Confirmed_tiers_round_trip_through_shared_storage_and_reach_the_op_draft()
+    {
+        await using var fixture = await VendorQuoteTestFixture.CreateAsync();
+        var id = fixture.QuoteId();
+        var provider = new Reader();
+        var service = new QuoteMaterialPurchasingService(fixture.Db, fixture.Vendors, provider, TimeProvider.System);
+        var saved = await service.SaveQuantitiesAsync(id,
+            new(0, [new("top-item", 100, 500, [500, 200, 100, 200])]), VendorQuoteTestFixture.Editor, default);
+        Assert.Equal(new decimal[] { 100, 200, 500 }, Assert.Single(saved.Parts).Quantities);
+
+        fixture.Db.ChangeTracker.Clear();
+        var reloaded = await service.ReadAsync(id, VendorQuoteTestFixture.Editor, default);
+        Assert.Equal(new decimal[] { 100, 200, 500 }, Assert.Single(reloaded.Parts).Quantities);
+
+        var op = new QuoteOutsideProcessingService(fixture.Db, fixture.Vendors, new SubassemblyOpReader(), TimeProvider.System);
+        var review = await op.ReadAsync(id, VendorQuoteTestFixture.Editor, default);
+        var operation = Assert.Single(review.Operations);
+        Assert.Equal(new decimal[] { 50, 100, 250 }, operation.QuoteQuantities);
+        var draft = await op.DraftAsync(id, operation.OperationKey, VendorQuoteTestFixture.Editor, default);
+        Assert.Contains("Quantity: 50 / 100 / 250", draft.PlainText);
+    }
+
+    private sealed class SubassemblyOpReader : IFulcrumOutsideProcessingReader
+    {
+        public Task<OutsideProcessingRequirementsDto> InspectAsync(int historyId, int quoteNumber, string sourceId,
+            IReadOnlyDictionary<string, IReadOnlyList<decimal>> quantities, CancellationToken ct)
+        {
+            var tiers = quantities["top-item"].Select(quantity => quantity * .5m).ToArray();
+            var operation = new OutsideProcessingOperationDto(new string('a', 64), "child", "op-1",
+                "SUBASSEMBLY", "Finish", null, tiers[0], tiers[^1], tiers, "needs-rfq", "vendor-1",
+                "Finish Shop", ["op@example.test"], []);
+            return Task.FromResult(new OutsideProcessingRequirementsDto(historyId, quoteNumber, VendorQuoteTestFixture.Now,
+                [operation], [], PurchasingPlanningSources.Fulcrum));
+        }
+    }
+
+    [Fact]
     public async Task Preview_and_invalid_quantities_cannot_write_or_call_fulcrum()
     {
         await using var fixture = await VendorQuoteTestFixture.CreateAsync();
@@ -155,7 +192,11 @@ public sealed class QuoteMaterialPurchasingTests
         Assert.Equal(403, (await Assert.ThrowsAsync<VendorQuoteException>(() => service.DraftAsync(fixture.QuoteId(), "material-1", preview, default))).StatusCode);
         Assert.Equal(403, (await Assert.ThrowsAsync<VendorQuoteException>(() => service.SaveQuantitiesAsync(fixture.QuoteId(), new(0, []), preview, default))).StatusCode);
         foreach (var values in new IReadOnlyList<MaterialQuantitySelectionDto>[] {
-            [new("top-item", 0)], [new("top-item", 2, 1)], [new("top-item", 1), new("top-item", 2)] })
+            [new("top-item", 0)], [new("top-item", 2, 1)], [new("top-item", 1), new("top-item", 2)],
+            [new("top-item", 1, 10, [])], [new("top-item", 1, 10, [1, 0, 10])],
+            [new("top-item", 1, 10, [1, 3, 11])],
+            [new("top-item", 1, 201, Enumerable.Range(1, 201).Select(quantity => (decimal)quantity).ToArray())],
+            [new("top-item", 1, 10, [1, 10, 1_000_000_001m])] })
             Assert.Equal(400, (await Assert.ThrowsAsync<VendorQuoteException>(() => service.SaveQuantitiesAsync(fixture.QuoteId(), new(0, values), VendorQuoteTestFixture.Editor, default))).StatusCode);
         Assert.Equal(0, provider.Calls);
     }

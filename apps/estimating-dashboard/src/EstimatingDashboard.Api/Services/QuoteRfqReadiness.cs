@@ -10,6 +10,9 @@ internal static class QuoteRfqReadiness
     {
         requiredCount = 0;
         if (inspection.PlanningSource != PurchasingPlanningSources.Fulcrum) return false;
+        // Unconfirmed quantities or stale selections cannot prove coverage for every quoted tier,
+        // even when the base line quantity looks stock-covered or has a recent purchase order.
+        if (inspection.Warnings.Count > 0) return false;
         if (inspection.Materials.Any(material => material.Status == "review-required"
             || material.Status is not ("needs-rfq" or "recent-po" or "stock-covered"))) return false;
         var quantityFingerprint = MaterialDraftTracking.QuantitiesFingerprint(state);
@@ -30,8 +33,7 @@ internal static class QuoteRfqReadiness
     {
         requiredCount = 0;
         if (inspection.PlanningSource != PurchasingPlanningSources.Fulcrum) return false;
-        if (inspection.Operations.Any(operation => operation.Status != "needs-rfq")
-            || inspection.Warnings.Any(warning => !warning.Contains("Pricing-panel breaks", StringComparison.OrdinalIgnoreCase)))
+        if (inspection.Operations.Any(operation => operation.Status != "needs-rfq") || inspection.Warnings.Count > 0)
             return false;
         var quantityFingerprint = MaterialDraftTracking.QuantitiesFingerprint(state);
         foreach (var operation in inspection.Operations)

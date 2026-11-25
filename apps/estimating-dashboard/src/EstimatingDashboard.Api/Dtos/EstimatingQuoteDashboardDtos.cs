@@ -1,7 +1,8 @@
 namespace EstimatingDashboard.Api.Dtos;
 
 public sealed record EstimatingQuoteDashboardDto(IReadOnlyList<EstimatingPersonalQuoteDto> Records,
-    int Total, int Page, int PageSize, EstimatingQuoteDashboardStatsDto Stats);
+    int Total, int Page, int PageSize, EstimatingQuoteDashboardStatsDto Stats,
+    IReadOnlyList<EstimatingPerformanceEstimatorDto> Estimators);
 
 public sealed record EstimatingQuotePerformanceDto(EstimatingQuoteDashboardStatsDto Stats,
     IReadOnlyList<EstimatingPerformanceEstimatorDto> Estimators);

@@ -1,6 +1,10 @@
 import type { MaterialQuantityOverride, MaterialQuotePart } from './materialPurchasingTypes.ts'
 
-export interface MaterialQuantityDraft { itemId: string; partNumber: string; minimum: string; maximum: string }
+export interface MaterialQuantityDraft { itemId: string; partNumber: string; tiers: string }
+
+const MAX_QUANTITY = 1_000_000_000
+const MAX_TIERS = 200
+const DECIMAL_QUANTITY = /^(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i
 
 export function materialQuantityDrafts(parts: MaterialQuotePart[]): MaterialQuantityDraft[] {
   const grouped = new Map<string, { partNumber: string; quantities: number[] }>()
@@ -8,20 +12,25 @@ export function materialQuantityDrafts(parts: MaterialQuotePart[]): MaterialQuan
     const existing = grouped.get(part.itemId)
     grouped.set(part.itemId, { partNumber: part.partNumber, quantities: [...existing?.quantities ?? [], ...part.quantities].filter(value => Number.isFinite(value) && value > 0) })
   }
-  return [...grouped].map(([itemId, part]) => {
-    const minimum = part.quantities.length ? Math.min(...part.quantities) : null
-    const maximum = part.quantities.length ? Math.max(...part.quantities) : null
-    return { itemId, partNumber: part.partNumber, minimum: minimum?.toString() ?? '', maximum: maximum !== minimum ? maximum?.toString() ?? '' : '' }
-  })
+  return [...grouped].map(([itemId, part]) => ({
+    itemId, partNumber: part.partNumber, tiers: [...new Set(part.quantities)].sort((a, b) => a - b).join(', '),
+  }))
 }
 
 export function materialQuantityOverrides(drafts: MaterialQuantityDraft[]): MaterialQuantityOverride[] {
   return drafts.map(draft => {
-    const minimum = Number(draft.minimum.trim())
-    const maximum = draft.maximum.trim() ? Number(draft.maximum.trim()) : null
-    if (!draft.minimum.trim() || !Number.isFinite(minimum) || minimum <= 0 || (maximum !== null && (!Number.isFinite(maximum) || maximum < minimum))) {
-      throw new Error(`Enter a positive quantity for ${draft.partNumber}; the largest quantity must be at least the lowest.`)
+    const entries = draft.tiers.split(',').map(entry => entry.trim())
+    if (entries.length > MAX_TIERS) {
+      throw new Error(`Enter at most ${MAX_TIERS} quantity tiers for ${draft.partNumber}.`)
     }
-    return { itemId: draft.itemId, minimum, maximum: maximum === minimum ? null : maximum }
+    const parsed = entries.map(Number)
+    if (entries.some((entry, index) => !DECIMAL_QUANTITY.test(entry) || !(parsed[index] > 0 && parsed[index] <= MAX_QUANTITY))) {
+      throw new Error(`Enter positive quantities up to 1,000,000,000 for ${draft.partNumber}. Separate tiers with commas.`)
+    }
+    const tiers = [...new Set(parsed)].sort((a, b) => a - b)
+    return {
+      itemId: draft.itemId, minimum: tiers[0], maximum: tiers.length > 1 ? tiers[tiers.length - 1] : null,
+      ...(tiers.length > 2 && { tiers }),
+    }
   })
 }

@@ -28,6 +28,7 @@ export interface OutsideProcessingRequirements {
   checkedAt: string
   operations: OutsideProcessingOperation[]
   warnings: string[]
+  quantityWarnings?: string[] | null
   planningSource?: PlanningSource
 }
 

@@ -81,6 +81,27 @@ public sealed class FulcrumMaterialRequirementsTests
     }
 
     [Fact]
+    public async Task Quote_editor_sees_explicit_and_confirmed_tiers_while_material_pricing_uses_bounds()
+    {
+        using var fixture = new Fixture();
+        fixture.Handler.Lines = [new { id = "line", itemId = "top", quantity = 1000,
+            priceBreaks = new[] { new { quantity = 1500 }, new { quantity = 2000 } } }];
+        var initial = await fixture.Service.InspectAsync(7, 123, "quote", default);
+        Assert.Equal(new decimal[] { 1000, 1500, 2000 }, Assert.Single(initial.Parts).Quantities);
+        Assert.Equal(new decimal[] { 15, 22.5m }, Assert.Single(initial.Materials).QuoteQuantities);
+
+        var legacy = await fixture.Service.InspectAsync(7, 123, "quote", default,
+            new Dictionary<string, IReadOnlyList<decimal>> { ["top"] = [1000, 2000] });
+        Assert.Equal(new decimal[] { 1000, 1500, 2000 }, Assert.Single(legacy.Parts).Quantities);
+        Assert.Equal(new decimal[] { 15, 20 }, Assert.Single(legacy.Materials).QuoteQuantities);
+
+        var confirmed = await fixture.Service.InspectAsync(7, 123, "quote", default,
+            new Dictionary<string, IReadOnlyList<decimal>> { ["top"] = [1000, 1250, 2000] });
+        Assert.Equal(new decimal[] { 1000, 1250, 2000 }, Assert.Single(confirmed.Parts).Quantities);
+        Assert.Equal(new decimal[] { 15, 20 }, Assert.Single(confirmed.Materials).QuoteQuantities);
+    }
+
+    [Fact]
     public async Task Shared_material_across_distinct_parts_is_aggregated_before_stock_comparison()
     {
         using var fixture = new Fixture();
@@ -116,11 +137,11 @@ public sealed class FulcrumMaterialRequirementsTests
     }
 
     [Fact]
-    public async Task Unconfirmed_material_quantities_keep_the_pricing_panel_caution()
+    public async Task Unconfirmed_material_quantities_require_confirmation_of_every_tier()
     {
         using var fixture = new Fixture();
         var result = await fixture.Service.InspectAsync(7, 123, "quote", default);
-        Assert.Contains("Pricing-panel", Assert.Single(result.Warnings));
+        Assert.Contains("every quantity tier", Assert.Single(result.Warnings));
     }
 
     [Theory]

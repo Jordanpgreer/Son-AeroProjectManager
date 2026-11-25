@@ -11,11 +11,16 @@ export interface DashboardStats extends PersonalQuoteStats {
   activeCount: number; overdueCount: number
   onTimeCount: number; onTimeSampleSize: number; onTimePercentage: number | null; onTimeMissingCount: number
 }
+export interface DashboardEstimator {
+  id: string
+  name: string
+}
 export interface DashboardQuery {
-  scope: DashboardScope; from?: string; to?: string; search: string; status: DashboardStatus; page: number; pageSize: number
+  scope: DashboardScope; estimator?: string; from?: string; to?: string; search: string; status: DashboardStatus; page: number; pageSize: number
 }
 export interface QuoteDashboardResponse {
   records: DashboardQuote[]; total: number; page: number; pageSize: number; stats: DashboardStats
+  estimators?: DashboardEstimator[]
 }
 
 export function dashboardLastPage(total: number, pageSize: number) {
@@ -24,6 +29,7 @@ export function dashboardLastPage(total: number, pageSize: number) {
 
 export function dashboardQueryString(query: DashboardQuery) {
   const params = new URLSearchParams({ scope: query.scope, status: query.status, page: String(query.page), pageSize: String(query.pageSize) })
+  if (query.scope === 'all' && query.estimator) params.set('estimator', query.estimator)
   if (query.from && query.to) { params.set('from', query.from); params.set('to', query.to) }
   if (query.search.trim()) params.set('search', query.search.trim())
   return params.toString()

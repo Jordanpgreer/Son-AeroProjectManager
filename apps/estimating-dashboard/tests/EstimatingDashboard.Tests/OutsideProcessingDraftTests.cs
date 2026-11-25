@@ -29,6 +29,23 @@ public sealed class OutsideProcessingDraftTests
     }
 
     [Fact]
+    public void Draft_requests_every_calculated_tier()
+    {
+        var operation = Operation(new string('b', 64), "op-1", "Heat Treat") with
+        {
+            RequiredMinimum = 50,
+            RequiredMaximum = 250,
+            QuoteQuantities = [50, 100, 250]
+        };
+
+        var file = OutsideProcessingRfqDraft.Create(4445, operation, new string('a', 32));
+        using var message = MimeMessage.Load(new MemoryStream(file.Content));
+
+        Assert.Contains("Quantity: 50 / 100 / 250", message.TextBody);
+        Assert.Contains("Quantity: 50 / 100 / 250", message.HtmlBody);
+    }
+
+    [Fact]
     public async Task Each_op_gets_a_distinct_untouched_thread_and_persisted_tracking_link()
     {
         await using var fixture = await VendorQuoteTestFixture.CreateAsync();
@@ -68,6 +85,30 @@ public sealed class OutsideProcessingDraftTests
     }
 
     [Fact]
+    public async Task Only_the_affected_op_is_blocked_when_a_part_has_unconfirmed_quantity_tiers()
+    {
+        const string quantityWarning = "PART-02: Confirm all quoted quantities before preparing this OP request.";
+        await using var fixture = await VendorQuoteTestFixture.CreateAsync();
+        var ready = Operation(new string('a', 64), "op-1", "Heat Treat");
+        var blocked = Operation(new string('b', 64), "op-2", "Coating") with {
+            PartNumber = "PART-02", Status = "review-required", Issues = [quantityWarning] };
+        var reader = new Reader([ready, blocked]) { QuantityWarnings = [quantityWarning] };
+        var service = new QuoteOutsideProcessingService(fixture.Db, fixture.Vendors, reader, new Clock());
+
+        var problem = await Assert.ThrowsAsync<VendorQuoteException>(() => service.DraftAsync(
+            fixture.QuoteId(), blocked.OperationKey, VendorQuoteTestFixture.Editor, default));
+        Assert.Equal(409, problem.StatusCode);
+        Assert.Equal(quantityWarning, problem.Message);
+        Assert.Empty(await fixture.Db.Set<VendorQuoteRequest>().ToListAsync());
+
+        var draft = await service.DraftAsync(fixture.QuoteId(), ready.OperationKey, VendorQuoteTestFixture.Editor, default);
+        using var message = MimeMessage.Load(new MemoryStream(draft.Content));
+        Assert.Equal("Quote 4445 - PART-01", message.Subject);
+        Assert.Single(await fixture.Db.Set<VendorQuoteRequest>().ToListAsync());
+        Assert.Empty(await fixture.Db.Set<VendorQuoteMessage>().ToListAsync());
+    }
+
+    [Fact]
     public async Task Op_link_is_preserved_by_material_read_and_does_not_become_a_material()
     {
         await using var fixture = await VendorQuoteTestFixture.CreateAsync();
@@ -84,10 +125,11 @@ public sealed class OutsideProcessingDraftTests
     {
         public IReadOnlyList<OutsideProcessingOperationDto> Operations { get; set; } = operations;
         public IReadOnlyList<string> Warnings { get; set; } = [];
+        public IReadOnlyList<string>? QuantityWarnings { get; set; }
         public Task<OutsideProcessingRequirementsDto> InspectAsync(int historyId, int quoteNumber, string sourceId,
             IReadOnlyDictionary<string, IReadOnlyList<decimal>> quantities, CancellationToken ct) =>
             Task.FromResult(new OutsideProcessingRequirementsDto(historyId, quoteNumber,
-                VendorQuoteTestFixture.Now, Operations, Warnings, PurchasingPlanningSources.Fulcrum));
+                VendorQuoteTestFixture.Now, Operations, Warnings, PurchasingPlanningSources.Fulcrum, QuantityWarnings));
     }
 
     private sealed class MaterialReader : IFulcrumMaterialRequirementsReader

@@ -51,10 +51,96 @@
 }
 
 .qp-period {
-  color: var(--muted);
-  font-size: 15px;
-  white-space: nowrap;
+  position: relative;
+  flex: none;
+  text-align: end;
 }
+
+.qp-period-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--steel-700);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 680;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.qp-period-trigger:hover, .qp-period-trigger[aria-expanded='true'] {
+  border-color: var(--steel);
+  background: var(--steel-tint);
+}
+
+.qp-period-description {
+  max-width: 32ch;
+  margin: 6px 0 0 auto;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.qp-period-picker {
+  position: absolute;
+  z-index: 5;
+  inset-block-start: calc(42px + 7px);
+  inset-inline-end: 0;
+  width: min(280px, 92cqi);
+  padding: 13px;
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+  text-align: start;
+}
+
+.qp-period-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.qp-period-fields label {
+  display: grid;
+  gap: 5px;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 630;
+}
+
+.qp-period-fields :is(select, input) {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 6px 8px;
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 400;
+}
+
+.qp-period-fields input:focus-visible {
+  outline: 2px solid var(--steel);
+  outline-offset: 3px;
+}
+
+.qp-period-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 13px;
+}
+
+.qp-period-actions .qp-period-apply { color: #fff; background: var(--steel-action); }
+.qp-period-actions .qp-period-apply:hover { background: var(--steel-action-hover); }
 
 .qp-state {
   margin: 0;
@@ -258,7 +344,7 @@
 }
 
 @container quotes-performance (min-width: 1200px) {
-  .qp-period, .qp-metrics dt, .qp-legend, .qp-outcome, .qp-values dt { font-size: 17px; }
+  .qp-metrics dt, .qp-legend, .qp-outcome, .qp-values dt { font-size: 17px; }
   .qp-note, .qp-chart-subtitle { font-size: 15px; }
 }
 
@@ -268,6 +354,11 @@
 }
 
 @container quotes-performance (max-width: 420px) {
+  .qp-header { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .qp-estimator { max-width: 100%; }
+  .qp-period { text-align: start; }
+  .qp-period-description { margin-inline-start: 0; }
+  .qp-period-picker { inset-inline: 0 auto; }
   .qp-metrics { grid-template-columns: minmax(0, 1fr); row-gap: 10px; }
   .qp-metrics > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0; }
   .qp-metrics > div + div { padding-top: 8px; border-inline-start: none; border-top: 1px solid var(--line); }

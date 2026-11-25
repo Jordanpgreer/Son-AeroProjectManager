@@ -37,29 +37,81 @@
 .qd-search button { display: grid; place-items: center; padding: 5px; color: var(--muted); background: transparent; border: 0; border-radius: 5px; cursor: pointer; }
 .qd-result-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 9px 16px; }
 .qd-result-tools p { margin: 0; color: var(--muted); font-size: 15px; }
-.qd-filter { position: relative; display: inline-flex; max-width: 100%; align-items: center; color: var(--steel-700); }
-.qd-filter svg { position: absolute; pointer-events: none; }
-.qd-filter svg:first-child { left: 13px; }
-.qd-filter svg:last-child { right: 13px; }
-.qd-filter select {
-  appearance: none;
+.qd-filter-chips { display: flex; max-width: 100%; flex-wrap: wrap; gap: 8px 14px; }
+.qd-filter { position: relative; min-width: 0; max-width: 100%; }
+
+.qd-filter-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
   max-width: 100%;
-  min-height: 44px;
-  padding: 8px 36px 8px 39px;
-  border: 1px solid var(--control-line);
-  border-radius: 8px;
-  color: inherit;
+  min-height: 46px;
+  padding: 8px 14px;
+  border: 1px solid var(--line-3);
+  border-radius: 10px;
+  color: var(--muted);
   background: var(--surface);
   font: inherit;
   font-size: 15px;
+  text-align: start;
+  white-space: nowrap;
+}
+
+.qd-filter-chip svg { flex: none; color: var(--steel-700); }
+.qd-filter-chip strong {
+  overflow: hidden;
+  color: var(--steel-700);
   font-weight: 700;
   text-overflow: ellipsis;
+}
+
+button.qd-filter-chip { cursor: pointer; }
+button.qd-filter-chip:hover, button.qd-filter-chip[aria-expanded='true'] {
+  border-color: var(--steel);
+  background: var(--steel-tint);
+}
+
+.qd-filter-arrow { margin-inline-start: auto; }
+.qd-filter-menu {
+  position: absolute;
+  z-index: 10;
+  inset: calc(100% + 6px) 0 auto;
+  max-height: min(22rem, 50vh);
+  overflow: auto;
+  padding: 5px;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--ink) 13%, transparent);
+}
+
+.qd-filter-menu button {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  text-align: start;
   cursor: pointer;
 }
 
-.qd-filter select:hover { border-color: var(--steel); }
-.qd-filter option, .qd-filter optgroup { color: var(--ink); font-weight: 400; }
+.qd-filter-menu button > span { min-width: 0; overflow-wrap: anywhere; }
+.qd-filter-menu button > svg { flex: none; }
+.qd-filter-menu button[data-separator] { margin-top: 5px; border-top: 1px solid var(--line); }
+.qd-filter-menu button:hover, .qd-filter-menu button[aria-checked='true'] {
+  color: var(--steel-700);
+  background: var(--steel-tint);
+}
+.qd-dashboard .qd-filter-menu button:focus-visible { outline-offset: -2px; }
 .qd-table-card { min-width: 0; border: 1px solid var(--line-2); border-radius: 10px; background: var(--surface); overflow: hidden; }
 .qd-table-scroll { overflow-x: auto; }
 .qd-table { width: 100%; min-width: 840px; border-collapse: collapse; table-layout: auto; }
@@ -108,7 +160,11 @@
 .qd-dashboard button:focus-visible, .qd-dashboard a:focus-visible, .qd-dashboard select:focus-visible { outline: 2px solid var(--steel); outline-offset: 3px; }
 @media (min-width: 1400px) {
   .qd-tabs button, .qd-search input { font-size: 18px; }
-  .qd-filter select, .qd-result-tools p { font-size: 16px; }
+  .qd-result-tools p { font-size: 16px; }
+  .qd-filter-chips { column-gap: 22px; }
+  .qd-filter-chip { gap: 14px; font-size: 18px; }
+  button.qd-filter-chip { min-width: 260px; }
+  .qd-filter + .qd-filter button.qd-filter-chip { min-width: 278px; }
   .qd-table thead th { font-size: 13px; }
   .qd-table tbody th, .qd-table tbody td { font-size: 17px; }
   .qd-table .qd-quote-number { font-size: 18px; }
@@ -116,5 +172,5 @@
 
 @media (max-width: 760px) {
   .qd-result-tools p { font-size: 13px; }
-  .qd-search input, .qd-filter select { font-size: 16px; }
+  .qd-search input { font-size: 16px; }
 }

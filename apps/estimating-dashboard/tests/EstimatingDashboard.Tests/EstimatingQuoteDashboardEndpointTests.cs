@@ -23,12 +23,27 @@ public sealed class EstimatingQuoteDashboardEndpointTests
     [InlineData("dashboard", "?scope=invalid", true, 400)]
     [InlineData("dashboard", "?from=2026-11-30&to=2026-11-01", true, 400)]
     [InlineData("dashboard", "?from=11/01/2026", true, 400)]
+    [InlineData("dashboard", "?scope=mine&pageSize=1", false, 200)]
+    [InlineData("dashboard", "?scope=all&estimator=Casey%20lee&pageSize=1", true, 200)]
+    [InlineData("dashboard", "?scope=all&estimator=CASEY%20LEE", false, 403)]
+    [InlineData("dashboard", "?scope=mine&estimator=CASEY%20LEE", false, 403)]
+    [InlineData("dashboard", "?scope=invalid&estimator=", false, 403)]
+    [InlineData("dashboard", "?scope=mine&estimator=CASEY%20LEE", true, 400)]
+    [InlineData("dashboard", "?scope=all&estimator=unknown", true, 400)]
+    [InlineData("dashboard", "?scope=all&estimator=", true, 400)]
     [InlineData("performance", "", false, 200)]
     [InlineData("performance", "?scope=all", false, 403)]
     [InlineData("performance", "?scope=all&estimator=CASEY%20LEE", false, 403)]
     [InlineData("performance", "?scope=mine&estimator=CASEY%20LEE", true, 400)]
     [InlineData("performance", "?scope=all&estimator=CASEY%20LEE", true, 200)]
     [InlineData("performance", "?scope=all&estimator=unknown", true, 400)]
+    [InlineData("performance", "?scope=mine&month=2026-11", false, 200)]
+    [InlineData("performance", "?scope=all&estimator=CASEY%20LEE&month=2026-11", true, 200)]
+    [InlineData("performance", "?scope=all&month=2026-11", false, 403)]
+    [InlineData("performance", "?month=2026-1", true, 400)]
+    [InlineData("performance", "?month=2026-13", true, 400)]
+    [InlineData("performance", "?month=2026-11-01", true, 400)]
+    [InlineData("performance", "?month=", true, 400)]
     public async Task Database_only_dashboard_endpoints_bind_query_return_safe_errors_and_never_write(
         string routeName, string query, bool historyPermission, int expectedStatus)
     {
@@ -87,6 +102,9 @@ public sealed class EstimatingQuoteDashboardEndpointTests
         {
             Assert.False(json.RootElement.TryGetProperty("records", out _));
             Assert.Equal(1, json.RootElement.GetProperty("stats").GetProperty("activeCount").GetInt32());
+        }
+        if (expectedStatus == 200)
+        {
             var estimators = json.RootElement.GetProperty("estimators").EnumerateArray();
             if (historyPermission)
             {

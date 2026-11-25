@@ -1,4 +1,3 @@
-using System.Text.Json;
 using EstimatingDashboard.Api.Auth;
 using EstimatingDashboard.Api.Data;
 using EstimatingDashboard.Api.Dtos;
@@ -26,17 +25,11 @@ internal sealed class QuoteRfqProgressionService(EstimatingAccessDbContext db,
         try
         {
             var state = await db.Set<MaterialPurchasingState>().SingleOrDefaultAsync(row => row.QuoteHistoryId == quote.Id, ct);
-            var selections = JsonSerializer.Deserialize<MaterialQuantitySelectionDto[]>(state?.QuantitiesJson ?? "[]") ?? [];
-            var overrides = selections.ToDictionary(selection => selection.ItemId,
-                selection => (IReadOnlyList<decimal>)new[] { selection.Minimum, selection.Maximum ?? selection.Minimum }
-                    .Distinct().ToArray());
+            var overrides = MaterialQuantitySelections.ToOverrides(MaterialQuantitySelections.Read(state?.QuantitiesJson));
             var materialReview = await materials.InspectAsync(quote.Id, quote.QuoteNumber, quote.SourceId, ct, overrides);
             // Fulcrum cannot prove completion for work whose planning remains in Industrios or is unknown.
             if (materialReview.PlanningSource != PurchasingPlanningSources.Fulcrum) return;
-            var opQuantities = materialReview.Parts.GroupBy(part => part.ItemId, StringComparer.Ordinal)
-                .ToDictionary(group => group.Key, group => (IReadOnlyList<decimal>)group.SelectMany(part => part.Quantities)
-                    .Distinct().Order().ToArray(), StringComparer.Ordinal);
-            var opReview = await outsideProcessing.InspectAsync(quote.Id, quote.QuoteNumber, quote.SourceId, opQuantities, ct);
+            var opReview = await outsideProcessing.InspectAsync(quote.Id, quote.QuoteNumber, quote.SourceId, overrides, ct);
             var links = MaterialDraftTracking.Read(state);
             if (!QuoteRfqReadiness.MaterialsSent(materialReview, state, links, out var materialCount)
                 || !QuoteRfqReadiness.OutsideProcessingSent(opReview, state, links, out var opCount)

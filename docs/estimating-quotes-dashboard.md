@@ -6,10 +6,10 @@ The Quotes dashboard searches the imported Arda quote history. Searching and cha
 
 - **My quotes** uses Arda's existing unambiguous estimator identity matching.
 - **All quotes** requires the existing Quote Dashboard and History View permissions. It includes all estimators' quote metadata; it does not grant access to another estimator's correspondence or editing actions.
-- The Quotes tab starts with **My active quotes**. Its combined filter also offers all quotes, overdue/completed groups, and individual Arda statuses, subject to existing permissions.
-- The current interface uses **All time** and has no date picker. The dashboard API retains its optional inclusive RFQ Due Date bounds for existing callers; the current Quotes tab omits them, so undated quotes remain eligible.
+- The Quotes tab starts with **Assigned to: Me** and **Status: Active quotes**. Separate filter chips support all eligible estimators or an individual estimator, plus overdue/completed groups and individual Arda statuses, subject to existing permissions.
+- The Quotes tab uses **All time**. The dashboard API retains its optional inclusive RFQ Due Date bounds for existing callers; the current Quotes tab omits them, so undated quotes remain eligible.
 - Performance has its own tab and read-only endpoint. It starts with My performance; authorized users may select all eligible estimators or an individual estimator. Unassigned/placeholder estimator names are excluded from team performance.
-- Performance is independent of the Quotes tab's search, status, and pagination. Its period is explicitly labeled All time.
+- Performance is independent of the Quotes tab's search, status, and pagination. It starts with All time and offers a month/year picker. Selected months use RFQ Due Date; undated quotes are excluded from a selected month. The estimator roster and ownership matching still use all history.
 
 ## Metrics
 
@@ -25,6 +25,12 @@ The Quotes dashboard searches the imported Arda quote history. Searching and cha
 Live search matches quote number, customer, and imported part numbers across the full filtered dataset, before pagination. Missing part metadata is shown as unavailable; no part number is invented. Quote links open the existing Quote Status page when permitted. The former dashboard detail pane and inline performance strip have been removed.
 
 The dashboard and performance endpoints are read-only. Existing Quote Status, estimate generation, and editing permissions continue to control their actions independently. Restricted notes are not returned for another estimator's quote merely because All quotes is selected.
+
+## Quoted quantities
+
+The Quote Status page consolidates quoted parts and quantity tiers in one table. Quantity confirmation stores all selected tiers and remains compatible with earlier minimum/maximum selections. Material demand uses the selected bounds; outside-processing requests retain every verified quantity tier.
+
+An OP request based on complete Fulcrum tiers can be prepared independently. Automatic progression to RFQ Sent still requires verified material quantities whenever material requirements exist, and all required material and OP requests must be sent. Stock coverage based only on an unconfirmed base-line quantity cannot establish coverage for larger tiers.
 
 ## Correspondence and RFQ tracking
 

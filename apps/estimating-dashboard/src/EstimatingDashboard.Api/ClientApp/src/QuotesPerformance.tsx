@@ -1,5 +1,5 @@
-import { ChevronDown } from 'lucide-react'
-import { useEffect, useState, type CSSProperties } from 'react'
+import { CalendarDays, ChevronDown } from 'lucide-react'
+import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import { currency } from './quoteDashboardFormatting'
 import type { DashboardStats } from './quoteDashboardApi'
 import './quotes-performance.css'
@@ -20,14 +20,15 @@ interface PerformanceResult {
   error?: string
 }
 
-function performanceQuery(selection: string) {
+function performanceQuery(selection: string, month: string) {
   const params = new URLSearchParams({ scope: selection === 'mine' ? 'mine' : 'all' })
   if (selection.startsWith('estimator:')) params.set('estimator', selection.slice('estimator:'.length))
+  if (month) params.set('month', month)
   return params.toString()
 }
 
-async function loadPerformance(selection: string, signal: AbortSignal): Promise<PerformanceResponse> {
-  const response = await fetch(`/api/quote-workflow/performance?${performanceQuery(selection)}`, {
+async function loadPerformance(query: string, signal: AbortSignal): Promise<PerformanceResponse> {
+  const response = await fetch(`/api/quote-workflow/performance?${query}`, {
     credentials: 'include', signal,
   })
   if (!response.ok) {
@@ -46,17 +47,19 @@ export default function QuotesPerformance({ ownerAccountName, canViewAllQuotes }
 
 function PerformanceView({ canViewAllQuotes }: { canViewAllQuotes: boolean }) {
   const [selection, setSelection] = useState('mine')
+  const [month, setMonth] = useState('')
   const [revision, setRevision] = useState(0)
   const [estimators, setEstimators] = useState<Estimator[]>([])
   const [result, setResult] = useState<PerformanceResult>()
-  const key = JSON.stringify([selection, revision])
+  const query = performanceQuery(selection, month)
+  const key = JSON.stringify([query, revision])
   const current = result?.key === key ? result : undefined
   const estimator = estimators.find(({ id }) => selection === `estimator:${id}`)
   const heading = selection === 'mine' ? 'My performance' : selection === 'all' ? 'All estimators' : estimator?.name ?? 'Estimator performance'
 
   useEffect(() => {
     const controller = new AbortController()
-    void loadPerformance(selection, controller.signal).then(data => {
+    void loadPerformance(query, controller.signal).then(data => {
       if (controller.signal.aborted) return
       if (canViewAllQuotes) setEstimators(data.estimators)
       setResult({ key, stats: data.stats })
@@ -65,14 +68,23 @@ function PerformanceView({ canViewAllQuotes }: { canViewAllQuotes: boolean }) {
       setResult({ key, error: error instanceof Error ? error.message : 'Performance could not be loaded.' })
     })
     return () => controller.abort()
-  }, [canViewAllQuotes, key, selection])
+  }, [canViewAllQuotes, key, query])
+
+  function changeMonth(value: string) {
+    if (month === value) return
+    setMonth(value)
+    setRevision(previous => previous + 1)
+  }
 
   return <div className="qp-view">
     <header className="qp-header">
       {canViewAllQuotes ? <div className="qp-estimator">
           <h2>{heading}</h2>
           <ChevronDown size={20} aria-hidden="true" />
-          <select aria-label="Performance estimator" value={selection} onChange={event => setSelection(event.target.value)}>
+          <select aria-label="Performance estimator" value={selection} onChange={event => {
+            setSelection(event.target.value)
+            setRevision(previous => previous + 1)
+          }}>
             <option value="mine">My performance</option>
             <option value="all">All estimators</option>
             {!estimator && selection.startsWith('estimator:') && <option value={selection}>{heading}</option>}
@@ -81,7 +93,7 @@ function PerformanceView({ canViewAllQuotes }: { canViewAllQuotes: boolean }) {
             </optgroup>}
           </select>
         </div> : <h2>{heading}</h2>}
-      <span className="qp-period">All time</span>
+      <PerformancePeriod month={month} onChange={changeMonth} />
     </header>
     {!current && <p className="qp-state" role="status">Loading performance…</p>}
     {current?.error && <div className="qp-state">
@@ -89,6 +101,93 @@ function PerformanceView({ canViewAllQuotes }: { canViewAllQuotes: boolean }) {
       <button type="button" className="qd-secondary-button" onClick={() => setRevision(previous => previous + 1)}>Retry</button>
     </div>}
     {current?.stats && <PerformanceCharts stats={current.stats} />}
+  </div>
+}
+
+const monthLabel = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' })
+const monthName = new Intl.DateTimeFormat(undefined, { month: 'long', timeZone: 'UTC' })
+const monthOptions = Array.from({ length: 12 }, (_, index) => ({
+  value: String(index + 1).padStart(2, '0'),
+  label: monthName.format(new Date(Date.UTC(2000, index, 1))),
+}))
+
+function PerformancePeriod({ month, onChange }: { month: string; onChange: (month: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [draftYear, setDraftYear] = useState('')
+  const [draftMonth, setDraftMonth] = useState('')
+  const root = useRef<HTMLDivElement>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
+  const monthSelect = useRef<HTMLSelectElement>(null)
+  const picker = useId()
+  const label = month ? monthLabel.format(new Date(`${month}-01T00:00:00Z`)) : 'All time'
+
+  useEffect(() => {
+    if (!open) return
+    monthSelect.current?.focus()
+    function handleOutside(event: PointerEvent) {
+      if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', handleOutside)
+    return () => document.removeEventListener('pointerdown', handleOutside)
+  }, [open])
+
+  function toggle() {
+    if (open) {
+      setOpen(false)
+      return
+    }
+    const now = new Date()
+    setDraftYear(month ? String(Number(month.slice(0, 4))) : String(now.getFullYear()))
+    setDraftMonth(month ? month.slice(5) : String(now.getMonth() + 1).padStart(2, '0'))
+    setOpen(true)
+  }
+
+  function close() {
+    setOpen(false)
+    trigger.current?.focus()
+  }
+
+  return <div ref={root} className="qp-period" onKeyDown={event => {
+    if (!open || event.key !== 'Escape') return
+    event.stopPropagation()
+    event.preventDefault()
+    close()
+  }} onBlur={event => {
+    if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setOpen(false)
+  }}>
+    <button type="button" ref={trigger} className="qp-period-trigger" aria-label={`Performance period: ${label}`}
+      aria-expanded={open} aria-controls={picker} onClick={toggle}>
+      <CalendarDays size={17} aria-hidden="true" />
+      <span>{label}</span>
+      <ChevronDown size={16} aria-hidden="true" />
+    </button>
+    {month && <p className="qp-period-description">Quotes with an RFQ due date in this month.</p>}
+    <form className="qp-period-picker" id={picker} hidden={!open} onSubmit={event => {
+      event.preventDefault()
+      onChange(`${String(Number(draftYear)).padStart(4, '0')}-${draftMonth}`)
+      close()
+    }}>
+      <div className="qp-period-fields">
+        <label>
+          Month
+          <select ref={monthSelect} value={draftMonth} onChange={event => setDraftMonth(event.target.value)} required>
+            {monthOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+        <label>
+          Year
+          <input type="number" inputMode="numeric" min={1} max={9999} step={1} value={draftYear}
+            onChange={event => setDraftYear(event.target.value)} required />
+        </label>
+      </div>
+      <div className="qp-period-actions">
+        <button type="button" className="qd-secondary-button" onClick={() => {
+          onChange('')
+          close()
+        }}>All time</button>
+        <button type="submit" className="qd-secondary-button qp-period-apply">Apply</button>
+      </div>
+    </form>
   </div>
 }
 

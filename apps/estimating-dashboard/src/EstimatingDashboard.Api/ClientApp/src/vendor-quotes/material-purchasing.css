@@ -5,12 +5,6 @@
 .qs-material-summary > small { margin-left: auto; color: var(--muted); font-size: 10px; }
 .qs-material-summary .is-pending,.qs-material-summary .is-review { color: var(--warn-700); }
 .qs-material-summary .is-covered { color: var(--ok-700); }
-.qs-material-parts { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding-bottom: 15px; font-size: 11px; }
-.qs-material-parts > span { color: var(--muted); margin-right: 3px; }
-.qs-material-parts > div { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-2); }
-.qs-material-parts > div > span { color: var(--steel-700); }
-.qs-material-parts small { color: var(--muted); }
-.qs-material-parts .qs-industrios-label { padding: 2px 6px; border-radius: 4px; background: var(--warn-tint); color: var(--warn-700); font-weight: 650; }
 .qs-material-list { display: grid; gap: 11px; }
 .qs-material-row { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
 .qs-material-row.is-needs-rfq { border-left: 3px solid var(--warn); }
@@ -43,22 +37,8 @@
 .qs-material-review { margin: 0 0 12px; color: var(--warn-700); font-size: 11px; line-height: 1.65; overflow-wrap: anywhere; }
 .qs-material-review > summary { width: fit-content; cursor: pointer; }
 .qs-material-download { margin: 10px 0 0; color: var(--steel-700); font-size: 11px; line-height: 1.65; }
-.qs-material-quantity-editor { margin: -3px 0 15px; }
-.qs-material-quantity-tools { display: flex; flex-wrap: wrap; gap: 6px 17px; }
-.qs-material-quantity-tools .qs-text-button { font-size: 11px !important; }
-.qs-material-quantity-form { padding: 14px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface-2); }
-.qs-material-quantity-form > p { margin: 0 0 13px; color: var(--muted); font-size: 11px; line-height: 1.65; }
-.qs-material-quantity-fields { display: grid; grid-template-columns: minmax(80px,.8fr) minmax(0,1fr) minmax(0,1fr); gap: 10px; align-items: end; margin-top: 12px; }
-.qs-material-quantity-fields > strong { align-self: center; color: var(--ink-2); font-size: 12px; overflow-wrap: anywhere; }
-.qs-material-quantity-fields label { display: grid; gap: 5px; color: var(--muted); font-size: 10px; }
-.qs-material-quantity-fields input { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--line-2); border-radius: 5px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; }
-.qs-material-quantity-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
-.qs-request-page .qs-material-quantity-actions .vq-button { min-height: 32px; padding: 7px 10px; font-size: 11px !important; }
 @media (max-width: 600px) {
   .qs-material-summary > small { flex-basis: 100%; margin-left: 0; }
   .qs-material-row { padding: 12px; }
   .qs-material-row-heading { align-items: flex-start; }
-  .qs-material-quantity-fields { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
-  .qs-material-quantity-fields > strong { grid-column: 1/-1; }
-  .qs-material-quantity-fields input { font-size: 16px; }
 }

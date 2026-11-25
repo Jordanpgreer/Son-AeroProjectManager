@@ -24,12 +24,13 @@ internal sealed class QuoteOutsideProcessingService(EstimatingAccessDbContext db
             throw new VendorQuoteException(400, "Choose a valid outside processing operation.");
         var state = await StateAsync(id, ct);
         var inspection = await InspectAsync(quote, state, ct);
-        if (inspection.Warnings.Count > 0)
-            throw new VendorQuoteException(409, "Confirm current quote quantities before opening an OP draft.");
+        if (inspection.Warnings.FirstOrDefault() is { } warning)
+            throw new VendorQuoteException(409, warning);
         var operation = inspection.Operations.SingleOrDefault(x => x.OperationKey == operationKey)
             ?? throw new VendorQuoteException(404, "The OP operation is no longer on the current Fulcrum quote.");
         if (operation.Status != "needs-rfq")
-            throw new VendorQuoteException(409, "Review this OP's routing, vendor, and quantities in Fulcrum before opening a draft.");
+            throw new VendorQuoteException(409, operation.Issues.FirstOrDefault()
+                ?? "Review this OP's routing, vendor, and quantities in Fulcrum before opening a draft.");
         var fingerprint = Fingerprint(operation);
         var links = MaterialDraftTracking.Read(state).ToList();
         var previous = links.SingleOrDefault(x => x.Kind == "op" && x.ItemId == operationKey);
@@ -71,9 +72,7 @@ internal sealed class QuoteOutsideProcessingService(EstimatingAccessDbContext db
     private async Task<OutsideProcessingRequirementsDto> InspectAsync(EstimatingQuoteHistoryRecord quote,
         MaterialPurchasingState? state, CancellationToken ct)
     {
-        var selections = JsonSerializer.Deserialize<MaterialQuantitySelectionDto[]>(state?.QuantitiesJson ?? "[]") ?? [];
-        var quantities = selections.ToDictionary(x => x.ItemId,
-            x => (IReadOnlyList<decimal>)new[] { x.Minimum, x.Maximum ?? x.Minimum }.Distinct().ToArray());
+        var quantities = MaterialQuantitySelections.ToOverrides(MaterialQuantitySelections.Read(state?.QuantitiesJson));
         return await requirements.InspectAsync(quote.Id, quote.QuoteNumber, quote.SourceId, quantities, ct);
     }
 

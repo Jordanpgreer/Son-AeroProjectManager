@@ -44,6 +44,8 @@ public sealed partial class EstimatingQuoteWorkflowServiceTests
         await fixture.Db.SaveChangesAsync();
         var ambiguous = Editor("Casey") with { AccountName = "SONAERO\\clee" };
         Assert.Empty((await Dashboard(fixture, ambiguous, from: "2026-11-01", to: "2026-11-30")).Records);
+        var performance = await fixture.Service.GetPerformanceAsync(ambiguous, "mine", null, default, month: "2026-11");
+        Assert.Equal(0, performance.Stats.ActiveCount);
         var exact = await Dashboard(fixture, Editor("Casey Lee"), from: "2026-11-01", to: "2026-11-30");
         Assert.Equal(2010, Assert.Single(exact.Records).QuoteNumber);
         Assert.Equal(2, (await Dashboard(fixture, ambiguous, scope: "all", from: "2026-11-01", to: "2026-11-30")).Total);
@@ -84,6 +86,104 @@ public sealed partial class EstimatingQuoteWorkflowServiceTests
         Assert.Equal(1, all.Stats.OverdueCount);
         Assert.Equal(1, all.Stats.CompletedCount);
         Assert.Equal(100m, all.Stats.OnTimePercentage);
+    }
+
+    [Fact]
+    public async Task Performance_month_uses_rfq_due_month_for_all_metrics_and_keeps_the_full_estimator_roster()
+    {
+        await using var fixture = await Fixture.CreateAsync(DashboardNow);
+        var first = DashboardQuote(2018, new(2026, 10, 1));
+        var last = DashboardQuote(2019, new(2026, 10, 31, 23, 59, 59));
+        last.EstimatingDueDateOverride = new(2026, 11, 3);
+        last.EstimatingCompletionDate = new(2026, 11, 2);
+        last.IsCompleted = true;
+        last.QuoteStatus = "Won";
+        last.TotalValue = 250m;
+        var earlier = DashboardQuote(2022, new(2026, 9, 30, 23, 59, 59));
+        earlier.IsCompleted = true;
+        earlier.QuoteStatus = "Lost";
+        var later = DashboardQuote(2023, new(2026, 11, 1), "Morgan");
+        var undated = DashboardQuote(2024, null);
+        fixture.Db.AddRange(first, last, earlier, later, undated);
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.ChangeTracker.Clear();
+
+        var access = Editor("Casey Lee");
+        var monthly = await fixture.Service.GetPerformanceAsync(access, "mine", null, default, month: "2026-10");
+        Assert.Equal(1, monthly.Stats.ActiveCount);
+        Assert.Equal(1, monthly.Stats.OverdueCount);
+        Assert.Equal(1, monthly.Stats.CompletedCount);
+        Assert.Equal(1, monthly.Stats.WonCount);
+        Assert.Equal(250m, monthly.Stats.WonTotalValue);
+        Assert.Equal(0, monthly.Stats.LostCount);
+        Assert.Equal(1, monthly.Stats.OnTimeSampleSize);
+        Assert.Equal(0m, monthly.Stats.OnTimePercentage);
+        Assert.Equal(new[] { "CASEY LEE", "MORGAN" }, monthly.Estimators.Select(option => option.Id));
+
+        var team = await fixture.Service.GetPerformanceAsync(access, "all", null, default, month: "2026-10");
+        Assert.Equal(monthly.Stats, team.Stats);
+        var morgan = await fixture.Service.GetPerformanceAsync(access, "all", "MORGAN", default, month: "2026-10");
+        Assert.Equal(0, morgan.Stats.ActiveCount);
+        Assert.Equal(0, morgan.Stats.CompletedCount);
+        Assert.Null(morgan.Stats.OnTimePercentage);
+
+        var allTime = await fixture.Service.GetPerformanceAsync(access, "mine", null, default);
+        Assert.Equal(2, allTime.Stats.ActiveCount);
+        Assert.Equal(2, allTime.Stats.CompletedCount);
+        Assert.Equal(1, allTime.Stats.LostCount);
+        Assert.Empty(fixture.Db.ChangeTracker.Entries());
+    }
+
+    [Fact]
+    public async Task Dashboard_estimator_filter_composes_with_table_filters_and_keeps_existing_row_access()
+    {
+        await using var fixture = await Fixture.CreateAsync(DashboardNow);
+        var first = DashboardQuote(2090, new(2026, 11, 10), "Morgan");
+        var alias = DashboardQuote(2091, new(2026, 11, 12), " morgan ");
+        var completed = DashboardQuote(2092, new(2026, 11, 12), "Morgan");
+        var sameFirstName = DashboardQuote(2093, new(2026, 11, 12), "Morgan Chen");
+        var otherDate = DashboardQuote(2094, new(2026, 10, 30), "Morgan");
+        var otherSearch = DashboardQuote(2095, new(2026, 11, 11), "Morgan");
+        var own = DashboardQuote(2096, new(2026, 11, 15));
+        var former = DashboardQuote(2097, null, "Riley");
+        var unassigned = DashboardQuote(2098, new(2026, 11, 17), "Unassigned");
+        foreach (var record in new[] { first, alias, completed, sameFirstName, otherDate, own })
+            record.Customer = "Shared Works";
+        completed.IsCompleted = true;
+        alias.ArdaStatusNotes = "Private notes";
+        fixture.Db.AddRange(first, alias, completed, sameFirstName, otherDate, otherSearch, own, former, unassigned);
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.ChangeTracker.Clear();
+
+        var access = Editor("Casey Lee");
+        var result = await Dashboard(fixture, access, scope: "all", estimator: " morgan ",
+            from: "2026-11-01", to: "2026-11-30", search: "shared", status: "active", page: 2, pageSize: 1);
+        Assert.Equal(2, result.Total);
+        Assert.Equal(2, result.Page);
+        Assert.Equal(1, result.PageSize);
+        Assert.Equal(3, result.Stats.ActiveCount);
+        Assert.Equal(1, result.Stats.CompletedCount);
+        var row = Assert.Single(result.Records);
+        Assert.Equal(alias.Id, row.Id);
+        Assert.Null(row.ArdaStatusNotes);
+        Assert.False(row.CanOpenQuoteStatus);
+        Assert.False(row.CanGenerateEstimate);
+
+        var manager = access with { Role = EstimatingRoles.Admin };
+        var managed = await Dashboard(fixture, manager, scope: "all", estimator: "MORGAN", search: "#2091");
+        var managerRow = Assert.Single(managed.Records);
+        Assert.Equal("Private notes", managerRow.ArdaStatusNotes);
+        Assert.True(managerRow.CanOpenQuoteStatus);
+        Assert.False(managerRow.CanGenerateEstimate);
+
+        Assert.Equal(new[] { "CASEY LEE", "MORGAN", "MORGAN CHEN", "RILEY" },
+            result.Estimators.Select(option => option.Id));
+        var performance = await fixture.Service.GetPerformanceAsync(access, "all", null, default);
+        Assert.Equal(performance.Estimators, result.Estimators);
+        Assert.Contains((await Dashboard(fixture, access, scope: "all")).Records, record => record.Id == unassigned.Id);
+        var restricted = access with { GrantedPermissions = [EstimatingPermissions.QuotesView] };
+        Assert.Empty((await Dashboard(fixture, restricted)).Estimators);
+        Assert.Empty(fixture.Db.ChangeTracker.Entries());
     }
 
     [Fact]
@@ -319,6 +419,7 @@ public sealed partial class EstimatingQuoteWorkflowServiceTests
 
     private static Task<EstimatingQuoteDashboardDto> Dashboard(Fixture fixture, EstimatingAccessProfile? access = null,
         string? scope = "mine", string? from = null, string? to = null, string? search = null, string? status = "all",
-        int page = 1, int pageSize = 25) => fixture.Service.GetDashboardAsync(access ?? Editor("Casey Lee"),
-            scope, from, to, search, status, page, pageSize, default);
+        int page = 1, int pageSize = 25, string? estimator = null) =>
+        fixture.Service.GetDashboardAsync(access ?? Editor("Casey Lee"),
+            scope, from, to, search, status, page, pageSize, default, estimator);
 }

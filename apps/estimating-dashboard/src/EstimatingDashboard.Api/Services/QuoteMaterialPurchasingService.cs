@@ -104,7 +104,7 @@ internal sealed class QuoteMaterialPurchasingService(EstimatingAccessDbContext d
     private Task<MaterialRequirementsDto> InspectAsync(EstimatingQuoteHistoryRecord quote,
         IReadOnlyList<MaterialQuantitySelectionDto> selections, CancellationToken ct) =>
         requirements.InspectAsync(quote.Id, quote.QuoteNumber, quote.SourceId, ct,
-            selections.ToDictionary(x => x.ItemId, x => (IReadOnlyList<decimal>)new[] { x.Minimum, x.Maximum ?? x.Minimum }.Distinct().ToArray()));
+            MaterialQuantitySelections.ToOverrides(selections));
 
     private async Task<MaterialRequirementsDto> WithRequestsAsync(MaterialRequirementsDto result, MaterialPurchasingState? state,
         EstimatingAccessProfile access, CancellationToken ct)
@@ -151,17 +151,38 @@ internal sealed class QuoteMaterialPurchasingService(EstimatingAccessDbContext d
     private void Touch(MaterialPurchasingState state, EstimatingAccessProfile access)
     { state.Version++; state.UpdatedAt = clock.GetUtcNow(); state.UpdatedBy = access.AccountName; }
     private static IReadOnlyList<MaterialQuantitySelectionDto> Selections(MaterialPurchasingState? state) =>
-        JsonSerializer.Deserialize<MaterialQuantitySelectionDto[]>(state?.QuantitiesJson ?? "[]") ?? [];
+        MaterialQuantitySelections.Read(state?.QuantitiesJson);
     private static IReadOnlyList<MaterialDraftLink> Drafts(MaterialPurchasingState? state) => MaterialDraftTracking.Read(state);
 
     private static IReadOnlyList<MaterialQuantitySelectionDto> Validate(IReadOnlyList<MaterialQuantitySelectionDto>? selections)
     {
         if (selections is null || selections.Count > 200
             || selections.Any(x => x is null || string.IsNullOrWhiteSpace(x.ItemId) || x.ItemId.Length > 100
-                || x.ItemId.Any(char.IsControl) || x.Minimum <= 0 || x.Minimum > 1000000000m
-                || x.Maximum.HasValue && (x.Maximum < x.Minimum || x.Maximum > 1000000000m))
+                || x.ItemId.Any(char.IsControl) || x.Minimum is <= 0 or > MaterialQuantitySelections.MaxQuantity
+                || x.Maximum is { } maximum && (maximum < x.Minimum || maximum > MaterialQuantitySelections.MaxQuantity))
             || selections.Select(x => x.ItemId).Distinct(StringComparer.Ordinal).Count() != selections.Count)
-            throw new VendorQuoteException(400, "Enter one positive quantity, or a lowest and highest quantity, for each part. The maximum is 1,000,000,000.");
-        return selections;
+            throw InvalidQuantities();
+
+        var normalized = new List<MaterialQuantitySelectionDto>(selections.Count);
+        foreach (var selection in selections)
+        {
+            if (selection.Tiers is null)
+            {
+                normalized.Add(selection);
+                continue;
+            }
+
+            if (selection.Tiers.Count is < 1 or > FulcrumQuoteQuantityTiers.MaximumCount
+                || selection.Tiers.Any(quantity => quantity is <= 0 or > MaterialQuantitySelections.MaxQuantity))
+                throw InvalidQuantities();
+            var tiers = selection.Tiers.Distinct().Order().ToArray();
+            if (tiers[0] != selection.Minimum || tiers[^1] != (selection.Maximum ?? selection.Minimum))
+                throw new VendorQuoteException(400, "The lowest and highest values must match the quoted quantity tiers.");
+            normalized.Add(selection with { Tiers = tiers.Length > 2 ? tiers : null });
+        }
+        return normalized;
     }
+
+    private static VendorQuoteException InvalidQuantities() =>
+        new(400, "Enter up to 200 positive quoted quantity tiers per part. The maximum quantity is 1,000,000,000.");
 }

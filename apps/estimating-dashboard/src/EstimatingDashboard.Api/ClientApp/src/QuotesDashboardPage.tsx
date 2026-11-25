@@ -1,11 +1,12 @@
-import { ChartNoAxesCombined, ChevronDown, FileText, Search, UserRound, X } from 'lucide-react'
+import { ChartNoAxesCombined, FileText, Search, UserRound, X } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { getQuoteStoreError, listQuotes } from './quoteStore'
 import { ARDA_STATUS_OPTIONS, type PersonalQuote } from './quoteWorkflowApi'
-import { dashboardLastPage, type DashboardQuery, type DashboardScope, type DashboardStatus } from './quoteDashboardApi'
+import { dashboardLastPage, type DashboardQuery, type DashboardStatus } from './quoteDashboardApi'
 import { useQuoteDashboard } from './useQuoteDashboard'
 import { useArdaAutoRefresh } from './useArdaAutoRefresh'
 import GenerateQuoteDialog from './GenerateQuoteDialog'
+import QuoteFilterChip, { type QuoteFilterOption } from './QuoteFilterChip'
 import QuoteDashboardTable from './QuoteDashboardTable'
 import QuotesPerformance from './QuotesPerformance'
 import './quote-dashboard.css'
@@ -18,25 +19,22 @@ const DASHBOARD_TABS = [
 ] as const
 
 type DashboardTab = typeof DASHBOARD_TABS[number]['id']
-type QuoteFilter = `${DashboardScope}:${DashboardStatus}`
+type Assignee = 'mine' | 'all' | `estimator:${string}`
 
-const QUOTE_FILTERS = (['mine', 'all'] as const).map(scope => {
-  const prefix = scope === 'mine' ? 'My' : 'All'
-  const options: { status: DashboardStatus; label: string }[] = [
-    { status: 'active', label: `${prefix} active quotes` },
-    { status: 'all', label: scope === 'mine' ? 'All my quotes' : 'All quotes' },
-    { status: 'overdue', label: `${prefix} overdue quotes` },
-    { status: 'completed', label: `${prefix} completed quotes` },
-    ...ARDA_STATUS_OPTIONS.map(status => ({ status, label: `${prefix} quotes · ${status}` })),
-  ]
-  return { scope, options }
-})
+const STATUS_OPTIONS: readonly QuoteFilterOption<DashboardStatus>[] = [
+  { value: 'active', label: 'Active quotes' },
+  { value: 'overdue', label: 'Overdue quotes' },
+  { value: 'completed', label: 'Completed quotes' },
+  { value: 'all', label: 'Any status' },
+  ...ARDA_STATUS_OPTIONS.map((status, index) => ({ value: status, label: status, separator: index === 0 })),
+]
 
 export default function QuotesDashboardPage({ ownerAccountName, canGenerateQuotes, canViewAllQuotes = false }: {
   ownerAccountName: string; canGenerateQuotes: boolean; canViewAllQuotes?: boolean
 }) {
   const [view, setView] = useState<DashboardTab>('quotes')
-  const [filter, setFilter] = useState<QuoteFilter>('mine:active')
+  const [assignee, setAssignee] = useState<Assignee>('mine')
+  const [status, setStatus] = useState<DashboardStatus>('active')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [generatingQuote, setGeneratingQuote] = useState<PersonalQuote | null>(null)
@@ -44,12 +42,19 @@ export default function QuotesDashboardPage({ ownerAccountName, canGenerateQuote
   const searchInput = useRef<HTMLInputElement>(null)
   const tabList = useRef<HTMLDivElement>(null)
   const tabId = useId()
-  const effectiveFilter = !canViewAllQuotes && filter.startsWith('all:') ? 'mine:active' : filter
-  const [scope, status] = effectiveFilter.split(':') as [DashboardScope, DashboardStatus]
+  const assignedTo = canViewAllQuotes ? assignee : 'mine'
+  const estimator = assignedTo.startsWith('estimator:') ? assignedTo.slice('estimator:'.length) : undefined
   const query = useMemo<DashboardQuery>(() => ({
-    scope, search, status, page, pageSize: 25,
-  }), [scope, search, status, page])
+    scope: assignedTo === 'mine' ? 'mine' : 'all', estimator, search, status, page, pageSize: 25,
+  }), [assignedTo, estimator, search, status, page])
   const dashboard = useQuoteDashboard(ownerAccountName, query)
+  const assigneeOptions: QuoteFilterOption<Assignee>[] = [{ value: 'mine', label: 'Me' }]
+  if (canViewAllQuotes) {
+    assigneeOptions.push({ value: 'all', label: 'All estimators' })
+    dashboard.estimators.forEach(({ id, name }, index) => {
+      assigneeOptions.push({ value: `estimator:${id}`, label: name, separator: index === 0 })
+    })
+  }
   const localQuotes = useMemo(() => listQuotes(ownerAccountName), [ownerAccountName, localRevision])
   const storageError = getQuoteStoreError()
   useArdaAutoRefresh(dashboard.refresh, view === 'quotes' && !dashboard.loading && !generatingQuote)
@@ -90,20 +95,18 @@ export default function QuotesDashboardPage({ ownerAccountName, canGenerateQuote
         {search && <button type="button" aria-label="Clear quote search" onClick={() => { setSearch(''); setPage(1); searchInput.current?.focus() }}><X size={15} /></button>}
       </label>
       <div className="qd-result-tools">
-        <label className="qd-filter">
-          <UserRound size={17} aria-hidden="true" />
-          <select aria-label="Quote filter" value={effectiveFilter} onChange={event => {
-            setFilter(event.target.value as QuoteFilter)
+        <div className="qd-filter-chips">
+          <QuoteFilterChip label="Assigned to" icon={UserRound} value={assignedTo} options={assigneeOptions} onChange={next => {
+            if (next === assignedTo) return
+            setAssignee(next)
             setPage(1)
-          }}>
-            {QUOTE_FILTERS.filter(group => group.scope === 'mine' || canViewAllQuotes).map(group => (
-              <optgroup key={group.scope} label={group.scope === 'mine' ? 'Assigned to me' : 'All estimators'}>
-                {group.options.map(option => <option key={option.status} value={`${group.scope}:${option.status}`}>{option.label}</option>)}
-              </optgroup>
-            ))}
-          </select>
-          <ChevronDown size={16} aria-hidden="true" />
-        </label>
+          }} />
+          <QuoteFilterChip label="Status" value={status} options={STATUS_OPTIONS} onChange={next => {
+            if (next === status) return
+            setStatus(next)
+            setPage(1)
+          }} />
+        </div>
         <p role="status">
           {total === undefined ? dashboard.loading ? 'Loading quotes…' : 'Quotes unavailable' : `${total.toLocaleString()} ${total === 1 ? 'quote' : 'quotes'}`}
           {' · All time'}

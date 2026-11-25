@@ -1,0 +1,123 @@
+.qs-rfq-section {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
+  scroll-margin-top: 20px;
+}
+
+.qs-rfq-section:focus-visible > .qs-request-card,
+.qs-rfq-table-scroll:focus-visible {
+  outline: 2px solid var(--steel);
+  outline-offset: 3px;
+}
+
+.qs-rfq-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-bottom: 14px;
+}
+
+.qs-rfq-heading h3 { flex: 0 1 auto; }
+
+.qs-rfq-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.qs-rfq-counts strong {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.qs-rfq-counts .qs-rfq-count-pending { color: var(--warn-700); }
+
+.qs-rfq-add {
+  flex-shrink: 0;
+  margin-inline-start: auto;
+}
+
+.qs-rfq-table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.qs-rfq-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  color: var(--ink-2);
+  font-size: 13px;
+  text-align: left;
+}
+
+.qs-rfq-table th,
+.qs-rfq-table td {
+  padding: 8px 12px;
+  overflow-wrap: anywhere;
+  vertical-align: middle;
+}
+
+.qs-rfq-table thead {
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.qs-rfq-table tbody tr { border-top: 1px solid var(--line); }
+.qs-rfq-table tbody .is-selected { background: var(--steel-tint); }
+.qs-rfq-table td:first-child { min-width: 85px; }
+.qs-rfq-table td:last-child { white-space: nowrap; }
+
+.qs-rfq-table select {
+  width: auto;
+  max-width: 100%;
+  min-height: 30px;
+  padding: 4px 7px;
+  border: 1px solid var(--line-2);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--steel-700);
+  font: inherit;
+}
+
+.qs-rfq-table .qs-rfq-open {
+  min-height: 24px;
+  color: var(--steel-700);
+  text-align: left;
+}
+
+.qs-rfq-table .qs-rfq-untrack {
+  display: flex;
+  min-height: 24px;
+  margin-top: 2px;
+  font-size: 11px !important;
+  font-weight: 500;
+  text-align: left;
+}
+
+.qs-rfq-ready,
+.qs-rfq-empty {
+  margin: 9px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.qs-rfq-review {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
+}
+
+@media (max-width: 630px) {
+  .qs-rfq-heading h3 { flex: 1 1 165px; }
+  .qs-rfq-counts { flex-basis: 100%; order: 1; }
+  .qs-rfq-table th, .qs-rfq-table td { padding-inline: 9px; }
+}

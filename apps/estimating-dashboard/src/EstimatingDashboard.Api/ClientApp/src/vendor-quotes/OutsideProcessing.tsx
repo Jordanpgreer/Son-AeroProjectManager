@@ -1,23 +1,39 @@
-import { AlertTriangle, CheckCircle2, Factory, LoaderCircle, Mail, RefreshCw } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { AlertTriangle, CheckCircle2, Factory, LoaderCircle, Mail, Pencil, RefreshCw } from 'lucide-react'
+import { useEffect, useId, useState } from 'react'
 import { downloadMaterialDraft } from './materialPurchasingApi'
 import { materialQuantityRange } from './materialPurchasingModel'
 import { createOutsideProcessingDraft, type OutsideProcessingOperation, type OutsideProcessingRequirements } from './outsideProcessingApi'
 import { dateTime } from './model'
 import './outside-processing.css'
 
-export default function OutsideProcessing({ quoteHistoryId, canEdit, busy, outlookConnected, data: current, loading, error, onRefresh, onDraftCreated, onDirty }: {
+function rfqQuantities({ quoteQuantities, requiredMinimum, requiredMaximum, unitOfMeasure }: OutsideProcessingOperation): string {
+  const unit = unitOfMeasure ?? ''
+  if (quoteQuantities?.length && quoteQuantities.every(value => Number.isFinite(value) && value > 0)) {
+    const values = quoteQuantities.map(value => value.toLocaleString('en-US', { maximumSignificantDigits: 21 })).join(' / ')
+    return unit ? `${values} ${unit}` : values
+  }
+  return materialQuantityRange(requiredMinimum, requiredMaximum,
+    requiredMinimum === null && requiredMaximum === null ? '' : unit)
+}
+
+export default function OutsideProcessing({ quoteHistoryId, canEdit, busy, outlookConnected, data: current, loading, error, onRefresh, onDraftCreated, onDirty, onEditQuantities }: {
   quoteHistoryId: number; canEdit: boolean; busy: boolean; outlookConnected: boolean
   data: OutsideProcessingRequirements | null; loading: boolean; error: string | null
   onRefresh: () => void; onDraftCreated: () => Promise<unknown>; onDirty: (dirty: boolean) => void
+  onEditQuantities?: () => void
 }) {
   const [drafting, setDrafting] = useState<string | null>(null)
   const [draftError, setDraftError] = useState<string | null>(null)
+  const reasonId = useId()
+  const legacyQuantityWarning = current?.warnings.some(warning => /Pricing-panel breaks/i.test(warning))
+  const showQuantityEditor = Boolean(legacyQuantityWarning || current?.quantityWarnings?.length)
+  const warnings = [...new Set([...(current?.warnings ?? []), ...(current?.quantityWarnings ?? [])])]
+  const draftsDisabled = busy || loading || !!error || drafting !== null || !!current?.warnings.length
   useEffect(() => { onDirty(drafting !== null) }, [drafting, onDirty])
   useEffect(() => () => onDirty(false), [onDirty])
   useEffect(() => { if (loading) setDraftError(null) }, [loading])
   async function openDraft(operation: OutsideProcessingOperation) {
-    if (!current || !canEdit || busy || loading || error || drafting || operation.status !== 'needs-rfq' || current.warnings.length) return
+    if (!current || !canEdit || draftsDisabled || operation.status !== 'needs-rfq' || operation.sentAt) return
     setDrafting(operation.operationKey); setDraftError(null)
     try {
       const blob = await createOutsideProcessingDraft(quoteHistoryId, operation.operationKey)
@@ -36,7 +52,13 @@ export default function OutsideProcessing({ quoteHistoryId, canEdit, busy, outlo
     {error && <p className="qs-op-alert" role="alert"><AlertTriangle size={15} />{error}</p>}
     {current && <>
       <div className="qs-op-summary"><span>{current.operations.length} OP operation{current.operations.length === 1 ? '' : 's'}</span><small>Checked {dateTime(current.checkedAt)}</small></div>
-      {current.warnings.length > 0 && <div className="qs-op-alert" role="status"><AlertTriangle size={15} /><div>{current.warnings.map((warning, index) => <p key={index}>{warning}</p>)}</div></div>}
+      {warnings.length > 0 && <div className="qs-op-alert"><AlertTriangle size={15} /><div>
+        <div role="status">{warnings.map(warning => <p key={warning}>{warning}</p>)}</div>
+        {canEdit && onEditQuantities && showQuantityEditor
+          && <button className="qs-text-button" type="button" disabled={busy || loading || !!drafting} onClick={onEditQuantities}>
+            <Pencil size={13} />Edit quoted quantities
+          </button>}
+      </div></div>}
       {operationsToReview.length > 0 && <details className="qs-op-review">
         <summary>Outside processing review details</summary>
         <ul>{operationsToReview.map(operation => <li key={operation.operationKey}>
@@ -44,23 +66,33 @@ export default function OutsideProcessing({ quoteHistoryId, canEdit, busy, outlo
           <ul>{operation.issues.map(issue => <li key={issue}>{issue}</li>)}</ul>
         </li>)}</ul>
       </details>}
-      {current.operations.map(operation => <article className="qs-op-row" key={operation.operationKey}>
-        <div className="qs-op-row-main">
-          <div className="qs-op-requirement">
-            <p><strong>{operation.name || 'Unnamed operation'}</strong> - <strong>{operation.vendorName || 'Vendor unavailable'}</strong></p>
-            <dl><dt>Full requirement</dt><dd>{materialQuantityRange(operation.requiredMinimum, operation.requiredMaximum,
-              operation.requiredMinimum === null && operation.requiredMaximum === null ? '' : operation.unitOfMeasure ?? '')}</dd></dl>
+      {current.operations.map(operation => {
+        const reason = operation.status === 'review-required'
+          ? operation.issues[0] ?? 'Review this operation before opening a draft.'
+          : current.warnings.length > 0
+            ? 'Resolve the quote warnings above before opening this draft.'
+            : error ? 'Refresh the outside processing review before opening this draft.' : null
+        const descriptionId = `${reasonId}-${operation.operationKey}`
+        const preparing = drafting === operation.operationKey
+        return <article className="qs-op-row" key={operation.operationKey}>
+          <div className="qs-op-row-main">
+            <div className="qs-op-requirement">
+              <p><strong>{operation.name || 'Unnamed operation'}</strong> - <strong>{operation.vendorName || 'Vendor unavailable'}</strong></p>
+              <dl><dt>RFQ quantities · {operation.partNumber}</dt><dd>{rfqQuantities(operation)}</dd></dl>
+            </div>
+            {operation.sentAt ? <span className="qs-op-sent"><CheckCircle2 size={14} />Confirmed sent {dateTime(operation.sentAt)}</span>
+              : operation.requestId ? <span className="qs-op-pending"><Mail size={14} />Draft prepared · awaiting sent confirmation</span> : null}
+            {canEdit && !operation.sentAt && reason && <p className="qs-op-block-reason" id={descriptionId}>{reason}</p>}
           </div>
-          {operation.sentAt ? <span className="qs-op-sent"><CheckCircle2 size={14} />Confirmed sent {dateTime(operation.sentAt)}</span>
-            : operation.requestId ? <span className="qs-op-pending"><Mail size={14} />Draft prepared · awaiting sent confirmation</span> : null}
-        </div>
-        {canEdit && operation.status === 'needs-rfq' && !operation.sentAt && <button className="vq-button" type="button"
-          aria-label={`Open in Outlook for ${operation.name} (${operation.partNumber})`}
-          disabled={busy || loading || !!error || !!drafting || current.warnings.length > 0}
-          onClick={() => void openDraft(operation)}>{drafting === operation.operationKey ? <LoaderCircle size={14} className="vq-spinner" /> : <Mail size={14} />}
-          {drafting === operation.operationKey ? 'Preparing…' : 'Open in Outlook'}</button>}
-      </article>)}
-      {current.operations.length === 0 && !current.warnings.length && <p className="qs-op-message">No outside processing operations are flagged in Fulcrum routing for these quoted parts.</p>}
+          {canEdit && !operation.sentAt && <button className="vq-button" type="button"
+            aria-label={`Open in Outlook for ${operation.name} (${operation.partNumber})`}
+            aria-describedby={reason ? descriptionId : undefined}
+            disabled={draftsDisabled || operation.status !== 'needs-rfq'}
+            onClick={() => void openDraft(operation)}>{preparing ? <LoaderCircle size={14} className="vq-spinner" /> : <Mail size={14} />}
+            {preparing ? 'Preparing…' : 'Open in Outlook'}</button>}
+        </article>
+      })}
+      {current.operations.length === 0 && !warnings.length && <p className="qs-op-message">No outside processing operations are flagged in Fulcrum routing for these quoted parts.</p>}
       {draftError && <p className="qs-op-alert" role="alert"><AlertTriangle size={15} />{draftError}</p>}
       {current.operations.some(operation => operation.status === 'needs-rfq' && !operation.sentAt) && <p className="qs-op-hint">{outlookConnected ? 'Arda checks Outlook for a confirmed sent request.' : 'Connect Outlook or import the sent email to confirm each request.'} Opening a draft leaves it pending.</p>}
     </>}

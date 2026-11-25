@@ -54,4 +54,9 @@ export interface MaterialQuotePart {
   noFulcrumOperations?: boolean
 }
 
-export interface MaterialQuantityOverride { itemId: string; minimum: number; maximum: number | null }
+export interface MaterialQuantityOverride {
+  itemId: string
+  minimum: number
+  maximum: number | null
+  tiers?: number[]
+}

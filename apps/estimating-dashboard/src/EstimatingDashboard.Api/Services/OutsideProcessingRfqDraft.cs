@@ -10,6 +10,7 @@ internal static class OutsideProcessingRfqDraft
     public static MaterialRfqDraftFile Create(int quoteNumber, OutsideProcessingOperationDto operation, string token)
     {
         if (operation.Status != "needs-rfq" || operation.QuoteQuantities.Count == 0
+            || operation.QuoteQuantities.Any(quantity => quantity <= 0)
             || operation.VendorEmails.Count == 0 || !MaterialDraftTracking.ValidToken(token))
             throw new VendorQuoteException(409, "This OP is not ready for a vendor draft. Refresh its Fulcrum routing and vendor.");
         var quantities = string.Join(" / ", operation.QuoteQuantities.Select(x =>

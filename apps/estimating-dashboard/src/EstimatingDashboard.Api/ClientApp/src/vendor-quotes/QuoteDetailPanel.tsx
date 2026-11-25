@@ -1,10 +1,11 @@
-import { ArrowLeft, ArrowUpRight, Pencil, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { updatePersonalQuoteWorkflow } from '../quoteWorkflowApi'
 import ActivityTimeline, { StatusBadge } from './ActivityTimeline'
 import NewThreadDialog from './NewThreadDialog'
 import ProcessingMaterials from './ProcessingMaterials'
 import MaterialPurchasing from './MaterialPurchasing'
+import QuotedPartsTable from './QuotedPartsTable'
 import OutsideProcessing from './OutsideProcessing'
 import Modal from './Modal'
 import QuoteOverview from './QuoteOverview'
@@ -47,6 +48,7 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [newThread, setNewThread] = useState(false)
+  const [entryOpen, setEntryOpen] = useState(false)
   const [editingThread, setEditingThread] = useState(false)
   const [overviewBase, setOverviewBase] = useState(detail.workflow)
   const [overviewDraft, setOverviewDraft] = useState(() => quoteDetailsDraft(detail.workflow))
@@ -55,11 +57,13 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   const [overviewError, setOverviewError] = useState<string | null>(null)
   const [emailDirty, setEmailDirty] = useState(false)
   const [materialDirty, setMaterialDirty] = useState(false)
+  const [quantityDirty, setQuantityDirty] = useState(false)
   const [opDirty, setOpDirty] = useState(false)
   const [quantityRevision, setQuantityRevision] = useState(0)
+  const quantityEditButton = useRef<HTMLButtonElement>(null)
   const requestRevision = threads.map(({ request }) => `${request.id}:${request.version}:${request.status}`).join('|')
   const materialReview = usePurchasingReview(quote.quoteHistoryId, `${draftReset}|${requestRevision}`, loadMaterialRequirements, 'Fulcrum material requirements could not be loaded.')
-  const purchasing = purchasingReviewVisibility(materialReview, materialDirty || opDirty)
+  const purchasing = purchasingReviewVisibility(materialReview, materialDirty || quantityDirty || opDirty)
   const opReview = usePurchasingReview(quote.quoteHistoryId, `${quantityRevision}|${draftReset}|${requestRevision}`, loadOutsideProcessing,
     'Outside processing could not be loaded.', purchasing.loadOutsideProcessing)
   const groups = materialGroups(materialReview.data?.materials ?? [])
@@ -81,7 +85,7 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   }, [pendingUntrack, lifecycle.untrackEmail])
   const writeBusy = saving || overviewSaving || rfqSaving || lifecycle.busy
   const removedCount = (detail.removedMessages?.length || 0) + (detail.removedNotes?.length || 0)
-  useEffect(() => { onDirty(dirty || overviewDirty || emailDirty || materialDirty || opDirty || saving || overviewSaving || rfqSaving || lifecycle.dirty) }, [dirty, overviewDirty, emailDirty, materialDirty, opDirty, saving, overviewSaving, rfqSaving, lifecycle.dirty, onDirty])
+  useEffect(() => { onDirty(dirty || overviewDirty || emailDirty || materialDirty || quantityDirty || opDirty || saving || overviewSaving || rfqSaving || lifecycle.dirty) }, [dirty, overviewDirty, emailDirty, materialDirty, quantityDirty, opDirty, saving, overviewSaving, rfqSaving, lifecycle.dirty, onDirty])
   useEffect(() => () => onDirty(false), [onDirty])
   useEffect(() => { if (threadId !== null) activityRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [threadId])
   useEffect(() => {
@@ -104,6 +108,16 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   }
   function selectThread(id: number) { transition(() => setThreadId(id)) }
   function untrackEmail(message: VendorMessage) { transition(() => setPendingUntrack(message)) }
+  function closeEntry() {
+    if (saving) return
+    if (dirty) transition(() => setEntryOpen(false))
+    else setEntryOpen(false)
+  }
+  function viewProcessing() {
+    const section = document.getElementById('qs-outside-processing-materials')
+    section?.focus({ preventScroll: true })
+    section?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' })
+  }
   async function changeRfqStatus(selected: VendorDetail, status: string) {
     if (writeBusy || !canManage || !selected.request.canEdit) return
     setRfqSaving(true); setRfqError(null)
@@ -164,38 +178,56 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   }
   return <section className="vq-detail qs-request-record" aria-label={`Quote ${quote.quoteNumber} details`}>
     <header className="qs-request-heading">
-      <button className="qs-back-to-quotes vq-button" onClick={onBack}><ArrowLeft size={15} />Back to Quotes</button>
-      <div className="qs-request-title"><h2>{detail.fulcrumQuoteUrl ? <a href={detail.fulcrumQuoteUrl} target="_blank" rel="noopener noreferrer" aria-label={`Open Fulcrum quote ${quote.quoteNumber} in a new tab`}>Quote {quote.quoteNumber}<ArrowUpRight size={16} aria-hidden="true" /></a> : <>Quote {quote.quoteNumber}</>}</h2>
-        <div className="qs-record-actions"><button type="button" className="vq-button qs-removed-button" onClick={() => setRemovedOpen(true)}><Trash2 size={14} />Removed items{removedCount > 0 && <span>{removedCount}</span>}</button></div>
+      <div className="qs-request-title">
+        <button className="qs-back-to-quotes vq-button" onClick={onBack}><ArrowLeft size={15} />Back to Quotes</button>
+        <h2>{detail.fulcrumQuoteUrl ? <a href={detail.fulcrumQuoteUrl} target="_blank" rel="noopener noreferrer" aria-label={`Open Fulcrum quote ${quote.quoteNumber} in a new tab`}>Quote {quote.quoteNumber}<ArrowUpRight size={16} aria-hidden="true" /></a> : <>Quote {quote.quoteNumber}</>}</h2>
       </div>
+      <div className="qs-record-actions"><button type="button" className="vq-button qs-removed-button" onClick={() => setRemovedOpen(true)}><Trash2 size={14} />Removed items{removedCount > 0 && <span>{removedCount}</span>}</button></div>
     </header>
     {lifecycle.alerts}
     <div className="qs-request-grid">
-      <div className="qs-request-main">
-        <QuoteOverview detail={detail} canEdit={quote.canEdit && canManage} draft={overviewDraft} dirty={overviewDirty} saving={overviewSaving} busy={saving || rfqSaving || lifecycle.busy} saved={overviewSaved} error={overviewError}
-          buyCount={buyCount} opCount={opCount} buyChecking={materialReview.loading} opChecking={purchasing.waitingForPlanning || opReview.loading} showProductionReview={purchasing.showPurchasing}
-          onChange={value => { setOverviewDraft(value); setOverviewSaved(false) }} onSave={() => void saveOverview()} onDiscard={discardOverview} onDetailChanged={emailImported} />
-        {purchasing.showPurchasing && <><MaterialPurchasing quoteHistoryId={quote.quoteHistoryId} canEdit={quote.canEdit && canManage} busy={writeBusy || opDirty} resetToken={draftReset} outlookConnected={outlookConnected}
-          data={materialReview.data} groups={groups} loading={materialReview.loading} error={materialReview.error} onRefresh={materialReview.refresh}
-          onDraftCreated={() => onChanged()} onQuantitiesChanged={result => { materialReview.setData(result); setQuantityRevision(value => value + 1) }} onDirty={setMaterialDirty} />
-        <OutsideProcessing quoteHistoryId={quote.quoteHistoryId} canEdit={quote.canEdit && canManage} busy={writeBusy || materialDirty} outlookConnected={outlookConnected}
-          data={opReview.data} loading={purchasing.waitingForPlanning || opReview.loading} error={opReview.error} onRefresh={opReview.refresh}
-          onDraftCreated={() => onChanged()} onDirty={setOpDirty} /></>}
-        <section ref={activityRef} className="qs-request-card qs-activity-card" aria-label={thread ? `Activity ledger for ${thread.request.title}` : 'Activity ledger'}><header className="qs-card-heading qs-activity-heading"><div><h3>Activity Ledger</h3>{thread && <p>{thread.request.partNumber ? `${thread.request.partNumber} · ` : ''}{thread.request.title} · {thread.request.vendorName}</p>}</div><div className="qs-activity-heading-actions"><span>Newest first</span>{thread && <button type="button" className="qs-text-button" onClick={() => transition(() => setThreadId(null))}><ArrowLeft size={14} />Full quote history</button>}</div></header>
-          <ActivityTimeline key={threadId ?? 'quote'} requestId={threadId} activity={detail.activity} messages={messages} threads={threads} unassignedIds={new Set(detail.unassignedMessages.map(item => item.id))} onThread={selectThread} canEdit={quote.canEdit && canManage} canRemove={canRemove} busy={writeBusy} onEdit={lifecycle.editNote} onRemove={lifecycle.removeNote} onMoveEmail={lifecycle.moveEmail} onRemoveEmail={lifecycle.removeEmail} onUntrackEmail={untrackEmail} onRateRequest={changeRateRequest} onAssign={async (messageId, requestId) => { await assignQuoteMessage(quote.quoteHistoryId, messageId, quote.version, requestId); const updated = await onChanged(); if (updated) setOverviewBase(current => rebaseQuoteDetailsAfterActivity(current, updated.workflow)) }} />
-        </section>
-      </div>
-      <div className="qs-request-side">
-        <section className="qs-request-card qs-entry-card" aria-label="Add an entry">
-          <header className="qs-card-heading"><h3>Add Entry</h3></header>
-          <div className="qs-entry-target"><label htmlFor="qs-entry-scope">Add entry to</label><select id="qs-entry-scope" value={threadId || ''} disabled={writeBusy} onChange={event => transition(() => setThreadId(event.target.value ? Number(event.target.value) : null))}><option value="">Quote {quote.quoteNumber}</option>{threads.map(item => <option value={item.request.id} key={item.request.id}>{item.request.title}{item.request.vendorName ? ` · ${item.request.vendorName}` : ''}</option>)}</select></div>
-          {thread && <div className="qs-entry-context"><span><StatusBadge status={thread.request.status} />{thread.request.partNumber && <small>{thread.request.partNumber}</small>}</span><div>{canEdit && <button className="vq-icon-button" aria-label="Edit RFQ details" disabled={writeBusy} onClick={() => transition(() => setEditingThread(true))}><Pencil size={15} /></button>}{thread.request.vendorEmail && <a className="qs-text-button" href={mailtoVendor(thread.request.vendorEmail, quote.quoteNumber)}><ArrowUpRight size={14} />Open Outlook</a>}<button className="vq-icon-button" aria-label="Return entry to quote" onClick={() => transition(() => setThreadId(null))}><X size={15} /></button></div></div>}
-          <UpdateComposer compact label={scopedLabel} kind={thread ? 'thread' : 'quote'} draft={draft} statuses={thread ? threadStatuses : statuses} onChange={value => { setDraft(value); setSaved(false) }} canEdit={canEdit} canSave={dirty} saving={writeBusy} error={error} saved={saved} onSave={() => void save()} />
-          {canEdit && <ManualEmailUpload compact detail={detail} selectedThread={thread} disabled={writeBusy} resetToken={draftReset} onDirty={setEmailDirty} onImported={emailImported} />}
-        </section>
-        <ProcessingMaterials threads={threads} selectedId={threadId} statuses={threadStatuses} canEdit={quote.canEdit && canManage} busy={writeBusy} error={rfqError} onSelect={selectThread} onStatus={(item, status) => void changeRfqStatus(item, status)} onNew={() => transition(() => setNewThread(true))} onUntrack={untrackEmail} />
-      </div>
+      <QuoteOverview detail={detail} canEdit={quote.canEdit && canManage} draft={overviewDraft} dirty={overviewDirty} saving={overviewSaving} busy={saving || rfqSaving || lifecycle.busy} saved={overviewSaved} error={overviewError}
+        quotedParts={<QuotedPartsTable data={materialReview.data} fallbackParts={detail.productionWarnings?.items ?? []} canEdit={quote.canEdit && canManage}
+          disabled={writeBusy || opDirty || materialDirty || Boolean(materialReview.error)} loading={materialReview.loading} resetToken={draftReset}
+          onDirty={setQuantityDirty} editButtonRef={quantityEditButton}
+          onChanged={result => { materialReview.setData(result); setQuantityRevision(value => value + 1) }} />}
+        onViewProcessing={viewProcessing}
+        onChange={value => { setOverviewDraft(value); setOverviewSaved(false) }} onSave={() => void saveOverview()} onDiscard={discardOverview} onDetailChanged={emailImported} />
+      <section ref={activityRef} className="qs-request-card qs-activity-card" aria-label={thread ? `Activity ledger for ${thread.request.title}` : 'Activity ledger'}>
+        <header className="qs-card-heading qs-activity-heading">
+          <div><h3>Activity Ledger</h3>{thread && <p>{thread.request.partNumber ? `${thread.request.partNumber} · ` : ''}{thread.request.title}{thread.request.vendorName ? ` · ${thread.request.vendorName}` : ''}</p>}</div>
+          <div className="qs-activity-heading-actions">
+            {thread && <button type="button" className="qs-text-button" onClick={() => transition(() => setThreadId(null))}><ArrowLeft size={14} />Full quote history</button>}
+            {(canEdit || (canManage && quote.canEdit)) && <button type="button" className="vq-button vq-button-primary" disabled={writeBusy} onClick={() => { setError(null); setSaved(false); setEntryOpen(true) }}><Plus size={15} />Add Entry</button>}
+            {canEdit && <ManualEmailUpload detail={detail} selectedThread={thread} disabled={writeBusy} resetToken={draftReset} onDirty={setEmailDirty} onImported={emailImported} />}
+          </div>
+        </header>
+        <ActivityTimeline key={threadId ?? 'quote'} requestId={threadId} activity={detail.activity} messages={messages} threads={threads} unassignedIds={new Set(detail.unassignedMessages.map(item => item.id))} onThread={selectThread} canEdit={quote.canEdit && canManage} canRemove={canRemove} busy={writeBusy} onEdit={lifecycle.editNote} onRemove={lifecycle.removeNote} onMoveEmail={lifecycle.moveEmail} onRemoveEmail={lifecycle.removeEmail} onUntrackEmail={untrackEmail} onRateRequest={changeRateRequest} onAssign={async (messageId, requestId) => { await assignQuoteMessage(quote.quoteHistoryId, messageId, quote.version, requestId); const updated = await onChanged(); if (updated) setOverviewBase(current => rebaseQuoteDetailsAfterActivity(current, updated.workflow)) }} />
+      </section>
+      <ProcessingMaterials threads={threads} selectedId={threadId} statuses={threadStatuses} canEdit={quote.canEdit && canManage} busy={writeBusy} error={rfqError}
+        buyCount={purchasing.showPurchasing ? buyCount : undefined} opCount={purchasing.showPurchasing ? opCount : undefined}
+        buyChecking={purchasing.showPurchasing ? materialReview.loading : undefined}
+        opChecking={purchasing.showPurchasing ? purchasing.waitingForPlanning || opReview.loading : undefined}
+        onSelect={selectThread} onStatus={(item, status) => void changeRfqStatus(item, status)} onNew={() => transition(() => setNewThread(true))} onUntrack={untrackEmail}>
+        {purchasing.showPurchasing && <>
+          <MaterialPurchasing quoteHistoryId={quote.quoteHistoryId} canEdit={quote.canEdit && canManage} busy={writeBusy || opDirty || quantityDirty} outlookConnected={outlookConnected}
+            data={materialReview.data} groups={groups} loading={materialReview.loading} error={materialReview.error} onRefresh={materialReview.refresh}
+            onDraftCreated={() => onChanged()} onDirty={setMaterialDirty} />
+          <OutsideProcessing quoteHistoryId={quote.quoteHistoryId} canEdit={quote.canEdit && canManage} busy={writeBusy || materialDirty || quantityDirty} outlookConnected={outlookConnected}
+            data={opReview.data} loading={purchasing.waitingForPlanning || opReview.loading} error={opReview.error} onRefresh={opReview.refresh}
+            onDraftCreated={() => onChanged()} onDirty={setOpDirty}
+            onEditQuantities={materialReview.data?.parts.length && !materialReview.loading && !materialReview.error
+              ? () => { quantityEditButton.current?.click(); quantityEditButton.current?.scrollIntoView({ block: 'center' }) } : undefined} />
+        </>}
+      </ProcessingMaterials>
     </div>
+    {entryOpen && <Modal title="Add Entry" onClose={closeEntry}>
+      <div className="qs-entry-card">
+        <div className="qs-entry-target"><label htmlFor="qs-entry-scope">Add entry to</label><select id="qs-entry-scope" value={threadId ?? ''} disabled={writeBusy} onChange={event => transition(() => setThreadId(event.target.value ? Number(event.target.value) : null))}><option value="">Quote {quote.quoteNumber}</option>{threads.map(item => <option value={item.request.id} key={item.request.id}>{item.request.title}{item.request.vendorName ? ` · ${item.request.vendorName}` : ''}</option>)}</select></div>
+        {thread && <div className="qs-entry-context"><span><StatusBadge status={thread.request.status} />{thread.request.partNumber && <small>{thread.request.partNumber}</small>}</span><div>{canEdit && <button className="vq-icon-button" aria-label="Edit RFQ details" disabled={writeBusy} onClick={() => transition(() => { setEntryOpen(false); setEditingThread(true) })}><Pencil size={15} /></button>}{thread.request.vendorEmail && <a className="qs-text-button" href={mailtoVendor(thread.request.vendorEmail, quote.quoteNumber)}><ArrowUpRight size={14} />Open Outlook</a>}<button className="vq-icon-button" aria-label="Return entry to quote" disabled={writeBusy} onClick={() => transition(() => setThreadId(null))}><X size={15} /></button></div></div>}
+        <UpdateComposer compact label={scopedLabel} kind={thread ? 'thread' : 'quote'} draft={draft} statuses={thread ? threadStatuses : statuses} onChange={value => { setDraft(value); setSaved(false) }} canEdit={canEdit} canSave={dirty} saving={writeBusy} error={error} saved={saved} onSave={() => void save()} />
+      </div>
+    </Modal>}
     {newThread && <NewThreadDialog quote={quote} statuses={threadStatuses} onClose={() => setNewThread(false)} onCreated={created => { setNewThread(false); void onChanged().then(() => setThreadId(created.request.id)).catch(reason => setRfqError(reason instanceof Error ? reason.message : 'RFQ created. Refresh to load its activity.')) }} />}
     {editingThread && thread && <NewThreadDialog quote={quote} existing={thread} statuses={threadStatuses} onClose={() => setEditingThread(false)} onCreated={() => { setEditingThread(false); void onChanged().catch(reason => setRfqError(reason instanceof Error ? reason.message : 'RFQ details could not be refreshed.')) }} />}
     {removedOpen && <Modal title="Removed items" subtitle="Restore an email or note to this quote's activity." onClose={() => setRemovedOpen(false)} wide><RemovedItems detail={detail} canRestore={canRemove} busy={writeBusy} onRestoreEmail={lifecycle.restoreEmail} onRestoreNote={lifecycle.restoreNote} /></Modal>}

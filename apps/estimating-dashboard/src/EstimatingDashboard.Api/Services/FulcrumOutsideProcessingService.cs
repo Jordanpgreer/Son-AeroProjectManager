@@ -17,6 +17,17 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
     public async Task<OutsideProcessingRequirementsDto> InspectAsync(int historyId, int quoteNumber, string sourceId,
         IReadOnlyDictionary<string, IReadOnlyList<decimal>> quantities, CancellationToken ct)
     {
+        try { return await InspectCoreAsync(historyId, quoteNumber, sourceId, quantities, ct); }
+        catch (OverflowException error)
+        {
+            throw new InvalidOperationException(
+                "The OP quantities exceed the supported calculation range. Verify the quote and BOM quantities in Fulcrum.", error);
+        }
+    }
+
+    private async Task<OutsideProcessingRequirementsDto> InspectCoreAsync(int historyId, int quoteNumber, string sourceId,
+        IReadOnlyDictionary<string, IReadOnlyList<decimal>> quantities, CancellationToken ct)
+    {
         await client.InitializeAsync(ct, fresh: true);
         var quoteId = FulcrumQuoteGenerationClient.Identifier(sourceId);
         var quote = await client.GetAsync($"api/quotes/{quoteId}", ct);
@@ -27,6 +38,7 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
             throw new InvalidOperationException("The quote has no part lines or exceeds the safe OP inspection size.");
         var inspection = new Inspection(client);
         var warnings = new List<string>();
+        var quantityWarningsByRoot = new Dictionary<string, string>(StringComparer.Ordinal);
         var partCount = 0;
         var industriosCount = 0;
         foreach (var group in lines.GroupBy(line => Text(line, "itemId"), StringComparer.Ordinal))
@@ -38,33 +50,48 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
             var numbers = group.Select(line => Number(line, "quantity")).ToArray();
             if (numbers.Any(number => number is not > 0))
                 throw new InvalidOperationException($"{Text(item, "number")}: each quote part needs a positive quantity.");
-            var selected = quantities.TryGetValue(group.Key, out var overrideValues) ? overrideValues :
-                numbers.Select(number => number!.Value).Distinct().Order().ToArray();
             var planning = await FulcrumPurchasingPlanning.InspectAsync(client, quoteId, group.Key, item,
                 group.Select(line => Text(line, "id")), ct);
             if (planning.IsIndustrios) { industriosCount++; continue; }
-            if (selected.Count is < 1 or > 2 || selected.Any(number => number <= 0))
-                throw new InvalidOperationException("Confirm the quoted quantities before preparing OP drafts.");
-            if (!quantities.ContainsKey(group.Key))
-                warnings.Add($"{Text(item, "number")}: Fulcrum's API exposes line quantities but not Pricing-panel breaks. Confirm the quoted quantity before sending an OP request.");
+            var (selected, confirmed) = QuoteTiers(group, numbers.Select(quantity => quantity!.Value),
+                quantities.GetValueOrDefault(group.Key));
             if (group.Count() > 1)
                 warnings.Add($"{Text(item, "number")}: multiple quote lines use this part. Confirm that their OP routing is identical before sending.");
             var lineId = Text(group.First(), "id");
             if (lineId.Length == 0) throw new InvalidOperationException("A Fulcrum quote part line has no routing identifier.");
-            inspection.SetQuoteRouting(planning.Routes.FirstOrDefault());
-            await inspection.TraverseAsync(group.Key, selected.Min(), selected.Max(), [], ct);
+            var hasOperations = await inspection.TraverseAsync(group.Key, group.Key, selected,
+                planning.Routes.FirstOrDefault(), [], ct);
+            if (hasOperations && !confirmed)
+                quantityWarningsByRoot.Add(group.Key, $"{Text(item, "number")}: Fulcrum did not provide a complete list of Pricing-panel breaks. Confirm the quoted quantities for this part.");
         }
-        var operations = await inspection.CompleteAsync(ct);
+        var operations = await inspection.CompleteAsync(quantityWarningsByRoot, ct);
         warnings.AddRange(inspection.Warnings);
         return new(historyId, quoteNumber, clock.GetUtcNow(), operations, warnings.Distinct().ToArray(),
             inspection.HasUnknownPlanning ? PurchasingPlanningSources.Unknown
-                : FulcrumPurchasingPlanning.Source(partCount, industriosCount));
+                : FulcrumPurchasingPlanning.Source(partCount, industriosCount),
+            quantityWarningsByRoot.Values.Distinct().ToArray());
+    }
+
+    private static (decimal?[] Quantities, bool Confirmed) QuoteTiers(IEnumerable<JsonElement> lines,
+        IEnumerable<decimal> lineQuantities, IReadOnlyList<decimal>? saved)
+    {
+        decimal[]? confirmed = null;
+        if (saved is not null)
+        {
+            if (saved.Count is < 1 or > FulcrumQuoteQuantityTiers.MaximumCount || saved.Any(quantity => quantity <= 0))
+                throw new InvalidOperationException($"Confirm between 1 and {FulcrumQuoteQuantityTiers.MaximumCount} positive quoted quantity tiers before preparing OP drafts.");
+            confirmed = saved.Distinct().Order().ToArray();
+            if (confirmed.Length != 2)
+                return (confirmed.Select(quantity => (decimal?)quantity).ToArray(), true);
+        }
+        var quoted = FulcrumQuoteQuantityTiers.Read(lines, lineQuantities);
+        var values = confirmed is null ? quoted.Quantities : FulcrumQuoteQuantityTiers.ApplyConfirmation(quoted, confirmed);
+        return (values.Select(quantity => (decimal?)quantity).ToArray(), confirmed is not null || quoted.Complete);
     }
 
     private sealed class Inspection(FulcrumQuoteGenerationClient client)
     {
         private readonly Dictionary<string, JsonElement> items = new(StringComparer.Ordinal);
-        private FulcrumQuoteRouting? routing;
         private readonly Dictionary<string, (string Name, IReadOnlyList<string> Emails)> vendors = new(StringComparer.Ordinal);
         private readonly Dictionary<string, Candidate> candidates = new(StringComparer.Ordinal);
         private int nodes;
@@ -80,12 +107,10 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
             return item;
         }
 
-        public void SetQuoteRouting(FulcrumQuoteRouting? value) => routing = value;
-
-        public async Task TraverseAsync(string itemId, decimal? minimum, decimal? maximum,
-            HashSet<string> ancestors, CancellationToken ct)
+        public async Task<bool> TraverseAsync(string rootId, string itemId, decimal?[] quantities,
+            FulcrumQuoteRouting? routing, HashSet<string> ancestors, CancellationToken ct)
         {
-            if (maximum == 0) return;
+            if (quantities.All(quantity => quantity == 0)) return false;
             if (!ancestors.Add(itemId)) throw new InvalidOperationException("Fulcrum has a circular BOM. OP requirements cannot be verified.");
             if (++nodes > 500 || ancestors.Count > 32)
                 throw new InvalidOperationException("The BOM exceeds the safe OP inspection size.");
@@ -96,8 +121,9 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
             {
                 HasUnknownPlanning = true;
                 Warnings.Add($"{number}: Fulcrum quote routing is missing; outside processing requirements could not be verified.");
-                return;
+                return false;
             }
+            var hasOperations = false;
             var operations = routing is null ? [] : await routing.OperationsAsync(itemId, ct);
             foreach (var operation in operations)
             {
@@ -114,9 +140,10 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
                 var key = VendorQuoteService.Hash(itemId + "\n" + operationId);
                 if (!candidates.TryGetValue(key, out var candidate))
                     candidates[key] = candidate = new(key, itemId, operationId, number, operation);
-                candidate.Add(minimum, maximum);
+                candidate.Add(rootId, quantities);
+                hasOperations = true;
             }
-            if (origin is not ("make" or "makeOrBuy" or "kit")) return;
+            if (origin is not ("make" or "makeOrBuy" or "kit")) return hasOperations;
             var inputs = await routing!.InputsAsync(itemId, ct);
             foreach (var input in inputs)
             {
@@ -126,24 +153,27 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
                 if (usage is (0, 0)) continue;
                 var child = await ItemAsync(childId, ct);
                 if (Text(child, "itemOrigin") is not ("make" or "makeOrBuy" or "kit")) continue;
-                await TraverseAsync(childId, Required(usage.Fixed, usage.PerUnit, minimum),
-                    Required(usage.Fixed, usage.PerUnit, maximum), new(ancestors, StringComparer.Ordinal), ct);
+                var childQuantities = quantities.Select(quantity => Required(usage.Fixed, usage.PerUnit, quantity)).ToArray();
+                hasOperations |= await TraverseAsync(rootId, childId, childQuantities,
+                    routing, new(ancestors, StringComparer.Ordinal), ct);
             }
+            return hasOperations;
         }
 
-        public async Task<IReadOnlyList<OutsideProcessingOperationDto>> CompleteAsync(CancellationToken ct)
+        public async Task<IReadOnlyList<OutsideProcessingOperationDto>> CompleteAsync(
+            IReadOnlyDictionary<string, string> quantityWarningsByRoot, CancellationToken ct)
         {
             var result = new List<OutsideProcessingOperationDto>();
             foreach (var candidate in candidates.Values.OrderBy(x => x.PartNumber).ThenBy(x => x.Name))
             {
-                var issues = new List<string>();
+                var issues = candidate.RootIds.Where(quantityWarningsByRoot.ContainsKey)
+                    .Select(root => quantityWarningsByRoot[root]).Distinct().ToList();
                 var vendorId = Text(Field(candidate.Operation, "outsideProcessingOperation"), "selectedVendorId");
                 string? vendorName = null;
                 IReadOnlyList<string> emails = [];
                 if (candidate.Name.Length == 0 || candidate.Name.Any(char.IsControl))
                     issues.Add("The outside processing operation has no usable name.");
-                if (candidate.Minimum is not > 0 || candidate.Maximum is not > 0)
-                    issues.Add("The OP quantity could not be calculated from the quote and BOM.");
+                var values = candidate.QuoteQuantities(issues);
                 if (vendorId.Length == 0)
                     issues.Add("Select an outside processing vendor for this routing operation in Fulcrum.");
                 else
@@ -165,11 +195,10 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
                 var instructions = Text(candidate.Operation, "instructions");
                 if (instructions.Any(c => char.IsControl(c) && c is not ('\r' or '\n' or '\t')))
                     issues.Add("The OP instructions contain invalid characters.");
-                var values = candidate.Minimum is > 0 && candidate.Maximum is > 0
-                    ? new[] { candidate.Minimum.Value, candidate.Maximum.Value }.Distinct().Order().ToArray() : [];
                 var unitOfMeasure = Text(items[candidate.ItemId], "unitOfMeasureName");
                 result.Add(new(candidate.Key, candidate.ItemId, candidate.OperationId, candidate.PartNumber,
-                    candidate.Name, instructions.Length == 0 ? null : instructions, candidate.Minimum, candidate.Maximum,
+                    candidate.Name, instructions.Length == 0 ? null : instructions,
+                    values.Length == 0 ? null : values[0], values.Length == 0 ? null : values[^1],
                     values, issues.Count == 0 ? "needs-rfq" : "review-required", vendorId.Length == 0 ? null : vendorId,
                     vendorName, emails, issues,
                     UnitOfMeasure: unitOfMeasure.Length > 0 && !unitOfMeasure.Any(char.IsControl) ? unitOfMeasure : null));
@@ -191,18 +220,52 @@ internal sealed class FulcrumOutsideProcessingService(FulcrumQuoteGenerationClie
 
         private sealed class Candidate(string key, string itemId, string operationId, string partNumber, JsonElement operation)
         {
+            private readonly Dictionary<string, decimal?[]> quantitiesByRoot = new(StringComparer.Ordinal);
+
             public string Key { get; } = key;
             public string ItemId { get; } = itemId;
             public string OperationId { get; } = operationId;
             public string PartNumber { get; } = partNumber;
             public JsonElement Operation { get; } = operation;
             public string Name => Text(Operation, "name");
-            public decimal? Minimum { get; private set; } = 0;
-            public decimal? Maximum { get; private set; } = 0;
-            public void Add(decimal? minimum, decimal? maximum)
+            public IEnumerable<string> RootIds => quantitiesByRoot.Keys;
+            public void Add(string rootId, decimal?[] quantities)
             {
-                Minimum = Minimum.HasValue && minimum.HasValue ? checked(Minimum + minimum) : null;
-                Maximum = Maximum.HasValue && maximum.HasValue ? checked(Maximum + maximum) : null;
+                if (!quantitiesByRoot.TryGetValue(rootId, out var previous))
+                {
+                    quantitiesByRoot[rootId] = (decimal?[])quantities.Clone();
+                    return;
+                }
+                for (var tier = 0; tier < previous.Length; tier++)
+                    previous[tier] += quantities[tier];
+            }
+
+            public decimal[] QuoteQuantities(List<string> issues)
+            {
+                var contributors = quantitiesByRoot.Values;
+                var tierCount = contributors.Max(tiers => tiers.Length);
+                if (contributors.Any(tiers => tiers.Length != 1 && tiers.Length != tierCount))
+                {
+                    issues.Add("Quoted parts sharing this OP have different numbers of quantity tiers. Verify how their tiers pair before preparing a draft.");
+                    return [];
+                }
+                // Keep each root's tiers aligned. A single-tier root contributes the same units to each tier.
+                var totals = new decimal[tierCount];
+                foreach (var tiers in contributors)
+                {
+                    for (var tier = 0; tier < totals.Length; tier++)
+                    {
+                        if (tiers[tiers.Length == 1 ? 0 : tier] is not { } quantity)
+                        {
+                            issues.Add("The OP quantity could not be calculated from the quote and BOM.");
+                            return [];
+                        }
+                        totals[tier] += quantity;
+                    }
+                }
+                if (totals.All(total => total > 0)) return totals.Distinct().Order().ToArray();
+                issues.Add("The OP quantity could not be calculated from the quote and BOM.");
+                return [];
             }
         }
     }

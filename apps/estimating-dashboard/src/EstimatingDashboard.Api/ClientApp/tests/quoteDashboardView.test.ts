@@ -59,6 +59,16 @@ test('search, paging and workflow filters are sent to the server with literal ch
   assert.equal(params.get('to'), '2028-02-29')
 })
 
+test('individual assignee queries keep their independent status and omit dates by default', () => {
+  const filter: DashboardQuery = { scope: 'all', estimator: 'CASEY LEE', search: '', status: 'completed', page: 1, pageSize: 25 }
+  const params = new URLSearchParams(dashboardQueryString(filter))
+  assert.equal(params.get('estimator'), 'CASEY LEE')
+  assert.equal(params.get('status'), 'completed')
+  assert.equal(params.has('from'), false)
+  assert.equal(params.has('to'), false)
+  assert.equal(new URLSearchParams(dashboardQueryString({ ...filter, scope: 'mine' })).has('estimator'), false)
+})
+
 test('dashboard reads include authentication and cancellation without triggering an ERP refresh', async () => {
   const original = globalThis.fetch
   const signal = new AbortController().signal

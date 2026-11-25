@@ -1,11 +1,4 @@
-.qs-email-upload { margin: 17px 0 23px; min-width: 0; }
-.qs-email-drop { display: flex; align-items: center; gap: 13px; min-width: 0; padding: 18px; border: 1px dashed var(--line-3); border-radius: 9px; background: color-mix(in srgb,var(--steel-tint) 20%,var(--surface)); transition: background .15s,border-color .15s; }
-.qs-email-drop.is-dragging { border-color: var(--steel); border-style: solid; background: var(--steel-tint); outline: 3px solid color-mix(in srgb,var(--steel) 14%,transparent); }
-.qs-email-drop-icon { display: flex; align-items: center; justify-content: center; width: 37px; height: 37px; flex: 0 0 37px; border-radius: 8px; background: var(--surface-2); color: var(--steel-700); }
-.qs-email-drop > div { flex: 1; min-width: 0; }
-.qs-email-drop strong { color: var(--ink-2); font-size: 13px; font-weight: 600; }
-.qs-email-drop p { margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
-.qs-email-drop-hint { margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.qs-email-attachment .vq-button.is-dragging { border-color: var(--steel); background: var(--steel-tint); }
 .qs-email-file-input { display: none; }
 .qs-upload-loading { display: grid; justify-items: center; gap: 15px; padding: 50px 15px; color: var(--muted); }
 .qs-upload-loading strong { font-size: 16px; color: var(--ink-2); }
@@ -42,14 +35,8 @@
 .qs-upload-skipped-note textarea { width: 100%; min-width: 0; padding: 12px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface); color: var(--ink-2); font: inherit; font-size: 13px; font-weight: 400; line-height: 1.7; resize: vertical; }
 .qs-upload-skipped-note small { color: var(--muted); font-size: 11px; font-weight: 400; }
 @media (max-width: 550px) {
-  .qs-email-drop { flex-wrap: wrap; padding: 15px; gap: 11px; }
-  .qs-email-drop > div { flex-basis: calc(100% - 50px); }
-  .qs-email-drop > .vq-button { width: 100%; }
-  .qs-email-drop strong { font-size: 13px; }
-  .qs-email-drop p { font-size: 12px; }
   .qs-email-preview { padding: 16px; }
   .qs-email-preview h3 { font-size: 16px; }
   .qs-email-preview > div span { width: 100%; margin: 3px 0 0; }
   .qs-email-review select,.qs-email-review textarea { font-size: 16px; }
 }
-@media (prefers-reduced-motion: reduce) { .qs-email-drop { transition: none; } }

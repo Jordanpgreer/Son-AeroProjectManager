@@ -109,14 +109,14 @@ public static class EstimatingQuoteWorkflowEndpoints
     }
 
     private static async Task<IResult> DashboardAsync(HttpContext context, EstimatingQuoteWorkflowService service,
-        string? scope, string? from, string? to, string? search, string? status,
+        string? scope, string? from, string? to, string? search, string? status, string? estimator,
         int page = 1, int pageSize = 25, CancellationToken cancellationToken = default)
     {
         context.Response.Headers.CacheControl = "no-store";
         try
         {
             return Results.Ok(await service.GetDashboardAsync(Access(context), scope, from, to, search, status,
-                page, pageSize, cancellationToken));
+                page, pageSize, cancellationToken, estimator));
         }
         catch (EstimatingQuoteWorkflowForbiddenException)
         {
@@ -130,12 +130,12 @@ public static class EstimatingQuoteWorkflowEndpoints
     }
 
     private static async Task<IResult> PerformanceAsync(HttpContext context, EstimatingQuoteWorkflowService service,
-        string? scope, string? estimator, CancellationToken cancellationToken)
+        string? scope, string? estimator, string? month, CancellationToken cancellationToken)
     {
         context.Response.Headers.CacheControl = "no-store";
         try
         {
-            return Results.Ok(await service.GetPerformanceAsync(Access(context), scope, estimator, cancellationToken));
+            return Results.Ok(await service.GetPerformanceAsync(Access(context), scope, estimator, cancellationToken, month));
         }
         catch (EstimatingQuoteWorkflowForbiddenException)
         {

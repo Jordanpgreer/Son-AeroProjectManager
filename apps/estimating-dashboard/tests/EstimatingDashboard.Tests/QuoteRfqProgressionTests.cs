@@ -28,6 +28,7 @@ public sealed class QuoteRfqProgressionTests
 
         await service.TryAdvanceAsync(quote, VendorQuoteTestFixture.Editor, default);
         Assert.Null(quote.ArdaStatus);
+        Assert.Empty(reader.OpQuantities!);
 
         state.DraftsJson = JsonSerializer.Serialize(new[] { materialLink, opLink with {
             SentAt = VendorQuoteTestFixture.Now, SentSourceId = "sent-op" } });
@@ -36,6 +37,34 @@ public sealed class QuoteRfqProgressionTests
         Assert.Equal(EstimatingArdaStatuses.RfqSent, quote.ArdaStatus);
         Assert.Single(await fixture.Db.QuoteHistoryAudits.Where(audit => audit.QuoteHistoryId == quote.Id
             && audit.FieldName == "Arda status" && audit.NewValue == EstimatingArdaStatuses.RfqSent).ToListAsync());
+    }
+
+    [Fact]
+    public async Task Progression_passes_the_complete_confirmation_to_the_op_reader()
+    {
+        await using var fixture = await VendorQuoteTestFixture.CreateAsync();
+        var quoteId = fixture.QuoteId();
+        var quote = await fixture.Db.QuoteHistory.SingleAsync(row => row.Id == quoteId);
+        var material = MaterialRfqDraftTests.Material;
+        var operation = Operation() with { RequiredMinimum = 50, RequiredMaximum = 250, QuoteQuantities = [50, 100, 250] };
+        var reader = new Reader(material, operation);
+        var state = new MaterialPurchasingState { QuoteHistoryId = quoteId,
+            QuantitiesJson = """[{"ItemId":"top","Minimum":100,"Maximum":500,"Tiers":[100,200,500]}]""" };
+        var quantityFingerprint = MaterialDraftTracking.QuantitiesFingerprint(state);
+        state.DraftsJson = JsonSerializer.Serialize(new[] {
+            Link(material.ItemId, QuoteMaterialPurchasingService.Fingerprint(material), "material")
+                with { QuantitiesFingerprint = quantityFingerprint },
+            Link(operation.OperationKey, QuoteOutsideProcessingService.Fingerprint(operation), "op")
+                with { QuantitiesFingerprint = quantityFingerprint },
+        });
+        fixture.Db.Add(state);
+        await fixture.Db.SaveChangesAsync();
+
+        await new QuoteRfqProgressionService(fixture.Db, reader, reader, new FrozenClock())
+            .TryAdvanceAsync(quote, VendorQuoteTestFixture.Editor, default);
+
+        Assert.Equal(new decimal[] { 100, 200, 500 }, reader.OpQuantities!["top"]);
+        Assert.Equal(EstimatingArdaStatuses.RfqSent, quote.ArdaStatus);
     }
 
     [Fact]
@@ -119,6 +148,7 @@ public sealed class QuoteRfqProgressionTests
         public string MaterialSource { get; set; } = PurchasingPlanningSources.Fulcrum;
         public string OpSource { get; set; } = PurchasingPlanningSources.Fulcrum;
         public int OpCalls { get; private set; }
+        public IReadOnlyDictionary<string, IReadOnlyList<decimal>>? OpQuantities { get; private set; }
         public Task<MaterialRequirementsDto> InspectAsync(int id, int quoteNumber, string sourceId,
             CancellationToken ct, IReadOnlyDictionary<string, IReadOnlyList<decimal>>? quantityOverrides = null) =>
             Task.FromResult(new MaterialRequirementsDto(id, quoteNumber, VendorQuoteTestFixture.Now,
@@ -127,6 +157,7 @@ public sealed class QuoteRfqProgressionTests
             IReadOnlyDictionary<string, IReadOnlyList<decimal>> quantities, CancellationToken ct)
         {
             OpCalls++;
+            OpQuantities = quantities;
             return Task.FromResult(new OutsideProcessingRequirementsDto(id, quoteNumber, VendorQuoteTestFixture.Now,
                 operation is null ? [] : [operation], [], OpSource));
         }

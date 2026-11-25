@@ -12,17 +12,21 @@ public sealed partial class EstimatingQuoteWorkflowService
 {
     public async Task<EstimatingQuoteDashboardDto> GetDashboardAsync(EstimatingAccessProfile access,
         string? scope, string? from, string? to, string? search, string? status,
-        int page, int pageSize, CancellationToken ct)
+        int page, int pageSize, CancellationToken ct, string? estimator = null)
     {
         if (!access.IsEnabled || !Has(access, EstimatingPermissions.QuotesView))
             throw new EstimatingQuoteWorkflowForbiddenException();
-        var selection = ValidateDashboard(scope, from, to, search, status, page, pageSize);
-        if (selection.Scope == "all" && !Has(access, EstimatingPermissions.ViewHistory))
+        var canViewTeam = Has(access, EstimatingPermissions.ViewHistory);
+        if (!canViewTeam && estimator is not null)
             throw new EstimatingQuoteWorkflowForbiddenException();
+        var selection = ValidateDashboard(scope, from, to, search, status, page, pageSize);
+        ValidateEstimatorScope(selection.Scope, estimator, canViewTeam);
 
-        // Identity ambiguity must be evaluated against the whole database, never just the selected period.
-        var estimators = await db.QuoteHistory.AsNoTracking().Select(record => record.EstimatingRep)
-            .Distinct().ToListAsync(ct);
+        // Identity ambiguity and the estimator roster use the whole history, never just the visible rows.
+        var knownNames = (await db.QuoteHistory.AsNoTracking().Select(record => record.EstimatingRep).ToListAsync(ct))
+            .Distinct(StringComparer.Ordinal).ToList();
+        var estimators = canViewTeam ? PerformanceEstimators(knownNames) : [];
+        var estimatorKey = ResolveEstimator(estimator, estimators);
         var query = db.QuoteHistory.AsNoTracking();
         if (selection.From is { } first)
             query = query.Where(record => record.RfqDueDate.HasValue && record.RfqDueDate.Value.Date >= first);
@@ -30,8 +34,9 @@ public sealed partial class EstimatingQuoteWorkflowService
             query = query.Where(record => record.RfqDueDate.HasValue && record.RfqDueDate.Value.Date <= last);
         var stored = await query.ToListAsync(ct);
         bool IsMine(EstimatingQuoteHistoryRecord record) => EstimatingEstimatorIdentity.MatchesUnambiguously(
-            record.EstimatingRep, estimators, access);
-        var cohort = stored.Where(record => selection.Scope == "all" || IsMine(record)).ToList();
+            record.EstimatingRep, knownNames, access);
+        var cohort = stored.Where(record => selection.Scope == "mine" ? IsMine(record)
+            : estimatorKey is null || EstimatorSettings.NormalizeKey(record.EstimatingRep) == estimatorKey).ToList();
         var today = timeProvider.GetLocalNow().Date;
         var stats = await DashboardStatsAsync(cohort.Select(record => new DashboardStatsRecord(
             record.Id, record.EstimatingRep, record.IsCompleted, record.QuoteStatus, record.TotalValue,
@@ -69,22 +74,26 @@ public sealed partial class EstimatingQuoteWorkflowService
                     && Has(access, EstimatingPermissions.ManageInputs) && Has(access, EstimatingPermissions.ManageQuotes)
             };
         }).ToList();
-        return new(rows, filtered.Count, selection.Page, selection.PageSize, stats);
+        return new(rows, filtered.Count, selection.Page, selection.PageSize, stats, estimators);
     }
 
     public async Task<EstimatingQuotePerformanceDto> GetPerformanceAsync(EstimatingAccessProfile access,
-        string? scope, string? estimator, CancellationToken ct)
+        string? scope, string? estimator, CancellationToken ct, string? month = null)
     {
         if (!access.IsEnabled || !Has(access, EstimatingPermissions.QuotesView))
             throw new EstimatingQuoteWorkflowForbiddenException();
 
         scope = NormalizeDashboardScope(scope);
         var canViewTeam = Has(access, EstimatingPermissions.ViewHistory);
-        if (!canViewTeam && (scope == "all" || estimator is not null))
-            throw new EstimatingQuoteWorkflowForbiddenException();
-        if (estimator is not null && (scope != "all" || !EstimatorSettings.IsEligible(estimator)
-            || estimator.Length > EstimatorSettings.NameMaxLength || estimator.Any(char.IsControl)))
-            throw new EstimatingQuoteWorkflowValidationException("Choose an available estimator.");
+        ValidateEstimatorScope(scope, estimator, canViewTeam);
+
+        DateTime? performanceMonth = null;
+        if (month is not null)
+        {
+            if (!DateTime.TryParseExact(month, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+                throw new EstimatingQuoteWorkflowValidationException("Use YYYY-MM for the performance month.");
+            performanceMonth = parsed;
+        }
 
         // Project only the fields needed for performance, leaving quote details and imported line JSON out.
         var records = await db.QuoteHistory.AsNoTracking().Select(record => new DashboardStatsRecord(
@@ -92,19 +101,36 @@ public sealed partial class EstimatingQuoteWorkflowService
             record.DateToEstimating, record.EstimatingCompletionDate, record.Workdays, record.RfqDueDate)).ToListAsync(ct);
         var knownNames = records.Select(record => record.EstimatingRep).Distinct(StringComparer.Ordinal).ToList();
         var estimators = canViewTeam ? PerformanceEstimators(knownNames) : [];
-        if (estimator is not null)
-        {
-            estimator = EstimatorSettings.NormalizeKey(estimator);
-            if (!estimators.Any(option => option.Id == estimator))
-                throw new EstimatingQuoteWorkflowValidationException("Choose an available estimator.");
-        }
+        var estimatorKey = ResolveEstimator(estimator, estimators);
 
+        // The roster and identity matching use all history, even when the metrics use only one RFQ due month.
+        var period = performanceMonth is { } selectedMonth
+            ? records.Where(record => record.RfqDueDate is { } due
+                && due.Year == selectedMonth.Year && due.Month == selectedMonth.Month)
+            : records;
         var cohort = scope == "mine"
-            ? records.Where(record => EstimatingEstimatorIdentity.MatchesUnambiguously(record.EstimatingRep, knownNames, access))
-            : records.Where(record => EstimatorSettings.IsEligible(record.EstimatingRep)
-                && (estimator is null || EstimatorSettings.NormalizeKey(record.EstimatingRep) == estimator));
+            ? period.Where(record => EstimatingEstimatorIdentity.MatchesUnambiguously(record.EstimatingRep, knownNames, access))
+            : period.Where(record => EstimatorSettings.IsEligible(record.EstimatingRep)
+                && (estimatorKey is null || EstimatorSettings.NormalizeKey(record.EstimatingRep) == estimatorKey));
         var stats = await DashboardStatsAsync(cohort.ToList(), timeProvider.GetLocalNow().Date, ct);
         return new(stats, estimators);
+    }
+
+    private static void ValidateEstimatorScope(string scope, string? estimator, bool canViewTeam)
+    {
+        if (!canViewTeam && (scope == "all" || estimator is not null))
+            throw new EstimatingQuoteWorkflowForbiddenException();
+        if (estimator is not null && (scope != "all" || !EstimatorSettings.IsEligible(estimator)
+            || estimator.Length > EstimatorSettings.NameMaxLength || estimator.Any(char.IsControl)))
+            throw new EstimatingQuoteWorkflowValidationException("Choose an available estimator.");
+    }
+
+    private static string? ResolveEstimator(string? estimator, IReadOnlyList<EstimatingPerformanceEstimatorDto> estimators)
+    {
+        if (estimator is null) return null;
+        var key = EstimatorSettings.NormalizeKey(estimator);
+        return estimators.Any(option => option.Id == key) ? key
+            : throw new EstimatingQuoteWorkflowValidationException("Choose an available estimator.");
     }
 
     private static List<EstimatingPerformanceEstimatorDto> PerformanceEstimators(IEnumerable<string> names) =>

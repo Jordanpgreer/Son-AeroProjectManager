@@ -37,8 +37,9 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
         if (lines.Count == 0) throw new InvalidOperationException("This Fulcrum quote has no part lines to inspect.");
         if (lines.Count > 200) throw new InvalidOperationException("The quote exceeds the safe material inspection size.");
         if (quantityOverrides is not null && quantityOverrides.Any(pair =>
-                pair.Value is null || pair.Value.Count is < 1 or > 2 || pair.Value.Any(quantity => quantity <= 0)))
-            throw new InvalidOperationException("Quantity corrections must contain one or two positive quantities.");
+                pair.Value is null || pair.Value.Count is < 1 or > FulcrumQuoteQuantityTiers.MaximumCount
+                || pair.Value.Any(quantity => quantity <= 0)))
+            throw new InvalidOperationException("Quantity corrections must contain up to 200 positive quantities per part.");
         var currentItemIds = lines.Select(line => Text(line, "itemId")).ToHashSet(StringComparer.Ordinal);
         var hasStaleOverrides = quantityOverrides?.Keys.Any(id => !currentItemIds.Contains(id)) == true;
         var context = new Inspection(client, clock.GetUtcNow());
@@ -49,21 +50,24 @@ internal sealed class FulcrumMaterialRequirementsService(FulcrumQuoteGenerationC
             var item = await context.ItemAsync(group.Key, cancellationToken);
             if (group.Any(line => Number(line, "quantity") is not > 0))
                 throw new InvalidOperationException($"{Text(item, "number")}: every quote part line needs a positive quantity.");
-            var quantities = group.Select(line => Number(line, "quantity")!.Value).Distinct().Order().ToArray();
+            var lineQuantities = group.Select(line => Number(line, "quantity")!.Value).Distinct().Order().ToArray();
+            var quotedTiers = FulcrumQuoteQuantityTiers.Read(group, lineQuantities);
             var overridden = quantityOverrides?.ContainsKey(group.Key) == true;
-            if (overridden) quantities = quantityOverrides![group.Key].Distinct().Order().ToArray();
+            var materialQuantities = overridden ? quantityOverrides![group.Key].Distinct().Order().ToArray() : lineQuantities;
+            // Prefill every tier in the quote editor while preserving the material requirement's established bounds.
+            var partTiers = overridden ? FulcrumQuoteQuantityTiers.ApplyConfirmation(quotedTiers, materialQuantities) : quotedTiers.Quantities;
             var revision = Field(item, "revision");
             var planning = await FulcrumPurchasingPlanning.InspectAsync(client, quoteId, group.Key, item,
                 group.Select(line => Text(line, "id")), cancellationToken);
             var lineId = Text(group.First(), "id");
             parts.Add(new(lineId, group.Key, Text(item, "number"),
-                revision.ValueKind == JsonValueKind.String ? revision.GetString() : Text(revision, "revision"), quantities, overridden, planning.IsIndustrios));
+                revision.ValueKind == JsonValueKind.String ? revision.GetString() : Text(revision, "revision"), partTiers, overridden, planning.IsIndustrios));
             if (!planning.IsIndustrios)
-                await context.InspectPartAsync(group.Key, item, planning.Routes, quantities, cancellationToken);
+                await context.InspectPartAsync(group.Key, item, planning.Routes, materialQuantities, cancellationToken);
         }
         var materials = await context.CompleteAsync(cancellationToken);
         if (materials.Count > 0 && parts.Any(part => !part.NoFulcrumOperations && !part.QuantitiesOverridden))
-            warnings.Add("Fulcrum's public API exposes quote line quantities, but not separate Pricing-panel quantity breaks. Confirm the displayed part quantities before opening a vendor draft.");
+            warnings.Add("Confirm the displayed quoted quantities so material demand covers every quantity tier before opening a vendor draft.");
         if (hasStaleOverrides)
         {
             const string issue = "Saved quantities for removed parts were ignored; reset or confirm the current quoted quantities before opening a vendor draft.";

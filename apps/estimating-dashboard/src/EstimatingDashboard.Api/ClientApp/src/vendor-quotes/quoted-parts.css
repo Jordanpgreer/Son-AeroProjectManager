@@ -1,0 +1,31 @@
+.qs-quoted-parts { margin-bottom: 16px; }
+.qs-quoted-parts-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 16px; margin-bottom: 8px; }
+.qs-quoted-parts-heading h4 { margin: 0; color: var(--ink); font-size: 15px; font-weight: 720; }
+.qs-quoted-parts-table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; text-align: left; font-size: 13px; }
+.qs-quoted-parts-table th,.qs-quoted-parts-table td { padding: 8px 12px; overflow-wrap: anywhere; }
+.qs-quoted-parts-table thead { color: var(--muted); background: var(--surface-2); font-size: 12px; }
+.qs-quoted-parts-table thead th:first-child { width: 35%; border-top-left-radius: 5px; }
+.qs-quoted-parts-table thead th:nth-child(2) { width: 26%; }
+.qs-quoted-parts-table thead th:last-child { border-top-right-radius: 5px; }
+.qs-quoted-parts-table tbody th,.qs-quoted-parts-table tbody td { border-bottom: 1px solid var(--line); vertical-align: top; }
+.qs-quoted-parts-table tbody th { color: var(--ink); font-weight: 700; }
+.qs-quoted-parts-table tbody td { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.qs-quoted-parts-table small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; font-weight: 400; }
+.qs-quoted-parts-empty { margin: 0; padding: 8px 0; color: var(--muted); font-size: 13px; }
+.qs-material-quantity-tools { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.qs-material-quantity-tools button:disabled { cursor: not-allowed; opacity: .55; }
+.qs-material-quantity-form { margin-top: 12px; padding: 14px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--surface-2); }
+.qs-material-quantity-form > p { margin: 0 0 13px; color: var(--muted); font-size: 11px; line-height: 1.65; }
+.qs-material-quantity-fields { display: grid; grid-template-columns: minmax(80px,.8fr) minmax(0,2fr); gap: 10px; align-items: start; margin-top: 12px; }
+.qs-material-quantity-fields > strong { align-self: center; color: var(--ink-2); font-size: 12px; overflow-wrap: anywhere; }
+.qs-material-quantity-fields label { display: grid; gap: 5px; color: var(--muted); font-size: 10px; }
+.qs-material-quantity-fields textarea { width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--line-2); border-radius: 5px; background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; resize: vertical; }
+.qs-material-quantity-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
+.qs-request-page .qs-material-quantity-actions .vq-button { min-height: 32px; padding: 7px 10px; font-size: 11px !important; }
+
+@media (max-width: 600px) {
+  .qs-quoted-parts-table th,.qs-quoted-parts-table td { padding: 8px; }
+  .qs-quoted-parts-table thead th:nth-child(2) { width: 23%; }
+  .qs-material-quantity-fields { grid-template-columns: minmax(0,1fr); gap: 5px; }
+  .qs-material-quantity-fields textarea { font-size: 16px; }
+}

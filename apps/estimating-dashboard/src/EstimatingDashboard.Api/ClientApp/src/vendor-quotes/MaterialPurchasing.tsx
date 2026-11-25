@@ -1,26 +1,25 @@
 import { AlertTriangle, CheckCircle2, ChevronDown, LoaderCircle, Mail, Package, RefreshCw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { createMaterialDraft, downloadMaterialDraft } from './materialPurchasingApi'
-import { canDraftMaterial, materialQuantity, materialQuantityRange, type materialGroups } from './materialPurchasingModel'
+import { canDraftMaterial, materialQuantityRange, type materialGroups } from './materialPurchasingModel'
 import { dateTime } from './model'
 import type { MaterialRequirement, MaterialRequirements } from './materialPurchasingTypes'
-import MaterialQuantityEditor from './MaterialQuantityEditor'
 import './material-purchasing.css'
 
-export default function MaterialPurchasing({ quoteHistoryId, canEdit, busy, resetToken, outlookConnected, data: current, groups, loading, error, onRefresh, onDraftCreated, onQuantitiesChanged, onDirty }: {
-  quoteHistoryId: number; canEdit: boolean; busy: boolean; resetToken: number; outlookConnected: boolean
+export default function MaterialPurchasing({ quoteHistoryId, canEdit, busy, outlookConnected, data: current, groups, loading, error, onRefresh, onDraftCreated, onDirty }: {
+  quoteHistoryId: number; canEdit: boolean; busy: boolean; outlookConnected: boolean
   data: MaterialRequirements | null; groups: ReturnType<typeof materialGroups>; loading: boolean; error: string | null
-  onRefresh: () => void; onDraftCreated: () => Promise<unknown>; onQuantitiesChanged: (result: MaterialRequirements) => void; onDirty: (dirty: boolean) => void
+  onRefresh: () => void; onDraftCreated: () => Promise<unknown>; onDirty: (dirty: boolean) => void
 }) {
   const [drafting, setDrafting] = useState<string | null>(null)
   const [draftError, setDraftError] = useState<{ itemId: string; message: string } | null>(null)
   const [prepared, setPrepared] = useState<string | null>(null)
-  const [quantityEditing, setQuantityEditing] = useState(false)
-  useEffect(() => { onDirty(quantityEditing || drafting !== null) }, [quantityEditing, drafting, onDirty])
+  useEffect(() => { onDirty(drafting !== null) }, [drafting, onDirty])
   useEffect(() => () => onDirty(false), [onDirty])
   useEffect(() => { if (loading) setDraftError(null) }, [loading])
+  useEffect(() => { setPrepared(null); setDraftError(null) }, [current?.quantityVersion])
   async function openDraft(material: MaterialRequirement) {
-    if (!current || !canEdit || loading || error || busy || drafting || quantityEditing || !canDraftMaterial(material)) return
+    if (!current || !canEdit || loading || error || busy || drafting || !canDraftMaterial(material)) return
     setDrafting(material.itemId); setDraftError(null); setPrepared(null)
     let fileDownloaded = false
     try {
@@ -37,13 +36,13 @@ export default function MaterialPurchasing({ quoteHistoryId, canEdit, busy, rese
   const materialsToReview = current?.materials.filter(material => material.issues.length > 0
     || (material.availableQuantity === 0 && material.noPurchasesInFulcrumWindow)) ?? []
   function renderMaterial(material: MaterialRequirement) {
-    return <MaterialRow key={material.itemId} material={material} canEdit={canEdit} disabled={busy || loading || !!error || !!drafting || quantityEditing}
+    return <MaterialRow key={material.itemId} material={material} canEdit={canEdit} disabled={busy || loading || !!error || !!drafting}
       drafting={drafting === material.itemId} prepared={prepared === material.itemId} outlookConnected={outlookConnected}
       error={draftError?.itemId === material.itemId ? draftError.message : null} onDraft={() => void openDraft(material)} />
   }
   return <section className="qs-request-card qs-material-purchasing" aria-label="Material purchasing" aria-busy={loading}>
     <header className="qs-card-heading"><h3><Package size={16} />Material purchasing</h3>
-      <button className="qs-text-button" type="button" disabled={busy || loading || !!drafting || quantityEditing} onClick={onRefresh} aria-label="Refresh material requirements">
+      <button className="qs-text-button" type="button" disabled={busy || loading || !!drafting} onClick={onRefresh} aria-label="Refresh material requirements">
         {loading ? <LoaderCircle size={13} className="vq-spinner" /> : <RefreshCw size={13} />}Refresh
       </button>
     </header>
@@ -56,10 +55,6 @@ export default function MaterialPurchasing({ quoteHistoryId, canEdit, busy, rese
         {groups.pending.length === 0 && current.materials.length > 0 && current.warnings.length === 0 && !error && <span className="is-covered"><CheckCircle2 size={14} />{groups.tracked.length ? 'No emails waiting to be sent' : 'No new vendor quotes needed'}</span>}
         <small>{loading ? 'Refreshing…' : <>Checked <time dateTime={current.checkedAt}>{dateTime(current.checkedAt)}</time></>}</small>
       </div>
-      {current.parts.length > 0 && <div className="qs-material-parts" aria-label="Quoted parts and quantities">
-        <span>Quoted parts</span>{current.parts.map((part, index) => <div key={`${part.lineId}-${index}`}><strong>{part.partNumber}</strong>{part.revision && <small>Rev {part.revision}</small>}<span>Qty {part.quantities.length ? part.quantities.map(materialQuantity).join(' / ') : 'unknown'}</span><small>{part.quantitiesOverridden ? 'Confirmed in Arda' : 'Fulcrum'}</small>{part.noFulcrumOperations && <span className="qs-industrios-label">Planning in Industrios</span>}</div>)}
-      </div>}
-      {canEdit && current.parts.length > 0 && <MaterialQuantityEditor data={current} disabled={busy || loading || !!drafting || !!error} resetToken={resetToken} onDirty={setQuantityEditing} onChanged={result => { setPrepared(null); setDraftError(null); onQuantitiesChanged(result) }} />}
       {current.warnings.length > 0 && <div className="qs-material-alert" role="status"><AlertTriangle size={15} /><div><strong>Some material information needs review</strong><ul>{current.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></div></div>}
       {materialsToReview.length > 0 && <details className="qs-material-review">
         <summary>Material review details</summary>
