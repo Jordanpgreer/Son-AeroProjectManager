@@ -6,6 +6,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 . (Join-Path $PSScriptRoot 'Connector.Core.ps1')
 . (Join-Path $PSScriptRoot 'Connector.Outlook.ps1')
+. (Join-Path $PSScriptRoot 'Connector.FollowUp.ps1')
 . (Join-Path $PSScriptRoot 'Connector.Lifecycle.ps1')
 . (Join-Path $PSScriptRoot 'Connector.Session.ps1')
 if ($SelfTest) { & (Join-Path $PSScriptRoot 'Test-Connector.ps1'); & (Join-Path $PSScriptRoot 'Test-Lifecycle.ps1'); exit 0 }
@@ -28,7 +29,7 @@ try {
     if (-not $Background) {
         Write-Host 'Arda Outlook quote correspondence connector'
         if ($DryRun) { Write-Host 'DRY RUN: no Arda requests or saved state.' }
-        elseif (-not $ConfigureOnly) { Write-Host 'Reads Inbox and Sent Items. Ctrl+C or Stop.cmd stops this session.' }
+        elseif (-not $ConfigureOnly) { Write-Host 'Reads Inbox and Sent Items and opens follow-up drafts requested in Arda. Ctrl+C or Stop.cmd stops this session.' }
     }
     $attempt = 0
     do {
@@ -47,7 +48,7 @@ try {
     } while ($Background)
 } catch {
     Write-Host ('Connector stopped: ' + (Get-ConnectorErrorCode $_ 'outlook-or-local-configuration-unavailable')) -ForegroundColor Red
-    Write-Host 'Mailbox contents were not changed. Correct the issue and restart; pending work is retained.'
+    Write-Host 'Correct the issue and restart the connector. Pending work is retained.'
     $exitCode = 1
 } finally {
     if ($ownsMutex -and $root -and -not $DryRun -and -not $ConfigureOnly) {

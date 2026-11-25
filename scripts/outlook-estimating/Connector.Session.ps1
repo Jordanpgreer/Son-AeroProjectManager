@@ -59,6 +59,12 @@ function Invoke-ConnectorSession {
         }
         $importer = { param($payload) Invoke-ConnectorRequest $config 'import' $payload }
         $scanner = { param($direction, $cursor, $limit) Get-OutlookScanBatch $folders[$direction] $cursor $direction $limit }
+        $openFollowUp = { param($job)
+            if ($job['conversationId'] -and ($state.pending.Values | Where-Object {
+                $_.direction -eq 'incoming' -and $_.conversationId -ceq $job.conversationId
+            } | Select-Object -First 1)) { Stop-ConnectorOperation 'follow-up-reply-pending-sync' }
+            Open-OutlookFollowUpDraft $namespace $folders.outgoing $selected[0].index $config.mailbox $job
+        }
         do {
             if ($StopEvent.WaitOne(0)) { return 0 }
             $now = [datetime]::UtcNow
@@ -84,7 +90,7 @@ function Invoke-ConnectorSession {
                     try {
                         if (Test-ConnectorTransportPaused $cycleError) { Stop-ConnectorOperation $cycleError }
                         [void](Invoke-ConnectorRequest $config 'sync' @{
-                            mailbox = $config.mailbox; clientName = 'Classic Outlook local connector 1.0'
+                            mailbox = $config.mailbox; clientName = 'Classic Outlook local connector 1.1'
                             importedCount = $counts.imported; duplicateCount = $counts.duplicate
                             deferredCount = $state.pending.Count; error = $cycleError
                         })
@@ -101,7 +107,19 @@ function Invoke-ConnectorSession {
             if ($Background -and $connectionLost) {
                 Stop-ConnectorOperation 'outlook-connection-lost-reconnecting'
             }
-            if ($StopEvent.WaitOne([int]$config.pollIntervalSeconds * 1000)) { return 0 }
+            $nextSync = [datetime]::UtcNow.AddSeconds($config.pollIntervalSeconds)
+            if (-not $DryRun -and -not $connectionLost -and -not (Test-ConnectorTransportPaused $cycleError)) {
+                # Check draft requests between normal sync cycles, with one claim
+                # per poll. A failed poll waits until after the next mailbox scan.
+                do {
+                    if ($StopEvent.WaitOne(0)) { return 0 }
+                    if (Invoke-ConnectorFollowUpPoll $config $openFollowUp $StopEvent) { break }
+                    $remaining = [int][Math]::Max(0, ($nextSync - [datetime]::UtcNow).TotalMilliseconds)
+                    if ($StopEvent.WaitOne([Math]::Min(10000, $remaining))) { return 0 }
+                } while ([datetime]::UtcNow -lt $nextSync)
+            }
+            $remaining = [int][Math]::Max(0, ($nextSync - [datetime]::UtcNow).TotalMilliseconds)
+            if ($StopEvent.WaitOne($remaining)) { return 0 }
         } while ($true)
     } finally {
         if ($folders) { foreach ($folder in $folders.Values) { Release-OutlookReference $folder } }

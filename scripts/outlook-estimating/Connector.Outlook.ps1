@@ -1,4 +1,4 @@
-# Outlook Object Model reads only. Never save, resolve, send, move, delete or mark mail read.
+# Outlook Object Model helpers for reading the chosen mailbox.
 function Release-OutlookReference {
     param($Value)
     if ($null -ne $Value -and [Runtime.InteropServices.Marshal]::IsComObject($Value)) {

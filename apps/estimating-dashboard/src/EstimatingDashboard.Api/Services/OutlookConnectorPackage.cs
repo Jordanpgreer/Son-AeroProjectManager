@@ -14,7 +14,7 @@ internal static class OutlookConnectorPackage
 
     internal static bool IsAvailable(string directory) => Directory.Exists(directory)
         && new[] { "Install.cmd", "Start.cmd", "Start-Background.cmd", "Stop.cmd", "Status.cmd", "Uninstall.cmd",
-            "Start-OutlookEstimating.ps1", "Connector.Core.ps1", "Connector.Outlook.ps1",
+            "Start-OutlookEstimating.ps1", "Connector.Core.ps1", "Connector.Outlook.ps1", "Connector.FollowUp.ps1",
             "Connector.Session.ps1", "Connector.Lifecycle.ps1", "Manage-Connector.ps1",
             "Test-Connector.ps1", "Test-Lifecycle.ps1", "Test-Environment.ps1", "README.md" }
             .All(name => File.Exists(Path.Combine(directory, name)));

@@ -1,5 +1,5 @@
 import { QuoteApiError } from './api.ts'
-import type { MaterialQuantityOverride, MaterialRequirements } from './materialPurchasingTypes.ts'
+import type { MaterialFollowUpJob, MaterialQuantityOverride, MaterialRequirements } from './materialPurchasingTypes.ts'
 
 async function materialRequest(path: string, init?: RequestInit) {
   const headers = new Headers({ 'X-Arda-Request': 'vendor-quotes' })
@@ -26,6 +26,16 @@ export async function createMaterialDraft(id: number, itemId: string, signal?: A
     throw new Error('An Outlook draft was not returned. Refresh the material review and try again.')
   }
   return response.blob()
+}
+
+export async function openMaterialFollowUpDraft(id: number, itemId: string, signal?: AbortSignal): Promise<MaterialFollowUpJob> {
+  const response = await materialRequest(`/${id}/materials/${encodeURIComponent(itemId)}/follow-up`, { method: 'POST', signal })
+  return response.json()
+}
+
+export async function loadMaterialFollowUpDraftStatus(id: number, itemId: string, jobId: string, signal?: AbortSignal): Promise<MaterialFollowUpJob> {
+  const response = await materialRequest(`/${id}/materials/${encodeURIComponent(itemId)}/follow-up/${encodeURIComponent(jobId)}`, { signal })
+  return response.json()
 }
 
 export async function saveMaterialQuantities(id: number, expectedVersion: number, quantities: MaterialQuantityOverride[]): Promise<MaterialRequirements> {

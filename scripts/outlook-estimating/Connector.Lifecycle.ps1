@@ -38,7 +38,7 @@ function Get-ConnectorBackoffSeconds {
     return [int][Math]::Min(300, 30 * [Math]::Pow(2, [Math]::Min(4, [Math]::Max(0, $Attempt - 1))))
 }
 function Get-ConnectorPackageNames {
-    return @('Start-OutlookEstimating.ps1', 'Connector.Core.ps1', 'Connector.Outlook.ps1',
+    return @('Start-OutlookEstimating.ps1', 'Connector.Core.ps1', 'Connector.Outlook.ps1', 'Connector.FollowUp.ps1',
         'Connector.Lifecycle.ps1', 'Connector.Session.ps1', 'Manage-Connector.ps1',
         'Test-Connector.ps1', 'Test-Lifecycle.ps1', 'Test-Environment.ps1',
         'Start.cmd', 'Install.cmd', 'Start-Background.cmd', 'Stop.cmd', 'Status.cmd', 'Uninstall.cmd',

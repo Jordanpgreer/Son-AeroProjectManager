@@ -12,6 +12,7 @@ internal static class MaterialPurchasingEndpoints
         var group = api.MapGroup("/quote-status/{id:int}/materials")
             .RequireAuthorization(EstimatingPolicies.QuoteStatusView);
         group.AddEndpointFilter(ReviewFilter);
+        group.MapMaterialFollowUpActions();
         group.MapGet("", async (int id, HttpContext ctx, QuoteMaterialPurchasingService service, CancellationToken ct) =>
             Results.Ok(await service.ReadAsync(id, Access(ctx), ct)));
         group.MapPut("/quantities", async (int id, HttpContext ctx, SaveMaterialQuantitiesDto dto,

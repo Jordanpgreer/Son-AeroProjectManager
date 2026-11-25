@@ -63,6 +63,7 @@ builder.Services.AddScoped<IQuoteSourceLinkResolver, FulcrumQuoteLinkResolver>()
 builder.Services.AddScoped<FulcrumQuoteGenerationService>();
 builder.Services.AddScoped<IFulcrumMaterialRequirementsReader, FulcrumMaterialRequirementsService>();
 builder.Services.AddScoped<QuoteMaterialPurchasingService>();
+builder.Services.AddSingleton<MaterialFollowUpDraftQueue>();
 builder.Services.AddScoped<IFulcrumOutsideProcessingReader, FulcrumOutsideProcessingService>();
 builder.Services.AddScoped<QuoteOutsideProcessingService>();
 builder.Services.AddScoped<FulcrumEstimateExportService>();
@@ -348,6 +349,7 @@ api.MapEstimatingQuoteWorkflowEndpoints();
 api.MapVendorQuoteEndpoints();
 api.MapQuoteStatusEndpoints();
 api.MapMaterialPurchasingEndpoints();
+api.MapMaterialFollowUpConnectorEndpoints();
 api.MapOutsideProcessingEndpoints();
 api.MapOutlookConnectorEndpoints();
 api.MapFulcrumEstimateEndpoints();

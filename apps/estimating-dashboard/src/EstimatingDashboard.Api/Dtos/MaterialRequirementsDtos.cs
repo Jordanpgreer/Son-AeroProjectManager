@@ -19,7 +19,12 @@ public sealed record MaterialRequirementDto(string ItemId, string PartNumber, st
     IReadOnlyList<string> VendorEmails, MaterialPurchaseOrderDto? RecentPurchaseOrder,
     IReadOnlyList<MaterialRequirementSourceDto> Sources, IReadOnlyList<string> Issues,
     int? RequestId = null, string? RequestStatus = null, bool NoPurchasesInFulcrumWindow = false,
-    DateTimeOffset? SentAt = null);
+    DateTimeOffset? SentAt = null, MaterialFollowUpDto? FollowUp = null);
+public sealed record MaterialFollowUpDto(string State, DateTimeOffset SentAt, long OriginalMessageId, string OriginalSubject,
+    IReadOnlyList<string> Recipients, DateTimeOffset? FollowUpSentAt, DateTimeOffset? VendorRepliedAt, bool CanOpenDraft);
+internal sealed record MaterialFollowUpDraftDto(string SourceMessageId, string Mailbox, string Subject,
+    IReadOnlyList<string> Recipients, string Body, DateTimeOffset SentAt, string? ConversationId,
+    IReadOnlyList<string> RequiredVendorRecipients);
 public sealed record MaterialPurchaseOrderDto(string Number, DateTimeOffset OrderedAt, decimal UnitPrice, string VendorName);
 public sealed record MaterialRequirementSourceDto(string PartNumber, string ParentPartNumber,
     decimal? FixedQuantity, decimal? PerUnitQuantity, decimal? RequiredMinimum, decimal? RequiredMaximum);

@@ -1,16 +1,18 @@
-import { AlertTriangle, CheckCircle2, ChevronDown, LoaderCircle, Mail, Package, RefreshCw } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { AlertTriangle, CheckCircle2, ChevronDown, Clock3, LoaderCircle, Mail, Package, RefreshCw } from 'lucide-react'
+import { useEffect, useId, useState } from 'react'
 import { createMaterialDraft, downloadMaterialDraft } from './materialPurchasingApi'
-import { canDraftMaterial, materialQuantityRange, type materialGroups } from './materialPurchasingModel'
+import { canDraftMaterial, materialFollowUpAge, materialQuantityRange, type materialGroups } from './materialPurchasingModel'
 import { dateTime } from './model'
 import type { MaterialRequirement, MaterialRequirements } from './materialPurchasingTypes'
 import './material-purchasing.css'
 
-export default function MaterialPurchasing({ quoteHistoryId, canEdit, busy, outlookConnected, data: current, groups, loading, error, onRefresh, onDraftCreated, onDirty }: {
+export default function MaterialPurchasing({ quoteHistoryId, canEdit, busy, outlookConnected, data: current, groups, loading, error, now, onRefresh, onDraftCreated, onDirty, onReviewFollowUp, onViewThread }: {
   quoteHistoryId: number; canEdit: boolean; busy: boolean; outlookConnected: boolean
-  data: MaterialRequirements | null; groups: ReturnType<typeof materialGroups>; loading: boolean; error: string | null
+  data: MaterialRequirements | null; groups: ReturnType<typeof materialGroups>; loading: boolean; error: string | null; now: number
   onRefresh: () => void; onDraftCreated: () => Promise<unknown>; onDirty: (dirty: boolean) => void
+  onReviewFollowUp: (material: MaterialRequirement) => void; onViewThread: (id: number) => void
 }) {
+  const followUpHeading = useId()
   const [drafting, setDrafting] = useState<string | null>(null)
   const [draftError, setDraftError] = useState<{ itemId: string; message: string } | null>(null)
   const [prepared, setPrepared] = useState<string | null>(null)
@@ -33,8 +35,8 @@ export default function MaterialPurchasing({ quoteHistoryId, canEdit, busy, outl
       setDraftError({ itemId: material.itemId, message: fileDownloaded ? 'Draft downloaded, but RFQ status could not be refreshed. Refresh the material review.' : reason instanceof Error ? reason.message : 'The Outlook draft could not be created.' })
     } finally { setDrafting(null) }
   }
-  const materialsToReview = current?.materials.filter(material => material.issues.length > 0
-    || (material.availableQuantity === 0 && material.noPurchasesInFulcrumWindow)) ?? []
+  const materialsToReview = current?.materials.filter(material => material.followUp?.state !== 'needs-follow-up'
+    && (material.issues.length > 0 || (material.availableQuantity === 0 && material.noPurchasesInFulcrumWindow))) ?? []
   function renderMaterial(material: MaterialRequirement) {
     return <MaterialRow key={material.itemId} material={material} canEdit={canEdit} disabled={busy || loading || !!error || !!drafting}
       drafting={drafting === material.itemId} prepared={prepared === material.itemId} outlookConnected={outlookConnected}
@@ -52,7 +54,7 @@ export default function MaterialPurchasing({ quoteHistoryId, canEdit, busy, outl
       <div className="qs-material-summary" role="status">
         {groups.emailsNeeded > 0 && <span className="is-pending"><Mail size={14} /><strong>{groups.emailsNeeded}</strong> email{groups.emailsNeeded === 1 ? '' : 's'} need{groups.emailsNeeded === 1 ? 's' : ''} sending</span>}
         {groups.reviewsNeeded > 0 && <span className="is-review"><AlertTriangle size={14} /><strong>{groups.reviewsNeeded}</strong> need review</span>}
-        {groups.pending.length === 0 && current.materials.length > 0 && current.warnings.length === 0 && !error && <span className="is-covered"><CheckCircle2 size={14} />{groups.tracked.length ? 'No emails waiting to be sent' : 'No new vendor quotes needed'}</span>}
+        {groups.pending.length === 0 && groups.followUps.length === 0 && current.materials.length > 0 && current.warnings.length === 0 && !error && <span className="is-covered"><CheckCircle2 size={14} />{groups.tracked.length ? 'No emails waiting to be sent' : 'No new vendor quotes needed'}</span>}
         <small>{loading ? 'Refreshing…' : <>Checked <time dateTime={current.checkedAt}>{dateTime(current.checkedAt)}</time></>}</small>
       </div>
       {current.warnings.length > 0 && <div className="qs-material-alert" role="status"><AlertTriangle size={15} /><div><strong>Some material information needs review</strong><ul>{current.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></div></div>}
@@ -68,13 +70,43 @@ export default function MaterialPurchasing({ quoteHistoryId, canEdit, busy, outl
           </ul>
         </li>)}</ul>
       </details>}
+      {groups.followUps.length > 0 && <section className="qs-follow-up-list" aria-labelledby={followUpHeading}>
+        <h4 id={followUpHeading}>Needs follow-up</h4>
+        <ul>{groups.followUps.map(material => <li key={material.itemId}>
+          <strong>{material.partNumber}</strong>
+          <span>{material.vendorName || 'Vendor unavailable'}</span>
+          <span className="qs-follow-up-age"><Clock3 size={15} aria-hidden="true" />{materialFollowUpAge(material.followUp.sentAt, now)}</span>
+          <button type="button" className="vq-button" onClick={() => onReviewFollowUp(material)} aria-label={`Review follow-up for ${material.partNumber}`}>Review follow-up</button>
+        </li>)}</ul>
+      </section>}
       {groups.pending.length > 0 && <div className="qs-material-list">{groups.pending.map(renderMaterial)}</div>}
-      {groups.tracked.length > 0 && <details className="qs-material-covered"><summary><Mail size={14} /><span>{groups.tracked.length} RFQ{groups.tracked.length === 1 ? '' : 's'} sent or received</span><ChevronDown size={14} /></summary><div className="qs-material-list">{groups.tracked.map(renderMaterial)}</div></details>}
+      {groups.tracked.length > 0 && <div className="qs-rfq-table-scroll qs-material-tracked" role="region" aria-label="Material RFQs" tabIndex={0}>
+        <table className="qs-rfq-table" aria-label="Material RFQs">
+          <thead><tr><th scope="col">Material</th><th scope="col">Vendor</th><th scope="col">RFQ sent</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
+          <tbody>{groups.tracked.map(material => <TrackedMaterialRow key={material.itemId} material={material} onViewThread={onViewThread} />)}</tbody>
+        </table>
+      </div>}
       {groups.covered.length > 0 && <details className="qs-material-covered"><summary><CheckCircle2 size={14} /><span>{groups.covered.length} material{groups.covered.length === 1 ? '' : 's'} covered by stock or recent PO pricing</span><ChevronDown size={14} /></summary><div className="qs-material-list">{groups.covered.map(renderMaterial)}</div></details>}
       {current.materials.length === 0 && <p className="qs-material-message">{current.warnings.length ? 'No material requirements could be confirmed. Review the information above.' : 'No purchased materials found for this quote.'}</p>}
       {groups.emailsNeeded > 0 && <p className="qs-material-hint">{outlookConnected ? 'Arda updates each material after its sent email is confirmed in Outlook.' : 'Connect Outlook to track sent requests, or attach the sent email to its RFQ.'}{!canEdit && ' Editing access is required to prepare drafts.'}</p>}
     </>}
   </section>
+}
+
+function TrackedMaterialRow({ material, onViewThread }: { material: MaterialRequirement; onViewThread: (id: number) => void }) {
+  const followUp = material.followUp
+  const status = followUp?.state === 'vendor-replied' ? 'Vendor replied'
+    : followUp?.state === 'follow-up-sent' ? 'Follow-up sent'
+      : material.requestStatus === 'Quote received' ? 'Quote received' : 'Waiting on vendor'
+  const statusDate = followUp?.vendorRepliedAt ?? followUp?.followUpSentAt
+  const requestId = material.requestId
+  return <tr>
+    <th scope="row"><strong>{material.partNumber}</strong><small>{materialQuantityRange(material.requiredMinimum, material.requiredMaximum, material.unitOfMeasure)}</small></th>
+    <td>{material.vendorName || 'Vendor unavailable'}</td>
+    <td>{material.sentAt && <time dateTime={material.sentAt}>{dateTime(material.sentAt)}</time>}</td>
+    <td><strong>{status}</strong>{statusDate && <small><time dateTime={statusDate}>{dateTime(statusDate)}</time></small>}</td>
+    <td>{requestId !== null && requestId !== undefined && <button type="button" className="qs-text-button" aria-label={`View email thread for ${material.partNumber}`} onClick={() => onViewThread(requestId)}>View email thread</button>}</td>
+  </tr>
 }
 
 function MaterialRow({ material, canEdit, disabled, drafting, prepared, outlookConnected, error, onDraft }: {

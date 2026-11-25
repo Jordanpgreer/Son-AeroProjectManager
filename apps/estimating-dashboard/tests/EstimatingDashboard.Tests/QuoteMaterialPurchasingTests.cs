@@ -226,4 +226,103 @@ public sealed class QuoteMaterialPurchasingTests
         Assert.Null(review.Materials[0].RequestId);
         Assert.Null(review.Materials[0].RequestStatus);
     }
+
+    [Fact]
+    public async Task Follow_up_waits_for_24_hours_then_requires_verified_same_thread_send()
+    {
+        await using var fixture = await VendorQuoteTestFixture.CreateAsync();
+        var (service, vendors, clock, original, requestId) = await StartFollowUpAsync(fixture);
+        var id = fixture.QuoteId();
+        var editor = VendorQuoteTestFixture.Editor;
+
+        clock.Now = original.SentAt.AddHours(24).AddSeconds(-1);
+        Assert.Equal("waiting", await StateAsync());
+        clock.Now = clock.Now.AddSeconds(1);
+        Assert.Equal("needs-follow-up", await StateAsync());
+
+        var draft = await service.GetFollowUpDraftAsync(id, "material-1", editor, default);
+        Assert.Equal(original.SourceMessageId, draft.SourceMessageId);
+        Assert.Equal(original.ConversationId, draft.ConversationId);
+        Assert.Equal(original.Mailbox, draft.Mailbox);
+        Assert.Equal("Hi team,\n\nJust following up on this request.\n\nDo you have this quote available?\n\nThank you!", draft.Body);
+        Assert.Equal("needs-follow-up", await StateAsync());
+
+        var sent = original with { Direction = "outgoing", Subject = "RE: " + original.Subject,
+            SentAt = clock.Now.AddMinutes(1), BodyText = draft.Body + "\r\n\r\nFrom: Casey\r\n" + original.BodyText, MaterialDraftToken = null,
+            SourceMessageId = "<wrong-conversation@company.example>", ConversationId = "other-conversation" };
+        await vendors.ImportAsync(sent, editor, default);
+        await vendors.ImportAsync(sent with { SourceMessageId = "<partial-send@company.example>",
+            ConversationId = original.ConversationId, ToAddresses = [original.VendorEmail] }, editor, default);
+        await vendors.ImportAsync(sent with { SourceMessageId = "<different-body@company.example>",
+            ConversationId = original.ConversationId, BodyText = "Another question." }, editor, default);
+        await vendors.ImportAsync(sent with { SourceMessageId = "<different-sender@company.example>",
+            ConversationId = original.ConversationId, FromAddress = "other@company.example" }, editor, default);
+        Assert.Equal("needs-follow-up", await StateAsync());
+
+        clock.Now = sent.SentAt;
+        var followedUp = await vendors.ImportAsync(sent with { SourceMessageId = "<follow-up@company.example>",
+            ConversationId = original.ConversationId }, editor, default);
+        Assert.Equal(requestId, followedUp.RequestId);
+        Assert.Equal("follow-up-sent", await StateAsync());
+        Assert.Equal(409, (await Assert.ThrowsAsync<VendorQuoteException>(() =>
+            service.GetFollowUpDraftAsync(id, "material-1", editor, default))).StatusCode);
+
+        clock.Now = sent.SentAt.AddDays(2);
+        Assert.Equal("follow-up-sent", await StateAsync());
+        async Task<string?> StateAsync() => (await service.ReadAsync(id, editor, default)).Materials.Single().FollowUp?.State;
+    }
+
+    [Fact]
+    public async Task Linked_vendor_reply_resolves_follow_up_without_creating_a_draft()
+    {
+        await using var fixture = await VendorQuoteTestFixture.CreateAsync();
+        var (service, vendors, clock, original, requestId) = await StartFollowUpAsync(fixture);
+        var id = fixture.QuoteId();
+        var editor = VendorQuoteTestFixture.Editor;
+        clock.Now = original.SentAt.AddHours(26);
+        var waiting = (await service.ReadAsync(id, editor, default)).Materials.Single().FollowUp!;
+        Assert.Equal("needs-follow-up", waiting.State);
+        Assert.True(waiting.CanOpenDraft);
+        Assert.True(waiting.OriginalMessageId > 0);
+        var anotherEstimator = (await service.ReadAsync(id, VendorQuoteTestFixture.Admin, default)).Materials.Single().FollowUp!;
+        Assert.False(anotherEstimator.CanOpenDraft);
+        Assert.Equal(409, (await Assert.ThrowsAsync<VendorQuoteException>(() =>
+            service.GetFollowUpDraftAsync(id, "material-1", VendorQuoteTestFixture.Admin, default))).StatusCode);
+
+        var reply = VendorQuoteTestFixture.Message("<vendor-reply@example.test>", "RE: " + original.Subject) with
+        {
+            Mailbox = original.Mailbox, ConversationId = original.ConversationId, VendorEmail = original.VendorEmail,
+            FromAddress = original.VendorEmail, ToAddresses = [original.FromAddress], SentAt = clock.Now, ReceivedAt = clock.Now
+        };
+        await vendors.ImportAsync(reply with { SourceMessageId = "<unrelated@example.test>", ConversationId = "other-thread" }, editor, default);
+        Assert.Equal("needs-follow-up", (await service.ReadAsync(id, editor, default)).Materials.Single().FollowUp!.State);
+        Assert.Equal(requestId, (await vendors.ImportAsync(reply, editor, default)).RequestId);
+        var resolved = (await service.ReadAsync(id, editor, default)).Materials.Single().FollowUp!;
+        Assert.Equal("vendor-replied", resolved.State);
+        Assert.Equal(clock.Now, resolved.VendorRepliedAt);
+        Assert.False(resolved.CanOpenDraft);
+    }
+
+    private static async Task<(QuoteMaterialPurchasingService Service, VendorQuoteService Vendors, MutableClock Clock,
+        ImportVendorQuoteMessageDto Original, int RequestId)> StartFollowUpAsync(VendorQuoteTestFixture fixture)
+    {
+        var clock = new MutableClock();
+        var vendors = new VendorQuoteService(fixture.Db, clock);
+        var service = new QuoteMaterialPurchasingService(fixture.Db, vendors, new Reader(), clock);
+        await service.DraftAsync(fixture.QuoteId(), "material-1", VendorQuoteTestFixture.Editor, default);
+        var state = await fixture.Db.Set<MaterialPurchasingState>().SingleAsync();
+        var link = Assert.Single(MaterialDraftTracking.Read(state));
+        var original = new ImportVendorQuoteMessageDto("<original@company.example>", "casey@company.example", "outgoing",
+            link.Subject!, "casey@company.example", "Casey Lee", link.RecipientEmails!, link.RecipientEmails![0],
+            "Nexeo", clock.Now, null, link.TemplateText!, [], "material-conversation", link.Token);
+        var result = await vendors.ImportAsync(original, VendorQuoteTestFixture.Editor, default);
+        Assert.Equal(link.RequestId, result.RequestId);
+        return (service, vendors, clock, original, link.RequestId);
+    }
+
+    private sealed class MutableClock : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = VendorQuoteTestFixture.Now;
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
 }

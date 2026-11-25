@@ -1,8 +1,8 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 
-export default function Modal({ title, subtitle, children, onClose, wide = false }: {
-  title: string; subtitle?: string; children: ReactNode; onClose: () => void; wide?: boolean
+export default function Modal({ title, subtitle, children, onClose, wide = false, className }: {
+  title: string; subtitle?: string; children: ReactNode; onClose: () => void; wide?: boolean; className?: string
 }) {
   const ref = useRef<HTMLDialogElement>(null)
   useEffect(() => {
@@ -11,7 +11,7 @@ export default function Modal({ title, subtitle, children, onClose, wide = false
     element?.showModal()
     return () => { element?.close(); previous?.focus() }
   }, [])
-  return <dialog className={`vq-modal${wide ? ' vq-modal-wide' : ''}`} ref={ref} aria-label={title}
+  return <dialog className={`vq-modal${wide ? ' vq-modal-wide' : ''}${className ? ` ${className}` : ''}`} ref={ref} aria-label={title}
     onCancel={event => { event.preventDefault(); onClose() }}>
     <header className="vq-modal-heading"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>
       <button className="vq-icon-button" type="button" onClick={onClose} aria-label={`Close ${title}`}><X size={19} /></button>

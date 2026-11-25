@@ -43,7 +43,7 @@ A pending message stays queued when the quote is unavailable, access is denied, 
 
 Attachments are limited to **10 MB each, 20 MB per message, and 25 files**. Inline images are omitted. Plain text bodies are limited to **200,000 characters**. If any required attachment is oversized or unavailable, the complete message is deferred before sending any part of it. Some protected, embedded, or cloud attachments cannot expose their bytes through Outlook and need attention outside the connector.
 
-The connector does not send mail, save drafts, mark messages read, edit, move, or delete mailbox items. Body text, headers and attachment bytes are held in memory for the HTTPS request; they are not exported to local files or written to its status output. Resume files contain only message identities, timestamps, counters, and safe error codes under `%LOCALAPPDATA%\Arda\OutlookEstimating`. `runner.json` and the bounded `connector.log` contain process/timing metadata, counts and safe error codes. Logs rotate at 512 KB with one previous file.
+The connector displays a Reply All draft in classic Outlook when you request it from Arda. You control sending in Outlook. The connector never sends mail, saves drafts itself, marks messages read, or edits, moves, or deletes existing mailbox items. It keeps body text, headers, and attachment bytes in memory while handling them. Resume files under `%LOCALAPPDATA%\Arda\OutlookEstimating` contain message identities, timestamps, counters, and safe error codes. `runner.json` and the bounded `connector.log` contain process and timing metadata, counts, and safe error codes. Logs rotate at 512 KB with one previous file.
 
 ## Optional commands
 
@@ -66,5 +66,11 @@ Start.cmd -Diagnose
 ## Material quote drafts
 
 Arda's material quote action downloads an unsent `.eml` draft independently of this correspondence connector. Open the downloaded file with **Outlook (classic)** to edit the recipients, subject and formatted body, then send it yourself. If Windows opens another mail app, use **Open with** to select classic Outlook. Downloading or opening the draft does not send it or confirm that it was sent. The connector must be running to import the sent message and vendor replies. If Outlook removes the tracking header, Arda verifies the generated message's subject, template body, recipients and preparation time; edits that prevent a confident match remain available for manual review instead of guessing that the request was sent.
+
+## Vendor follow-up drafts
+
+For an existing installation, download the new connector ZIP from Arda, extract it, and run **Install.cmd** normally to upgrade in place. This preserves the saved account and pending mail imports. The follow-up action requires connector version 1.1 and the original RFQ in the selected classic Outlook account's Sent Items.
+
+In **Needs follow-up**, select **Review follow-up**, then **Open Reply All draft in Outlook**. The connector looks up the exact original message in Sent Items and opens an unsent Reply All in its Outlook conversation with the original To and Cc recipients. Review the draft and send it in Outlook. Arda keeps the material in **Needs follow-up** until it imports the corresponding sent follow-up or a vendor reply. If the original message is missing, open the original conversation in Outlook and reply there once you locate it.
 
 Only one connector window can run for your Windows user in the current session. Keep the metadata files when updating the extracted scripts. If a metadata file cannot be read, the connector stops rather than silently losing pending work; retain that file and its `.bak` copy for support.

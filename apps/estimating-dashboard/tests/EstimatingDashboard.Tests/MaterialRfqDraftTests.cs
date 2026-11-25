@@ -72,13 +72,14 @@ public sealed class MaterialRfqDraftTests
         var app = builder.Build();
         app.MapGroup("/api").MapMaterialPurchasingEndpoints();
         var routes = ((IEndpointRouteBuilder)app).DataSources.SelectMany(x => x.Endpoints).OfType<RouteEndpoint>().ToList();
-        Assert.Equal(3, routes.Count);
+        Assert.Equal(5, routes.Count);
         Assert.All(routes, endpoint => Assert.Contains(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
             policy => policy.Policy == EstimatingPolicies.QuoteStatusView));
-        var draft = routes.Single(x => x.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Contains("POST"));
-        Assert.Contains(draft.Metadata.GetOrderedMetadata<IAuthorizeData>(), policy => policy.Policy == EstimatingPolicies.Editor);
-        var quantities = routes.Single(x => x.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Contains("PUT"));
-        Assert.Contains(quantities.Metadata.GetOrderedMetadata<IAuthorizeData>(), policy => policy.Policy == EstimatingPolicies.Editor);
+        var editorRoutes = routes.Where(route => route.RoutePattern.RawText!.Contains("/follow-up")
+            || !route.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Contains("GET"));
+        Assert.Equal(4, editorRoutes.Count());
+        Assert.All(editorRoutes, endpoint => Assert.Contains(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>(),
+            policy => policy.Policy == EstimatingPolicies.Editor));
     }
 
     [Fact]

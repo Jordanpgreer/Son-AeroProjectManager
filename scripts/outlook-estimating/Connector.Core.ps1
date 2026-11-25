@@ -41,6 +41,7 @@ function Get-QuoteNumberFromSubject {
 function ConvertTo-ConnectorMap {
     param($Value)
     if ($null -eq $Value) { return $null }
+    if ($Value -is [string]) { return [string]$Value }
     if ($Value -is [Collections.IDictionary]) {
         $result = @{}
         foreach ($key in $Value.Keys) { $result[$key] = ConvertTo-ConnectorMap $Value[$key] }
@@ -51,7 +52,7 @@ function ConvertTo-ConnectorMap {
         foreach ($property in $Value.PSObject.Properties) { $result[$property.Name] = ConvertTo-ConnectorMap $property.Value }
         return $result
     }
-    if ($Value -is [Collections.IEnumerable] -and $Value -isnot [string]) {
+    if ($Value -is [Collections.IEnumerable]) {
         $result = @($Value | ForEach-Object { ConvertTo-ConnectorMap $_ })
         return ,$result
     }
@@ -232,13 +233,19 @@ function Invoke-ConnectorDelivery {
 }
 
 function Invoke-ConnectorRequest {
-    param([hashtable]$Config, [ValidateSet('import', 'sync')][string]$Operation, [hashtable]$Payload)
+    param([hashtable]$Config, [ValidateSet('import', 'sync', 'follow-up/claim', 'follow-up/result')][string]$Operation, [hashtable]$Payload)
     $json = $Payload | ConvertTo-Json -Depth 12 -Compress
+    $headers = @{ 'X-Requested-With' = 'XMLHttpRequest' }
+    $timeout = $Config.requestTimeoutSeconds
+    if ($Operation.StartsWith('follow-up/', [StringComparison]::Ordinal)) {
+        $headers['X-Arda-Request'] = 'vendor-quotes'
+        $timeout = [Math]::Min(10, $timeout)
+    }
     try {
         # No redirects: Windows credentials and correspondence must stay on the chosen HTTPS endpoint.
         return Invoke-RestMethod -Uri ($Config.baseUrl + '/api/vendor-quotes/' + $Operation) -Method Post -UseDefaultCredentials `
-            -Headers @{ 'X-Requested-With' = 'XMLHttpRequest' } -ContentType 'application/json; charset=utf-8' `
-            -Body ([Text.Encoding]::UTF8.GetBytes($json)) -TimeoutSec $Config.requestTimeoutSeconds -MaximumRedirection 0 -ErrorAction Stop
+            -Headers $headers -ContentType 'application/json; charset=utf-8' `
+            -Body ([Text.Encoding]::UTF8.GetBytes($json)) -TimeoutSec $timeout -MaximumRedirection 0 -ErrorAction Stop
     } catch {
         $status = 0
         if ($_.Exception.PSObject.Properties['Response'] -and $_.Exception.Response) { try { $status = [int]$_.Exception.Response.StatusCode } catch { $status = 0 } }

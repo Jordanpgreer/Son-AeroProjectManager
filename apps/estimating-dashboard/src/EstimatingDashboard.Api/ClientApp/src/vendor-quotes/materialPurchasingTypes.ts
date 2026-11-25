@@ -2,6 +2,23 @@ import type { PlanningSource } from './purchasingReviewModel'
 
 export type MaterialStatus = 'stock-covered' | 'recent-po' | 'needs-rfq' | 'review-required'
 
+export interface MaterialFollowUp {
+  state: 'waiting' | 'needs-follow-up' | 'follow-up-sent' | 'vendor-replied'
+  sentAt: string
+  originalMessageId: number
+  originalSubject: string
+  recipients: string[]
+  followUpSentAt: string | null
+  vendorRepliedAt: string | null
+  canOpenDraft: boolean
+}
+
+export interface MaterialFollowUpJob {
+  jobId: string
+  state: 'queued' | 'claimed' | 'opened' | 'failed'
+  message?: string | null
+}
+
 export interface MaterialRequirementSource {
   partNumber: string
   parentPartNumber: string
@@ -30,6 +47,7 @@ export interface MaterialRequirement {
   requestId?: number | null
   requestStatus?: string | null
   sentAt?: string | null
+  followUp?: MaterialFollowUp | null
   noPurchasesInFulcrumWindow?: boolean
 }
 

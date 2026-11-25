@@ -24,7 +24,8 @@ const RECENT_ENTRY_COUNT = 3
 const activityDateFormat = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 
 export default function ActivityTimeline({ activity, onThread, canEdit = false, canRemove = false, busy = false, onEdit, onRemove,
-  messages = [], threads = [], requestId = null, unassignedIds = new Set<number>(), onAssign, onMoveEmail, onRemoveEmail, onUntrackEmail, onRateRequest }: {
+  messages = [], threads = [], requestId = null, unassignedIds = new Set<number>(), onAssign, onMoveEmail, onRemoveEmail, onUntrackEmail, onRateRequest,
+  openEmailId, onCloseEmail }: {
   activity: (QuoteActivity | VendorActivity)[]; onThread?: (id: number) => void
   canEdit?: boolean; canRemove?: boolean; busy?: boolean
   requestId?: number | null
@@ -34,13 +35,19 @@ export default function ActivityTimeline({ activity, onThread, canEdit = false, 
   onMoveEmail?: (message: VendorMessage) => void; onRemoveEmail?: (message: VendorMessage) => void
   onUntrackEmail?: (message: VendorMessage) => void
   onRateRequest?: (message: VendorMessage, value: boolean) => Promise<void>
+  openEmailId?: number | null
+  onCloseEmail?: (returnToReview: boolean) => void
 }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
   const olderActivityId = useId()
   const entries = scopeActivityTimeline(buildActivityTimeline(activity, messages, threads), requestId)
   const visibleEntries = expanded ? entries : entries.slice(0, RECENT_ENTRY_COUNT)
-  const selected = entries.find(entry => entry.key === selectedKey)
+  const selected = entries.find(entry => entry.key === (openEmailId ? `email-${openEmailId}` : selectedKey))
+  function closeEntry(returnToReview = false) {
+    setSelectedKey(null)
+    if (openEmailId) onCloseEmail?.(returnToReview)
+  }
   if (!entries.length) return <div className="qs-timeline-empty"><Clock3 size={24} /><div><strong>{requestId === null ? 'No activity yet' : 'No activity in this RFQ yet'}</strong><p>{requestId === null ? 'Use Add Entry to start the record.' : 'Updates and emails assigned to this RFQ will appear here.'}</p></div></div>
   const rows = visibleEntries.map(entry => {
       const item = entry.type === 'activity' ? entry.activity : null
@@ -73,13 +80,13 @@ export default function ActivityTimeline({ activity, onThread, canEdit = false, 
       <div className="qs-timeline-pagination"><button type="button" className="qs-text-button" aria-expanded={expanded} aria-controls={olderActivityId} onClick={() => setExpanded(value => !value)}>{expanded ? 'Show recent activity' : 'Show older activity'}{expanded ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}</button></div>
       <ol id={olderActivityId} className="qs-activity-timeline" aria-label="Older activity" start={RECENT_ENTRY_COUNT + 1} hidden={!expanded}>{rows.slice(RECENT_ENTRY_COUNT)}</ol>
     </>}
-    {selected && <Modal title="Entry Details" subtitle={dateTime(selected.occurredAt)} onClose={() => setSelectedKey(null)} wide={selected.type === 'email'}>
+    {selected && <Modal title="Entry Details" subtitle={dateTime(selected.occurredAt)} onClose={() => closeEntry(true)} wide={selected.type === 'email'}>
       <div className="qs-entry-details">
-        {selected.requestId && onThread && <button type="button" className="qs-entry-thread" onClick={() => { setSelectedKey(null); onThread(selected.requestId!) }}>{selected.partNumber ? `${selected.partNumber} · ` : ''}{selected.threadName || 'Open RFQ'}<ArrowRight size={14} /></button>}
+        {selected.requestId && onThread && <button type="button" className="qs-entry-thread" onClick={() => { closeEntry(); onThread(selected.requestId!) }}>{selected.partNumber ? `${selected.partNumber} · ` : ''}{selected.threadName || 'Open RFQ'}<ArrowRight size={14} /></button>}
         {selected.type === 'email' ? <EmailMessages messages={[selected.message]} unassignedIds={unassignedIds} threads={threads} canEdit={canEdit} onAssign={onAssign} onRateRequest={onRateRequest} canRemove={canRemove} busy={busy} initiallyExpanded
-          onMove={onMoveEmail ? message => { setSelectedKey(null); onMoveEmail(message) } : undefined}
-          onUntrack={onUntrackEmail ? message => { setSelectedKey(null); onUntrackEmail(message) } : undefined}
-          onRemove={onRemoveEmail ? message => { setSelectedKey(null); onRemoveEmail(message) } : undefined} /> : <>
+          onMove={onMoveEmail ? message => { closeEntry(); onMoveEmail(message) } : undefined}
+          onUntrack={onUntrackEmail ? message => { closeEntry(); onUntrackEmail(message) } : undefined}
+          onRemove={onRemoveEmail ? message => { closeEntry(); onRemoveEmail(message) } : undefined} /> : <>
           <div className="qs-entry-author"><strong>{selected.activity.displayName || selected.activity.accountName || 'Arda'}</strong><span>{selected.activity.kind === 'note' ? 'Internal note' : 'Activity entry'}</span></div>
           <p className="qs-entry-note"><NoteText text={activityDescription(selected.activity)} /></p>
           {selected.activity.kind === 'note-edited' ? <div className="qs-note-history">{selected.activity.oldValue && <div><span>Previous note</span><p><NoteText text={selected.activity.oldValue} /></p></div>}{selected.activity.newValue && <div><span>Updated note</span><p><NoteText text={selected.activity.newValue} /></p></div>}</div> : selected.activity.newValue && <div className="vq-event-change">{selected.activity.oldValue && <><span>{selected.activity.oldValue}</span><ArrowRight size={13} /></>}{QUOTE_STATUSES.includes(selected.activity.newValue) || VENDOR_STATUSES.includes(selected.activity.newValue) || LEGACY_VENDOR_STATUSES.includes(selected.activity.newValue) ? <StatusBadge status={selected.activity.newValue} /> : <strong>{selected.activity.newValue}</strong>}</div>}

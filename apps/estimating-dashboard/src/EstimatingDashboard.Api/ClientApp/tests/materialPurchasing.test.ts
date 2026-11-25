@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createMaterialDraft, loadMaterialRequirements, saveMaterialQuantities } from '../src/vendor-quotes/materialPurchasingApi.ts'
-import { canDraftMaterial, materialGroups, materialQuantityRange } from '../src/vendor-quotes/materialPurchasingModel.ts'
+import { canDraftMaterial, materialFollowUpAge, materialGroups, materialQuantityRange } from '../src/vendor-quotes/materialPurchasingModel.ts'
 import { materialQuantityDrafts, materialQuantityOverrides } from '../src/vendor-quotes/materialQuantityModel.ts'
 import type { MaterialRequirement } from '../src/vendor-quotes/materialPurchasingTypes.ts'
 
@@ -31,6 +31,26 @@ test('only confirmed sent RFQs are tracked separately from inventory and recent 
   assert.deepEqual(groups.pending, [manuallyMarked, reviewRequired])
   assert.equal(groups.reviewsNeeded, 1)
   assert.equal(canDraftMaterial(sent), true)
+})
+
+test('overdue materials appear only in follow-ups until synced evidence returns them to the regular list', () => {
+  const sentAt = '2026-11-24T15:00:00Z'
+  const sent = { ...material, requestId: 10, sentAt }
+  const followUp = {
+    sentAt, originalMessageId: 2, originalSubject: 'Quote 17', recipients: material.vendorEmails,
+    followUpSentAt: null, vendorRepliedAt: null, canOpenDraft: true,
+  }
+  const overdue: MaterialRequirement = { ...sent, followUp: { ...followUp, state: 'needs-follow-up' } }
+  assert.deepEqual(materialGroups([overdue]).followUps, [overdue])
+  assert.deepEqual(materialGroups([overdue]).tracked, [])
+  assert.deepEqual(materialGroups([overdue]).pending, [])
+  assert.equal(materialGroups([overdue]).emailsNeeded, 0)
+  for (const state of ['follow-up-sent', 'vendor-replied'] as const) {
+    const resolved = { ...sent, followUp: { ...followUp, state } }
+    assert.deepEqual(materialGroups([resolved]).followUps, [])
+    assert.deepEqual(materialGroups([resolved]).tracked, [resolved])
+  }
+  assert.equal(materialFollowUpAge(sentAt, Date.parse('2026-11-25T17:59:59Z')), '26 hours without a reply')
 })
 
 test('unknown information is not shown as zero or treated as a ready draft', () => {

@@ -6,6 +6,9 @@
 .qs-material-summary .is-pending,.qs-material-summary .is-review { color: var(--warn-700); }
 .qs-material-summary .is-covered { color: var(--ok-700); }
 .qs-material-list { display: grid; gap: 11px; }
+.qs-material-list + .qs-material-tracked { margin-top: 13px; }
+.qs-material-tracked td:last-child { white-space: normal; }
+.qs-material-tracked small { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; font-weight: 400; }
 .qs-material-row { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
 .qs-material-row.is-needs-rfq { border-left: 3px solid var(--warn); }
 .qs-material-row.is-review-required { border-left: 3px solid var(--line-3); }

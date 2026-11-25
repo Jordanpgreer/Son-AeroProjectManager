@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { currentPurchasingReview, startPurchasingReview, type PurchasingReviewState } from './purchasingReviewModel'
 
 export function usePurchasingReview<T extends { quoteHistoryId: number }>(
@@ -26,7 +26,7 @@ export function usePurchasingReview<T extends { quoteHistoryId: number }>(
   }, [key, quoteHistoryId, enabled, load, failureMessage])
 
   const current = currentPurchasingReview(state, key, quoteHistoryId, enabled)
-  const refresh = () => setRevision(value => value + 1)
+  const refresh = useCallback(() => setRevision(value => value + 1), [])
   const setData = (data: T) => setState({ key, data, loading: false, error: null })
   return { ...current, refresh, setData }
 }

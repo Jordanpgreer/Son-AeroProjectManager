@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace EstimatingDashboard.Api.Services;
 
-internal sealed class QuoteMaterialPurchasingService(EstimatingAccessDbContext db, VendorQuoteService vendors,
+internal sealed partial class QuoteMaterialPurchasingService(EstimatingAccessDbContext db, VendorQuoteService vendors,
     IFulcrumMaterialRequirementsReader requirements, TimeProvider clock)
 {
     public async Task<MaterialRequirementsDto> ReadAsync(int id, EstimatingAccessProfile access, CancellationToken ct)
@@ -126,6 +126,10 @@ internal sealed class QuoteMaterialPurchasingService(EstimatingAccessDbContext d
             }
         }
         var requests = await db.Set<VendorQuoteRequest>().AsNoTracking().Where(x => x.QuoteHistoryId == result.QuoteHistoryId).ToListAsync(ct);
+        var sentRequestIds = links.Where(link => link.Kind == "material" && link.IsCurrent && link.SentAt.HasValue)
+            .Select(link => link.RequestId).Distinct().ToArray();
+        var messages = (await FollowUpMessagesAsync(result.QuoteHistoryId, sentRequestIds, ct)).ToLookup(message => message.RequestId);
+        var now = clock.GetUtcNow();
         return result with { QuantityVersion = state?.Version ?? 0, Materials = result.Materials.Select(material =>
         {
             var link = links.SingleOrDefault(x => x.Kind == "material" && x.IsCurrent && x.ItemId == material.ItemId && x.Fingerprint == Fingerprint(material)
@@ -134,7 +138,8 @@ internal sealed class QuoteMaterialPurchasingService(EstimatingAccessDbContext d
                 && string.Equals(x.PartNumber, material.PartNumber, StringComparison.OrdinalIgnoreCase)
                 && material.VendorEmails.Contains(x.VendorEmail, StringComparer.OrdinalIgnoreCase));
             return material with { RequestId = request?.Id, RequestStatus = request is null ? null : VendorQuoteStatuses.Normalize(request.Status),
-                SentAt = request is null ? null : link?.SentAt };
+                SentAt = request is null ? null : link?.SentAt,
+                FollowUp = request is null || link is null ? null : MaterialFollowUpTracking.Project(link, messages[request.Id], access, now) };
         }).ToList() };
     }
 

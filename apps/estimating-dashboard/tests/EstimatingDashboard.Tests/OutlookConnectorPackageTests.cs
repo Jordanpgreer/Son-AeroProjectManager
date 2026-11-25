@@ -39,11 +39,11 @@ public sealed class OutlookConnectorPackageTests
         using var archive = new ZipArchive(new MemoryStream(OutlookConnectorPackage.Create(directory,
             new Uri("https://arda.example.test/estimating/"))), ZipArchiveMode.Read);
         foreach (var name in new[] { "Install.cmd", "Start.cmd", "Start-Background.cmd", "Stop.cmd", "Status.cmd",
-            "Uninstall.cmd", "Start-OutlookEstimating.ps1", "Connector.Core.ps1", "Connector.Outlook.ps1",
+            "Uninstall.cmd", "Start-OutlookEstimating.ps1", "Connector.Core.ps1", "Connector.Outlook.ps1", "Connector.FollowUp.ps1",
             "Connector.Lifecycle.ps1", "Connector.Session.ps1", "Manage-Connector.ps1", "Test-Lifecycle.ps1", "README.md" })
             Assert.NotNull(archive.GetEntry(name));
         Assert.DoesNotContain(archive.Entries, entry => entry.FullName.EndsWith(".example", StringComparison.OrdinalIgnoreCase));
-        Assert.Single(archive.Entries.Where(entry => entry.FullName == "configuration.json"));
+        Assert.Single(archive.Entries, entry => entry.FullName == "configuration.json");
         using var document = JsonDocument.Parse(archive.GetEntry("configuration.json")!.Open());
         Assert.Equal("https://arda.example.test/estimating", document.RootElement.GetProperty("baseUrl").GetString());
         Assert.Equal("", document.RootElement.GetProperty("mailbox").GetString());
@@ -76,5 +76,25 @@ public sealed class OutlookConnectorPackageTests
         var policies = endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>();
         Assert.Contains(policies, policy => policy.Policy == EstimatingPolicies.QuoteStatusView);
         Assert.Contains(policies, policy => policy.Policy == EstimatingPolicies.Editor);
+    }
+
+    [Fact]
+    public void Follow_up_connector_actions_require_editor_access_and_are_post_only()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Services.AddAuthorization();
+        builder.Services.AddScoped<QuoteMaterialPurchasingService>();
+        var app = builder.Build();
+        app.MapGroup("/api").MapMaterialFollowUpConnectorEndpoints();
+        var routes = ((IEndpointRouteBuilder)app).DataSources.SelectMany(source => source.Endpoints);
+        Assert.Collection(routes, AssertProtectedPost, AssertProtectedPost);
+    }
+
+    private static void AssertProtectedPost(Microsoft.AspNetCore.Http.Endpoint endpoint)
+    {
+        var policies = endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>();
+        Assert.Contains(policies, policy => policy.Policy == EstimatingPolicies.QuoteStatusView);
+        Assert.Contains(policies, policy => policy.Policy == EstimatingPolicies.Editor);
+        Assert.Equal("POST", Assert.Single(endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods));
     }
 }

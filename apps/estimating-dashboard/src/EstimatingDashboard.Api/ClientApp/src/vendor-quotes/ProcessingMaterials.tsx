@@ -7,12 +7,12 @@ import './processing-materials.css'
 
 export default function ProcessingMaterials({
   threads, selectedId, statuses, canEdit, busy, error, buyCount, opCount, buyChecking = false, opChecking = false,
-  onSelect, onStatus, onNew, onUntrack, children,
+  onSelect, onStatus, onNew, onUntrack, children, hasFollowUpMaterials = false,
 }: {
   threads: VendorDetail[]; selectedId: number | null; statuses: string[]; canEdit: boolean; busy: boolean; error: string | null
   buyCount?: number | null; opCount?: number | null; buyChecking?: boolean; opChecking?: boolean
   onSelect: (id: number) => void; onStatus: (thread: VendorDetail, status: string) => void; onNew: () => void
-  onUntrack: (message: VendorMessage) => void; children?: ReactNode
+  onUntrack: (message: VendorMessage) => void; children?: ReactNode; hasFollowUpMaterials?: boolean
 }) {
   const ready = threads.filter(({ request }) => canonicalVendorStatus(request.status) === 'Quote received').length
   const showBuyCount = buyCount !== undefined || buyChecking
@@ -65,7 +65,7 @@ export default function ProcessingMaterials({
           </table>
         </div>
         <p className="qs-rfq-ready">{ready} of {threads.length} RFQs ready</p>
-      </> : <p className="qs-rfq-empty">No RFQs tracked yet.</p>}
+      </> : !hasFollowUpMaterials && <p className="qs-rfq-empty">No RFQs tracked yet.</p>}
       {error && <p className="vq-error" role="alert">{error}</p>}
     </div>
     {children && <div className="qs-rfq-review">{children}</div>}

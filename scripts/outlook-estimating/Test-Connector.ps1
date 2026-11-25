@@ -5,6 +5,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 . (Join-Path $PSScriptRoot 'Connector.Core.ps1')
 . (Join-Path $PSScriptRoot 'Connector.Outlook.ps1')
+. (Join-Path $PSScriptRoot 'Connector.FollowUp.ps1')
 $script:ConnectorAssertions = 0
 
 function Assert-Connector {
@@ -54,8 +55,34 @@ function New-FakeAddress {
     return [pscustomobject]@{ Type = 'SMTP'; Address = $Address; PropertyAccessor = New-FakeAccessor }
 }
 function New-FakeRecipient {
-    param([string]$Address)
-    return [pscustomobject]@{ Address = $Address; AddressEntry = New-FakeAddress $Address; PropertyAccessor = New-FakeAccessor }
+    param([string]$Address, [int]$Type = 1)
+    $value = [pscustomobject]@{ Address = $Address; Type = $Type; AddressEntry = New-FakeAddress $Address; PropertyAccessor = New-FakeAccessor }
+    $value | Add-Member ScriptMethod Resolve { return $true }
+    return $value
+}
+function New-FakeReply {
+    param([int]$BodyFormat = 2)
+    $recipients = New-FakeCollection @((New-FakeRecipient 'owner@example.test'))
+    $recipients | Add-Member ScriptMethod Remove {
+        param($Index)
+        $this.Values = @(for ($position = 1; $position -le $this.Count; $position++) {
+            if ($position -ne $Index) { $this.Values[$position - 1] }
+        })
+        $this.Count = $this.Values.Count
+    }
+    $recipients | Add-Member ScriptMethod Add {
+        param($Address)
+        $recipient = New-FakeRecipient $Address
+        $this.Values += $recipient
+        $this.Count++
+        return $recipient
+    }
+    $reply = [pscustomobject]@{
+        Recipients = $recipients; BodyFormat = $BodyFormat; Body = 'Original text'
+        HTMLBody = '<html><body><p>Original message</p></body></html>'; SendUsingAccount = $null; Displayed = $false
+    }
+    $reply | Add-Member ScriptMethod Display { param($Modal) $this.Displayed = -not $Modal }
+    return $reply
 }
 function New-FakeAttachment {
     param([string]$Name = 'quote.pdf', [byte[]]$Bytes = @(1, 2, 3), [long]$Size = -1, [bool]$Inline = $false)
@@ -107,9 +134,74 @@ function Invoke-RestMethod {
     param($Uri, $Method, [switch]$UseDefaultCredentials, $Headers, $ContentType, $Body, $TimeoutSec, $MaximumRedirection, $ErrorAction)
     $script:FakeRequest = @{ uri = $Uri; method = $Method; defaultCredentials = $UseDefaultCredentials.IsPresent; headers = $Headers; contentType = $ContentType; body = $Body; timeout = $TimeoutSec; redirects = $MaximumRedirection }
     if ($script:FakeRequestFailure) { throw [InvalidOperationException]::new('SYNTHETIC-SERVER-BODY-MUST-NOT-BE-LOGGED') }
+    if ($Uri.EndsWith('/follow-up/claim')) { return @{ job = $script:FakeFollowUp } }
+    if ($Uri.EndsWith('/follow-up/result')) {
+        $script:FakeFollowUpResult = [Text.Encoding]::UTF8.GetString($Body) | ConvertFrom-Json
+        return @{}
+    }
     return @{ outcome = 'duplicate' }
 }
 $script:FakeRequestFailure = $false
+
+$replySource = New-FakeMail -Subject 'Quote 42 - RM004420'
+$replySource.Sender = New-FakeAddress $config.mailbox
+$replySource.Recipients = New-FakeCollection @(
+    (New-FakeRecipient 'vendor@example.test'), (New-FakeRecipient 'buyer@example.test' 2),
+    (New-FakeRecipient 'hidden@example.test' 3))
+$replySource | Add-Member NoteProperty Reply (New-FakeReply)
+$replySource | Add-Member ScriptMethod ReplyAll { return $this.Reply }
+$sentFolder = [pscustomobject]@{ StoreID = 'synthetic-store'; Items = New-FakeCollection @($replySource) }
+$namespace = [pscustomobject]@{
+    Original = $replySource; Accounts = New-FakeCollection @([pscustomobject]@{ SmtpAddress = $config.mailbox })
+}
+$namespace | Add-Member ScriptMethod GetItemFromID {
+    param($EntryId, $StoreId)
+    if ($EntryId -ne $this.Original.EntryID -or $StoreId -ne 'synthetic-store') { throw 'Wrong source identity' }
+    return $this.Original
+}
+$script:FakeFollowUp = @{
+    id = '01816374-f85c-77f4-b402-26a8f9aca505'; subject = $replySource.Subject
+    sourceMessageId = '<synthetic-message@example.test>'; conversationId = $replySource.ConversationID
+    originalSentAt = $replySource.SentOn.ToUniversalTime().ToString('o'); recipientEmails = @('vendor@example.test')
+    bodyText = Get-ConnectorFollowUpBody
+}
+$stopEvent = [Threading.ManualResetEvent]::new($false)
+try {
+    $openDraft = { param($job) Open-OutlookFollowUpDraft $namespace $sentFolder 1 $config.mailbox $job }
+    $pollError = Invoke-ConnectorFollowUpPoll $config $openDraft $stopEvent
+    Assert-Connector (-not $pollError -and $script:FakeFollowUpResult.opened -and $replySource.Reply.Displayed) (
+        'Claim opens a genuine Reply All and reports display success: ' + $pollError + ($script:FakeFollowUpResult | ConvertTo-Json -Compress))
+    Assert-Connector ($script:FakeRequest.headers['X-Arda-Request'] -eq 'vendor-quotes' -and $script:FakeRequest.timeout -eq 10) 'Draft requests use the guarded Windows-authenticated endpoint and bounded timeout.'
+    Assert-Connector ($script:FakeFollowUpResult.jobId -eq $script:FakeFollowUp.id) 'Display acknowledgement refers to the claimed job.'
+    $audience = $replySource.Reply.Recipients.Values
+    Assert-Connector ($audience.Count -eq 2 -and $audience[0].Address -eq 'vendor@example.test' -and $audience[0].Type -eq 1 -and
+        $audience[1].Address -eq 'buyer@example.test' -and $audience[1].Type -eq 2) 'Reply All retains original To and Cc, without adding the sender or copying Bcc.'
+    Assert-Connector ($replySource.Reply.SendUsingAccount.SmtpAddress -eq $config.mailbox) 'Reply uses the mailbox that owns the sent message.'
+    Assert-Connector ($replySource.Reply.HTMLBody -ceq '<html><body><p>Hi team,</p><p>Just following up on this request.</p><p>Do you have this quote available?</p><p>Thank you!</p><p>Original message</p></body></html>') 'The requested Outlook text is prepended with quoted history intact.'
+
+    $plainReply = New-FakeReply 1
+    Set-OutlookFollowUpText $plainReply
+    Assert-Connector ($plainReply.Body -ceq ((Get-ConnectorFollowUpBody).Replace("`n", "`r`n") + "`r`n`r`nOriginal text")) 'Plain-text Reply All retains the exact four paragraphs and the quoted text.'
+    $replySource.Reply = New-FakeReply
+    $script:FakeFollowUp.sourceMessageId = '<different-message@example.test>'
+    [void](Invoke-ConnectorFollowUpPoll $config $openDraft $stopEvent)
+    Assert-Connector (-not $replySource.Reply.Displayed -and -not $script:FakeFollowUpResult.opened -and
+        $script:FakeFollowUpResult.message -eq 'follow-up-original-unavailable') 'A matching subject does not open a draft without the original source identity.'
+    $script:FakeFollowUp.sourceMessageId = '<synthetic-message@example.test>'
+    $script:FakeFollowUp.recipientEmails = @('hidden@example.test')
+    [void](Invoke-ConnectorFollowUpPoll $config $openDraft $stopEvent)
+    Assert-Connector (-not $replySource.Reply.Displayed -and $script:FakeFollowUpResult.message -eq 'follow-up-recipient-mismatch') 'A mismatched or hidden vendor cannot be addressed by the connector.'
+    $script:FakeFollowUp.recipientEmails = @('vendor@example.test')
+    $script:FakeFollowUp.bodyText = 'Unexpected message'
+    [void](Invoke-ConnectorFollowUpPoll $config $openDraft $stopEvent)
+    Assert-Connector (-not $replySource.Reply.Displayed -and $script:FakeFollowUpResult.message -eq 'follow-up-invalid-job') 'The queue cannot replace the agreed message body.'
+    $script:FakeFollowUp.bodyText = Get-ConnectorFollowUpBody
+    [void]$stopEvent.Set()
+    [void](Invoke-ConnectorFollowUpPoll $config $openDraft $stopEvent)
+    Assert-Connector (-not $replySource.Reply.Displayed -and $script:FakeFollowUpResult.message -eq 'follow-up-connector-stopping') 'The connector does not open a draft after a stop request.'
+    $script:FakeFollowUp = $null
+    Assert-Connector (-not (Invoke-ConnectorFollowUpPoll $config { throw 'Empty queue must do nothing' } $stopEvent)) 'An empty draft queue is a no-op.'
+} finally { $stopEvent.Dispose() }
 [void](Invoke-ConnectorRequest $config 'import' @{ subject = 'Quote 42'; bodyText = 'Synthetic text' })
 Assert-Connector ($script:FakeRequest.defaultCredentials -and $script:FakeRequest.redirects -eq 0 -and $script:FakeRequest.uri -eq ($config.baseUrl + '/api/vendor-quotes/import')) 'Transport uses Windows identity at the selected HTTPS endpoint without redirects.'
 Assert-Connector ($script:FakeRequest.body -is [byte[]] -and ([Text.Encoding]::UTF8.GetString($script:FakeRequest.body) | ConvertFrom-Json).bodyText -eq 'Synthetic text') 'Transport sends UTF8 JSON bytes.'

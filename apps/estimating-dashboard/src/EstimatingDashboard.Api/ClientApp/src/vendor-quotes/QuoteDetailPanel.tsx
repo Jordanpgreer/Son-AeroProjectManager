@@ -1,10 +1,11 @@
-import { ArrowLeft, ArrowUpRight, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, Clock3, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { updatePersonalQuoteWorkflow } from '../quoteWorkflowApi'
 import ActivityTimeline, { StatusBadge } from './ActivityTimeline'
 import NewThreadDialog from './NewThreadDialog'
 import ProcessingMaterials from './ProcessingMaterials'
 import MaterialPurchasing from './MaterialPurchasing'
+import MaterialFollowUpDialog from './MaterialFollowUpDialog'
 import QuotedPartsTable from './QuotedPartsTable'
 import OutsideProcessing from './OutsideProcessing'
 import Modal from './Modal'
@@ -19,7 +20,7 @@ import UpdateComposer from './UpdateComposer'
 import { assignQuoteMessage, updateQuoteStatus, updateVendorRequest } from './api'
 import { isUpdateDirty, mailtoVendor, makeUpdate, synchronizeActivityDraft, type UpdateDraft } from './model'
 import { loadMaterialRequirements } from './materialPurchasingApi'
-import { materialGroups } from './materialPurchasingModel'
+import { materialFollowUpAge, materialFollowUpDueAt, materialGroups } from './materialPurchasingModel'
 import { loadOutsideProcessing } from './outsideProcessingApi'
 import { usePurchasingReview } from './usePurchasingReview'
 import { purchasingReviewVisibility } from './purchasingReviewModel'
@@ -36,6 +37,11 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   const { quote } = detail
   const threads = visibleRfqThreads(detail.threads)
   const [selectedThreadId, setThreadId] = useState<number | null>(null)
+  const [reviewingMaterialId, setReviewingMaterialId] = useState<string | null>(null)
+  const [originalEmail, setOriginalEmail] = useState<{ itemId: string; threadId: number; messageId: number } | null>(null)
+  const [followUpNow, setFollowUpNow] = useState(Date.now)
+  const [checkedDeadline, setCheckedDeadline] = useState(0)
+  const [deadlineAttempt, setDeadlineAttempt] = useState({ at: 0, attempts: 0 })
   const [pendingUntrack, setPendingUntrack] = useState<VendorMessage | null>(null)
   const [removedOpen, setRemovedOpen] = useState(false)
   const [rfqSaving, setRfqSaving] = useState(false)
@@ -62,17 +68,34 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
   const [quantityRevision, setQuantityRevision] = useState(0)
   const quantityEditButton = useRef<HTMLButtonElement>(null)
   const requestRevision = threads.map(({ request }) => `${request.id}:${request.version}:${request.status}`).join('|')
-  const materialReview = usePurchasingReview(quote.quoteHistoryId, `${draftReset}|${requestRevision}`, loadMaterialRequirements, 'Fulcrum material requirements could not be loaded.')
+  const materialMessageRevision = threads.map(({ request, messages }) => `${request.id}:${messages.map(message => message.id).join(',')}`).join('|')
+  const materialReview = usePurchasingReview(quote.quoteHistoryId, `${draftReset}|${requestRevision}|${materialMessageRevision}`, loadMaterialRequirements, 'Fulcrum material requirements could not be loaded.')
+  const refreshMaterials = materialReview.refresh
   const purchasing = purchasingReviewVisibility(materialReview, materialDirty || quantityDirty || opDirty)
   const opReview = usePurchasingReview(quote.quoteHistoryId, `${quantityRevision}|${draftReset}|${requestRevision}`, loadOutsideProcessing,
     'Outside processing could not be loaded.', purchasing.loadOutsideProcessing)
-  const groups = materialGroups(materialReview.data?.materials ?? [])
+  const materials = materialReview.data?.materials ?? []
+  const groups = materialGroups(materials)
+  const followUpRequestIds = new Set(groups.followUps.map(material => material.requestId))
+  const regularThreads = threads.filter(item => !followUpRequestIds.has(item.request.id))
+  const reviewedMaterial = groups.followUps.find(material => material.itemId === reviewingMaterialId)
+  const reviewedFollowUp = reviewedMaterial?.followUp
+  const activityThreadId = originalEmail?.threadId ?? reviewedMaterial?.requestId ?? threadId
+  const activityThread = threads.find(item => item.request.id === activityThreadId)
+  const materialThread = materials.find(material => material.requestId === activityThreadId)
+  const overdueThread = materialThread?.followUp?.state === 'needs-follow-up' ? materialThread.followUp : null
+  const deadline = Math.min(...materials.flatMap(material => {
+    if (material.followUp?.state !== 'waiting') return []
+    const due = materialFollowUpDueAt(material.followUp.sentAt)
+    return due > checkedDeadline ? [due] : []
+  }))
   const buyCount = materialReview.data && !materialReview.loading && !materialReview.error ? groups.emailsNeeded : null
   const opCount = opReview.data && !opReview.loading && !opReview.error ? opReview.data.operations.length : null
   const activityRef = useRef<HTMLElement>(null)
   const canEdit = target.canEdit && canManage
   const dirty = isUpdateDirty(draft, target.status, target.followUpDate)
   const overviewDirty = quoteDetailsDirty(overviewDraft, overviewBase)
+  const deadlineAttempts = deadlineAttempt.at === deadline ? deadlineAttempt.attempts : 0
   const previousTarget = useRef({ scope: threadId, status: target.status, followUpDate: target.followUpDate?.slice(0, 10) || '' })
   const messages = [...detail.unassignedMessages, ...threads.flatMap(item => item.messages)]
   const scopedLabel = thread ? `${thread.request.partNumber ? `${thread.request.partNumber} · ` : ''}${thread.request.vendorName || thread.request.title}` : `Quote ${quote.quoteNumber}`
@@ -84,10 +107,35 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
     setPendingUntrack(null)
   }, [pendingUntrack, lifecycle.untrackEmail])
   const writeBusy = saving || overviewSaving || rfqSaving || lifecycle.busy
+  const canRefreshMaterials = !materialReview.loading && !writeBusy && !materialDirty && !quantityDirty && !opDirty
+    && !emailDirty && !dirty && !overviewDirty && !lifecycle.dirty
   const removedCount = (detail.removedMessages?.length || 0) + (detail.removedNotes?.length || 0)
+  const hasFollowUps = groups.followUps.length > 0
+  useEffect(() => {
+    if (!hasFollowUps) return
+    setFollowUpNow(Date.now())
+    const timer = window.setInterval(() => setFollowUpNow(Date.now()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [hasFollowUps])
+  useEffect(() => {
+    if (!Number.isFinite(deadline) || !canRefreshMaterials) return
+    const timer = window.setTimeout(() => {
+      setDeadlineAttempt({ at: deadline, attempts: deadlineAttempts + 1 })
+      if (deadlineAttempts === 2) setCheckedDeadline(deadline)
+      refreshMaterials()
+    }, deadlineAttempts ? 45_000 : Math.max(100, deadline - Date.now() + 1000))
+    return () => window.clearTimeout(timer)
+  }, [deadline, deadlineAttempts, canRefreshMaterials, refreshMaterials])
+  useEffect(() => {
+    if (reviewingMaterialId && !reviewedMaterial && !materialReview.loading)
+      setReviewingMaterialId(null)
+  }, [reviewingMaterialId, reviewedMaterial, materialReview.loading])
   useEffect(() => { onDirty(dirty || overviewDirty || emailDirty || materialDirty || quantityDirty || opDirty || saving || overviewSaving || rfqSaving || lifecycle.dirty) }, [dirty, overviewDirty, emailDirty, materialDirty, quantityDirty, opDirty, saving, overviewSaving, rfqSaving, lifecycle.dirty, onDirty])
   useEffect(() => () => onDirty(false), [onDirty])
-  useEffect(() => { if (threadId !== null) activityRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [threadId])
+  useEffect(() => {
+    if (activityThreadId !== null)
+      activityRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' })
+  }, [activityThreadId])
   useEffect(() => {
     const next = { scope: threadId, status: target.status, followUpDate: target.followUpDate?.slice(0, 10) || '' }
     const previous = previousTarget.current
@@ -193,25 +241,39 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
           onChanged={result => { materialReview.setData(result); setQuantityRevision(value => value + 1) }} />}
         onViewProcessing={viewProcessing}
         onChange={value => { setOverviewDraft(value); setOverviewSaved(false) }} onSave={() => void saveOverview()} onDiscard={discardOverview} onDetailChanged={emailImported} />
-      <section ref={activityRef} className="qs-request-card qs-activity-card" aria-label={thread ? `Activity ledger for ${thread.request.title}` : 'Activity ledger'}>
+      <section ref={activityRef} className="qs-request-card qs-activity-card" aria-label={activityThread ? `Activity ledger for ${activityThread.request.title}` : 'Activity ledger'}>
         <header className="qs-card-heading qs-activity-heading">
-          <div><h3>Activity Ledger</h3>{thread && <p>{thread.request.partNumber ? `${thread.request.partNumber} · ` : ''}{thread.request.title}{thread.request.vendorName ? ` · ${thread.request.vendorName}` : ''}</p>}</div>
+          <div><h3>Activity Ledger</h3>{activityThread && <p>{materialThread
+            ? [materialThread.partNumber, materialThread.vendorName].filter(Boolean).join(' · ')
+            : [activityThread.request.partNumber, activityThread.request.title, activityThread.request.vendorName].filter(Boolean).join(' · ')}</p>}</div>
           <div className="qs-activity-heading-actions">
-            {thread && <button type="button" className="qs-text-button" onClick={() => transition(() => setThreadId(null))}><ArrowLeft size={14} />Full quote history</button>}
+            {overdueThread && <span className="qs-follow-up-age"><Clock3 size={15} aria-hidden="true" />{materialFollowUpAge(overdueThread.sentAt, followUpNow)}</span>}
+            {activityThread && <button type="button" className="qs-text-button" onClick={() => transition(() => { setThreadId(null); setOriginalEmail(null); setReviewingMaterialId(null) })}><ArrowLeft size={14} />Full quote history</button>}
             {(canEdit || (canManage && quote.canEdit)) && <button type="button" className="vq-button vq-button-primary" disabled={writeBusy} onClick={() => { setError(null); setSaved(false); setEntryOpen(true) }}><Plus size={15} />Add Entry</button>}
             {canEdit && <ManualEmailUpload detail={detail} selectedThread={thread} disabled={writeBusy} resetToken={draftReset} onDirty={setEmailDirty} onImported={emailImported} />}
           </div>
         </header>
-        <ActivityTimeline key={threadId ?? 'quote'} requestId={threadId} activity={detail.activity} messages={messages} threads={threads} unassignedIds={new Set(detail.unassignedMessages.map(item => item.id))} onThread={selectThread} canEdit={quote.canEdit && canManage} canRemove={canRemove} busy={writeBusy} onEdit={lifecycle.editNote} onRemove={lifecycle.removeNote} onMoveEmail={lifecycle.moveEmail} onRemoveEmail={lifecycle.removeEmail} onUntrackEmail={untrackEmail} onRateRequest={changeRateRequest} onAssign={async (messageId, requestId) => { await assignQuoteMessage(quote.quoteHistoryId, messageId, quote.version, requestId); const updated = await onChanged(); if (updated) setOverviewBase(current => rebaseQuoteDetailsAfterActivity(current, updated.workflow)) }} />
+        <ActivityTimeline key={activityThreadId ?? 'quote'} requestId={activityThreadId} activity={detail.activity} messages={messages} threads={threads} unassignedIds={new Set(detail.unassignedMessages.map(item => item.id))} onThread={selectThread} canEdit={quote.canEdit && canManage} canRemove={canRemove} busy={writeBusy} onEdit={lifecycle.editNote} onRemove={lifecycle.removeNote} onMoveEmail={lifecycle.moveEmail} onRemoveEmail={lifecycle.removeEmail} onUntrackEmail={untrackEmail} onRateRequest={changeRateRequest}
+          openEmailId={originalEmail?.messageId} onCloseEmail={returnToReview => {
+            if (returnToReview && originalEmail && groups.followUps.some(material => material.itemId === originalEmail.itemId))
+              setReviewingMaterialId(originalEmail.itemId)
+            setOriginalEmail(null)
+          }}
+          onAssign={async (messageId, requestId) => { await assignQuoteMessage(quote.quoteHistoryId, messageId, quote.version, requestId); const updated = await onChanged(); if (updated) setOverviewBase(current => rebaseQuoteDetailsAfterActivity(current, updated.workflow)) }} />
+        {overdueThread && materialThread && <div className="qs-activity-follow-up">
+          <span>{outlookConnected && overdueThread.canOpenDraft ? 'Reply All draft · Ready to review' : 'Reply All draft preview'}</span>
+          <button type="button" className="qs-text-button" onClick={() => setReviewingMaterialId(materialThread.itemId)}>Review follow-up</button>
+        </div>}
       </section>
-      <ProcessingMaterials threads={threads} selectedId={threadId} statuses={threadStatuses} canEdit={quote.canEdit && canManage} busy={writeBusy} error={rfqError}
+      <ProcessingMaterials threads={regularThreads} hasFollowUpMaterials={hasFollowUps} selectedId={activityThreadId} statuses={threadStatuses} canEdit={quote.canEdit && canManage} busy={writeBusy} error={rfqError}
         buyCount={purchasing.showPurchasing ? buyCount : undefined} opCount={purchasing.showPurchasing ? opCount : undefined}
         buyChecking={purchasing.showPurchasing ? materialReview.loading : undefined}
         opChecking={purchasing.showPurchasing ? purchasing.waitingForPlanning || opReview.loading : undefined}
         onSelect={selectThread} onStatus={(item, status) => void changeRfqStatus(item, status)} onNew={() => transition(() => setNewThread(true))} onUntrack={untrackEmail}>
         {purchasing.showPurchasing && <>
           <MaterialPurchasing quoteHistoryId={quote.quoteHistoryId} canEdit={quote.canEdit && canManage} busy={writeBusy || opDirty || quantityDirty} outlookConnected={outlookConnected}
-            data={materialReview.data} groups={groups} loading={materialReview.loading} error={materialReview.error} onRefresh={materialReview.refresh}
+            data={materialReview.data} groups={groups} loading={materialReview.loading} error={materialReview.error} now={followUpNow} onRefresh={refreshMaterials}
+            onReviewFollowUp={material => setReviewingMaterialId(material.itemId)} onViewThread={selectThread}
             onDraftCreated={() => onChanged()} onDirty={setMaterialDirty} />
           <OutsideProcessing quoteHistoryId={quote.quoteHistoryId} canEdit={quote.canEdit && canManage} busy={writeBusy || materialDirty || quantityDirty} outlookConnected={outlookConnected}
             data={opReview.data} loading={purchasing.waitingForPlanning || opReview.loading} error={opReview.error} onRefresh={opReview.refresh}
@@ -221,6 +283,13 @@ export default function QuoteDetailPanel({ detail, statuses, threadStatuses, can
         </>}
       </ProcessingMaterials>
     </div>
+    {reviewedMaterial && reviewedFollowUp && <MaterialFollowUpDialog key={reviewedMaterial.itemId} quoteHistoryId={quote.quoteHistoryId}
+      material={reviewedMaterial} followUp={reviewedFollowUp} busy={writeBusy || Boolean(materialReview.error)}
+      canEdit={quote.canEdit && canManage} outlookConnected={outlookConnected} onClose={() => setReviewingMaterialId(null)}
+      onViewOriginal={activityThread?.messages.some(message => message.id === reviewedFollowUp.originalMessageId) ? () => {
+        setOriginalEmail({ itemId: reviewedMaterial.itemId, threadId: activityThread.request.id, messageId: reviewedFollowUp.originalMessageId })
+        setReviewingMaterialId(null)
+      } : undefined} />}
     {entryOpen && <Modal title="Add Entry" onClose={closeEntry}>
       <div className="qs-entry-card">
         <div className="qs-entry-target"><label htmlFor="qs-entry-scope">Add entry to</label><select id="qs-entry-scope" value={threadId ?? ''} disabled={writeBusy} onChange={event => transition(() => setThreadId(event.target.value ? Number(event.target.value) : null))}><option value="">Quote {quote.quoteNumber}</option>{threads.map(item => <option value={item.request.id} key={item.request.id}>{item.request.title}{item.request.vendorName ? ` · ${item.request.vendorName}` : ''}</option>)}</select></div>
