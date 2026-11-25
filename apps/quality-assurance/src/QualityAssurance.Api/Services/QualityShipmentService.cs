@@ -594,7 +594,8 @@ public sealed class QualityShipmentService(
         }
         if ((dto.UserId != (shipment.IsOperationalTeamAssignment ? shipment.AssignedUserId : null))
             && !access.HasPermission(QualityAssurancePermissions.AssignmentUser)
-            && !managesTargetTeam)
+            && !managesTargetTeam
+            && !(team is null && dto.UserId is null && managesCurrentTeam))
             throw new UnauthorizedAccessException("You do not have permission to assign users in this Quality team.");
 
         QualityTeamMember? user = null;
@@ -688,6 +689,8 @@ public sealed class QualityShipmentService(
         PrepareVersion(shipment, version);
         if (shipment.IsShipped)
             throw new ArgumentException("A shipped record cannot be returned to the Shipper queue.");
+        if (string.Equals(shipment.Status?.Trim(), "Ready to Ship", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("This record is already ready to ship.");
 
         var now = DateTimeOffset.UtcNow;
         var oldStatus = shipment.Status;
@@ -696,8 +699,6 @@ public sealed class QualityShipmentService(
         if (!await Workflows.ApplyAsync("qa-completed", shipment, access, cancellationToken))
         {
             var shippingGroupName = QualityOperationalTeamNames.Shipping(configuration);
-            if (string.Equals(shipment.AssignedGroupName, shippingGroupName, StringComparison.OrdinalIgnoreCase))
-                throw new ArgumentException($"This record is already in the {shippingGroupName} queue.");
             var shippingGroup = await teams.FindActiveTeamByNameAsync(shippingGroupName, cancellationToken)
                 ?? throw new QualityWorkflowConfigurationException(
                     $"The {shippingGroupName} Quality team is inactive or unavailable. Ask a Quality administrator to reactivate it before completing QA.");

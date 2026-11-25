@@ -178,26 +178,18 @@ function ThemeSwitch({
 }
 
 function UserProfile({ me, className = '' }: { me: Me | null; className?: string }) {
+  if (me) return (
+    <details className="arda-account-menu">
+      <summary className={`user-chip ${className}`.trim()} aria-label={`Account for ${me.displayName}`}>
+        <span className="user-copy"><strong>{me.displayName}</strong></span>
+        <span className="avatar" aria-hidden="true">{initials(me.displayName)}</span>
+      </summary>
+      <form method="post" action="/arda-session/logout"><button type="submit">Logout</button></form>
+    </details>
+  )
   return <div className={`user-chip ${className}`.trim()} aria-live="polite">
-    {me ? (
-      <>
-        <div className="user-copy">
-          <strong>{me.displayName}</strong>
-        </div>
-        <span className="avatar" title={me.displayName}>
-          {initials(me.displayName)}
-        </span>
-      </>
-    ) : (
-      <>
-        <div className="user-copy">
-          <strong>Checking access</strong>
-        </div>
-        <span className="avatar">
-          <LoaderCircle size={16} className="spin" />
-        </span>
-      </>
-    )}
+    <span className="user-copy"><strong>Checking access</strong></span>
+    <span className="avatar"><LoaderCircle size={16} className="spin" /></span>
   </div>
 }
 

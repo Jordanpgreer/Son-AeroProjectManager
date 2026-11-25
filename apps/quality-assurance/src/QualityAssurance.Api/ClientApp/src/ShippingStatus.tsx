@@ -23,8 +23,8 @@ import {
   UserRoundCheck,
   X,
 } from 'lucide-react'
-import { qualityApi } from './api'
-import { assignmentOwnerName } from './assignmentDisplay'
+import { QualityApiError, qualityApi } from './api'
+import ShipmentAssignmentForm from './ShipmentAssignmentForm'
 import CustomerFilterCombobox from './CustomerFilterCombobox'
 import { ageInDays, formatCompletionDays, formatCurrency, formatDate, formatDateTime } from './format'
 import ShipmentCommentsDrawer from './ShipmentCommentsDrawer'
@@ -445,63 +445,18 @@ function ShipmentForm({
 
 function AssignmentDialog({
   shipment,
-  user,
   onClose,
   onSaved,
 }: {
   shipment: Shipment
-  user: QualityAssuranceUser
   onClose: () => void
   onSaved: (shipment: Shipment) => void
 }) {
-  const [options, setOptions] = useState<AssignmentOptions | null>(null)
-  const [groupId, setGroupId] = useState(shipment.assignedGroupId?.toString() ?? '')
-  const [userId, setUserId] = useState(shipment.assignedUserId?.toString() ?? '')
-  const [error, setError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  const canMoveGroup = canRunQualityAction(user, 'assignment-changed',
-    options?.canAssignGroup ?? user.permissions.includes(PERMISSIONS.assignmentGroup))
-  const canAssignUser = canRunQualityAction(user, 'assignment-changed',
-    options?.canAssignUser ?? user.permissions.includes(PERMISSIONS.assignmentUser))
-
-  useEffect(() => {
-    void qualityApi<AssignmentOptions>('/api/assignment-options').then(setOptions).catch((cause) => setError(cause instanceof Error ? cause.message : 'Assignments unavailable.'))
-  }, [])
-
-  const assignableGroupIds = new Set(options?.assignableGroupIds ?? options?.groups.map((group) => group.id) ?? [])
-  const assignmentGroups = options?.groups.filter((group) => assignableGroupIds.has(group.id)) ?? []
-  const users = options?.users.filter((candidate) => candidate.groupIds.includes(Number(groupId))) ?? []
-  const currentGroupUnavailable = Boolean(groupId && options && !assignmentGroups.some((group) => group.id === Number(groupId)))
-  const currentUserUnavailable = Boolean(userId && options && !users.some((candidate) => candidate.id === Number(userId)))
-  async function submit(event: React.FormEvent) {
-    event.preventDefault()
-    if (!canMoveGroup && !canAssignUser) return
-    setSaving(true)
-    setError(null)
-    try {
-      const saved = await qualityApi<Shipment>(`/api/shipments/${shipment.id}/assignment`, {
-        method: 'POST',
-        body: JSON.stringify({ version: shipment.version, groupId: groupId ? Number(groupId) : null, userId: userId ? Number(userId) : null }),
-      })
-      onSaved(saved)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Assignment could not be saved.')
-    } finally { setSaving(false) }
-  }
-
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="modal assignment-modal" role="dialog" aria-modal="true" aria-labelledby="assignment-title">
         <header><div><span className="eyebrow">Queue Routing</span><h2 id="assignment-title">Assign {shipment.salesOrderNumber ?? `Shipment ${shipment.id}`}</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label="Close"><X size={18} /></button></header>
-        <form onSubmit={submit}>
-          {error && <p className="notice error"><AlertTriangle size={16} />{error}</p>}
-          {!options ? <div className="loading-panel compact">Loading Quality teams and members...</div> : <div className="assignment-fields">
-            <label><span>Responsible Team</span><select disabled={!canMoveGroup} value={groupId} onChange={(event) => { setGroupId(event.target.value); setUserId('') }}><option value="">Unassigned - Manager Review</option>{currentGroupUnavailable && <option value={groupId} disabled>{shipment.assignedGroupName ?? 'Current Team'} (not available)</option>}{assignmentGroups.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select><small>Only teams you are authorized to manage appear here.</small></label>
-            <label><span>Individual Owner</span><select disabled={!canAssignUser || !groupId || currentGroupUnavailable} value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Team Queue / Unassigned</option>{currentUserUnavailable && <option value={userId} disabled>{assignmentOwnerName(shipment.assignedDisplayName ?? 'Current Owner')} (not a team member)</option>}{users.map((candidate) => <option value={candidate.id} key={candidate.id}>{assignmentOwnerName(candidate.displayName, candidate.accountName)}</option>)}</select><small>Only active members of the selected Quality team can receive the shipment.</small></label>
-          </div>}
-          {!canMoveGroup && !canAssignUser && <p className="notice error"><AlertTriangle size={16} />Your current access does not allow changing assignments.</p>}
-          <footer><button className="button ghost" type="button" onClick={onClose}>Cancel</button><button className="button primary" disabled={!options || saving || (!canMoveGroup && !canAssignUser) || currentGroupUnavailable || currentUserUnavailable} type="submit">{saving ? 'Assigning...' : 'Save assignment'}</button></footer>
-        </form>
+        <ShipmentAssignmentForm shipment={shipment} onCancel={onClose} onSaved={onSaved} />
       </section>
     </div>
   )
@@ -541,7 +496,7 @@ function DetailDrawer({
   const canCompleteQa = user.permissions.includes(PERMISSIONS.ship)
     && canRunQualityAction(user, 'qa-completed', true)
     && !shipment.isShipped
-    && shipment.assignedGroupName?.trim().toLowerCase() !== 'shipper'
+    && shipment.status?.trim().toLowerCase() !== 'ready to ship'
   const owner = actionOwner(shipment, canViewAssignment)
 
   async function loadAudit() {
@@ -656,6 +611,8 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   useArdaAutoRefresh(() => setRefresh((value) => value + 1), !creating && !editing && !assigning && !loading)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [layout, setLayout] = useState<ShippingLayout | null>(null)
+  const [savingLayout, setSavingLayout] = useState(false)
+  const layoutWritePending = useRef(false)
   const layoutRef = useRef<ShippingLayout | null>(null)
   const draggedColumn = useRef<WorklistColumnKey | null>(null)
   const pendingDeepLink = useRef<ReturnType<typeof readShipmentDeepLink>>(null)
@@ -870,7 +827,9 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
 
   async function persistColumns(columns: ShippingColumnLayout[]) {
     const current = layoutRef.current
-    if (!current) return
+    if (!current || layoutWritePending.current) return
+    layoutWritePending.current = true
+    setSavingLayout(true)
     const statusColumn = columns.find((column) => column.key === 'status')
     const normalized = statusColumn
       ? [statusColumn, ...columns.filter((column) => column.key !== 'status')]
@@ -888,7 +847,21 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
     } catch (cause) {
       layoutRef.current = current
       setLayout(current)
-      setError(cause instanceof Error ? cause.message : 'Your column layout could not be saved.')
+      if (cause instanceof QualityApiError && cause.status === 409) {
+        try {
+          const latest = await qualityApi<ShippingLayout>('/api/shipping-layout')
+          layoutRef.current = latest
+          setLayout(latest)
+          setError('Your column layout changed in another tab. The latest layout was loaded. Try the change again.')
+        } catch {
+          setError('Your column layout changed in another tab. Reload Shipping Status and try again.')
+        }
+      } else {
+        setError(cause instanceof Error ? cause.message : 'Your column layout could not be saved.')
+      }
+    } finally {
+      layoutWritePending.current = false
+      setSavingLayout(false)
     }
   }
 
@@ -906,38 +879,55 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
   }
 
   function beginResize(event: React.PointerEvent, key: WorklistColumnKey) {
-    if (!layoutRef.current) return
+    if (!layoutRef.current || layoutWritePending.current || !event.isPrimary || event.button !== 0) return
     event.preventDefault()
     event.stopPropagation()
     const startX = event.clientX
+    const pointerId = event.pointerId
     const starting = layoutRef.current.columns.find((column) => column.key === key)
     if (!starting) return
+    const maximum = key === 'holdReason' || key === 'comments' || key === 'action' ? 640 : 480
     let latestWidth = starting.width
     const move = (moveEvent: PointerEvent) => {
-      latestWidth = Math.max(28, Math.min(key === 'holdReason' || key === 'comments' || key === 'action' ? 640 : 480, starting.width + moveEvent.clientX - startX))
+      if (moveEvent.pointerId !== pointerId) return
+      latestWidth = Math.max(28, Math.min(maximum, Math.round(starting.width + moveEvent.clientX - startX)))
       setLayout((current) => current ? {
         ...current,
         columns: current.columns.map((column) => column.key === key ? { ...column, width: latestWidth } : column),
       } : current)
     }
-    const stop = () => {
+    const stop = (stopEvent: PointerEvent) => {
+      if (stopEvent.pointerId !== pointerId) return
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
       const current = layoutRef.current
-      if (!current || latestWidth === starting.width) return
+      if (!current) return
+      if (stopEvent.type === 'pointercancel' || layoutWritePending.current) {
+        setLayout(current)
+        return
+      }
+      if (latestWidth === starting.width) return
       void persistColumns(current.columns.map((column) => column.key === key ? { ...column, width: latestWidth } : column))
     }
     window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', stop, { once: true })
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
   }
 
   async function resetColumns() {
+    if (layoutWritePending.current) return
+    layoutWritePending.current = true
+    setSavingLayout(true)
     try {
       const defaults = await qualityApi<ShippingLayout>('/api/shipping-layout', { method: 'DELETE' })
       layoutRef.current = defaults
       setLayout(defaults)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The default column layout could not be restored.')
+    } finally {
+      layoutWritePending.current = false
+      setSavingLayout(false)
     }
   }
 
@@ -1069,7 +1059,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
           <label className="compact-select"><SlidersHorizontal size={15} /><span className="compact-select-label">Queue</span><select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)} aria-label="Queue scope"><option value="mine">{canReviewUnassigned ? 'Mine + Unassigned' : 'My Queue'}</option>{canTeam && <option value="team">My Teams</option>}{canAll && <option value="all">All Shipments</option>}</select></label>
           <button className={`control-button ${filtersOpen || activeFilterCount ? 'active' : ''}`} type="button" onClick={() => setFiltersOpen((current) => !current)} aria-expanded={filtersOpen} aria-controls="shipping-filter-panel"><ListFilter size={15} /><span>Filters</span>{activeFilterCount > 0 && <b>{activeFilterCount}</b>}</button>
           {hasResettableState && <button className="control-button reset-control" type="button" onClick={resetFiltersAndSort}><RotateCcw size={14} /><span>Reset Filters</span></button>}
-          <button className="control-button" type="button" onClick={() => void resetColumns()}><RotateCcw size={14} /><span>Reset Columns</span></button>
+          <button className="control-button" type="button" disabled={savingLayout} onClick={() => void resetColumns()}><RotateCcw size={14} /><span>Reset Columns</span></button>
         </div>
         {filtersOpen && <section className="shipping-filter-panel" id="shipping-filter-panel" aria-label="Shipment filters">
           <div className="filter-panel-heading"><div><span className="eyebrow">Narrow The Worklist</span><strong>Filter Results</strong><p>Combine filters below. Customer selections match any chosen customer.</p></div></div>
@@ -1114,7 +1104,7 @@ export default function ShippingStatus({ user, reloadKey }: { user: QualityAssur
       {selected && commentsOpen && <ShipmentCommentsDrawer shipment={selected} currentUser={user} canPost={fields.some((field) => field.key === 'comments' && field.canEdit)} onClose={closeComments} onMessageSent={() => setRefresh((value) => value + 1)} />}
       {creating && <ShipmentForm fields={fields} canSave={canCreate} onClose={() => setCreating(false)} onSaved={created} />}
       {editing && selected && <ShipmentForm shipment={selected} fields={fields} canSave={canEdit} onClose={() => setEditing(false)} onSaved={accepted} />}
-      {assigning && selected && <AssignmentDialog shipment={selected} user={user} onClose={closeAssignment} onSaved={assignmentAccepted} />}
+      {assigning && selected && <AssignmentDialog shipment={selected} onClose={closeAssignment} onSaved={assignmentAccepted} />}
       {successMessage && <div className="shipment-success-toast" role="status" aria-live="polite"><CheckCircle2 size={17} /><span>{successMessage}</span><button type="button" onClick={() => setSuccessMessage(null)} aria-label="Dismiss success message"><X size={14} /></button></div>}
     </div>
   )

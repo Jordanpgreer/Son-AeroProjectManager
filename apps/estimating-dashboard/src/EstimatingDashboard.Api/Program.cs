@@ -8,6 +8,7 @@ using EstimatingDashboard.Api.Dtos;
 using EstimatingDashboard.Api.Endpoints;
 using EstimatingDashboard.Api.Services;
 using SonAero.Platform.Diagnostics;
+using SonAero.Platform.Security;
 using SonAero.Platform.Features;
 using SonAero.Platform.Integrations;
 
@@ -201,6 +202,7 @@ await using (var scope = app.Services.CreateAsyncScope())
 }
 
 app.UseArdaErrorTracking();
+app.UseArdaBrowserSession();
 app.Use(async (context, next) =>
 {
     context.Response.OnStarting(() =>

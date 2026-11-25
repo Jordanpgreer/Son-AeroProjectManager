@@ -1,0 +1,63 @@
+.arda-account-menu {
+  position: relative;
+  flex: none;
+  max-width: 100%;
+}
+
+.arda-account-menu > summary {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.arda-account-menu > summary::-webkit-details-marker { display: none; }
+.arda-account-menu > summary::after {
+  content: '';
+  flex: none;
+  width: .36rem;
+  height: .36rem;
+  border: solid currentColor;
+  border-width: 0 1px 1px 0;
+  transform: translateY(-.1rem) rotate(45deg);
+}
+
+.arda-account-menu-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arda-account-menu-mobile { display: none; }
+@media (max-width: 520px) {
+  .arda-account-menu-name { display: none; }
+  .arda-account-menu-mobile { display: inline; }
+}
+
+.arda-account-menu > form {
+  position: absolute;
+  z-index: 30;
+  inset-inline-end: 0;
+  top: calc(100% + .5rem);
+  min-width: 9rem;
+  padding: .3rem;
+  border: 1px solid var(--line-2, GrayText);
+  border-radius: .5rem;
+  background: var(--surface, Canvas);
+  box-shadow: var(--shadow-2, 0 4px 16px #0002);
+}
+
+.arda-account-menu button {
+  width: 100%;
+  padding: .55rem .75rem;
+  border: 0;
+  border-radius: .25rem;
+  background: transparent;
+  color: var(--ink, CanvasText);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.arda-account-menu button:hover { background: var(--surface-2, ButtonFace); }

@@ -1,18 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Clock3, ExternalLink, UserRoundCheck, X } from 'lucide-react'
-import { qualityApi } from './api'
-import { assignmentOwnerName } from './assignmentDisplay'
+import { useEffect, useMemo } from 'react'
+import { Clock3, ExternalLink, UserRoundCheck, X } from 'lucide-react'
+import ShipmentAssignmentForm from './ShipmentAssignmentForm'
 import { displayShipmentNumber } from './shipmentNumber'
 import { ageInDays, formatCompletionDays, formatCurrency, formatDate, formatDateTime } from './format'
-import type { AssignmentOptions, FieldAccess, Shipment, ShipmentFieldKey } from './types'
+import type { FieldAccess, Shipment, ShipmentFieldKey } from './types'
 
 export default function DashboardShipmentQuickView({
   shipment,
   fields,
   canViewAssignment,
   canAssign,
-  canAssignGroup,
-  canAssignUser,
   onClose,
   onOpen,
   onSaved,
@@ -21,17 +18,10 @@ export default function DashboardShipmentQuickView({
   fields: FieldAccess[]
   canViewAssignment: boolean
   canAssign: boolean
-  canAssignGroup: boolean
-  canAssignUser: boolean
   onClose: () => void
   onOpen?: () => void
   onSaved: (shipment: Shipment) => void
 }) {
-  const [options, setOptions] = useState<AssignmentOptions | null>(null)
-  const [groupId, setGroupId] = useState(shipment.assignedGroupId?.toString() ?? '')
-  const [userId, setUserId] = useState(shipment.assignedUserId?.toString() ?? '')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const visibleFields = useMemo(
     () => new Set(fields.filter((field) => field.canView).map((field) => field.key)),
     [fields],
@@ -53,58 +43,6 @@ export default function DashboardShipmentQuickView({
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [onClose])
-
-  useEffect(() => {
-    setGroupId(shipment.assignedGroupId?.toString() ?? '')
-    setUserId(shipment.assignedUserId?.toString() ?? '')
-    setError(null)
-  }, [shipment])
-
-  useEffect(() => {
-    if (!canAssign) return
-    let active = true
-    void qualityApi<AssignmentOptions>('/api/assignment-options')
-      .then((next) => { if (active) setOptions(next) })
-      .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : 'Assignment options are unavailable.') })
-    return () => { active = false }
-  }, [canAssign])
-
-  const users = useMemo(
-    () => options?.users.filter((candidate) => candidate.groupIds.includes(Number(groupId))) ?? [],
-    [groupId, options],
-  )
-  const assignmentGroups = useMemo(() => {
-    const assignable = new Set(options?.assignableGroupIds ?? options?.groups.map((group) => group.id) ?? [])
-    return options?.groups.filter((group) => assignable.has(group.id)) ?? []
-  }, [options])
-  const currentGroupUnavailable = Boolean(
-    groupId && options && !assignmentGroups.some((group) => group.id === Number(groupId)),
-  )
-  const currentUserUnavailable = Boolean(
-    userId && options && !users.some((candidate) => candidate.id === Number(userId)),
-  )
-
-  async function saveAssignment(event: React.FormEvent) {
-    event.preventDefault()
-    if (!canAssign) return
-    setSaving(true)
-    setError(null)
-    try {
-      const saved = await qualityApi<Shipment>(`/api/shipments/${shipment.id}/assignment`, {
-        method: 'POST',
-        body: JSON.stringify({
-          version: shipment.version,
-          groupId: groupId ? Number(groupId) : null,
-          userId: userId ? Number(userId) : null,
-        }),
-      })
-      onSaved(saved)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Assignment could not be saved.')
-    } finally {
-      setSaving(false)
-    }
-  }
 
   const currentOwner = shipment.assignedDisplayName
     ?? (shipment.assignedGroupName ? `${shipment.assignedGroupName} Queue` : 'Needs Assignment')
@@ -136,16 +74,11 @@ export default function DashboardShipmentQuickView({
           {canAssign && (
             <section className="detail-section dashboard-assignment-editor">
               <div className="section-heading"><div><span className="eyebrow">Manager Action</span><h3>Assign This Work</h3></div></div>
-              {error && <p className="notice error"><AlertTriangle size={15} />{error}</p>}
-              {!options ? <div className="loading-panel compact" role="status">Loading assignment options...</div> : (
-                <form onSubmit={saveAssignment}>
-                  <div className="assignment-fields">
-                    <label><span>Responsible Team</span><select disabled={!canAssignGroup} value={groupId} onChange={(event) => { setGroupId(event.target.value); setUserId('') }}><option value="">Unassigned - Manager Review</option>{currentGroupUnavailable && <option value={groupId} disabled>{shipment.assignedGroupName ?? 'Current Team'} (not available)</option>}{assignmentGroups.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select><small>Only teams you are authorized to manage appear here.</small></label>
-                    <label><span>Individual Owner</span><select disabled={!canAssignUser || !groupId || currentGroupUnavailable} value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Team Queue / Unassigned</option>{currentUserUnavailable && <option value={userId} disabled>{assignmentOwnerName(shipment.assignedDisplayName ?? 'Current Owner')} (not on this team)</option>}{users.map((candidate) => <option value={candidate.id} key={candidate.id}>{assignmentOwnerName(candidate.displayName, candidate.accountName)}</option>)}</select><small>Only active members of the selected Quality team can be assigned.</small></label>
-                  </div>
-                  <button className="button primary dashboard-assignment-save" disabled={saving || currentGroupUnavailable || currentUserUnavailable} type="submit">{saving ? 'Saving assignment...' : 'Save Assignment'}</button>
-                </form>
-              )}
+              <ShipmentAssignmentForm
+                key={`${shipment.id}:${shipment.assignedGroupId}:${shipment.assignedUserId}`}
+                shipment={shipment}
+                onSaved={onSaved}
+              />
             </section>
           )}
 

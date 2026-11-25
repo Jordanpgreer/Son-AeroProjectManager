@@ -174,6 +174,7 @@ builder.Services.AddArdaErrorTracking<ProjectTrackerDbContext>("project-tracker"
 var app = builder.Build();
 
 app.UseArdaErrorTracking();
+app.UseArdaBrowserSession();
 app.Use(async (context, next) =>
 {
     context.Response.OnStarting(() =>

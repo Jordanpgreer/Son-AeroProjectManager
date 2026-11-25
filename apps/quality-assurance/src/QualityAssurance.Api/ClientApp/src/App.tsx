@@ -197,7 +197,16 @@ export default function App() {
           </div>
           <div className="topbar-actions">
             <a className="topbar-brand-link" href={hubUrl} target="_top" aria-label="Return to Arda applications" title="Return to Arda applications"><img className="topbar-brand-mark-standard" src="/brand/arda-mark.png" alt="" /><img className="topbar-brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" /></a>
-            <div className="topbar-identity"><ThemeSwitch theme={theme} onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} /><div className="user-chip topbar-user-chip" title={`${user.displayName}\n${user.groups.join(', ')}`}><span className="user-copy"><strong>{user.displayName}</strong></span><span className="avatar">{initials(user.displayName)}</span></div></div>
+            <div className="topbar-identity">
+              <ThemeSwitch theme={theme} onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} />
+              <details className="arda-account-menu">
+                <summary className="user-chip topbar-user-chip" aria-label={`Account for ${user.displayName}`}>
+                  <span className="user-copy"><strong>{user.displayName}</strong></span>
+                  <span className="avatar" aria-hidden="true">{initials(user.displayName)}</span>
+                </summary>
+                <form method="post" action="/arda-session/logout"><button type="submit">Logout</button></form>
+              </details>
+            </div>
           </div>
         </header>
         <div className="main-scroll">{activeRoute === 'dashboard' ? <Dashboard user={user} reloadKey={reloadKey} onOpenShipment={canViewQualityPage(userPermissions, 'shipping-status') ? (shipment) => openShippingShipment(shipment.id, shipment.isShipped) : undefined} /> : <ShippingStatus user={user} reloadKey={reloadKey} />}</div>

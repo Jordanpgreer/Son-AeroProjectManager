@@ -181,7 +181,7 @@ export default function Dashboard({ user, reloadKey, onOpenShipment }: { user: Q
           </article>
         )}
       </section>
-      {selectedShipment && <DashboardShipmentQuickView shipment={selectedShipment} fields={data.fields} canViewAssignment={data.canViewAssignment} canAssign={canRunQualityAction(user, 'assignment-changed', data.canAssign)} canAssignGroup={canRunQualityAction(user, 'assignment-changed', data.canAssignGroup)} canAssignUser={canRunQualityAction(user, 'assignment-changed', data.canAssignUser)} onClose={() => setSelectedShipment(null)} onOpen={onOpenShipment ? () => onOpenShipment(selectedShipment) : undefined} onSaved={accepted} />}
+      {selectedShipment && <DashboardShipmentQuickView shipment={selectedShipment} fields={data.fields} canViewAssignment={data.canViewAssignment} canAssign={canRunQualityAction(user, 'assignment-changed', data.canAssign)} onClose={() => setSelectedShipment(null)} onOpen={onOpenShipment ? () => onOpenShipment(selectedShipment) : undefined} onSaved={accepted} />}
     </div>
   )
 }

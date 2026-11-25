@@ -256,6 +256,30 @@ public sealed class QualityShipmentWorkflowTests
     }
 
     [Fact]
+    public async Task Qa_can_be_completed_again_after_returning_a_shipper_order_to_wip()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var shipment = ShipmentForGrid("SHIP-QA-REOPENED", "WIP", "Customer", 100, null);
+        fixture.Db.Shipments.Add(shipment);
+        await fixture.Db.SaveChangesAsync();
+        var completed = await fixture.Shipments.MarkQaCompleteAsync(shipment.Id, shipment.Version, fixture.Admin, default);
+        Assert.Equal("Ready to Ship", completed!.Status);
+
+        var reopened = await fixture.Shipments.PatchAsync(shipment.Id, new QualityShipmentPatchDto(
+            completed.Version, new Dictionary<string, JsonElement>
+            {
+                ["status"] = JsonSerializer.SerializeToElement("WIP")
+            }), fixture.Admin, default);
+        Assert.Equal("WIP", reopened!.Status);
+        Assert.Equal(ApplicationGroups.Shipper, reopened.AssignedGroupName);
+
+        var completedAgain = await fixture.Shipments.MarkQaCompleteAsync(shipment.Id, reopened.Version, fixture.Admin, default);
+        Assert.Equal("Ready to Ship", completedAgain!.Status);
+        Assert.Equal(ApplicationGroups.Shipper, completedAgain.AssignedGroupName);
+        Assert.False(completedAgain.IsShipped);
+    }
+
+    [Fact]
     public async Task Qa_complete_rejects_a_record_already_in_the_shipper_queue()
     {
         await using var fixture = await WorkflowFixture.CreateAsync();
@@ -735,6 +759,32 @@ public sealed class QualityShipmentWorkflowTests
         Assert.Equal("Person One", assigned.NextAction);
         Assert.Contains(await fixture.Db.ShipmentAuditEntries.ToListAsync(), entry =>
             entry.FieldName == "nextAction" && entry.NewValue == "Person One");
+    }
+
+    [Fact]
+    public async Task OperationalTeamManagerCanAssignAnUnassignedOrderToTheirTeamAndIndividualOwner()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var shipment = ShipmentForGrid("SO-UNASSIGNED-MANAGER", "WIP", "Customer", 100, null);
+        shipment.IsOperationalTeamAssignment = false;
+        fixture.Db.Shipments.Add(shipment);
+        await fixture.Db.SaveChangesAsync();
+        var manager = new QualityAssuranceAccessProfile(
+            50, "TEST\\manager", "Quality Manager", ApplicationRoles.Viewer,
+            [QualityAssurancePermissions.ShipmentsView, QualityAssurancePermissions.ManagerReview], []);
+
+        var options = await fixture.Teams.GetAssignmentOptionsAsync(manager, default);
+        var team = Assert.Single(options.Groups);
+        var owner = Assert.Single(options.Users, user => user.Id == 2);
+        Assert.True(options.CanAssignGroup);
+        Assert.True(options.CanAssignUser);
+        Assert.Contains(team.Id, owner.GroupIds);
+
+        var assigned = await fixture.Shipments.AssignAsync(
+            shipment.Id, new QualityShipmentAssignmentDto(shipment.Version, team.Id, owner.Id), manager, default);
+
+        Assert.Equal(team.Id, assigned!.AssignedGroupId);
+        Assert.Equal(owner.Id, assigned.AssignedUserId);
     }
 
     [Fact]

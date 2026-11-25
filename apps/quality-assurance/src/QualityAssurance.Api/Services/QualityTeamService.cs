@@ -217,7 +217,8 @@ public sealed class QualityTeamService(
         if (userId <= 0) return QualityTeamContext.Empty;
         var memberships = await db.TeamMembers
             .AsNoTracking()
-            .Where(member => member.AppUserId == userId)
+            .Where(member => member.AppUserId == userId
+                && db.Teams.Any(team => team.Id == member.QualityTeamId && team.IsActive))
             .Select(member => new { member.QualityTeamId, member.IsManager })
             .ToListAsync(cancellationToken);
         return new QualityTeamContext(
