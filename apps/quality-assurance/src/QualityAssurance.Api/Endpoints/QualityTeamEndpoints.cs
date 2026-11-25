@@ -1,3 +1,6 @@
+using System.Text.Json;
+using Microsoft.AspNetCore.Cors.Infrastructure;
+using Microsoft.AspNetCore.Mvc;
 using QualityAssurance.Api.Auth;
 using QualityAssurance.Api.Dtos;
 using QualityAssurance.Api.Services;
@@ -7,6 +10,8 @@ namespace QualityAssurance.Api.Endpoints;
 
 public static class QualityTeamEndpoints
 {
+    private static readonly JsonSerializerOptions TeamJsonOptions = new(JsonSerializerDefaults.Web);
+
     public static RouteGroupBuilder MapQualityTeamEndpoints(this RouteGroupBuilder api)
     {
         var teams = api.MapGroup("/admin/teams")
@@ -38,6 +43,10 @@ public static class QualityTeamEndpoints
             return updated is null ? Results.NotFound() : Results.Ok(updated);
         }).RequireAuthorization(QualityAssurancePermissions.TeamsManage);
 
+        teams.MapPost("/save/{id:int?}", SaveFromHubAsync)
+            .WithMetadata(new RequestSizeLimitAttribute(32 * 1024))
+            .RequireAuthorization(QualityAssurancePermissions.TeamsManage);
+
         teams.MapDelete("/{id:int}", async (
             int id,
             HttpContext context,
@@ -49,6 +58,52 @@ public static class QualityTeamEndpoints
         }).RequireAuthorization(QualityAssurancePermissions.TeamsManage);
 
         return api;
+    }
+
+    public static async Task<IResult> SaveFromHubAsync(
+        int? id,
+        HttpContext context,
+        QualityTeamService service,
+        ICorsPolicyProvider corsPolicies,
+        CancellationToken cancellationToken)
+    {
+        var request = context.Request;
+        var allowedOrigins = (await corsPolicies.GetPolicyAsync(context, "HubAdmin"))?.Origins;
+        if (!QualityRequestIntegrity.HasTrustedOrigin(request, allowedOrigins))
+        {
+            return Results.BadRequest(new ErrorDto(
+                "UntrustedTeamRequest",
+                "Save Quality teams from Arda's Admin Console."));
+        }
+        if (!QualityRequestIntegrity.HasMediaType(request, "text/plain"))
+        {
+            return Results.Json(new ErrorDto("InvalidTeamContentType", "The team request must use text/plain."),
+                statusCode: StatusCodes.Status415UnsupportedMediaType);
+        }
+
+        QualityTeamUpdateDto? dto;
+        try
+        {
+            dto = await JsonSerializer.DeserializeAsync<QualityTeamUpdateDto>(request.Body, TeamJsonOptions, cancellationToken);
+        }
+        catch (JsonException)
+        {
+            dto = null;
+        }
+        if (dto is null)
+            return Results.BadRequest(new ErrorDto("InvalidTeamRequest", "Quality received invalid team details. Reopen the team editor and try again."));
+
+        if (id.HasValue)
+        {
+            var updated = await service.UpdateAsync(id.Value, dto, Access(context), cancellationToken);
+            return updated is null ? Results.NotFound() : Results.Ok(updated);
+        }
+
+        var created = await service.CreateAsync(
+            new QualityTeamCreateDto(dto.Name, dto.Description, dto.MemberIds, dto.ManagerIds),
+            Access(context),
+            cancellationToken);
+        return Results.Created($"/api/admin/teams/{created.Id}", created);
     }
 
     private static QualityAssuranceAccessProfile Access(HttpContext context) =>
