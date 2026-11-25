@@ -383,13 +383,14 @@ export default function App() {
           />
           <div className="portal-user" aria-live="polite">
             {me ? (
-              <details className="arda-account-menu">
-                <summary aria-label={`Account for ${me.displayName}`}>
+              <>
+                <div className="portal-user-text">
                   <span className="portal-user-name">{me.displayName}</span>
-                  <span className="portal-avatar" aria-hidden="true">{initials(me.displayName)}</span>
-                </summary>
-                <form method="post" action="/arda-session/logout"><button type="submit">Logout</button></form>
-              </details>
+                </div>
+                <span className="portal-avatar" title={me.displayName}>
+                  {initials(me.displayName)}
+                </span>
+              </>
             ) : (
               <span className="portal-user-name muted">Signing in...</span>
             )}

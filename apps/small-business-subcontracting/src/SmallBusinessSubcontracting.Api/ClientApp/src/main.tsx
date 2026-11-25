@@ -7,10 +7,7 @@ import './index.css'
 import { applyTheme, readThemePreference } from './theme'
 import { installArdaPresence } from '../../../../../../shared/frontend/arda-presence.ts'
 
-import { installArdaSession } from '../../../../../../shared/frontend/arda-session.ts'
-
 applyTheme(readThemePreference())
-installArdaSession()
 installArdaPresence({ moduleId: 'small-business-subcontracting', portalBaseUrl: hubUrl })
 
 createRoot(document.getElementById('root')!).render(

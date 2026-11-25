@@ -12,7 +12,6 @@ using Portal.Api.Models;
 using Portal.Api.Services;
 using Portal.Api.Services.ApiCustomizer;
 using SonAero.Platform.Diagnostics;
-using SonAero.Platform.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -124,7 +123,6 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseArdaErrorTracking();
-app.UseArdaBrowserSession();
 app.Use(async (context, next) =>
 {
     context.Response.OnStarting(() =>

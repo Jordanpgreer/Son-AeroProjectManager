@@ -150,7 +150,6 @@ using (var scope = app.Services.CreateScope())
 app.UseArdaErrorTracking();
 app.UseRouting();
 app.UseCors("HubAdmin");
-app.UseArdaBrowserSession();
 app.UseAuthentication();
 app.Use(async (context, next) =>
 {
