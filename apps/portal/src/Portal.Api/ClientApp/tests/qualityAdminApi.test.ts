@@ -20,7 +20,24 @@ describe('Quality admin API requests', () => {
     expect(Array.from((request.headers as Headers).keys())).toEqual([])
   })
 
-  it('retains JSON encoding for existing admin mutations and reports import validation errors', async () => {
+  it.each(['/api/admin/teams/save', '/api/admin/teams/save/42'])('saves teams without an IIS preflight: %s', async (path) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const body = JSON.stringify({ name: 'Incoming Inspection', memberIds: [7, 8], managerIds: [7], version: 2, isActive: true })
+
+    await qualityAdminApi(path, { method: 'POST', body, headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
+
+    const [url, request] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url.endsWith(path)).toBe(true)
+    expect(request.method).toBe('POST')
+    expect(request.credentials).toBe('include')
+    expect(request.body).toBe(body)
+    const headers = request.headers as Headers
+    expect(headers.get('content-type')).toBe('text/plain;charset=UTF-8')
+    expect(Array.from(headers.keys()).map((key) => key.toLowerCase())).toEqual(['content-type'])
+  })
+
+  it('retains JSON encoding for existing admin mutations and reports validation errors', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: 'Missing Complete List worksheet.' }), { status: 400, headers: { 'content-type': 'application/json' } }))
     vi.stubGlobal('fetch', fetchMock)
 

@@ -126,8 +126,8 @@ export default function QualityTeamsPanel() {
         version: draft.version,
       })
       await qualityAdminApi(
-        draft.id ? `/api/admin/teams/${draft.id}` : '/api/admin/teams',
-        { method: draft.id ? 'PUT' : 'POST', body },
+        draft.id ? `/api/admin/teams/save/${draft.id}` : '/api/admin/teams/save',
+        { method: 'POST', body },
       )
       setNotice(`${draft.name.trim()} was ${draft.id ? 'updated' : 'created'}.`)
       setDraft(null)
@@ -150,15 +150,16 @@ export default function QualityTeamsPanel() {
           <h2 id="quality-teams-heading">Shipment teams</h2>
           <p>Build the teams used for Quality queues, manager review, and shipment assignment. Team membership never changes a person's Arda permissions.</p>
         </div>
-        <button className="solid-button" type="button" onClick={() => { setDraft(emptyDraft()); setNotice(''); setError('') }} disabled={busy}>
+        <button className="solid-button" type="button" onClick={() => { setDraft(emptyDraft()); setNotice(''); setError('') }} disabled={busy || !overview}>
           <Plus size={15} aria-hidden="true" /> Create Team
         </button>
       </header>
 
       {error && <p className="admin-notice error" role="alert">{error}</p>}
+      {!overview && error && <button className="ghost-button" type="button" onClick={() => void load()}>Retry loading teams</button>}
       {notice && <p className="admin-notice success" role="status">{notice}</p>}
 
-      {!overview?.teams.length && <div className="quality-teams-empty"><Users size={24} /><h3>No Quality teams yet</h3><p>Create a team before assigning shipments to individual users.</p></div>}
+      {overview?.teams.length === 0 && <div className="quality-teams-empty"><Users size={24} /><h3>No Quality teams yet</h3><p>Create a team before assigning shipments to individual users.</p></div>}
       {!!overview?.teams.length && <div className="quality-team-grid">
         {overview.teams.map((team) => {
           const managers = team.members.filter((member) => member.isManager)

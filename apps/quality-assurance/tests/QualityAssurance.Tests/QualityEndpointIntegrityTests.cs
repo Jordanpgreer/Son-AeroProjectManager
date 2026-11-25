@@ -158,4 +158,23 @@ public sealed class QualityEndpointIntegrityTests
                 .WithOrigins("https://hub.son4l.local").AllowCredentials().Build());
         }
     }
+
+    [Theory]
+    [InlineData(null, "UntrustedTeamRequest")]
+    [InlineData("https://untrusted.example", "UntrustedTeamRequest")]
+    [InlineData("https://hub.son4l.local", "InvalidTeamRequest")]
+    public async Task Team_saves_require_a_trusted_origin_and_valid_payload(string? origin, string expectedCode)
+    {
+        var request = new DefaultHttpContext().Request;
+        request.Scheme = "https";
+        request.Host = new HostString("quality.hub.son4l.local");
+        request.ContentType = "text/plain;charset=UTF-8";
+        if (origin is not null) request.Headers.Origin = origin;
+        request.Body = new MemoryStream("invalid JSON"u8.ToArray());
+
+        var result = await QualityTeamEndpoints.SaveFromHubAsync(null, request.HttpContext, null!,
+            new TestCorsPolicyProvider(), default);
+
+        Assert.Equal(expectedCode, Assert.IsType<BadRequest<ErrorDto>>(result).Value!.Code);
+    }
 }

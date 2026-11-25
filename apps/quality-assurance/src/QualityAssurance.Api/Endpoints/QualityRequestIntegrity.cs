@@ -13,12 +13,16 @@ public static class QualityRequestIntegrity
             RequestedWithValue,
             StringComparison.OrdinalIgnoreCase);
 
-    public static bool IsTrustedMultipartRequest(HttpRequest request, IEnumerable<string>? allowedOrigins = null)
+    public static bool IsTrustedMultipartRequest(HttpRequest request, IEnumerable<string>? allowedOrigins = null) =>
+        HasMediaType(request, "multipart/form-data") && HasTrustedOrigin(request, allowedOrigins);
+
+    internal static bool HasMediaType(HttpRequest request, string mediaType) =>
+        MediaTypeHeaderValue.TryParse(request.ContentType, out var contentType)
+        && string.Equals(contentType.MediaType.Value, mediaType, StringComparison.OrdinalIgnoreCase);
+
+    // A browser-controlled Origin protects writes that must work without an IIS preflight.
+    internal static bool HasTrustedOrigin(HttpRequest request, IEnumerable<string>? allowedOrigins)
     {
-        if (!MediaTypeHeaderValue.TryParse(request.ContentType, out var contentType)
-            || !string.Equals(contentType.MediaType.Value, "multipart/form-data", StringComparison.OrdinalIgnoreCase)) return false;
-        // A browser-controlled Origin is the CSRF boundary for this one simple CORS
-        // upload. A custom AJAX header would force unauthenticated OPTIONS through IIS.
         if (request.Headers.Origin.Count != 1) return false;
         var origin = request.Headers.Origin.ToString();
         if (string.IsNullOrEmpty(origin) || origin.Any(char.IsWhiteSpace)

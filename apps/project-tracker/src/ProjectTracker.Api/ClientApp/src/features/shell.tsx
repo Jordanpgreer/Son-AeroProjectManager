@@ -40,16 +40,23 @@ function hasPermission(user: User | null, permission: string) {
 }
 
 function UserProfile({ user }: { user: User | null }) {
-  if (!user) return <span role="status">Checking access</span>
-  const avatarLabel = userInitials(user.displayName).padEnd(2, user.displayName.slice(1, 2).toUpperCase())
+  const avatarLabel = user
+    ? userInitials(user.displayName).padEnd(2, user.displayName.slice(1, 2).toUpperCase())
+    : '...'
+
   return (
-    <details className="arda-account-menu">
-      <summary className="topbar-user-chip" aria-label={`Account for ${user.displayName}`}>
-        <span className="topbar-user-copy"><strong>{user.displayName}</strong></span>
-        <span className="topbar-user-avatar" aria-hidden="true">{avatarLabel}</span>
-      </summary>
-      <form method="post" action="/arda-session/logout"><button type="submit">Logout</button></form>
-    </details>
+    <div
+      className="topbar-user-chip"
+      aria-label={user ? `Signed in as ${user.displayName}` : 'Checking signed-in user'}
+      aria-live="polite"
+    >
+      <div className="topbar-user-copy">
+        <strong>{user?.displayName ?? 'Checking access'}</strong>
+      </div>
+      <span className="topbar-user-avatar" title={user?.displayName} aria-hidden="true">
+        {avatarLabel}
+      </span>
+    </div>
   )
 }
 

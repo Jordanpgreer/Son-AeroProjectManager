@@ -1,11 +1,16 @@
 using ClosedXML.Excel;
+using Microsoft.AspNetCore.Cors.Infrastructure;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using System.Text.Json;
 using QualityAssurance.Api.Auth;
 using QualityAssurance.Api.Data;
 using QualityAssurance.Api.Dtos;
+using QualityAssurance.Api.Endpoints;
 using QualityAssurance.Api.Models;
 using QualityAssurance.Api.Services;
 using SonAero.Platform.Security;
@@ -14,6 +19,45 @@ namespace QualityAssurance.Tests;
 
 public sealed class QualityShipmentWorkflowTests
 {
+    [Fact]
+    public async Task Headerless_team_save_creates_and_updates_the_same_operational_team()
+    {
+        await using var fixture = await WorkflowFixture.CreateAsync();
+        var cors = new CorsOptions();
+        cors.AddPolicy("HubAdmin", policy => policy.WithOrigins("https://hub.son4l.local").AllowCredentials());
+        var policies = new DefaultCorsPolicyProvider(Options.Create(cors));
+
+        var createdResult = await QualityTeamEndpoints.SaveFromHubAsync(null,
+            TeamSaveRequest("""{"name":"Incoming QA","memberIds":[1,2],"managerIds":[1]}"""),
+            fixture.Teams, policies, default);
+        var created = Assert.IsType<Created<QualityTeamDto>>(createdResult).Value!;
+        Assert.Equal("Incoming QA", created.Name);
+        Assert.True(Assert.Single(created.Members, member => member.UserId == 1).IsManager);
+
+        var savedResult = await QualityTeamEndpoints.SaveFromHubAsync(created.Id,
+            TeamSaveRequest($$"""{"name":"Incoming Inspection","memberIds":[1,2],"managerIds":[2],"version":{{created.Version}},"isActive":true}"""),
+            fixture.Teams, policies, default);
+        var saved = Assert.IsType<Ok<QualityTeamDto>>(savedResult).Value!;
+        Assert.Equal(created.Id, saved.Id);
+        Assert.Equal(created.Version + 1, saved.Version);
+        var persisted = Assert.Single((await fixture.Teams.GetAdminAsync(default)).Teams, team => team.Id == created.Id);
+        Assert.Equal("Incoming Inspection", persisted.Name);
+        Assert.Equal(2, Assert.Single(persisted.Members, member => member.IsManager).UserId);
+
+        DefaultHttpContext TeamSaveRequest(string body)
+        {
+            var context = new DefaultHttpContext();
+            context.Items[QualityAssurancePolicies.AccessItem] = fixture.Admin;
+            context.Request.Scheme = "https";
+            context.Request.Host = new HostString("quality.hub.son4l.local");
+            context.Request.Method = HttpMethods.Post;
+            context.Request.Headers.Origin = "https://hub.son4l.local";
+            context.Request.ContentType = "text/plain;charset=UTF-8";
+            context.Request.Body = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(body));
+            return context;
+        }
+    }
+
     [Fact]
     public async Task Create_and_ship_preserves_audit_and_moves_record_to_past_shipments()
     {

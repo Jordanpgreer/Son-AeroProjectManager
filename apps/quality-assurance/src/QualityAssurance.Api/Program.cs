@@ -148,7 +148,8 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseArdaErrorTracking();
-app.UseArdaBrowserSession();
+app.UseRouting();
+app.UseCors("HubAdmin");
 app.UseAuthentication();
 app.Use(async (context, next) =>
 {
@@ -220,8 +221,6 @@ app.Use(async (context, next) =>
     context.User = QualityAssurancePolicies.Attach(context.User, access);
     await next();
 });
-app.UseRouting();
-app.UseCors("HubAdmin");
 app.UseAuthorization();
 app.Use(async (context, next) =>
 {

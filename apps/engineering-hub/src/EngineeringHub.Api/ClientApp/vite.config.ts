@@ -6,7 +6,6 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': 'http://localhost:5150',
-      '/arda-session': 'http://localhost:5150',
     },
   },
 })

@@ -383,13 +383,9 @@ export default function App() {
             </div>
           </div>
           <div className="topbar-actions">
-            <details className="arda-account-menu">
-              <summary className="topbar-user-name" aria-label={`Account for ${me.displayName}`}>
-                <span className="arda-account-menu-name">{me.displayName}</span>
-                <span className="arda-account-menu-mobile" aria-hidden="true">Account</span>
-              </summary>
-              <form method="post" action="/arda-session/logout"><button type="submit">Logout</button></form>
-            </details>
+            <span className="topbar-user-name" title={me.displayName}>
+              {me.displayName}
+            </span>
             <a
               className="topbar-brand-link"
               href={hubUrl}

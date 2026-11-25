@@ -6,12 +6,15 @@ export async function qualityAdminApi<T>(path: string, init: RequestInit = {}): 
   const headers = new Headers(init.headers)
   const method = (init.method ?? 'GET').toUpperCase()
   const shippingImport = path === '/api/shipments/import' && method === 'POST' && init.body instanceof FormData
+  const teamSave = method === 'POST' && /^\/api\/admin\/teams\/save(?:\/\d+)?$/.test(path) && typeof init.body === 'string'
   if (init.body instanceof FormData) {
     headers.delete('Content-Type')
+  } else if (teamSave) {
+    headers.set('Content-Type', 'text/plain;charset=UTF-8')
   } else if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
-  if (shippingImport) {
-    // Keep this upload CORS-simple for Windows-only IIS. Quality validates the
-    // browser's exact Origin and the authenticated user's import permissions.
+  if (shippingImport || teamSave) {
+    // Quality checks the exact Origin and user permissions for these POSTs.
+    // A custom header would require an anonymous preflight on Windows-only IIS.
     headers.delete('X-Requested-With')
   } else if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
     headers.set('X-Requested-With', 'XMLHttpRequest')
@@ -20,7 +23,7 @@ export async function qualityAdminApi<T>(path: string, init: RequestInit = {}): 
   try {
     response = await fetch(`${qualityUrl}${path}`, { ...init, headers, credentials: 'include' })
   } catch {
-    throw new Error(`Could not reach Quality Assurance at ${qualityUrl}. Confirm the module is running.`)
+    throw new Error(`The browser could not connect to Quality Assurance at ${qualityUrl}. Open Quality Assurance from Arda to check network access and Windows sign-in.`)
   }
   if (!response.ok) {
     const type = response.headers.get('content-type') ?? ''

@@ -12,10 +12,7 @@ import { installBennyIdle } from '../../../../../../shared/frontend/benny-idle.t
 import './arda-shell.css'
 import { installArdaPresence } from '../../../../../../shared/frontend/arda-presence.ts'
 
-import { installArdaSession } from '../../../../../../shared/frontend/arda-session.ts'
-
 initializeTheme()
-installArdaSession()
 installBennyIdle()
 installArdaPresence({ moduleId: 'project-tracker', portalBaseUrl: hubUrl })
 

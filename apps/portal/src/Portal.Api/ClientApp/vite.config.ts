@@ -7,7 +7,6 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': 'http://localhost:5140',
-      '/arda-session': 'http://localhost:5140',
       '/project-tracker-api': {
         target: 'http://localhost:5135',
         changeOrigin: true,

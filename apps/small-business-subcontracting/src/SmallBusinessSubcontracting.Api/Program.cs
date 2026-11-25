@@ -82,7 +82,6 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseArdaErrorTracking();
-app.UseArdaBrowserSession();
 app.Use(async (context, next) =>
 {
     try

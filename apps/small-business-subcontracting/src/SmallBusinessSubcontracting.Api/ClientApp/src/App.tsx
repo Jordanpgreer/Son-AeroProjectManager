@@ -124,13 +124,7 @@ export default function App() {
             <span>{route.page === 'vendors' ? 'Fulcrum directory and Arda-controlled records' : 'Certification readiness and reporting'}</span>
           </div>
           <div className="topbar-actions">
-            <details className="arda-account-menu">
-              <summary className="topbar-user-name" aria-label={`Account for ${user.displayName}`}>
-                <span className="arda-account-menu-name">{user.displayName}</span>
-                <span className="arda-account-menu-mobile" aria-hidden="true">Account</span>
-              </summary>
-              <form method="post" action="/arda-session/logout"><button type="submit">Logout</button></form>
-            </details>
+            <span className="topbar-user-name" title={user.displayName}>{user.displayName}</span>
             <a className="topbar-brand-link" href={hubUrl} target="_top" aria-label="Return to Arda applications" title="Return to Arda applications">
               <img className="topbar-brand-mark-standard" src="/brand/arda-mark.png" alt="" />
               <img className="topbar-brand-mark-reversed" src="/brand/arda-mark-reversed.png" alt="" />
